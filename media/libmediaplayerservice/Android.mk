@@ -62,6 +62,11 @@ ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
     LOCAL_C_INCLUDES += $(TOP)/frameworks/av/include/media
     LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 endif #TARGET_ENABLE_QC_AV_ENHANCEMENTS
+
+ifeq ($(TARGET_BOARD_PLATFORM),msm7x27a)
+    LOCAL_CFLAGS += -DUSE_SUBMIT_ONE_INPUT_BUFFER
+endif
+
 include $(BUILD_SHARED_LIBRARY)
 
 include $(call all-makefiles-under,$(LOCAL_PATH))
