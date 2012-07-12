@@ -254,6 +254,9 @@ void CameraClient::disconnect() {
 
     // Release the held ANativeWindow resources.
     if (mPreviewWindow != 0) {
+#ifdef QCOM_HARDWARE
+        mHardware->setPreviewWindow(0);
+#endif
         disconnectWindow(mPreviewWindow);
         mPreviewWindow = 0;
         mHardware->setPreviewWindow(mPreviewWindow);
@@ -295,6 +298,10 @@ status_t CameraClient::setPreviewWindow(const sp<IBinder>& binder,
             native_window_set_buffers_transform(window.get(), mOrientation);
             result = mHardware->setPreviewWindow(window);
         }
+#ifdef QCOM_HARDWARE
+    } else {
+        result = mHardware->setPreviewWindow(window);
+#endif
     }
 
     if (result == NO_ERROR) {
@@ -355,6 +362,9 @@ status_t CameraClient::setPreviewCallbackTarget(
 // start preview mode
 status_t CameraClient::startPreview() {
     LOG1("startPreview (pid %d)", getCallingPid());
+#ifdef QCOM_HARDWARE
+    enableMsgType(CAMERA_MSG_PREVIEW_METADATA);
+#endif
     return startCameraMode(CAMERA_PREVIEW_MODE);
 }
 
