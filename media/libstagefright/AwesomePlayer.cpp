@@ -1832,9 +1832,11 @@ status_t AwesomePlayer::initAudioDecoder() {
         int64_t durationUs;
         uint32_t flags = 0;
         char lpaDecode[128];
+        char audioDecoderOverrideCheck[128];
         uint32_t minDurationForLPA = LPA_MIN_DURATION_USEC_DEFAULT;
         char minUserDefDuration[PROPERTY_VALUE_MAX];
         property_get("lpa.decode",lpaDecode,"0");
+        property_get("audio.decoder_override_check",audioDecoderOverrideCheck,"0");
         property_get("lpa.min_duration",minUserDefDuration,"LPA_MIN_DURATION_USEC_DEFAULT");
         minDurationForLPA = atoi(minUserDefDuration);
         if(minDurationForLPA < LPA_MIN_DURATION_USEC_ALLOWED) {
@@ -1867,6 +1869,11 @@ status_t AwesomePlayer::initAudioDecoder() {
                     matchComponentName = (char *) "OMX.google.aac.decoder";
                 }
             }
+            flags |= OMXCodec::kSoftwareCodecsOnly;
+            LPAPlayer::mLpaInProgress = true;
+        }
+
+        if ((LPAPlayer::mLpaInProgress == true) && (strcmp("true",audioDecoderOverrideCheck) == 0)) {
             flags |= OMXCodec::kSoftwareCodecsOnly;
         }
         mAudioSource = OMXCodec::Create(
