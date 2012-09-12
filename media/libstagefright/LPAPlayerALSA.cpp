@@ -47,6 +47,7 @@ static const char   mName[] = "LPAPlayer";
 
 namespace android {
 int LPAPlayer::mObjectsAlive = 0;
+bool LPAPlayer::mLpaInProgress = false;
 
 LPAPlayer::LPAPlayer(
                     const sp<MediaPlayerBase::AudioSink> &audioSink, bool &initCheck,
@@ -75,6 +76,7 @@ mAudioSink(audioSink),
 mObserver(observer) {
     ALOGV("LPAPlayer::LPAPlayer() ctor");
     mObjectsAlive++;
+    mLpaInProgress = true;
     mNumOutputChannels =0;
     mNumInputChannels = 0;
     mPaused = false;
@@ -100,6 +102,7 @@ LPAPlayer::~LPAPlayer() {
     reset();
 
     mObjectsAlive--;
+    mLpaInProgress = false;
 }
 
 void LPAPlayer::setSource(const sp<MediaSource> &source) {
