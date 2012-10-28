@@ -108,6 +108,9 @@ status_t DataSource::getSize(off64_t *size) {
 
 Mutex DataSource::gSnifferMutex;
 List<DataSource::SnifferFunc> DataSource::gSniffers;
+#ifdef QCOM_LEGACY_MMPARSER
+List<DataSource::SnifferFunc>::iterator DataSource::extendedSnifferPosition;
+#endif
 
 bool DataSource::sniff(
         String8 *mimeType, float *confidence, sp<AMessage> *meta) {
@@ -118,6 +121,11 @@ bool DataSource::sniff(
     Mutex::Autolock autoLock(gSnifferMutex);
     for (List<SnifferFunc>::iterator it = gSniffers.begin();
          it != gSniffers.end(); ++it) {
+#ifdef QCOM_LEGACY_MMPARSER
+        // Don't try to use ExtendedExtractor if already found a suitable from the defaults
+        if(it == extendedSnifferPosition && *confidence > 0.0)
+            return true;
+#endif
         String8 newMimeType;
         float newConfidence;
         sp<AMessage> newMeta;
@@ -134,7 +142,11 @@ bool DataSource::sniff(
 }
 
 // static
+#ifdef QCOM_LEGACY_MMPARSER
+void DataSource::RegisterSniffer(SnifferFunc func, bool isExtendedExtractor) {
+#else
 void DataSource::RegisterSniffer(SnifferFunc func) {
+#endif
     Mutex::Autolock autoLock(gSnifferMutex);
 
     for (List<SnifferFunc>::iterator it = gSniffers.begin();
@@ -145,6 +157,12 @@ void DataSource::RegisterSniffer(SnifferFunc func) {
     }
 
     gSniffers.push_back(func);
+#ifdef QCOM_LEGACY_MMPARSER
+    if(isExtendedExtractor) {
+        extendedSnifferPosition = gSniffers.end();
+        extendedSnifferPosition--;
+    }
+#endif
 }
 
 // static
@@ -159,8 +177,12 @@ void DataSource::RegisterDefaultSniffers() {
     RegisterSniffer(SniffMP3);
     RegisterSniffer(SniffAAC);
     RegisterSniffer(SniffMPEG2PS);
+#ifdef QCOM_LEGACY_MMPARSER
+    ExtendedExtractor::RegisterSniffers();
+#else
     RegisterSniffer(SniffWVM);
     RegisterSniffer(ExtendedExtractor::Sniff);
+#endif
 
     char value[PROPERTY_VALUE_MAX];
     if (property_get("drm.service.enabled", value, NULL)

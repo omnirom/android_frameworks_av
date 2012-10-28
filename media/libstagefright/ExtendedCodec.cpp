@@ -42,7 +42,7 @@
 #include <media/stagefright/ExtendedCodec.h>
 #include <media/stagefright/OMXCodec.h>
 
-#ifdef ENABLE_AV_ENHANCEMENTS
+#if defined(ENABLE_AV_ENHANCEMENTS) || defined(QCOM_LEGACY_MMPARSER)
 
 #include <QCMetaData.h>
 #include <QCMediaDefs.h>
