@@ -573,6 +573,8 @@ public:
     static const char KEY_FULL_VIDEO_SNAP_SUPPORTED[];
 
 #ifdef QCOM_HARDWARE
+    static const char KEY_POWER_MODE[];
+    static const char KEY_POWER_MODE_SUPPORTED[];
     static const char KEY_ISO_MODE[];
     static const char KEY_SUPPORTED_ISO_MODES[];
     static const char KEY_LENSSHADE[] ;
@@ -605,12 +607,9 @@ public:
 #ifdef QCOM_HARDWARE
     static const char KEY_MEMORY_COLOR_ENHANCEMENT[];
     static const char KEY_SUPPORTED_MEM_COLOR_ENHANCE_MODES[];
-
     static const char KEY_ZSL[];
     static const char KEY_SUPPORTED_ZSL_MODES[];
-
     static const char KEY_CAMERA_MODE[];
-
     static const char KEY_VIDEO_HIGH_FRAME_RATE[];
     static const char KEY_SUPPORTED_VIDEO_HIGH_FRAME_RATE_MODES[];
     static const char KEY_HIGH_DYNAMIC_RANGE_IMAGING[];
@@ -950,6 +949,10 @@ public:
     static const char AE_BRACKET_HDR_OFF[];
     static const char AE_BRACKET_HDR[];
     static const char AE_BRACKET[];
+
+    //POWER MODE
+    static const char LOW_POWER[];
+    static const char NORMAL_POWER[];
 
     // Values for HFR settings.
     static const char VIDEO_HFR_OFF[];
