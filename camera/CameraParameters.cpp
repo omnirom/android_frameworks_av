@@ -154,6 +154,13 @@ const char CameraParameters::KEY_WDR[] = "wdr";
 const char CameraParameters::KEY_WEATHER[] = "weather";
 #endif
 
+#ifdef SAMSUNG_CAMERA_HARDWARE
+const char CameraParameters::KEY_ANTI_SHAKE_MODE[] = "anti-shake";
+const char CameraParameters::KEY_METERING[] = "metering";
+const char CameraParameters::KEY_WDR[] = "wdr";
+const char CameraParameters::KEY_WEATHER[] = "weather";
+#endif
+
 const char CameraParameters::TRUE[] = "true";
 const char CameraParameters::FALSE[] = "false";
 const char CameraParameters::FOCUS_DISTANCE_INFINITY[] = "Infinity";
