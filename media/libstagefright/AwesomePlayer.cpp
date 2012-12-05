@@ -2,6 +2,7 @@
  * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  * Not a Contribution.
  * Copyright (C) 2009 The Android Open Source Project
+ * Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1600,7 +1601,8 @@ status_t AwesomePlayer::getPosition(int64_t *positionUs) {
 status_t AwesomePlayer::seekTo(int64_t timeUs) {
     ATRACE_CALL();
 
-    if (mExtractorFlags & MediaExtractor::CAN_SEEK) {
+    if (((timeUs == 0) && (mExtractorFlags & MediaExtractor::CAN_SEEK_TO_ZERO)) ||
+        (mExtractorFlags & MediaExtractor::CAN_SEEK)) {
         Mutex::Autolock autoLock(mLock);
         return seekTo_l(timeUs);
     }
