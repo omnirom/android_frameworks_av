@@ -55,7 +55,8 @@ public:
 #ifdef QCOM_HARDWARE
         } else if (event != AudioSystem::OUTPUT_CLOSED && event != AudioSystem::INPUT_CLOSED &&
                    event != AudioSystem::A2DP_OUTPUT_STATE &&
-                   event != AudioSystem::EFFECT_CONFIG_CHANGED) {
+                   event != AudioSystem::EFFECT_CONFIG_CHANGED &&
+                   event != AudioSystem::USB_OUTPUT_STATE) {
 #else
         } else if (event != AudioSystem::OUTPUT_CLOSED && event != AudioSystem::INPUT_CLOSED) {
 #endif
