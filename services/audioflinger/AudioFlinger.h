@@ -776,6 +776,7 @@ private:
 #ifdef QCOM_HARDWARE
                 DefaultKeyedVector<audio_io_handle_t, AudioSessionDescriptor *> mDirectAudioTracks;
                 int                                 mA2DPHandle; // Handle to notify A2DP connection status
+                int                                 mUSBHandle; // Handle to notify USB connection status
                 // protected by mLock
                 volatile bool                       mIsEffectConfigChanged;
 #endif
