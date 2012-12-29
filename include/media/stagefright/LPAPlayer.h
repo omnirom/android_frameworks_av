@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
  * Not a Contribution.
  * Copyright (C) 2009 The Android Open Source Project
  *
@@ -75,6 +75,7 @@ public:
     virtual bool reachedEOS(status_t *finalStatus);
 
     static int mObjectsAlive;
+    static bool mLpaInProgress;
 private:
     int64_t mPositionTimeMediaUs;
     int64_t mPositionTimeRealUs;
