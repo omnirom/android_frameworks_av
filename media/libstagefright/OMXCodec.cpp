@@ -1504,10 +1504,13 @@ status_t OMXCodec::setupAVCEncoderParameters(const sp<MetaData>& meta) {
     h264type.eProfile = static_cast<OMX_VIDEO_AVCPROFILETYPE>(profileLevel.mProfile);
     h264type.eLevel = static_cast<OMX_VIDEO_AVCLEVELTYPE>(profileLevel.mLevel);
 
-#ifdef QCOM_HARDWARE
+    // XXX
+#ifdef USE_TI_DUCATI_H264_PROFILE
+    if ((strncmp(mComponentName, "OMX.TI.DUCATI1", 14) != 0)
+            && (h264type.eProfile != OMX_VIDEO_AVCProfileBaseline)) {
+#elif defined (QCOM_HARDWARE)
     ExtendedUtils::HFR::reCalculateHFRParams(meta, frameRate, bitRate);
 
-    // XXX
     if (ExtendedUtils::isAVCProfileSupported(h264type.eProfile)){
         ALOGI("Profile type is  %d ",h264type.eProfile);
     } else if (h264type.eProfile != OMX_VIDEO_AVCProfileBaseline) {
