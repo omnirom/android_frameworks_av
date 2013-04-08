@@ -118,6 +118,7 @@ LPAPlayer::~LPAPlayer() {
         mQueue.stop();
     }
 
+    if (mStarted)
     reset();
     if (mAudioFlinger != NULL) {
         mAudioFlinger->deregisterClient(AudioFlingerClient);
@@ -225,10 +226,12 @@ void LPAPlayer::AudioFlingerLPAdecodeClient::ioConfigChanged(int event, audio_io
 }
 
 void LPAPlayer::handleUSBSwitch() {
+    if (!mPaused)
     pthread_cond_signal(&decoder_cv);
 }
 
 void LPAPlayer::handleA2DPSwitch() {
+    if (!mPaused)
     pthread_cond_signal(&decoder_cv);
 }
 
@@ -253,10 +256,6 @@ status_t LPAPlayer::start(bool sourceAlreadyStarted) {
         }
     }
 
-    //Create decoder and a2dp notification thread and initialize all the
-    //mutexes and coditional variables
-    createThreads();
-    ALOGV("All Threads Created.");
 
     // We allow an optional INFO_FORMAT_CHANGED at the very beginning
     // of playback, if there is one, getFormat below will retrieve the
@@ -304,6 +303,7 @@ status_t LPAPlayer::start(bool sourceAlreadyStarted) {
         mChannelMask = CHANNEL_MASK_USE_CHANNEL_ORDER;
     }
 
+    pthread_mutex_init(&audio_sink_setup_mutex, NULL);
     err = setupAudioSink();
 
     if (err != OK) {
@@ -319,6 +319,10 @@ status_t LPAPlayer::start(bool sourceAlreadyStarted) {
         ALOGE("Opening a routing session failed");
         return err;
     }
+    //Create decoder and a2dp notification thread initialize all the
+    //mutexes and coditional variables
+    createThreads();
+    ALOGV("All Threads Created.");
 
     mIsAudioRouted = true;
     mStarted = true;
@@ -391,6 +395,7 @@ void LPAPlayer::pause(bool playPendingSamples) {
 }
 
 void LPAPlayer::resume() {
+    Mutex::Autolock autoLock(mResumeLock);
     ALOGV("resume: mPaused %d",mPaused);
     if ( mPaused) {
         CHECK(mStarted);
@@ -429,6 +434,7 @@ size_t LPAPlayer::AudioSinkCallback(
 
 void LPAPlayer::reset() {
 
+    CHECK(mStarted);
     // Close the audiosink after all the threads exited to make sure
     ALOGV("Reset called!!!!!");
     mReachedEOS = true;
@@ -436,7 +442,6 @@ void LPAPlayer::reset() {
 
     // make sure Decoder thread has exited
     requestAndWaitForDecoderThreadExit();
-    requestAndWaitForA2DPNotificationThreadExit();
     if (mIsAudioRouted) {
         mAudioSink->stop();
         mAudioSink->close();
@@ -469,6 +474,7 @@ void LPAPlayer::reset() {
     mPositionTimeMediaUs = -1;
     mPositionTimeRealUs = -1;
     mSeeking = false;
+    mInternalSeeking = false;
     mReachedEOS = false;
     mReachedOutputEOS = false;
     mFinalStatus = OK;
@@ -514,10 +520,6 @@ void LPAPlayer::decoderThreadEntry() {
     }
     void* local_buf = malloc(MEM_BUFFER_SIZE);
     int bytesWritten = 0;
-    if (!local_buf) {
-        ALOGE("Failed to allocate temporary buffer for decoderThread");
-        return;
-    }
     while (!killDecoderThread) {
 
         setupAudioSink();
@@ -550,14 +552,14 @@ void LPAPlayer::decoderThreadEntry() {
         }
             ALOGV("FillBuffer completed bytesToWrite %d", bytesWritten);
 
-            if(!killDecoderThread) {
+            if(!killDecoderThread && !mPaused) {
                 mAudioSink->write(local_buf, bytesWritten);
             }
         }
     }
 
     free(local_buf);
-
+    decoderThreadAlive = false;
     //TODO: Call fillbuffer with different size and write to mAudioSink()
 }
 
@@ -565,7 +567,6 @@ void LPAPlayer::createThreads() {
 
     //Initialize all the Mutexes and Condition Variables
     pthread_mutex_init(&decoder_mutex, NULL);
-    pthread_mutex_init(&audio_sink_setup_mutex, NULL);
     pthread_cond_init (&decoder_cv, NULL);
 
     // Create 4 threads Effect, decoder, event and A2dp
@@ -574,7 +575,6 @@ void LPAPlayer::createThreads() {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
     killDecoderThread = false;
-    killA2DPNotificationThread = false;
 
     decoderThreadAlive = true;
 
@@ -618,6 +618,9 @@ size_t LPAPlayer::fillBuffer(void *data, size_t size) {
                     mInputBuffer->release();
                     mInputBuffer = NULL;
                 }
+
+                size_done = 0;
+                size_remaining = size;
 
                 mSeeking = false;
                 if (mObserver && !mInternalSeeking) {
@@ -734,16 +737,8 @@ void LPAPlayer::requestAndWaitForDecoderThreadExit() {
 
 }
 
-void LPAPlayer::requestAndWaitForA2DPNotificationThreadExit() {
-    if (!a2dpNotificationThreadAlive)
-        return;
-    killA2DPNotificationThread = true;
-    pthread_cond_signal(&a2dp_notification_cv);
-    pthread_join(A2DPNotificationThread,NULL);
-    ALOGV("a2dp notification thread killed");
-}
-
 void LPAPlayer::onPauseTimeOut() {
+    Mutex::Autolock autoLock(mResumeLock);
     ALOGV("onPauseTimeOut");
     if (!mPauseEventPending) {
         return;
@@ -753,6 +748,7 @@ void LPAPlayer::onPauseTimeOut() {
         // 1.) Set seek flags
         mReachedEOS = false;
         mReachedOutputEOS = false;
+        mInternalSeeking = true;
         mSeekTimeUs = mTimePlayed;
 
         // 2.) Close routing Session
@@ -777,6 +773,7 @@ status_t  LPAPlayer::setupAudioSink()
         }
 
         if(mTrackType == TRACK_DIRECT) {
+            ALOGE("setupAudioSink:dIRECT track --> rEGULAR track");
             ALOGD("setupAudioSink:Close dIRECT track");
             mAudioSink->stop();
             mAudioSink->close();
@@ -795,10 +792,14 @@ status_t  LPAPlayer::setupAudioSink()
             (audio_output_flags_t)0);
         if (err != NO_ERROR){
             ALOGE("setupAudioSink:Audio sink open failed.");
+            pthread_mutex_unlock(&audio_sink_setup_mutex);
+            return err;
         }
 
-        ALOGD("setupAudioSink:Start rEGULAR track");
-        mAudioSink->start();
+        if (!mPaused) {
+            ALOGD("setupAudioSink:Start rEGULAR track");
+            mAudioSink->start();
+        }
 
         ALOGD("setupAudioSink:rEGULAR track opened");
         mTrackType = TRACK_REGULAR;
@@ -818,6 +819,9 @@ status_t  LPAPlayer::setupAudioSink()
         }
 
         ALOGD("setupAudioSink:Open rEGULAR track");
+
+        ALOGD("setupAudioSink:mAudiosink->open() mSampleRate %d, mNumOutputChannels %d, mChannelMask %d, flags %d",
+                mSampleRate, mNumOutputChannels, mChannelMask, 0);
 
         err = mAudioSink->open(
             mSampleRate, mNumOutputChannels, mChannelMask, AUDIO_FORMAT_PCM_16_BIT,
@@ -840,7 +844,6 @@ status_t  LPAPlayer::setupAudioSink()
         mTrackType = TRACK_REGULAR;
 
     } else if (false == mIsA2DPEnabled){
-        ALOGE("setupAudioSink:rEGULAR track --> dIRECT track");
 
         if(mTrackType == TRACK_DIRECT) {
             ALOGD("setupAudioSink:Direct Track already opened");
@@ -849,6 +852,7 @@ status_t  LPAPlayer::setupAudioSink()
         }
 
         if(mTrackType == TRACK_REGULAR) {
+            ALOGE("setupAudioSink:rEGULAR track --> dIRECT track");
             ALOGD("setupAudioSink:Close rEGULAR track");
             mAudioSink->stop();
             mAudioSink->close();
@@ -867,6 +871,13 @@ status_t  LPAPlayer::setupAudioSink()
             (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_LPA | AUDIO_OUTPUT_FLAG_DIRECT));
         if (err != NO_ERROR){
             ALOGE("setupAudioSink:Audio sink open failed.");
+            pthread_mutex_unlock(&audio_sink_setup_mutex);
+            return err;
+        }
+
+        if (!mPaused) {
+            ALOGD("setupAudioSink:Start rEGULAR track");
+            mAudioSink->start();
         }
 
         mTrackType = TRACK_DIRECT;
