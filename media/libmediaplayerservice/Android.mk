@@ -53,8 +53,13 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/external/tremolo/Tremolo                                 \
 
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS), true)
-    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+    ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+    else
+        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+    endif
 endif
+
 LOCAL_MODULE:= libmediaplayerservice
 
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
