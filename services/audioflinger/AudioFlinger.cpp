@@ -1740,6 +1740,7 @@ audio_io_handle_t AudioFlinger::openOutput(audio_module_handle_t module,
             desc->device = *pDevices;
             desc->trackRefPtr = NULL;
             mDirectAudioTracks.add(id, desc);
+            mDirectDevice = desc->device;
         } else if ((flags & AUDIO_OUTPUT_FLAG_DIRECT) ||
             (config.format != AUDIO_FORMAT_PCM_16_BIT) ||
             (config.channel_mask != AUDIO_CHANNEL_OUT_STEREO)) {
