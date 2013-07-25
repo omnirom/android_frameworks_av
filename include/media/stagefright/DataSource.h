@@ -103,6 +103,7 @@ private:
     static bool gSniffersRegistered;
 
     static void RegisterSniffer_l(SnifferFunc func);
+    static void RegisterSnifferPlugin();
 
     DataSource(const DataSource &);
     DataSource &operator=(const DataSource &);
