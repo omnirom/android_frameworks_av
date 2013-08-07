@@ -4284,6 +4284,30 @@ status_t OMXCodec::start(MetaData *meta) {
     Mutex::Autolock autoLock(mLock);
 
 #ifdef QCOM_HARDWARE
+    if(mPaused && mIsEncoder) {
+        CODEC_LOGV("resume : S");
+        mPaused = false;
+
+        if (mIsVideo) {
+            status_t err = OMX_ErrorNone;
+            OMX_CONFIG_INTRAREFRESHVOPTYPE vop;
+            InitOMXParams(&vop);
+            vop.nPortIndex = kPortIndexOutput; // output
+            {
+                vop.IntraRefreshVOP = OMX_TRUE;
+                err = mOMX->setConfig(mNode,
+                            OMX_IndexConfigVideoIntraVOPRefresh,
+                            &vop,sizeof(vop));
+                if (err != OMX_ErrorNone) {
+                    CODEC_LOGE("I frame Request failed");
+                }
+            }
+        }
+
+        drainInputBuffers();
+        return OK;
+    }
+
     if (mPaused) {
         if (!strncmp(mComponentName, "OMX.qcom.", 9)) {
             while (isIntermediateState(mState)) {
@@ -5336,7 +5360,7 @@ status_t OMXCodec::pause() {
     while (isIntermediateState(mState)) {
         mAsyncCompletion.wait(mLock);
     }
-    if (!strncmp(mComponentName, "OMX.qcom.", 9)) {
+    if (!strncmp(mComponentName, "OMX.qcom.", 9) && !mIsEncoder) {
         status_t err = mOMX->sendCommand(mNode,
             OMX_CommandStateSet, OMX_StatePause);
         CHECK_EQ(err, (status_t)OK);
