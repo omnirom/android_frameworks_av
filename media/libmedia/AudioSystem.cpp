@@ -213,7 +213,12 @@ int AudioSystem::logToLinear(float volume)
     // return v;
     return volume ? 100 - int(dBConvertInverse * log(volume) + 0.5) : 0;
 }
-
+#ifdef USE_OMX_COMPAT
+extern "C" status_t _ZN7android11AudioSystem21getOutputSamplingRateEPii(uint32_t* samplingRate, audio_stream_type_t streamType)
+{
+    return AudioSystem::getOutputFrameCount(samplingRate, streamType);
+}
+#endif
 status_t AudioSystem::getOutputSamplingRate(uint32_t* samplingRate, audio_stream_type_t streamType)
 {
     audio_io_handle_t output;
@@ -255,6 +260,12 @@ status_t AudioSystem::getSamplingRate(audio_io_handle_t output,
 
     return NO_ERROR;
 }
+#ifdef USE_OMX_COMPAT
+extern "C" status_t _ZN7android11AudioSystem19getOutputFrameCountEPii(size_t* frameCount, audio_stream_type_t streamType)
+{
+    return AudioSystem::getOutputFrameCount(frameCount, streamType);
+}
+#endif
 
 status_t AudioSystem::getOutputFrameCount(size_t* frameCount, audio_stream_type_t streamType)
 {
@@ -605,6 +616,28 @@ audio_policy_forced_cfg_t AudioSystem::getForceUse(audio_policy_force_use_t usag
     return aps->getForceUse(usage);
 }
 
+#ifdef USE_OMX_COMPAT
+extern "C" audio_io_handle_t _ZN7android11AudioSystem9getOutputE19audio_stream_type_tjjj27audio_policy_output_flags_t(audio_stream_type_t stream,
+                                    uint32_t samplingRate,
+                                    uint32_t format,
+                                    uint32_t channels,
+                                    audio_output_flags_t flags) {
+    return AudioSystem::getOutput(stream,samplingRate,(audio_format_t) format, channels, flags);
+}
+
+audio_io_handle_t AudioSystem::getOutput(audio_stream_type_t stream,
+                                    uint32_t samplingRate,
+                                    audio_format_t format,
+                                    audio_channel_mask_t channelMask,
+                                    audio_output_flags_t flags,
+                                    const audio_offload_info_t *offloadInfo)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return 0;
+    return aps->getOutput(stream, samplingRate, format, channelMask, flags, offloadInfo);
+}
+
+#else
 
 audio_io_handle_t AudioSystem::getOutput(audio_stream_type_t stream,
                                     uint32_t samplingRate,
@@ -625,6 +658,7 @@ extern "C" audio_io_handle_t _ZN7android11AudioSystem9getOutputE19audio_stream_t
                                     audio_output_flags_t flags) {
     return AudioSystem::getOutput(stream,samplingRate,(audio_format_t) format, channels, flags);
 }
+#endif
 
 status_t AudioSystem::startOutput(audio_io_handle_t output,
                                   audio_stream_type_t stream,
