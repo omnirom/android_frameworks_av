@@ -228,6 +228,20 @@ public:
                                     const audio_offload_info_t *offloadInfo = NULL,
                                     int uid = -1);
 
+#ifdef USE_OMX_COMPAT
+                        // DEPRECATED
+                        explicit AudioTrack( int streamType,
+                                    uint32_t sampleRate  = 0,
+                                    int format = AUDIO_FORMAT_DEFAULT,
+                                    int channelMask      = 0,
+                                    int frameCount       = 0,
+                                    uint32_t flags       = (uint32_t) AUDIO_OUTPUT_FLAG_NONE,
+                                    callback_t cbf       = 0,
+                                    void* user           = 0,
+                                    int notificationFrames = 0,
+                                    int sessionId        = 0);
+#endif
+
     /* Terminates the AudioTrack and unregisters it from AudioFlinger.
      * Also destroys all resources associated with the AudioTrack.
      */
@@ -275,33 +289,47 @@ public:
      * an uninitialized AudioTrack produces undefined results.
      * See set() method above for possible return codes.
      */
+#ifdef USE_OMX_COMPAT
+            status_t    initCheck() const;
+#else
             status_t    initCheck() const   { return mStatus; }
+#endif
 
     /* Returns this track's estimated latency in milliseconds.
      * This includes the latency due to AudioTrack buffer size, AudioMixer (if any)
      * and audio hardware driver.
      */
-#ifdef QCOM_HARDWARE
+#if defined(USE_OMX_COMPAT) || defined(QCOM_HARDWARE)
             uint32_t    latency() const;
 #else
             uint32_t    latency() const     { return mLatency; }
 #endif
 
-    /* getters, see constructors and set() */
 
+    /* getters, see constructors and set() */
+#ifdef USE_OMX_COMPAT
+            audio_stream_type_t streamType() const;
+            audio_format_t format() const;
+#else
             audio_stream_type_t streamType() const { return mStreamType; }
             audio_format_t format() const   { return mFormat; }
-
+#endif
     /* Return frame size in bytes, which for linear PCM is
      * channelCount * (bit depth per channel / 8).
      * channelCount is determined from channelMask, and bit depth comes from format.
      * For non-linear formats, the frame size is typically 1 byte.
      */
+#ifdef USE_OMX_COMPAT
+            uint32_t    channelCount() const;
+
+            uint32_t    frameCount() const;
+            size_t      frameSize() const;
+#else
             size_t      frameSize() const   { return mFrameSize; }
 
             uint32_t    channelCount() const { return mChannelCount; }
             uint32_t    frameCount() const  { return mFrameCount; }
-
+#endif
     /* Return the static buffer specified in constructor or set(), or 0 for streaming mode */
             sp<IMemory> sharedBuffer() const { return mSharedBuffer; }
 
@@ -483,8 +511,11 @@ public:
      * Returned value:
      *  AudioTrack session ID.
      */
+#ifdef USE_OMX_COMPAT
+            int    getSessionId() const;
+#else
             int    getSessionId() const { return mSessionId; }
-
+#endif
     /* Attach track auxiliary output to specified effect. Use effectId = 0
      * to detach track from effect.
      *
