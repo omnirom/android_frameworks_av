@@ -2215,8 +2215,8 @@ status_t MPEG4Writer::Track::threadEntry() {
             CHECK(meta_data->findInt64(kKeyDecodingTime, &decodingTimeUs));
             decodingTimeUs -= previousPausedDurationUs;
             cttsOffsetTimeUs =
-                    timestampUs + kMaxCttsOffsetTimeUs - decodingTimeUs;
-            CHECK_GE(cttsOffsetTimeUs, 0ll);
+                    timestampUs - decodingTimeUs;
+            CHECK_GE(kMaxCttsOffsetTimeUs, decodingTimeUs - timestampUs);
             timestampUs = decodingTimeUs;
             ALOGV("decoding time: %lld and ctts offset time: %lld",
                 timestampUs, cttsOffsetTimeUs);
