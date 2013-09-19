@@ -28,6 +28,8 @@
 
 namespace android {
 
+class AudioRecordClientProxy;
+
 class FMRadioSource : public DataSource {
 public:
     FMRadioSource();
@@ -55,6 +57,11 @@ private:
     sp<IAudioRecord> mAudioRecord;
     sp<IMemory> mCblkMemory;
     audio_track_cblk_t* mCblk;
+
+    size_t                  mFrameCount;
+    size_t                  mFrameSize;         // app-level frame size == AudioFlinger frame size
+    AudioRecordClientProxy* mProxy;
+    void*                   mBuffers;           // starting address of buffers in shared memory
 
     DISALLOW_EVIL_CONSTRUCTORS(FMRadioSource);
 };

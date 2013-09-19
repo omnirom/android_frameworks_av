@@ -17,6 +17,7 @@
  * Author: Stefan Ekenberg (stefan.ekenberg@stericsson.com) for ST-Ericsson
  */
 
+//#define LOG_NDEBUG 0
 #define LOG_TAG "FMRadioSource"
 #include <utils/Log.h>
 
@@ -35,7 +36,8 @@ static const int kBufferTimeoutMs = 3000;
 FMRadioSource::FMRadioSource()
     : mInitCheck(NO_INIT),
       mStarted(false),
-      mSessionId(AudioSystem::newAudioSessionId()) {
+      mSessionId(AudioSystem::newAudioSessionId()),
+      mProxy(NULL) {
 
     // get FM Radio RX input
     audio_io_handle_t input = AudioSystem::getInput(AUDIO_SOURCE_FM_RX,
@@ -50,12 +52,25 @@ FMRadioSource::FMRadioSource()
     }
 
     // get frame count
-    int frameCount = 0;
+    size_t frameCount = 0;
     status_t status = AudioRecord::getMinFrameCount(&frameCount, kSampleRate,
                                                     kAudioFormat, popcount(kChannelMask));
     if (status != NO_ERROR) {
         mInitCheck = status;
         return;
+    }
+
+#ifdef QCOM_HARDWARE
+    uint32_t channelCount = popcount(kChannelMask
+        &(AUDIO_CHANNEL_IN_STEREO|AUDIO_CHANNEL_IN_MONO|AUDIO_CHANNEL_IN_5POINT1));
+#else
+    uint32_t channelCount = popcount(kChannelMask);
+#endif
+
+    if (audio_is_linear_pcm(kAudioFormat)) {
+        mFrameSize = channelCount * audio_bytes_per_sample(kAudioFormat);
+    } else {
+        mFrameSize = sizeof(uint8_t);
     }
 
     // create the IAudioRecord
@@ -65,6 +80,9 @@ FMRadioSource::FMRadioSource()
         return;
     }
 
+    // Update buffer size in case it has been limited by AudioFlinger during track creation
+    mFrameCount = mCblk->frameCount_;
+
     AudioSystem::acquireAudioSessionId(mSessionId);
 
     mInitCheck = OK;
@@ -73,6 +91,7 @@ FMRadioSource::FMRadioSource()
 
 FMRadioSource::~FMRadioSource() {
     AudioSystem::releaseAudioSessionId(mSessionId);
+    delete mProxy;
 }
 
 status_t FMRadioSource::initCheck() const {
@@ -80,6 +99,8 @@ status_t FMRadioSource::initCheck() const {
 }
 
 ssize_t FMRadioSource::readAt(off64_t offset, void *data, size_t size) {
+    ALOG_ASSERT(mProxy != NULL);
+
     Buffer audioBuffer;
 
     if (!mStarted) {
@@ -98,7 +119,7 @@ ssize_t FMRadioSource::readAt(off64_t offset, void *data, size_t size) {
     sp<IMemory> iMem = mCblkMemory;
     audio_track_cblk_t* cblk = mCblk;
 
-    audioBuffer.frameCount = size / cblk->frameSize;
+    audioBuffer.frameCount = size / mFrameSize;
 
     status_t err = obtainBuffer(&audioBuffer);
     if (err != NO_ERROR) {
@@ -107,7 +128,7 @@ ssize_t FMRadioSource::readAt(off64_t offset, void *data, size_t size) {
     }
 
     memcpy(data, audioBuffer.data, audioBuffer.size);
-    mCblk->stepUser(audioBuffer.frameCount);
+    mProxy->stepUser(audioBuffer.frameCount);
 
     return audioBuffer.size;
 }
@@ -144,21 +165,32 @@ status_t FMRadioSource::openRecord(int frameCount, audio_io_handle_t input)
         return status;
     }
 
-    sp<IMemory> cblk = record->getCblk();
-    if (cblk == 0) {
+    sp<IMemory> iMem = record->getCblk();
+    if (iMem == 0) {
         ALOGE("Could not get control block");
         return NO_INIT;
     }
+    mAudioRecord.clear();
     mAudioRecord = record;
-    mCblkMemory = cblk;
-    mCblk = static_cast<audio_track_cblk_t*>(cblk->pointer());
-    mCblk->buffers = (char*)mCblk + sizeof(audio_track_cblk_t);
-    android_atomic_and(~CBLK_DIRECTION_MSK, &mCblk->flags);
+    mCblkMemory.clear();
+    mCblkMemory = iMem;
+    audio_track_cblk_t* cblk = static_cast<audio_track_cblk_t*>(iMem->pointer());
+    mCblk = cblk;
+    mBuffers = (char*)cblk + sizeof(audio_track_cblk_t);
+    cblk->bufferTimeoutMs = MAX_RUN_TIMEOUT_MS;
+    cblk->waitTimeMs = 0;
+
+    // update proxy
+    delete mProxy;
+    mProxy = new AudioRecordClientProxy(cblk, mBuffers, frameCount, mFrameSize);
+
     return NO_ERROR;
 }
 
 status_t FMRadioSource::obtainBuffer(Buffer* audioBuffer)
 {
+    ALOG_ASSERT(mProxy != NULL);
+
     status_t result = NO_ERROR;
     uint32_t framesReq = audioBuffer->frameCount;
 
@@ -166,7 +198,7 @@ status_t FMRadioSource::obtainBuffer(Buffer* audioBuffer)
     audioBuffer->size       = 0;
 
     mCblk->lock.lock();
-    uint32_t framesReady = mCblk->framesReady();
+    uint32_t framesReady = mProxy->framesReady();
     if (framesReady == 0) {
         do {
             result = mCblk->cv.waitRelative(mCblk->lock, milliseconds(kBufferTimeoutMs));
@@ -177,7 +209,7 @@ status_t FMRadioSource::obtainBuffer(Buffer* audioBuffer)
                 return TIMED_OUT;
             }
 
-            framesReady = mCblk->framesReady();
+            framesReady = mProxy->framesReady();
         } while (framesReady == 0);
     }
     mCblk->lock.unlock();
@@ -187,15 +219,14 @@ status_t FMRadioSource::obtainBuffer(Buffer* audioBuffer)
     }
 
     uint32_t u = mCblk->user;
-    uint32_t bufferEnd = mCblk->userBase + mCblk->frameCount;
-
+    uint32_t bufferEnd = mCblk->userBase + mFrameCount;
     if (framesReq > bufferEnd - u) {
         framesReq = bufferEnd - u;
     }
 
     audioBuffer->frameCount = framesReq;
-    audioBuffer->size       = framesReq * mCblk->frameSize;
-    audioBuffer->data       = (int8_t*)mCblk->buffer(u);
+    audioBuffer->size       = framesReq * mFrameSize;
+    audioBuffer->data       = (int8_t*)mProxy->buffer(u);
 
     return NO_ERROR;
 }
