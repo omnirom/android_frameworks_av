@@ -300,12 +300,30 @@ status_t AudioTrack::set(
     uint32_t channelCount = popcount(channelMask);
     mChannelCount = channelCount;
 
-    if (audio_is_linear_pcm(format)) {
-        mFrameSize = channelCount * audio_bytes_per_sample(format);
-        mFrameSizeAF = channelCount * sizeof(int16_t);
+    if ((streamType == AUDIO_STREAM_VOICE_CALL)
+         && (channelCount == 1)
+         && ((sampleRate == 8000 || sampleRate == 16000)))
+    {
+        ALOGD("Turn on Direct Output for VOIP RX");
+        flags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_VOIP_RX|AUDIO_OUTPUT_FLAG_DIRECT);
+    }
+
+    if ((audio_stream_type_t)streamType == AUDIO_STREAM_VOICE_CALL) {
+        if (audio_is_linear_pcm(format)) {
+            mFrameSize = channelCount * audio_bytes_per_sample(format);
+            mFrameSizeAF = channelCount * sizeof(int16_t);
+        } else {
+            mFrameSize = sizeof(uint16_t);
+            mFrameSizeAF = sizeof(uint16_t);
+        }
     } else {
-        mFrameSize = sizeof(uint8_t);
-        mFrameSizeAF = sizeof(uint8_t);
+        if (audio_is_linear_pcm(format)) {
+            mFrameSize = channelCount * audio_bytes_per_sample(format);
+            mFrameSizeAF = channelCount * sizeof(int16_t);
+        } else {
+            mFrameSize = sizeof(uint8_t);
+            mFrameSizeAF = sizeof(uint8_t);
+        }
     }
 
     audio_io_handle_t output = AudioSystem::getOutput(
@@ -1266,7 +1284,8 @@ void AudioTrack::releaseBuffer(Buffer* audioBuffer)
     // restart track if it was disabled by audioflinger due to previous underrun
     if (mState == STATE_ACTIVE) {
         audio_track_cblk_t* cblk = mCblk;
-        if (android_atomic_and(~CBLK_DISABLED, &cblk->mFlags) & CBLK_DISABLED) {
+        if (cblk->mFlags & CBLK_DISABLED) {
+            android_atomic_and(~CBLK_DISABLED, &cblk->mFlags);
             ALOGW("releaseBuffer() track %p name=%s disabled due to previous underrun, restarting",
                     this, mName.string());
             // FIXME ignoring status

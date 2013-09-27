@@ -1268,7 +1268,13 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
     }
 
     if (mType == DIRECT) {
-        if ((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_PCM) {
+        if (((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_PCM)
+               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_AMR_NB)
+               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_AMR_WB)
+               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_EVRC)
+               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_EVRCB)
+               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_EVRCWB)
+               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_EVRCNW)) {
             if (sampleRate != mSampleRate || format != mFormat || channelMask != mChannelMask) {
                 ALOGE("createTrack_l() Bad parameter: sampleRate %u format %d, channelMask 0x%08x "
                         "for output %p with format %d",
@@ -3696,6 +3702,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                 if (--(track->mRetryCount) <= 0) {
                     ALOGV("BUFFER TIMEOUT: remove(%d) from active list", track->name());
                     tracksToRemove->add(track);
+                    android_atomic_or(CBLK_DISABLED, &cblk->mFlags);
                 } else if (last) {
                     mixerStatus = MIXER_TRACKS_ENABLED;
                 }
@@ -4519,17 +4526,29 @@ bool AudioFlinger::RecordThread::threadLoop()
                                 }
                             }
                         }
-                        if (framesOut && mFrameCount == mRsmpInIndex) {
+                        if (framesOut && (mFrameCount == mRsmpInIndex)) {
                             void *readInto;
-                            if (framesOut == mFrameCount && mChannelCount == mReqChannelCount) {
-                                readInto = buffer.raw;
-                                framesOut = 0;
-                            } else {
-                                readInto = mRsmpInBuffer;
-                                mRsmpInIndex = 0;
-                            }
+                            int InputBytes;
+                            /*Fix me: How does framesOut become 0 in this condition */
+                            if (( framesOut != mFrameCount) &&
+                                ((mFormat != AUDIO_FORMAT_PCM_16_BIT)&&
+                                (!(mActiveTrack->mFlags & TRACK_VOICE_COMMUNICATION)))) {
+                                     readInto = buffer.raw;
+                                     InputBytes = buffer.frameCount * mFrameSize;
+                             } else if (framesOut == mFrameCount &&
+                                       (mChannelCount == mReqChannelCount ||
+                                       ((mFormat != AUDIO_FORMAT_PCM_16_BIT) &&
+                                       (!(mActiveTrack->mFlags & TRACK_VOICE_COMMUNICATION))))) {
+                                     readInto = buffer.raw;
+                                     InputBytes = mBufferSize;
+                                     framesOut = 0;
+                             } else {
+                                     readInto = mRsmpInBuffer;
+                                     mRsmpInIndex = 0;
+                                     InputBytes = mBufferSize;
+                             }
                             mBytesRead = mInput->stream->read(mInput->stream, readInto,
-                                    mBufferSize);
+                                    InputBytes);
                             if (mBytesRead <= 0) {
                                 if ((mBytesRead < 0) && (mActiveTrack->mState == TrackBase::ACTIVE))
                                 {
@@ -4729,7 +4748,7 @@ sp<AudioFlinger::RecordThread::RecordTrack>  AudioFlinger::RecordThread::createR
         Mutex::Autolock _l(mLock);
 
         track = new RecordTrack(this, client, sampleRate,
-                      format, channelMask, frameCount, sessionId);
+                      format, channelMask, frameCount, *flags, sessionId);
 
         if (track->getCblk() == 0) {
             ALOGE("createRecordTrack_l() no control block");
@@ -5205,9 +5224,6 @@ void AudioFlinger::RecordThread::readInputParameters()
     mChannelMask = mInput->stream->common.get_channels(&mInput->stream->common);
     mChannelCount = (uint16_t)getInputChannelCount(mChannelMask);
     mFormat = mInput->stream->common.get_format(&mInput->stream->common);
-    if (mFormat != AUDIO_FORMAT_PCM_16_BIT) {
-        ALOGE("HAL format %d not supported; must be AUDIO_FORMAT_PCM_16_BIT", mFormat);
-    }
     mFrameSize = audio_stream_frame_size(&mInput->stream->common);
     mBufferSize = mInput->stream->common.get_buffer_size(&mInput->stream->common);
     mFrameCount = mBufferSize / mFrameSize;

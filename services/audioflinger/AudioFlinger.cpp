@@ -1466,6 +1466,8 @@ sp<IAudioRecord> AudioFlinger::openRecord(
     RecordThread *thread;
     size_t inFrameCount;
     int lSessionId;
+    size_t inputBufferSize = 0;
+    uint32_t channelCount = popcount(channelMask);
 
     // check calling permissions
     if (!recordingAllowed()) {
@@ -1474,9 +1476,11 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         goto Exit;
     }
 
-    if (format != AUDIO_FORMAT_PCM_16_BIT) {
-        ALOGE("openRecord() invalid format %d", format);
+    // Check that audio input stream accepts requested audio parameters
+    inputBufferSize = getInputBufferSize(sampleRate, format, channelCount);
+    if (inputBufferSize == 0) {
         lStatus = BAD_VALUE;
+        ALOGE("Bad audio input parameters: sampling rate %u, format %d, channels %d",  sampleRate, format, channelCount);
         goto Exit;
     }
 
@@ -1509,6 +1513,30 @@ sp<IAudioRecord> AudioFlinger::openRecord(
                 *sessionId = lSessionId;
             }
         }
+
+        // frameCount must be a multiple of input buffer size
+        // Change for Codec type
+        uint8_t channelCount = popcount(channelMask);
+        if (*flags & IAudioFlinger::TRACK_VOICE_COMMUNICATION) {
+             inFrameCount = inputBufferSize/channelCount/sizeof(short);
+        } else {
+            if ((format == AUDIO_FORMAT_PCM_16_BIT) ||
+                (format == AUDIO_FORMAT_PCM_8_BIT)) {
+              inFrameCount = inputBufferSize/channelCount/sizeof(short);
+            } else if (format == AUDIO_FORMAT_AMR_NB) {
+              inFrameCount = inputBufferSize/channelCount/AMR_FRAMESIZE;
+            } else if (format == AUDIO_FORMAT_EVRC) {
+              inFrameCount = inputBufferSize/channelCount/EVRC_FRAMESIZE;
+            } else if (format == AUDIO_FORMAT_QCELP) {
+              inFrameCount = inputBufferSize/channelCount/QCELP_FRAMESIZE;
+            } else if (format == AUDIO_FORMAT_AAC) {
+              inFrameCount = inputBufferSize/AAC_FRAMESIZE;
+            } else if (format == AUDIO_FORMAT_AMR_WB) {
+              inFrameCount = inputBufferSize/channelCount/AMR_WB_FRAMESIZE;
+            }
+        }
+        frameCount = ((frameCount - 1)/inFrameCount + 1) * inFrameCount;
+
         // create new record track.
         // The record track uses one track in mHardwareMixerThread by convention.
         recordTrack = thread->createRecordTrack_l(client, sampleRate, format, channelMask,
