@@ -23,7 +23,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MediaBuffer.h>
 #include <utils/List.h>
-
+#include <utils/String8.h>
 #include <system/audio.h>
 
 namespace android {
@@ -85,6 +85,7 @@ private:
     int64_t mInitialReadTimeUs;
     int64_t mNumFramesReceived;
     int64_t mNumClientOwnedBuffers;
+    int64_t mAutoRampStartUs;
 
     List<MediaBuffer * > mBuffersReceived;
 
@@ -103,6 +104,14 @@ private:
 
     AudioSource(const AudioSource &);
     AudioSource &operator=(const AudioSource &);
+public:
+    AudioSource(
+        audio_source_t inputSource, const sp<MetaData>& meta );
+private:
+    audio_format_t mFormat;
+    String8 mMime;
+    int32_t mMaxBufferSize;
+    int64_t bufferDurationUs( ssize_t n );
 };
 
 }  // namespace android
