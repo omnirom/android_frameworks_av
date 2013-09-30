@@ -54,11 +54,6 @@ public:
 #ifdef QCOM_HARDWARE
     static const char * const keyHandleFm;
     static const char * const keyFmVolume;
-    static const char * const keyFluence;
-    static const char * const keySSR;
-    static const char * const keyHandleA2dpDevice;
-    static const char * const keyADSPStatus;
-    static const char * const keyCanOpenProxy;
 #endif
 
     String8 toString();
