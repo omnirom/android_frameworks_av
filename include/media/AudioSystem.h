@@ -25,6 +25,7 @@
 #include <system/audio_policy.h>
 #include <utils/Errors.h>
 #include <utils/Mutex.h>
+#include <media/AudioParameter.h>
 
 namespace android {
 

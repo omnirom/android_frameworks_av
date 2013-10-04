@@ -64,6 +64,11 @@
 #include <media/AudioParameter.h>
 #include <private/android_filesystem_config.h>
 
+#ifdef SRS_PROCESSING
+#include "srs_processing.h"
+#include "postpro_patch_ics.h"
+#endif
+
 // ----------------------------------------------------------------------------
 
 // Note: the following macro is used for extremely verbose logging message.  In
@@ -1019,6 +1024,11 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
     // ioHandle == 0 means the parameters are global to the audio hardware interface
     if (ioHandle == 0) {
         Mutex::Autolock _l(mLock);
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_ICS_PARAMS_SET(keyValuePairs);
+        if (!mDirectAudioTracks.isEmpty())
+            audioConfigChanged_l(AudioSystem::EFFECT_CONFIG_CHANGED, 0, NULL);
+#endif
         status_t final_result = NO_ERROR;
         {
             AutoMutex lock(mHardwareLock);
@@ -1093,6 +1103,10 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             int device;
             if (param.getInt(key, device) == NO_ERROR) {
                 mDirectDevice = device;
+#ifdef SRS_PROCESSING
+                ALOGV("setParameters:: routing change to device %d", device);
+                POSTPRO_PATCH_ICS_OUTPROC_MIX_ROUTE(desc->trackRefPtr, param, device);
+#endif
                 if(mLPAEffectChain != NULL){
                     mLPAEffectChain->setDevice_l(device);
                     audioConfigChanged_l(AudioSystem::EFFECT_CONFIG_CHANGED, 0, NULL);
@@ -1137,6 +1151,9 @@ String8 AudioFlinger::getParameters(audio_io_handle_t ioHandle, const String8& k
     if (ioHandle == 0) {
         String8 out_s8;
 
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_ICS_PARAMS_GET(keys, out_s8);
+#endif
         for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
             char *s;
             {
@@ -1763,6 +1780,10 @@ audio_io_handle_t AudioFlinger::openOutput(audio_module_handle_t module,
         if ((mPrimaryHardwareDev == NULL) && (flags & AUDIO_OUTPUT_FLAG_PRIMARY)) {
             ALOGI("Using module %d has the primary audio interface", module);
             mPrimaryHardwareDev = outHwDev;
+#ifdef SRS_PROCESSING
+            SRS_Processing::RawDataSet(NULL, "qdsp hook", &mPrimaryHardwareDev,
+                sizeof(&mPrimaryHardwareDev));
+#endif
             AutoMutex lock(mHardwareLock);
             mHardwareStatus = AUDIO_HW_SET_MODE;
             hwDevHal->set_mode(hwDevHal, mMode);
