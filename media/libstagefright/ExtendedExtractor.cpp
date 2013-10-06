@@ -32,11 +32,11 @@
 #include <dlfcn.h>  // for dlopen/dlclose
 #include "include/ExtendedExtractor.h"
 
-#ifdef ENABLE_QC_AV_ENHANCEMENTS
+#if defined(ENABLE_QC_AV_ENHANCEMENTS) || defined(QCOM_LEGACY_MMPARSER)
 
 namespace android {
 
-#ifdef QCOM_LEGACY_OMX
+#ifdef QCOM_LEGACY_MMPARSER
 static const char* EXTENDED_EXTRACTOR_LIB = "libmmparser.so";
 static const char* EXTENDED_EXTRACTOR_CREATE = "createExtractor";
 #else
@@ -100,7 +100,7 @@ MediaExtractor* ExtendedExtractor::Create (
     return extractor;
 }
 
-#ifdef QCOM_LEGACY_OMX
+#ifdef QCOM_LEGACY_MMPARSER
 void ExtendedExtractor::RegisterSniffers() {
     void *extendedExtractorLib = loadExtendedExtractorLib();
     if (extendedExtractorLib == NULL) {
