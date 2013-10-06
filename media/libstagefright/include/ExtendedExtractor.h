@@ -34,7 +34,7 @@
 namespace android {
 
 class MediaExtractor;
-#ifdef QCOM_LEGACY_OMX
+#ifdef QCOM_LEGACY_MMPARSER
     typedef void (*SnifferArrayFunc)(const DataSource::SnifferFunc* snifferArray[], int *count);
     static const char* MEDIA_SNIFFER_ARRAY = "snifferArray";
 #endif
@@ -47,7 +47,7 @@ public:
     static bool Sniff (
             const sp<DataSource> &source, String8 *mimeType,
             float *confidence,sp<AMessage> *meta);
-#ifdef QCOM_LEGACY_OMX
+#ifdef QCOM_LEGACY_MMPARSER
     static void RegisterSniffers();
 #endif
 };
