@@ -81,6 +81,7 @@ LOCAL_SRC_FILES += \
     IDirectTrackClient.cpp
 
 ifeq ($(TARGET_QCOM_AUDIO_VARIANT),caf)
+    LOCAL_CFLAGS += -DQCOM_ENHANCED_AUDIO
 ifeq ($(BOARD_USES_ALSA_AUDIO),true)
     LOCAL_CFLAGS += -DQCOM_VOIP_ENABLED
 else

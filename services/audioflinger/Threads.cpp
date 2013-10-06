@@ -1229,13 +1229,13 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
 
     if (mType == DIRECT) {
         if (((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_PCM)
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_ENHANCED_AUDIO
               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_AMR_NB)
               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_AMR_WB)
               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_EVRC)
               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_EVRCB)
               ||((format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_EVRCWB)
-#endif 
+#endif
               ) {
             if (sampleRate != mSampleRate || format != mFormat || channelMask != mChannelMask) {
                 ALOGE("createTrack_l() Bad parameter: sampleRate %u format %d, channelMask 0x%08x "
@@ -3826,7 +3826,7 @@ bool AudioFlinger::RecordThread::threadLoop()
                         }
                         if (framesOut && mFrameCount == mRsmpInIndex) {
                             void *readInto;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_ENHANCED_AUDIO
                             int InputBytes;
                             if (( framesOut != mFrameCount) &&
                                 ((mFormat != AUDIO_FORMAT_PCM_16_BIT)&&
@@ -4002,7 +4002,7 @@ sp<AudioFlinger::RecordThread::RecordTrack>  AudioFlinger::RecordThread::createR
 
         track = new RecordTrack(this, client, sampleRate,
                       format, channelMask, frameCount,
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_ENHANCED_AUDIO
                       flags,
 #endif
                       sessionId);

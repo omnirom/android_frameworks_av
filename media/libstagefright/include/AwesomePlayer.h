@@ -208,7 +208,7 @@ private:
 
     bool mIsFirstFrameAfterResume;
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_ENHANCED_AUDIO
     static int mTunnelAliveAP;
 #endif
 

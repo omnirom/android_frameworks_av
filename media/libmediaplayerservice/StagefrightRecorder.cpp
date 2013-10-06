@@ -865,7 +865,7 @@ status_t StagefrightRecorder::start() {
 }
 
 sp<MediaSource> StagefrightRecorder::createAudioSource() {
-#ifdef QCOM_HARDWARE
+#ifdef ENABLE_QC_AV_ENHANCEMENTS
     bool tunneledSource = false;
     const char *tunnelMime;
     {
@@ -880,7 +880,6 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
             tunneledSource = true;
             tunnelMime = MEDIA_MIMETYPE_AUDIO_AMR_NB;
         }
-#ifdef ENABLE_QC_AV_ENHANCEMENTS
         else if ( mAudioEncoder == AUDIO_ENCODER_QCELP &&
             result.getInt(String8("QCELP"),value) == NO_ERROR ) {
             tunneledSource = true;
@@ -891,7 +890,6 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
             tunneledSource = true;
             tunnelMime = MEDIA_MIMETYPE_AUDIO_EVRC;
         }
-#endif
         else if ( mAudioEncoder == AUDIO_ENCODER_AMR_WB &&
             result.getInt(String8("AWB"),value) == NO_ERROR ) {
             tunneledSource = true;

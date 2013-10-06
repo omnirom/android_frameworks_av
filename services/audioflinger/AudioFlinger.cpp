@@ -1521,7 +1521,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
     RecordThread *thread;
     size_t inFrameCount;
     int lSessionId;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_ENHANCED_AUDIO
     size_t inputBufferSize = 0;
     uint32_t channelCount = popcount(channelMask);
 #endif
@@ -1531,7 +1531,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         lStatus = PERMISSION_DENIED;
         goto Exit;
     }
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_ENHANCED_AUDIO
     // Check that audio input stream accepts requested audio parameters
     inputBufferSize = getInputBufferSize(sampleRate, format, channelCount);
     if (inputBufferSize == 0) {
@@ -1561,7 +1561,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
                 *sessionId = lSessionId;
             }
         }
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_ENHANCED_AUDIO
         // frameCount must be a multiple of input buffer size
         // Change for Codec type
         uint8_t channelCount = popcount(channelMask);

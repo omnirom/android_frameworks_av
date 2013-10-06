@@ -3846,7 +3846,7 @@ void OMXCodec::setRawAudioFormat(
     OMX_PARAM_PORTDEFINITIONTYPE def;
     InitOMXParams(&def);
     def.nPortIndex = portIndex;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_ENHANCED_AUDIO
     def.format.audio.cMIMEType = NULL;
 #endif
     status_t err = mOMX->getParameter(
