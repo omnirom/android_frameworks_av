@@ -32,7 +32,7 @@
 #include <dlfcn.h>  // for dlopen/dlclose
 #include "include/ExtendedExtractor.h"
 
-#ifdef ENABLE_QC_AV_ENHANCEMENTS
+#if defined(ENABLE_QC_AV_ENHANCEMENTS) || defined(QCOM_LEGACY_MMPARSER)
 
 namespace android {
 
