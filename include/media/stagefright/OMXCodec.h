@@ -366,6 +366,7 @@ private:
     OMXCodec &operator=(const OMXCodec &);
 
     int32_t mNumBFrames;
+    bool mInSmoothStreamingMode;
 };
 
 struct CodecCapabilities {
