@@ -91,7 +91,8 @@ AudioTrack::AudioTrack()
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
       mPreviousSchedulingGroup(SP_DEFAULT),
       mAudioFlinger(NULL),
-      mObserver(NULL)
+      mObserver(NULL),
+      mCblk(NULL)
 {
 }
 
@@ -113,7 +114,8 @@ AudioTrack::AudioTrack(
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
       mPreviousSchedulingGroup(SP_DEFAULT),
       mAudioFlinger(NULL),
-      mObserver(NULL)
+      mObserver(NULL),
+      mCblk(NULL)
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
             frameCount, flags, cbf, user, notificationFrames,
@@ -136,7 +138,11 @@ AudioTrack::AudioTrack(
     : mStatus(NO_INIT),
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
-      mPreviousSchedulingGroup(SP_DEFAULT)
+      mPreviousSchedulingGroup(SP_DEFAULT),
+      mProxy(NULL),
+      mAudioFlinger(NULL),
+      mObserver(NULL),
+      mCblk(NULL)
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
             0 /*frameCount*/, flags, cbf, user, notificationFrames,
