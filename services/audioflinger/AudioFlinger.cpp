@@ -147,7 +147,8 @@ AudioFlinger::AudioFlinger()
       mBtNrecIsOff(false),
       mIsLowRamDevice(true),
       mIsDeviceTypeKnown(false),
-      mGlobalEffectEnableTime(0)
+      mGlobalEffectEnableTime(0),
+      mAllChainsLocked(false)
 {
     getpid_cached = getpid();
     char value[PROPERTY_VALUE_MAX];
