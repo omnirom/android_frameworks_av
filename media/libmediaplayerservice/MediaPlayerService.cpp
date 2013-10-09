@@ -1762,7 +1762,7 @@ void MediaPlayerService::AudioOutput::pause()
 void MediaPlayerService::AudioOutput::close()
 {
     ALOGV("close");
-    mTrack.clear();
+    if (mTrack != 0) mTrack.clear();
 }
 
 void MediaPlayerService::AudioOutput::setVolume(float left, float right)
