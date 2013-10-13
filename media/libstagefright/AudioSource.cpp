@@ -28,8 +28,6 @@
 #include <media/stagefright/foundation/ALooper.h>
 #include <cutils/properties.h>
 #include <stdlib.h>
-#ifdef ENABLE_QC_AV_ENHANCEMENTS
-#include <QCMediaDefs.h>
 #endif
 #include <system/audio.h>
 #define DEFAULT_TUNNEL_BUFFER_COUNT 4
