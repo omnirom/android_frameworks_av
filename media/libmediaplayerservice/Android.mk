@@ -58,7 +58,7 @@ ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
     LOCAL_C_INCLUDES += \
             $(TOP)/hardware/qcom/media-caf/mm-core/inc
     else
-        ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),legacy)
+        ifeq ($(TARGET_QCOM_MEDIA_VARIANT),legacy)
             LOCAL_C_INCLUDES += \
                 $(TOP)/hardware/qcom/media-legacy/mm-core/inc
         else
@@ -77,7 +77,7 @@ ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
         LOCAL_C_INCLUDES += \
             $(TOP)/hardware/qcom/media-caf/mm-core/inc
     else
-        ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),legacy)
+        ifeq ($(TARGET_QCOM_MEDIA_VARIANT),legacy)
             LOCAL_C_INCLUDES += \
                 $(TOP)/hardware/qcom/media-legacy/mm-core/inc
         else
