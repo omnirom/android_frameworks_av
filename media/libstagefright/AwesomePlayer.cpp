@@ -69,7 +69,12 @@
 
 #include <cutils/properties.h>
 
+#ifdef QCOM_LEGACY_OMX
+// Disable rendering directly to NativeWindow
+#define USE_SURFACE_ALLOC 0
+#else
 #define USE_SURFACE_ALLOC 1
+#endif
 #define FRAME_DROP_FREQ 0
 #define LPA_MIN_DURATION_USEC_ALLOWED 30000000
 #define LPA_MIN_DURATION_USEC_DEFAULT 60000000
