@@ -443,8 +443,10 @@ uint32_t AudioTrack::latency() const
         uint32_t afLatency = 0;
         uint32_t newLatency = 0;
         AudioSystem::getLatency(mOutput, mStreamType, &afLatency);
-        if (0 != mSampleRate){
-            newLatency = afLatency + (1000*mCblk->frameCount_) / mSampleRate;
+        if(0 != mSampleRate) {
+            newLatency = (mCblk == NULL) ? afLatency : (afLatency + (1000*mCblk->frameCount_) / mSampleRate);
+        } else {
+            newLatency = afLatency;
         }
         ALOGD("latency() mLatency = %d, newLatency = %d", mLatency, newLatency);
         return newLatency;
@@ -1885,7 +1887,12 @@ status_t AudioTrack::dump(int fd, const Vector<String16>& args) const
     result.append(buffer);
     uint32_t afLatency = 0;
     AudioSystem::getLatency(mOutput, mStreamType, &afLatency);
-    snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState, afLatency + (1000*mCblk->frameCount_) / mSampleRate);
+    if(0 != mSampleRate) {
+        snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState,
+                (mCblk == NULL) ? afLatency : (afLatency + (1000*mCblk->frameCount_) / mSampleRate));
+    } else {
+        snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState, afLatency);
+    }
     result.append(buffer);
     ::write(fd, result.string(), result.size());
     return NO_ERROR;
