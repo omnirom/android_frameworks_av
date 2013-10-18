@@ -1521,6 +1521,7 @@ OMXCodec::OMXCodec(
       mState(LOADED),
       mInitialBufferSubmit(true),
       mSignalledEOS(false),
+      mFinalStatus(OK),
       mNoMoreOutputData(false),
       mOutputPortSettingsHaveChanged(false),
       mSeekTimeUs(-1),
@@ -3129,7 +3130,14 @@ void OMXCodec::fillOutputBuffers() {
     // end-of-output-stream. If we own all input buffers and also own
     // all output buffers and we already signalled end-of-input-stream,
     // the end-of-output-stream is implied.
-    if (mSignalledEOS
+
+    // NOTE: Thumbnail mode needs a call to fillOutputBuffer in order
+    // to get the decoded frame from the component. Currently,
+    // thumbnail mode calls emptyBuffer with an EOS flag on its first
+    // frame and sets mSignalledEOS to true, so without the check for
+    // !mThumbnailMode, fillOutputBuffer will never be called.
+    if(!ExtendedUtils::checkIsThumbNailMode(mFlags, mComponentName)) {
+        if (mSignalledEOS
             && countBuffersWeOwn(mPortBuffers[kPortIndexInput])
                 == mPortBuffers[kPortIndexInput].size()
             && countBuffersWeOwn(mPortBuffers[kPortIndexOutput])
@@ -3137,7 +3145,8 @@ void OMXCodec::fillOutputBuffers() {
         mNoMoreOutputData = true;
         mBufferFilled.signal();
 
-        return;
+            return;
+        }
     }
 
     Vector<BufferInfo> *buffers = &mPortBuffers[kPortIndexOutput];
