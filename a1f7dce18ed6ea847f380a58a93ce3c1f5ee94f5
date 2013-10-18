@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "7a23299d_366d9805",
+        "filename": "services/audioflinger/Android.mk",
+        "patchSetId": 1
+      },
+      "lineNbr": 16,
+      "author": {
+        "id": 1000139
+      },
+      "writtenOn": "2013-10-18T15:05:42Z",
+      "side": 1,
+      "message": "ifeq ($(TARGET_QCOM_AUDIO_VARIANT),caf)\n\nNo bfam here afaik.",
+      "revId": "a1f7dce18ed6ea847f380a58a93ce3c1f5ee94f5",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
