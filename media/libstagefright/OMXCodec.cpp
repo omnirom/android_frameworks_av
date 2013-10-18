@@ -55,6 +55,7 @@
 #include <QCMetaData.h>
 #include <QOMX_AudioExtensions.h>
 #endif
+#include "include/ExtendedUtils.h"
 namespace android {
 
 // Treat time out as an error if we have not received any output
@@ -933,6 +934,8 @@ status_t OMXCodec::setVideoInputFormat(
     CHECK(success);
     CHECK(stride != 0);
 
+    ExtendedUtils::HFR::reCalculateHFRParams(meta, frameRate, bitRate);
+
     OMX_VIDEO_CODINGTYPE compressionFormat = OMX_VIDEO_CodingUnused;
     if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_AVC, mime)) {
         compressionFormat = OMX_VIDEO_CodingAVC;
@@ -1189,6 +1192,8 @@ status_t OMXCodec::setupH263EncoderParameters(const sp<MetaData>& meta) {
     h263type.nAllowedPictureTypes =
         OMX_VIDEO_PictureTypeI | OMX_VIDEO_PictureTypeP;
 
+    ExtendedUtils::HFR::reCalculateHFRParams(meta, frameRate, bitRate);
+
     h263type.nPFrames = setPFramesSpacing(iFramesInterval, frameRate);
     if (h263type.nPFrames == 0) {
         h263type.nAllowedPictureTypes = OMX_VIDEO_PictureTypeI;
@@ -1239,6 +1244,8 @@ status_t OMXCodec::setupMPEG4EncoderParameters(const sp<MetaData>& meta) {
 
     mpeg4type.nAllowedPictureTypes =
         OMX_VIDEO_PictureTypeI | OMX_VIDEO_PictureTypeP;
+
+    ExtendedUtils::HFR::reCalculateHFRParams(meta, frameRate, bitRate);
 
     mpeg4type.nPFrames = setPFramesSpacing(iFramesInterval, frameRate);
     if (mpeg4type.nPFrames == 0) {
@@ -1298,6 +1305,8 @@ status_t OMXCodec::setupAVCEncoderParameters(const sp<MetaData>& meta) {
     if (err != OK) return err;
     h264type.eProfile = static_cast<OMX_VIDEO_AVCPROFILETYPE>(profileLevel.mProfile);
     h264type.eLevel = static_cast<OMX_VIDEO_AVCLEVELTYPE>(profileLevel.mLevel);
+
+    ExtendedUtils::HFR::reCalculateHFRParams(meta, frameRate, bitRate);
 
     // XXX
     if (ExtendedUtils::isAVCProfileSupported(h264type.eProfile)){
@@ -3164,7 +3173,8 @@ void OMXCodec::drainInputBuffers() {
                 break;
             }
 
-            if (mFlags & kOnlySubmitOneInputBufferAtOneTime) {
+            if ((mFlags & kOnlySubmitOneInputBufferAtOneTime)
+                    && (i == mNumBFrames)) {
                 break;
             }
         }
@@ -4830,6 +4840,8 @@ void OMXCodec::initOutputFormat(const sp<MetaData> &inputFormat) {
                     }
                     initNativeWindowCrop();
                 }
+            } else {
+                ExtendedUtils::HFR::copyHFRParams(inputFormat, mOutputFormat);
             }
             break;
         }
