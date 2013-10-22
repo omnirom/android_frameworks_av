@@ -53,6 +53,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXCodec.h>
+#include "include/ExtendedUtils.h"
 #include <media/stagefright/Utils.h>
 
 #include <gui/IGraphicBufferProducer.h>
@@ -242,6 +243,7 @@ AwesomePlayer::AwesomePlayer()
 
     reset();
     mIsTunnelAudio = false;
+    mLateAVSyncMargin = ExtendedUtils::ShellProp::getMaxAVSyncLateMargin();
 }
 
 AwesomePlayer::~AwesomePlayer() {
@@ -2134,7 +2136,7 @@ void AwesomePlayer::onVideoEvent() {
             }
         }
 
-        if (latenessUs > 40000) {
+        if (latenessUs > mLateAVSyncMargin) {
             // We're more than 40ms late.
             ALOGV("we're late by %lld us (%.2f secs)",
                  latenessUs, latenessUs / 1E6);

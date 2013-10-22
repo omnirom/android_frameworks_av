@@ -319,6 +319,7 @@ private:
     };
     void modifyFlags(unsigned value, FlagMode mode);
     void checkTunnelExceptions();
+    int64_t mLateAVSyncMargin;
 
     struct TrackStat {
         String8 mMIME;
