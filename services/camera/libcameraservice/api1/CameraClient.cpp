@@ -263,7 +263,9 @@ void CameraClient::disconnect() {
 #endif
         disconnectWindow(mPreviewWindow);
         mPreviewWindow = 0;
+#ifndef NO_UPDATE_PREVIEW
         mHardware->setPreviewWindow(mPreviewWindow);
+#endif
     }
     mHardware.clear();
 
