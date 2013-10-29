@@ -75,6 +75,8 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"wvga", CAMCORDER_QUALITY_WVGA},
     {"vga", CAMCORDER_QUALITY_VGA},
     {"wqvga",CAMCORDER_QUALITY_WQVGA},
+    {"4kuhd",CAMCORDER_QUALITY_4kUHD},
+    {"4kdci",CAMCORDER_QUALITY_4kDCI},
 
     {"timelapselow",  CAMCORDER_QUALITY_TIME_LAPSE_LOW},
     {"timelapsehigh", CAMCORDER_QUALITY_TIME_LAPSE_HIGH},
@@ -86,6 +88,8 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"timelapseqvga", CAMCORDER_QUALITY_TIME_LAPSE_QVGA},
     {"timelapsevga", CAMCORDER_QUALITY_TIME_LAPSE_VGA},
     {"timelapsewvga", CAMCORDER_QUALITY_TIME_LAPSE_WVGA},
+    {"timelapsefwvga", CAMCORDER_QUALITY_TIME_LAPSE_FWVGA},
+    {"timelapsewqvga", CAMCORDER_QUALITY_TIME_LAPSE_WQVGA},
 };
 
 /*static*/ void
