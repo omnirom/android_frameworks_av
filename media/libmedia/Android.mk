@@ -58,6 +58,18 @@ LOCAL_SRC_FILES:= \
 
 LOCAL_SRC_FILES += ../libnbaio/roundup.c
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+LOCAL_SRC_FILES += \
+    IDirectTrack.cpp \
+    IDirectTrackClient.cpp
+
+ifeq ($(TARGET_QCOM_AUDIO_VARIANT),caf)
+ifeq ($(BOARD_QCOM_VOIP_ENABLED),true)
+    LOCAL_CFLAGS += -DQCOM_VOIP_ENABLED
+endif
+endif
+endif
+
 # for <cutils/atomic-inline.h>
 LOCAL_CFLAGS += -DANDROID_SMP=$(if $(findstring true,$(TARGET_CPU_SMP)),1,0)
 LOCAL_SRC_FILES += SingleStateQueue.cpp
