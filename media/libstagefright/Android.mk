@@ -1,6 +1,15 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+   ifeq ($(USE_TUNNEL_MODE),true)
+        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
+   endif
+   ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
+        LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
+   endif
+endif
+
 include frameworks/av/media/libstagefright/codecs/common/Config.mk
 
 LOCAL_SRC_FILES:=                         \
@@ -21,6 +30,7 @@ LOCAL_SRC_FILES:=                         \
         FLACExtractor.cpp                 \
         HTTPBase.cpp                      \
         JPEGSource.cpp                    \
+        LPAPlayerALSA.cpp                 \
         MP3Extractor.cpp                  \
         MPEG2TSWriter.cpp                 \
         MPEG4Extractor.cpp                \
@@ -49,6 +59,7 @@ LOCAL_SRC_FILES:=                         \
         ThrottledSource.cpp               \
         TimeSource.cpp                    \
         TimedEventQueue.cpp               \
+        TunnelPlayer.cpp                  \
         Utils.cpp                         \
         VBRISeeker.cpp                    \
         WAVExtractor.cpp                  \
