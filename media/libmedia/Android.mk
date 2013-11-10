@@ -68,7 +68,8 @@ LOCAL_SRC_FILES:= \
     StringArray.cpp
 
 ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-LOCAL_SRC_FILES += IDirectTrack.cpp IDirectTrackClient.cpp 
+LOCAL_SRC_FILES += IDirectTrack.cpp \
+	IDirectTrackClient.cpp
 endif
 
 LOCAL_SRC_FILES += ../libnbaio/roundup.c

@@ -1,15 +1,6 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-ifeq ($(BOARD_USES_ALSA_AUDIO),true)
-   ifeq ($(USE_TUNNEL_MODE),true)
-        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
-   endif
-   ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
-        LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
-   endif
-endif
-
 include frameworks/av/media/libstagefright/codecs/common/Config.mk
 
 LOCAL_SRC_FILES:=                         \
@@ -83,6 +74,30 @@ else
 LOCAL_C_INCLUDES += $(TOP)/frameworks/native/include/media/openmax
 endif
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+    ifeq ($(BOARD_USES_ALSA_AUDIO),true)
+        LOCAL_SRC_FILES += LPAPlayerALSA.cpp
+    endif
+    ifeq ($(USE_TUNNEL_MODE),true)
+        LOCAL_SRC_FILES += TunnelPlayer.cpp
+        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
+    endif
+    ifeq ($(TUNNEL_MODE_SUPPORTS_AMRWB),true)
+        LOCAL_CFLAGS += -DTUNNEL_MODE_SUPPORTS_AMRWB
+    endif
+    ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
+        LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
+    endif
+endif
+
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+LOCAL_C_INCLUDES += \
+        $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+else
+LOCAL_C_INCLUDES += \
+        $(TOP)/hardware/qcom/media/mm-core/inc
+endif
+
 ifeq ($(BOARD_USES_STE_FMRADIO),true)
 LOCAL_SRC_FILES += \
         FMRadioSource.cpp                 \
@@ -141,6 +156,13 @@ ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
        LOCAL_CFLAGS     += -DENABLE_AV_ENHANCEMENTS
        LOCAL_SRC_FILES  += ExtendedMediaDefs.cpp
        LOCAL_SRC_FILES  += ExtendedWriter.cpp
+       ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+           LOCAL_C_INCLUDES += \
+               $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+       else
+           LOCAL_C_INCLUDES += \
+               $(TOP)/hardware/qcom/media/mm-core/inc
+       endif
 endif #TARGET_ENABLE_AV_ENHANCEMENTS
 
 ifeq ($(TARGET_QCOM_LEGACY_OMX),true)
