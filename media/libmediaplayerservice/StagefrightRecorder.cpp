@@ -17,9 +17,7 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "StagefrightRecorder"
 #include <utils/Log.h>
-#ifdef QCOM_HARDWARE
-#include <media/AudioParameter.h>
-#endif
+
 #include "StagefrightRecorder.h"
 
 #include <binder/IPCThreadState.h>
@@ -44,7 +42,6 @@
 #include <camera/ICamera.h>
 #include <camera/CameraParameters.h>
 #include <gui/Surface.h>
-#include <utils/String8.h>
 
 #include <utils/Errors.h>
 #include <sys/types.h>
@@ -162,21 +159,7 @@ status_t StagefrightRecorder::setAudioEncoder(audio_encoder ae) {
     } else {
         mAudioEncoder = ae;
     }
-#ifdef QCOM_HARDWARE
-    if(mAudioEncoder == AUDIO_ENCODER_AAC) {
-        mSampleRate = mSampleRate ? mSampleRate : 48000;
-        mAudioChannels = mAudioChannels ? mAudioChannels : 2;
-        mAudioBitRate = mAudioBitRate ? mAudioBitRate : 156000;
-    } else if(mAudioEncoder == AUDIO_ENCODER_AMR_WB) {
-        mSampleRate = 16000;
-        mAudioChannels = 1;
-        mAudioBitRate = mAudioBitRate ? mAudioBitRate : 23850;
-    } else {
-        mSampleRate = mSampleRate ? mSampleRate : 8000;
-        mAudioChannels = mAudioChannels ? mAudioChannels : 1;
-        mAudioBitRate = mAudioBitRate ? mAudioBitRate : 12200;
-    }
-#endif
+
     return OK;
 }
 
@@ -345,7 +328,7 @@ status_t StagefrightRecorder::setParamAudioSamplingRate(int32_t sampleRate) {
 
 status_t StagefrightRecorder::setParamAudioNumberOfChannels(int32_t channels) {
     ALOGV("setParamAudioNumberOfChannels: %d", channels);
-    if (channels != 1 && channels != 2 && channels != 6) {
+    if (channels <= 0 || channels >= 3) {
         ALOGE("Invalid number of audio channels: %d", channels);
         return BAD_VALUE;
     }
@@ -432,12 +415,6 @@ status_t StagefrightRecorder::setParamMaxFileSizeBytes(int64_t bytes) {
         ALOGW("Target file size (%lld bytes) is too small to be respected", bytes);
     }
 
-#ifdef QCOM_HARDWARE
-    if (bytes >= 0xffffffffLL) {
-        ALOGW("Target file size (%lld bytes) too larger than supported, clip to 4GB", bytes);
-        bytes = 0xffffffffLL;
-    }
-#endif
     mMaxFileSizeBytes = bytes;
     return OK;
 }
@@ -825,42 +802,6 @@ status_t StagefrightRecorder::start() {
 }
 
 sp<MediaSource> StagefrightRecorder::createAudioSource() {
-#ifdef QCOM_HARDWARE
-    bool tunneledSource = false;
-    const char *tunnelMime;
-    {
-        AudioParameter param;
-        String8 key("tunneled-input-formats");
-        param.add( key, String8("get") );
-        String8 valueStr = AudioSystem::getParameters( 0, param.toString());
-        AudioParameter result(valueStr);
-        int value;
-        if ( mAudioEncoder == AUDIO_ENCODER_AMR_NB &&
-            result.getInt(String8("AMR"),value) == NO_ERROR ) {
-            tunneledSource = true;
-            tunnelMime = MEDIA_MIMETYPE_AUDIO_AMR_NB;
-        }
-        else if ( mAudioEncoder == AUDIO_ENCODER_AMR_WB &&
-            result.getInt(String8("AWB"),value) == NO_ERROR ) {
-            tunneledSource = true;
-            tunnelMime = MEDIA_MIMETYPE_AUDIO_AMR_WB;
-        }
-    }
-    if ( tunneledSource ) {
-        ALOGD("tunnel recording");
-        sp<AudioSource> audioSource = NULL;
-        sp<MetaData> meta = new MetaData;
-        meta->setInt32(kKeyChannelCount, mAudioChannels);
-        meta->setInt32(kKeySampleRate, mSampleRate);
-        meta->setInt32(kKeyBitRate, mAudioBitRate);
-        if (mAudioTimeScale > 0) {
-            meta->setInt32(kKeyTimeScale, mAudioTimeScale);
-        }
-        meta->setCString( kKeyMIMEType, tunnelMime );
-        audioSource = new AudioSource( mAudioSource, meta);
-        return audioSource->initCheck( ) == OK ? audioSource : NULL;
-    }
-#endif
     sp<AudioSource> audioSource =
         new AudioSource(
                 mAudioSource,

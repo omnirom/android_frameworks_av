@@ -118,21 +118,6 @@ LOCAL_SHARED_LIBRARIES += \
 
 LOCAL_CFLAGS += -Wno-multichar
 
-ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-    LOCAL_SRC_FILES += \
-        LPAPlayerALSA.cpp
-
-    ifeq ($(BOARD_USE_TUNNEL_MODE),true)
-        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
-        LOCAL_SRC_FILES += \
-            TunnelPlayer.cpp
-
-        ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
-            LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
-        endif
-    endif
-endif
-
 LOCAL_MODULE:= libstagefright
 
 LOCAL_MODULE_TAGS := optional

@@ -44,8 +44,6 @@ public:
 private:
     void init();
 
-    void reset();
-
     virtual void setVolume(int16_t left, int16_t right);
 
     template<int CHANNELS>

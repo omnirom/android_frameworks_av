@@ -18,7 +18,6 @@
 //#define LOG_NDEBUG 0
 
 #include <common_time/cc_helper.h>
-#include <common_time/local_clock.h>
 #include <cutils/atomic.h>
 #include <cutils/compiler.h>
 #include <utils/LinearTransform.h>
@@ -48,8 +47,7 @@ MonoPipe::MonoPipe(size_t reqFrames, NBAIO_Format format, bool writeCanBlock) :
         mTimestampMutator(&mTimestampShared),
         mTimestampObserver(&mTimestampShared)
 {
-    LocalClock lc;
-    //CCHelper tmpHelper;
+    CCHelper tmpHelper;
     status_t res;
     uint64_t N, D;
 
@@ -61,15 +59,12 @@ MonoPipe::MonoPipe(size_t reqFrames, NBAIO_Format format, bool writeCanBlock) :
     mSamplesToLocalTime.a_to_b_denom = 0;
 
     D = Format_sampleRate(format);
-    N = lc.getLocalFreq();
-
-    /* maxwen: why not use LocalClock?
     if (OK != (res = tmpHelper.getLocalFreq(&N))) {
         ALOGE("Failed to fetch local time frequency when constructing a"
               " MonoPipe (res = %d).  getNextWriteTimestamp calls will be"
               " non-functional", res);
         return;
-    }*/
+    }
 
     LinearTransform::reduce(&N, &D);
     static const uint64_t kSignedHiBitsMask   = ~(0x7FFFFFFFull);
