@@ -2218,6 +2218,7 @@ status_t MPEG4Writer::Track::threadEntry() {
              * Decoding time: decodingTimeUs
              * Composition time offset = composition time - decoding time
              */
+            int64_t tmpCttsOffsetTimeUs;
             int64_t decodingTimeUs;
             CHECK(meta_data->findInt64(kKeyDecodingTime, &decodingTimeUs));
             ExtendedUtils::HFR::reCalculateTimeStamp(mMeta, decodingTimeUs);
@@ -2225,7 +2226,9 @@ status_t MPEG4Writer::Track::threadEntry() {
             decodingTimeUs -= previousPausedDurationUs;
             cttsOffsetTimeUs =
                     timestampUs - decodingTimeUs;
-            CHECK_GE(kMaxCttsOffsetTimeUs, decodingTimeUs - timestampUs);
+            tmpCttsOffsetTimeUs = kMaxCttsOffsetTimeUs;
+            ExtendedUtils::HFR::reCalculateTimeStamp(mMeta, tmpCttsOffsetTimeUs);
+            CHECK_GE(tmpCttsOffsetTimeUs, decodingTimeUs - timestampUs);
             timestampUs = decodingTimeUs;
             ALOGV("decoding time: %lld and ctts offset time: %lld",
                 timestampUs, cttsOffsetTimeUs);
