@@ -32,7 +32,9 @@
 #include "include/OggExtractor.h"
 #include "include/WAVExtractor.h"
 #include "include/WVMExtractor.h"
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedExtractor.h"
+#endif
 
 #include "matroska/MatroskaExtractor.h"
 
@@ -181,6 +183,7 @@ void DataSource::RegisterDefaultSniffers() {
     ExtendedExtractor::RegisterSniffers();
 #else
     RegisterSniffer(SniffWVM);
+#ifdef QCOM_HARDWARE
     RegisterSniffer(ExtendedExtractor::Sniff);
 #endif
 
