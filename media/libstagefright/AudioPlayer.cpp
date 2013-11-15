@@ -31,6 +31,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
+#include <media/stagefright/ExtendedCodec.h>
 
 #include "include/AwesomePlayer.h"
 
@@ -61,7 +62,8 @@ AudioPlayer::AudioPlayer(
       mPinnedTimeUs(-1ll),
       mPlaying(false),
       mStartPosUs(0),
-      mCreateFlags(flags) {
+      mCreateFlags(flags),
+      mPauseRequired(false) {
 }
 
 AudioPlayer::~AudioPlayer() {
@@ -250,7 +252,11 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
     mStarted = true;
     mPlaying = true;
     mPinnedTimeUs = -1ll;
-
+    const char *componentName;
+    if (!(format->findCString(kKeyDecoderComponent, &componentName))) {
+          componentName = "none";
+    }
+    mPauseRequired = ExtendedCodec::isSourcePauseRequired(componentName);
     return OK;
 }
 
@@ -277,8 +283,10 @@ void AudioPlayer::pause(bool playPendingSamples) {
 
     mPlaying = false;
     CHECK(mSource != NULL);
-    if (mSource->pause() == OK) {
-        mSourcePaused = true;
+    if (mPauseRequired) {
+        if (mSource->pause() == OK) {
+            mSourcePaused = true;
+        }
     }
 }
 
@@ -380,6 +388,7 @@ void AudioPlayer::reset() {
     mStarted = false;
     mPlaying = false;
     mStartPosUs = 0;
+    mPauseRequired = false;
 }
 
 // static
