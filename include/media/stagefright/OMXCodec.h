@@ -365,8 +365,10 @@ private:
     OMXCodec(const OMXCodec &);
     OMXCodec &operator=(const OMXCodec &);
 
+#ifdef QCOM_HARDWARE
     int32_t mNumBFrames;
     bool mInSmoothStreamingMode;
+#endif
 };
 
 struct CodecCapabilities {
