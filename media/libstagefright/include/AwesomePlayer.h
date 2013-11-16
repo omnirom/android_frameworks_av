@@ -104,7 +104,9 @@ struct AwesomePlayer {
     void postAudioEOS(int64_t delayUs = 0ll);
     void postAudioSeekComplete();
     void postAudioTearDown();
+#ifdef QCOM_HARDWARE
     void printFileName(int fd);
+#endif
     status_t dump(int fd, const Vector<String16> &args) const;
 
 private:
@@ -207,7 +209,9 @@ private:
 
     bool mWatchForAudioSeekComplete;
     bool mWatchForAudioEOS;
+#ifdef QCOM_HARDWARE
     static int mTunnelAliveAP;
+#endif
 
     sp<TimedEventQueue::Event> mVideoEvent;
     bool mVideoEventPending;
@@ -245,7 +249,9 @@ private:
     sp<DecryptHandle> mDecryptHandle;
 
     int64_t mLastVideoTimeUs;
+#ifdef QCOM_HARDWARE
     int64_t mFrameDurationUs;
+#endif
     TimedTextDriver *mTextDriver;
 
     sp<WVMExtractor> mWVMExtractor;
@@ -318,6 +324,7 @@ private:
         ASSIGN
     };
     void modifyFlags(unsigned value, FlagMode mode);
+#ifdef QCOM_HARDWARE
     void checkTunnelExceptions();
     void logFirstFrame();
     void logCatchUp(int64_t ts, int64_t clock, int64_t delta);
@@ -327,6 +334,7 @@ private:
     int64_t getTimeOfDayUs();
     bool mStatistics;
     int64_t mLateAVSyncMargin;
+#endif
 
     struct TrackStat {
         String8 mMIME;
@@ -353,6 +361,7 @@ private:
         uint32_t mFlags;
         Vector<TrackStat> mTracks;
 
+#ifdef QCOM_HARDWARE
         int64_t mConsecutiveFramesDropped;
         uint32_t mCatchupTimeStart;
         uint32_t mNumTimesSyncLoss;
@@ -369,6 +378,7 @@ private:
         int64_t mLastSeekToTimeMs;
         int64_t mResumeDelayStartUs;
         int64_t mSeekDelayStartUs;
+#endif
     } mStats;
 
     bool    mOffloadAudio;
@@ -388,9 +398,11 @@ private:
 
     size_t countTracks() const;
 
+#ifdef QCOM_HARDWARE
     bool inSupportedTunnelFormats(const char * mime);
     //Flag to check if tunnel mode audio is enabled
     bool mIsTunnelAudio;
+#endif
     AwesomePlayer(const AwesomePlayer &);
     AwesomePlayer &operator=(const AwesomePlayer &);
 };
