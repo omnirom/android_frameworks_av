@@ -150,7 +150,9 @@ public:
         INPUT_CLOSED,
         INPUT_CONFIG_CHANGED,
         STREAM_CONFIG_CHANGED,
+#ifdef QCOM_HARDWARE
         EFFECT_CONFIG_CHANGED,
+#endif
         NUM_CONFIG_EVENTS
     };
 
