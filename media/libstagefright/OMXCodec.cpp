@@ -45,8 +45,10 @@
 
 #include <OMX_Audio.h>
 #include <OMX_Component.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedCodec.h>
 #include "include/ExtendedUtils.h"
+#endif
 #include "include/avc_utils.h"
 
 
@@ -327,7 +329,9 @@ uint32_t OMXCodec::getComponentQuirks(
     }
 #endif // DOLBY_UDC
 
+#ifdef QCOM_HARDWARE
     quirks |= ExtendedCodec::getComponentQuirks(list,index);
+#endif
 
     return quirks;
 }
@@ -423,10 +427,12 @@ sp<MediaSource> OMXCodec::Create(
                 return softwareCodec;
             }
 
+#ifdef QCOM_HARDWARE
         const char* ext_componentName = ExtendedCodec::overrideComponentName(quirks, meta);
         if(ext_componentName != NULL) {
           componentName = ext_componentName;
         }
+#endif
 
         ALOGV("Attempting to allocate OMX node '%s'", componentName);
 
@@ -603,11 +609,13 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
             ALOGV("OMXCodec::configureCodec found kKeyRawCodecSpecificData of size %d\n", size);
             addCodecSpecificData(data, size);
 #endif
+#ifdef QCOM_HARDWARE
         } else {
             ExtendedCodec::getRawCodecSpecificData(meta, data, size);
             if (size) {
                 addCodecSpecificData(data, size);
             }
+#endif
         }
       }
     int32_t bitRate = 0;
@@ -674,6 +682,7 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
         CHECK(meta->findInt32(kKeySampleRate, &sampleRate));
 
         setRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
+#ifdef QCOM_HARDWARE
     } else {
         if (mIsEncoder && !mIsVideo) {
             int32_t numChannels, sampleRate;
@@ -686,6 +695,7 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
         if(OK != err) {
             return err;
         }
+#endif
     }
 
     if (!strncasecmp(mMIME, "video/", 6)) {
@@ -703,12 +713,14 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
                 return err;
             }
 
+#ifdef QCOM_HARDWARE
             ExtendedCodec::configureVideoDecoder(
                     meta, mMIME, mOMX, mFlags, mNode, mComponentName);
             ExtendedCodec::configureFramePackingFormat(
                     meta, mOMX, mNode, mComponentName);
             ExtendedCodec::enableSmoothStreaming(
                     mOMX, mNode, &mInSmoothStreamingMode, mComponentName);
+#endif
         }
     }
 
@@ -954,11 +966,15 @@ status_t OMXCodec::setVideoInputFormat(
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_H263, mime)) {
         compressionFormat = OMX_VIDEO_CodingH263;
     } else {
+#ifdef QCOM_HARDWARE
         status_t err = ExtendedCodec::setVideoInputFormat(mime, &compressionFormat);
         if(err != OK) {
+#endif
         ALOGE("Not a supported video mime type: %s", mime);
         CHECK(!"Should not be here. Not a supported video mime type.");
+#ifdef QCOM_HARDWARE
     }
+#endif
     }
 
     OMX_COLOR_FORMATTYPE colorFormat;
@@ -1282,7 +1298,9 @@ status_t OMXCodec::setupMPEG4EncoderParameters(const sp<MetaData>& meta) {
     mpeg4type.eProfile = static_cast<OMX_VIDEO_MPEG4PROFILETYPE>(profileLevel.mProfile);
     mpeg4type.eLevel = static_cast<OMX_VIDEO_MPEG4LEVELTYPE>(profileLevel.mLevel);
 
+#ifdef QCOM_HARDWARE
     ExtendedUtils::setBFrames(mpeg4type, mNumBFrames, mComponentName);
+#endif
     err = mOMX->setParameter(
             mNode, OMX_IndexParamVideoMpeg4, &mpeg4type, sizeof(mpeg4type));
     CHECK_EQ(err, (status_t)OK);
@@ -1323,9 +1341,13 @@ status_t OMXCodec::setupAVCEncoderParameters(const sp<MetaData>& meta) {
     ExtendedUtils::HFR::reCalculateHFRParams(meta, frameRate, bitRate);
 
     // XXX
+#ifdef QCOM_HARDWARE
     if (ExtendedUtils::isAVCProfileSupported(h264type.eProfile)){
         ALOGI("Profile type is  %d ",h264type.eProfile);
     } else if (h264type.eProfile != OMX_VIDEO_AVCProfileBaseline) {
+#else
+    if (h264type.eProfile != OMX_VIDEO_AVCProfileBaseline) {
+#endif
         ALOGW("Use baseline profile instead of %d for AVC recording",
             h264type.eProfile);
         h264type.eProfile = OMX_VIDEO_AVCProfileBaseline;
@@ -1350,8 +1372,10 @@ status_t OMXCodec::setupAVCEncoderParameters(const sp<MetaData>& meta) {
         h264type.nCabacInitIdc = 0;
     }
 
+#ifdef QCOM_HARDWARE
     ExtendedUtils::setBFrames(
             h264type, mNumBFrames, iFramesInterval, frameRate, mComponentName);
+#endif
     if (h264type.nBFrames != 0) {
         h264type.nAllowedPictureTypes |= OMX_VIDEO_PictureTypeB;
     }
@@ -1397,12 +1421,16 @@ status_t OMXCodec::setVideoOutputFormat(
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG2, mime)) {
         compressionFormat = OMX_VIDEO_CodingMPEG2;
     } else {
+#ifdef QCOM_HARDWARE
         status_t err = ExtendedCodec::setVideoOutputFormat(mime,&compressionFormat);
 
         if(err != OK) {
+#endif
         ALOGE("Not a supported video mime type: %s", mime);
         CHECK(!"Should not be here. Not a supported video mime type.");
+#ifdef QCOM_HARDWARE
     }
+#endif
     }
 
     status_t err = setVideoPortFormatType(
@@ -1552,9 +1580,13 @@ OMXCodec::OMXCodec(
               || !strncmp(componentName, "OMX.qcom",8)
 #endif
               )
+#ifdef QCOM_HARDWARE
                         ? NULL : nativeWindow),
       mNumBFrames(0),
-      mInSmoothStreamingMode(false) {
+      mInSmoothStreamingMode(false)
+#else
+                        ? NULL : nativeWindow) {
+#endif
     mPortStatus[kPortIndexInput] = ENABLED;
     mPortStatus[kPortIndexOutput] = ENABLED;
 
@@ -1639,7 +1671,9 @@ void OMXCodec::setComponentRole(
     }
 
     if (i == kNumMimeToRole) {
+#ifdef QCOM_HARDWARE
         ExtendedCodec::setSupportedRole(omx, node, isEncoder, mime);
+#endif
         return;
     }
 

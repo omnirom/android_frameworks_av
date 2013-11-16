@@ -49,7 +49,6 @@ LOCAL_SRC_FILES:=                         \
         NuMediaExtractor.cpp              \
         OMXClient.cpp                     \
         OMXCodec.cpp                      \
-        ExtendedCodec.cpp                 \
         OggExtractor.cpp                  \
         SampleIterator.cpp                \
         SampleTable.cpp                   \
@@ -70,8 +69,6 @@ LOCAL_SRC_FILES:=                         \
         avc_utils.cpp                     \
         mp4/FragmentedMP4Parser.cpp       \
         mp4/TrackFragment.cpp             \
-        ExtendedExtractor.cpp             \
-        ExtendedUtils.cpp                 \
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/stagefright/timedtext \
@@ -118,6 +115,12 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_id3 \
         libFLAC \
         libmedia_helper
+
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+       LOCAL_SRC_FILES  += ExtendedCodec.cpp
+       LOCAL_SRC_FILES  += ExtendedExtractor.cpp
+       LOCAL_SRC_FILES  += ExtendedUtils.cpp
+endif
 
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
        LOCAL_CFLAGS     += -DENABLE_AV_ENHANCEMENTS

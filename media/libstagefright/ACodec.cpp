@@ -37,7 +37,9 @@
 #include <media/hardware/HardwareAPI.h>
 
 #include <OMX_Component.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedCodec.h>
+#endif
 #include "include/avc_utils.h"
 #include "include/ExtendedUtils.h"
 
@@ -985,7 +987,11 @@ status_t ACodec::setComponentRole(
     }
 
     if (i == kNumMimeToRole) {
+#ifdef QCOM_HARDWARE
         return ExtendedCodec::setSupportedRole(mOMX, mNode, isEncoder, mime);
+#else
+        return ERROR_UNSUPPORTED;
+#endif
     }
 
     const char *role =
@@ -1181,10 +1187,12 @@ status_t ACodec::configureCodec(
                 err = setupVideoDecoder(mime, width, height);
             }
         }
+#ifdef QCOM_HARDWARE
         if (err == OK) {
             const char* componentName = mComponentName.c_str();
             ExtendedCodec::configureVideoDecoder(msg, mime, mOMX, 0, mNode, componentName);
         }
+#endif
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MPEG)) {
         int32_t numChannels, sampleRate;
         if (!msg->findInt32("channel-count", &numChannels)
@@ -1267,6 +1275,7 @@ status_t ACodec::configureCodec(
         } else {
             err = setupRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
         }
+#ifdef QCOM_HARDWARE
     } else {
         if (encoder) {
             int32_t numChannels, sampleRate;
@@ -1280,6 +1289,7 @@ status_t ACodec::configureCodec(
        if(err != OK) {
            return err;
        }
+#endif
     }
 
     if (err != OK) {
@@ -1758,9 +1768,13 @@ status_t ACodec::setupVideoDecoder(
     status_t err = GetVideoCodingTypeFromMime(mime, &compressionFormat);
 
     if (err != OK) {
+#ifdef QCOM_HARDWARE
         err = ExtendedCodec::setVideoOutputFormat(mime, &compressionFormat);
         if (err != OK)
             return err;
+#else
+        return err;
+#endif
     }
 
     err = setVideoPortFormatType(
@@ -1886,11 +1900,15 @@ status_t ACodec::setupVideoEncoder(const char *mime, const sp<AMessage> &msg) {
     err = GetVideoCodingTypeFromMime(mime, &compressionFormat);
 
     if (err != OK) {
+#ifdef QCOM_HARDWARE
         err = ExtendedCodec::setVideoInputFormat(mime, &compressionFormat);
         if (err != OK) {
             ALOGE("Not a supported video mime type: %s", mime);
             return err;
         }
+#else
+        return err;
+#endif
     }
 
     err = setVideoPortFormatType(
@@ -2674,6 +2692,7 @@ void ACodec::sendFormatChange(const sp<AMessage> &reply) {
 
                 default:
                 {
+#ifdef QCOM_HARDWARE
                     AString mimeType;
                     status_t err = ExtendedCodec::handleSupportedAudioFormats(
                         audioDef->eEncoding, &mimeType);
@@ -2689,6 +2708,7 @@ void ACodec::sendFormatChange(const sp<AMessage> &reply) {
                         notify->setInt32("channel-count", channelCount);
                         break;
                     }
+#endif
                     TRESPASS();
                 }
             }
@@ -3659,7 +3679,9 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
             ++matchIndex) {
         componentName = matchingCodecs.itemAt(matchIndex).mName.string();
         quirks = matchingCodecs.itemAt(matchIndex).mQuirks;
+#ifdef QCOM_HARDWARE
         ExtendedCodec::overrideComponentName(quirks, msg, &componentName);
+#endif
 
         pid_t tid = androidGetTid();
         int prevPriority = androidGetThreadPriority(tid);
