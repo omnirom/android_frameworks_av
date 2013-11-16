@@ -24,8 +24,10 @@
 #include <media/AudioTimestamp.h>
 #include <media/IAudioTrack.h>
 #include <utils/threads.h>
+#ifdef QCOM_HARDWARE
 #include <media/IDirectTrack.h>
 #include <media/IDirectTrackClient.h>
+#endif
 namespace android {
 
 // ----------------------------------------------------------------------------
@@ -36,8 +38,12 @@ class StaticAudioTrackClientProxy;
 
 // ----------------------------------------------------------------------------
 
+#ifdef QCOM_HARDWARE
 class AudioTrack : public BnDirectTrackClient,
                    virtual public RefBase
+#else
+class AudioTrack : public RefBase
+#endif
 {
 public:
     enum channel_index {
@@ -70,7 +76,9 @@ public:
         EVENT_NEW_TIMESTAMP = 8,    // Delivered periodically and when there's a significant change
                                     // in the mapping from frame position to presentation time.
                                     // See AudioTimestamp for the information included with event.
+#ifdef QCOM_HARDWARE
         EVENT_HW_FAIL = 9,          // ADSP failure.
+#endif
     };
 
     /* Client should declare Buffer on the stack and pass address to obtainBuffer()
@@ -223,9 +231,14 @@ public:
     /* Terminates the AudioTrack and unregisters it from AudioFlinger.
      * Also destroys all resources associated with the AudioTrack.
      */
-
+#ifndef QCOM_HARDWARE
+protected:
+#endif
                         virtual ~AudioTrack();
 
+#ifndef QCOM_HARDWARE
+public:
+#endif
     /* Initialize an AudioTrack that was created using the AudioTrack() constructor.
      * Don't call set() more than once, or after the AudioTrack() constructors that take parameters.
      * Returned status (from utils/Errors.h) can be:
@@ -268,7 +281,11 @@ public:
      * This includes the latency due to AudioTrack buffer size, AudioMixer (if any)
      * and audio hardware driver.
      */
+#ifdef QCOM_HARDWARE
             uint32_t    latency() const;
+#else
+            uint32_t    latency() const     { return mLatency; }
+#endif
 
     /* getters, see constructors and set() */
 
@@ -586,9 +603,13 @@ public:
      * consider implementing that at application level, based on the low resolution timestamps.
      * Returns NO_ERROR if timestamp is valid.
      */
+#ifdef QCOM_HARDWARE
       virtual status_t    getTimestamp(AudioTimestamp& timestamp);
       virtual void notify(int msg);
       virtual status_t    getTimeStamp(uint64_t *tstamp);
+#else
+            status_t    getTimestamp(AudioTimestamp& timestamp);
+#endif
 
 protected:
     /* copying audio tracks is not allowed */
@@ -659,7 +680,9 @@ protected:
             bool     isOffloaded() const
                 { return (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0; }
 
+#ifdef QCOM_HARDWARE
     sp<IDirectTrack>        mDirectTrack;
+#endif
     // Next 3 fields may be changed if IAudioTrack is re-created, but always != 0
     sp<IAudioTrack>         mAudioTrack;
     sp<IMemory>             mCblkMemory;
@@ -727,13 +750,17 @@ protected:
     uint32_t                mUpdatePeriod;          // in frames, zero means no EVENT_NEW_POS
 
     audio_output_flags_t    mFlags;
+#ifdef QCOM_HARDWARE
     sp<IAudioFlinger>       mAudioFlinger;
     audio_io_handle_t       mAudioDirectOutput;
+#endif
     int                     mSessionId;
     int                     mAuxEffectId;
 
     mutable Mutex           mLock;
+#ifdef QCOM_HARDWARE
     void*                   mObserver;
+#endif
     bool                    mIsTimed;
     int                     mPreviousPriority;          // before start()
     SchedPolicy             mPreviousSchedulingGroup;

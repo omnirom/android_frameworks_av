@@ -52,7 +52,9 @@ enum player_type {
     // The shared library with the test player is passed passed as an
     // argument to the 'test:' url in the setDataSource call.
     TEST_PLAYER = 5,
+#ifdef QCOM_HARDWARE
     DASH_PLAYER = 6,
+#endif
 };
 
 
@@ -81,10 +83,15 @@ public:
             CB_EVENT_FILL_BUFFER,   // Request to write more data to buffer.
             CB_EVENT_STREAM_END,    // Sent after all the buffers queued in AF and HW are played
                                     // back (after stop is called)
+#ifdef QCOM_HARDWARE
             CB_EVENT_TEAR_DOWN,      // The AudioTrack was invalidated due to use case change:
                                     // Need to re-evaluate offloading options
             CB_EVENT_UNDERRUN,
             CB_EVENT_HW_FAIL
+#else
+            CB_EVENT_TEAR_DOWN      // The AudioTrack was invalidated due to use case change:
+                                    // Need to re-evaluate offloading options
+#endif
         };
 
         // Callback returns the number of bytes actually written to the buffer.
@@ -100,7 +107,9 @@ public:
         virtual ssize_t     channelCount() const = 0;
         virtual ssize_t     frameSize() const = 0;
         virtual uint32_t    latency() const = 0;
+#ifdef QCOM_HARDWARE
         virtual audio_stream_type_t    streamType() const {return AUDIO_STREAM_DEFAULT;}
+#endif
         virtual float       msecsPerFrame() const = 0;
         virtual status_t    getPosition(uint32_t *position) const = 0;
         virtual status_t    getFramesWritten(uint32_t *frameswritten) const = 0;
@@ -130,8 +139,10 @@ public:
         virtual status_t    setParameters(const String8& keyValuePairs) { return NO_ERROR; };
         virtual String8     getParameters(const String8& keys) { return String8::empty(); };
 
+#ifdef QCOM_HARDWARE
         virtual ssize_t     sampleRate() const {return 0;};
         virtual status_t    getTimeStamp(uint64_t *tstamp) {return 0;};
+#endif
     };
 
                         MediaPlayerBase() : mCookie(0), mNotify(0) {}
