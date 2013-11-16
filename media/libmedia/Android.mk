@@ -11,10 +11,12 @@ include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
 LOCAL_SRC_FILES:= AudioParameter.cpp
 LOCAL_MODULE:= libaudioparameter
 LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libutils libcutils
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 
@@ -25,8 +27,6 @@ LOCAL_SRC_FILES:= \
     AudioTrackShared.cpp \
     IAudioFlinger.cpp \
     IAudioFlingerClient.cpp \
-    IDirectTrack.cpp \
-    IDirectTrackClient.cpp \
     IAudioTrack.cpp \
     IAudioRecord.cpp \
     ICrypto.cpp \
@@ -66,6 +66,10 @@ LOCAL_SRC_FILES:= \
     SoundPool.cpp \
     SoundPoolThread.cpp \
     StringArray.cpp
+
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+LOCAL_SRC_FILES += IDirectTrack.cpp IDirectTrackClient.cpp 
+endif
 
 LOCAL_SRC_FILES += ../libnbaio/roundup.c
 
