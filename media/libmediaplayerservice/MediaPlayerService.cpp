@@ -1762,7 +1762,11 @@ void MediaPlayerService::AudioOutput::pause()
 void MediaPlayerService::AudioOutput::close()
 {
     ALOGV("close");
+#ifdef QCOM_HARDWARE
     if (mTrack != 0) mTrack.clear();
+#else
+    mTrack.clear();
+#endif
 }
 
 void MediaPlayerService::AudioOutput::setVolume(float left, float right)

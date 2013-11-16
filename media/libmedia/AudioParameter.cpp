@@ -35,6 +35,7 @@ const char * const AudioParameter::keyChannels = AUDIO_PARAMETER_STREAM_CHANNELS
 const char * const AudioParameter::keyFrameCount = AUDIO_PARAMETER_STREAM_FRAME_COUNT;
 const char * const AudioParameter::keyInputSource = AUDIO_PARAMETER_STREAM_INPUT_SOURCE;
 const char * const AudioParameter::keyScreenState = AUDIO_PARAMETER_KEY_SCREEN_STATE;
+#ifdef QCOM_HARDWARE
 const char * const AudioParameter::keyHandleFm = AUDIO_PARAMETER_KEY_HANDLE_FM;
 const char * const AudioParameter::keyVoipCheck = AUDIO_PARAMETER_KEY_VOIP_CHECK;
 const char * const AudioParameter::keyFluenceType = AUDIO_PARAMETER_KEY_FLUENCE_TYPE;
@@ -43,6 +44,7 @@ const char * const AudioParameter::keyHandleA2dpDevice = AUDIO_PARAMETER_KEY_HAN
 const char * const AudioParameter::keyADSPStatus = AUDIO_PARAMETER_KEY_ADSP_STATUS;
 const char * const AudioParameter::keyCanOpenProxy = AUDIO_CAN_OPEN_PROXY;
 const char * const AudioParameter::keyFmVolume = AUDIO_PARAMETER_KEY_FM_VOLUME;
+#endif
 
 AudioParameter::AudioParameter(const String8& keyValuePairs)
 {
