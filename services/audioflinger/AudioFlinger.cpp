@@ -731,12 +731,14 @@ size_t AudioFlinger::frameCount(audio_io_handle_t output) const
 uint32_t AudioFlinger::latency(audio_io_handle_t output) const
 {
     Mutex::Autolock _l(mLock);
+#ifdef QCOM_HARDWARE
     if (!mDirectAudioTracks.isEmpty()) {
         AudioSessionDescriptor *desc = mDirectAudioTracks.valueFor(output);
         if (desc != NULL) {
             return desc->stream->get_latency(desc->stream);
         }
     }
+#endif
 
     PlaybackThread *thread = checkPlaybackThread_l(output);
     if (thread == NULL) {
@@ -1473,8 +1475,10 @@ sp<IAudioRecord> AudioFlinger::openRecord(
     RecordThread *thread;
     size_t inFrameCount;
     int lSessionId;
+#ifdef QCOM_HARDWARE
     size_t inputBufferSize = 0;
     uint32_t channelCount = popcount(channelMask);
+#endif
 
     // check calling permissions
     if (!recordingAllowed()) {
@@ -1483,6 +1487,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         goto Exit;
     }
 
+#ifdef QCOM_HARDWARE
     // Check that audio input stream accepts requested audio parameters
     inputBufferSize = getInputBufferSize(sampleRate, format, channelCount);
     if (inputBufferSize == 0) {
@@ -1490,6 +1495,13 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         ALOGE("Bad audio input parameters: sampling rate %u, format %d, channels %d",  sampleRate, format, channelCount);
         goto Exit;
     }
+#else
+    if (format != AUDIO_FORMAT_PCM_16_BIT) {
+        ALOGE("openRecord() invalid format %d", format);
+        lStatus = BAD_VALUE;
+        goto Exit;
+    }
+#endif
 
     // add client to list
     { // scope for mLock
@@ -1521,6 +1533,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
             }
         }
 
+#ifdef QCOM_HARDWARE
         // frameCount must be a multiple of input buffer size
         // Change for Codec type
         uint8_t channelCount = popcount(channelMask);
@@ -1543,6 +1556,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
             }
         }
         frameCount = ((frameCount - 1)/inFrameCount + 1) * inFrameCount;
+#endif
 
         // create new record track.
         // The record track uses one track in mHardwareMixerThread by convention.
@@ -2008,7 +2022,11 @@ audio_io_handle_t AudioFlinger::openInput(audio_module_handle_t module,
     if (status == BAD_VALUE &&
         reqFormat == config.format && config.format == AUDIO_FORMAT_PCM_16_BIT &&
         (config.sample_rate <= 2 * reqSamplingRate) &&
+#ifdef QCOM_HARDWARE
         (getInputChannelCount(config.channel_mask) <= FCC_2) && (getInputChannelCount(reqChannels) <= FCC_2)) {
+#else
+        (popcount(config.channel_mask) <= FCC_2) && (popcount(reqChannels) <= FCC_2)) {
+#endif
         ALOGV("openInput() reopening with proposed sampling rate and channel mask");
         inStream = NULL;
         status = inHwHal->open_input_stream(inHwHal, id, *pDevices, &config, &inStream);

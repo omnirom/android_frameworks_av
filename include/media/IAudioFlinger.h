@@ -54,7 +54,9 @@ public:
         TRACK_TIMED   = 1,  // client requests a TimedAudioTrack
         TRACK_FAST    = 2,  // client requests a fast AudioTrack or AudioRecord
         TRACK_OFFLOAD = 4,  // client requests offload to hw codec
+#ifdef QCOM_HARDWARE
         TRACK_VOICE_COMMUNICATION = 8, //client uses voice communication
+#endif
     };
     typedef uint32_t track_flags_t;
 

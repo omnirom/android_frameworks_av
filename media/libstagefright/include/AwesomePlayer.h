@@ -245,7 +245,9 @@ private:
     sp<DecryptHandle> mDecryptHandle;
 
     int64_t mLastVideoTimeUs;
+#ifdef QCOM_HARDWARE
     int64_t mFrameDurationUs;
+#endif
     TimedTextDriver *mTextDriver;
 
     sp<WVMExtractor> mWVMExtractor;
@@ -319,6 +321,7 @@ private:
     };
     void modifyFlags(unsigned value, FlagMode mode);
     void checkTunnelExceptions();
+#ifdef QCOM_HARDWARE
     void logFirstFrame();
     void logCatchUp(int64_t ts, int64_t clock, int64_t delta);
     void logLate(int64_t ts, int64_t clock, int64_t delta);
@@ -327,6 +330,7 @@ private:
     int64_t getTimeOfDayUs();
     bool mStatistics;
     int64_t mLateAVSyncMargin;
+#endif
 
     struct TrackStat {
         String8 mMIME;
@@ -353,6 +357,7 @@ private:
         uint32_t mFlags;
         Vector<TrackStat> mTracks;
 
+#ifdef QCOM_HARDWARE
         int64_t mConsecutiveFramesDropped;
         uint32_t mCatchupTimeStart;
         uint32_t mNumTimesSyncLoss;
@@ -369,6 +374,7 @@ private:
         int64_t mLastSeekToTimeMs;
         int64_t mResumeDelayStartUs;
         int64_t mSeekDelayStartUs;
+#endif
     } mStats;
 
     bool    mOffloadAudio;

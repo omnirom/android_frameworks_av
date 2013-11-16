@@ -40,7 +40,9 @@
 
 #include "include/ESDS.h"
 
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif
 
 namespace android {
 
@@ -443,8 +445,12 @@ status_t MPEG4Writer::addSource(const sp<MediaSource> &source) {
 
     // A track of type other than video or audio is not supported.
     const char *mime;
+#ifdef QCOM_HARDWARE
     sp<MetaData> meta = source->getFormat();
     CHECK(meta->findCString(kKeyMIMEType, &mime));
+#else
+    source->getFormat()->findCString(kKeyMIMEType, &mime);
+#endif
     bool isAudio = !strncasecmp(mime, "audio/", 6);
     bool isVideo = !strncasecmp(mime, "video/", 6);
     if (!isAudio && !isVideo) {
@@ -512,7 +518,11 @@ int64_t MPEG4Writer::estimateMoovBoxSize(int32_t bitRate) {
 
     // If the estimation is wrong, we will pay the price of wasting
     // some reserved space. This should not happen so often statistically.
+#ifdef QCOM_HARDWARE
     int32_t factor = mUse32BitOffset? 1: 2;
+#else
+    static const int32_t factor = mUse32BitOffset? 1: 2;
+#endif
     static const int64_t MIN_MOOV_BOX_SIZE = 3 * 1024;  // 3 KB
     static const int64_t MAX_MOOV_BOX_SIZE = (180 * 3000000 * 6LL / 8000);
     int64_t size = MIN_MOOV_BOX_SIZE;
@@ -2189,9 +2199,11 @@ status_t MPEG4Writer::Track::threadEntry() {
         meta_data->findInt32(kKeyIsSyncFrame, &isSync);
         CHECK(meta_data->findInt64(kKeyTime, &timestampUs));
 
+#ifdef QCOM_HARDWARE
         if (!mIsAudio) {
             ExtendedUtils::HFR::reCalculateTimeStamp(mMeta, timestampUs);
         }
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
         if (mStszTableEntries->count() == 0) {
@@ -2220,7 +2232,9 @@ status_t MPEG4Writer::Track::threadEntry() {
              */
             int64_t decodingTimeUs;
             CHECK(meta_data->findInt64(kKeyDecodingTime, &decodingTimeUs));
+#ifdef QCOM_HARDWARE
             ExtendedUtils::HFR::reCalculateTimeStamp(mMeta, decodingTimeUs);
+#endif
 
             decodingTimeUs -= previousPausedDurationUs;
             cttsOffsetTimeUs =
