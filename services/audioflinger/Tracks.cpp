@@ -80,7 +80,7 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
         mFormat(format),
         mChannelMask(channelMask),
         mChannelCount(popcount(channelMask)),
-        mFrameSize((audio_is_linear_pcm(format) || audio_is_supported_compressed(format)) ?
+        mFrameSize((audio_is_linear_pcm(format) || audio_is_compress_voip_format(format)) ?
         ((flags & IAudioFlinger::TRACK_VOICE_COMMUNICATION)? mChannelCount * sizeof(int16_t) : mChannelCount * audio_bytes_per_sample(format)) : sizeof(int8_t)),
         mFrameCount(frameCount),
         mFlags(0),
