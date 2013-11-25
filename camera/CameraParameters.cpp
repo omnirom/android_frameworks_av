@@ -186,18 +186,6 @@ const char CameraParameters::KEY_WEATHER[] = "weather";
 const char CameraParameters::KEY_CITYID[] = "contextualtag-cityid";
 #endif
 
-#ifdef HAVE_ISO
-const char CameraParameters::KEY_SUPPORTED_ISO_MODES[] = "iso-values";
-const char CameraParameters::KEY_ISO_MODE[] = "iso";
-#endif
-
-#ifdef SAMSUNG_CAMERA_HARDWARE
-const char CameraParameters::KEY_ANTI_SHAKE_MODE[] = "anti-shake";
-const char CameraParameters::KEY_METERING[] = "metering";
-const char CameraParameters::KEY_WDR[] = "wdr";
-const char CameraParameters::KEY_WEATHER[] = "weather";
-#endif
-
 #ifdef HTC_CAMERA_HARDWARE
 const char CameraParameters::KEY_TIME_CONS_POST_PROCESSING[] = "time-cons-post-processing";
 const char CameraParameters::KEY_OIS_MODE[] = "ois_mode";
