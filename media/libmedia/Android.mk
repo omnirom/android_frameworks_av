@@ -68,7 +68,11 @@ LOCAL_SRC_FILES:= \
     StringArray.cpp
 
 ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-LOCAL_SRC_FILES += IDirectTrack.cpp IDirectTrackClient.cpp 
+    ifneq ($(filter caf caf-bfam,$(TARGET_QCOM_AUDIO_VARIANT)),)
+        ifeq ($(BOARD_USES_LEGACY_ALSA_AUDIO),true)
+            LOCAL_SRC_FILES += IDirectTrack.cpp IDirectTrackClient.cpp
+        endif
+    endif
 endif
 
 LOCAL_SRC_FILES += ../libnbaio/roundup.c

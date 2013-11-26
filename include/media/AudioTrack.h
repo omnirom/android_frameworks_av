@@ -24,7 +24,7 @@
 #include <media/AudioTimestamp.h>
 #include <media/IAudioTrack.h>
 #include <utils/threads.h>
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 #include <media/IDirectTrack.h>
 #include <media/IDirectTrackClient.h>
 #endif
@@ -71,7 +71,7 @@ public:
         EVENT_NEW_TIMESTAMP = 8,    // Delivered periodically and when there's a significant change
                                     // in the mapping from frame position to presentation time.
                                     // See AudioTimestamp for the information included with event.
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
         EVENT_HW_FAIL = 9,          // ADSP failure.
 #endif
     };
@@ -240,14 +240,9 @@ public:
     /* Terminates the AudioTrack and unregisters it from AudioFlinger.
      * Also destroys all resources associated with the AudioTrack.
      */
-#ifndef QCOM_HARDWARE
-protected:
-#endif
+
                         virtual ~AudioTrack();
 
-#ifndef QCOM_HARDWARE
-public:
-#endif
     /* Initialize an AudioTrack that was created using the AudioTrack() constructor.
      * Don't call set() more than once, or after the AudioTrack() constructors that take parameters.
      * Returned status (from utils/Errors.h) can be:
@@ -294,7 +289,7 @@ public:
      * This includes the latency due to AudioTrack buffer size, AudioMixer (if any)
      * and audio hardware driver.
      */
-#if defined(USE_OMX_COMPAT) || defined(QCOM_HARDWARE)
+#if defined(USE_OMX_COMPAT) || defined(QCOM_DIRECTTRACK)
             uint32_t    latency() const;
 #else
             uint32_t    latency() const     { return mLatency; }
@@ -629,12 +624,11 @@ public:
      * consider implementing that at application level, based on the low resolution timestamps.
      * Returns NO_ERROR if timestamp is valid.
      */
-#ifdef QCOM_HARDWARE
+
       virtual status_t    getTimestamp(AudioTimestamp& timestamp);
+#ifdef QCOM_DIRECTTRACK
       virtual void notify(int msg);
       virtual status_t    getTimeStamp(uint64_t *tstamp);
-#else
-            status_t    getTimestamp(AudioTimestamp& timestamp);
 #endif
 
 protected:
@@ -706,7 +700,7 @@ protected:
             bool     isOffloaded() const
                 { return (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0; }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     sp<IDirectTrack>        mDirectTrack;
 #endif
     // Next 3 fields may be changed if IAudioTrack is re-created, but always != 0
@@ -776,7 +770,7 @@ protected:
     uint32_t                mUpdatePeriod;          // in frames, zero means no EVENT_NEW_POS
 
     audio_output_flags_t    mFlags;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     sp<IAudioFlinger>       mAudioFlinger;
     audio_io_handle_t       mAudioDirectOutput;
 #endif
@@ -784,7 +778,7 @@ protected:
     int                     mAuxEffectId;
 
     mutable Mutex           mLock;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     void*                   mObserver;
 #endif
     bool                    mIsTimed;
@@ -819,7 +813,7 @@ private:
     audio_io_handle_t       mOutput;                // cached output io handle
     int                     mClientUid;
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     class DirectClient : public BnDirectTrackClient {
     public:
         DirectClient(AudioTrack * audioTrack) : mAudioTrack(audioTrack) { }

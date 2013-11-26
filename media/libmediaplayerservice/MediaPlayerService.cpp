@@ -81,7 +81,7 @@
 #include "HDCP.h"
 #include "HTTPBase.h"
 #include "RemoteDisplay.h"
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 #define DEFAULT_SAMPLE_RATE 44100
 #endif
 
@@ -1379,7 +1379,7 @@ uint32_t MediaPlayerService::AudioOutput::latency () const
     return mTrack->latency();
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 audio_stream_type_t MediaPlayerService::AudioOutput::streamType () const
 {
     return mStreamType;
@@ -1397,7 +1397,7 @@ status_t MediaPlayerService::AudioOutput::getPosition(uint32_t *position) const
     return mTrack->getPosition(position);
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 ssize_t MediaPlayerService::AudioOutput::sampleRate() const
 {
     if (mTrack == 0) return NO_INIT;
@@ -1468,7 +1468,7 @@ status_t MediaPlayerService::AudioOutput::open(
 {
     mCallback = cb;
     mCallbackCookie = cookie;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if (flags & AUDIO_OUTPUT_FLAG_LPA || flags & AUDIO_OUTPUT_FLAG_TUNNEL) {
         ALOGV("AudioOutput open: with flags %x",flags);
         channelMask = audio_channel_out_mask_from_count(channelCount);
@@ -1745,9 +1745,6 @@ void MediaPlayerService::AudioOutput::switchToNextOutput() {
 
 ssize_t MediaPlayerService::AudioOutput::write(const void* buffer, size_t size)
 {
-#ifndef QCOM_HARDWARE
-    LOG_FATAL_IF(mCallback != NULL, "Don't call write if supplying a callback.");
-#endif
 
     //ALOGV("write(%p, %u)", buffer, size);
     if (mTrack != 0) {
@@ -1779,11 +1776,7 @@ void MediaPlayerService::AudioOutput::pause()
 void MediaPlayerService::AudioOutput::close()
 {
     ALOGV("close");
-#ifdef QCOM_HARDWARE
     if (mTrack != 0) mTrack.clear();
-#else
-    mTrack.clear();
-#endif
 }
 
 void MediaPlayerService::AudioOutput::setVolume(float left, float right)
@@ -1836,7 +1829,7 @@ status_t MediaPlayerService::AudioOutput::attachAuxEffect(int effectId)
 void MediaPlayerService::AudioOutput::CallbackWrapper(
         int event, void *cookie, void *info) {
     //ALOGV("callbackwrapper");
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if (event == AudioTrack::EVENT_UNDERRUN) {
         ALOGW("Event underrun");
         CallbackData *data = (CallbackData*)cookie;
@@ -1926,7 +1919,7 @@ void MediaPlayerService::AudioOutput::CallbackWrapper(
         }
 
         data->unlock();
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     }
 #endif
 
@@ -1969,7 +1962,7 @@ status_t MediaPlayerService::AudioCache::getPosition(uint32_t *position) const
     return NO_ERROR;
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 ssize_t MediaPlayerService::AudioCache::sampleRate() const
 {
     return mSampleRate;
