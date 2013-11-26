@@ -1,15 +1,6 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-ifeq ($(BOARD_USES_ALSA_AUDIO),true)
-   ifeq ($(USE_TUNNEL_MODE),true)
-        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
-   endif
-   ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
-        LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
-   endif
-endif
-
 include frameworks/av/media/libstagefright/codecs/common/Config.mk
 
 LOCAL_SRC_FILES:=                         \
@@ -125,11 +116,23 @@ LOCAL_STATIC_LIBRARIES := \
         libFLAC \
         libmedia_helper
 
+ifneq ($(filter caf caf-bfam,$(TARGET_QCOM_AUDIO_VARIANT)),)
+ifeq ($(BOARD_USES_LEGACY_ALSA_AUDIO),true)
+   LOCAL_SRC_FILES += LPAPlayerALSA.cpp
+   ifeq ($(USE_TUNNEL_MODE),true)
+        LOCAL_SRC_FILES += TunnelPlayer.cpp
+        LOCAL_CFLAGS += -DUSE_TUNNEL_MODE
+   endif
+   ifeq ($(NO_TUNNEL_MODE_FOR_MULTICHANNEL),true)
+        LOCAL_CFLAGS += -DNO_TUNNEL_MODE_FOR_MULTICHANNEL
+   endif
+endif
+endif
+
 ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
        LOCAL_STATIC_LIBRARIES  += libstagefright_mp3dec
        LOCAL_SRC_FILES         += ExtendedCodec.cpp ExtendedExtractor.cpp ExtendedUtils.cpp
        LOCAL_SRC_FILES         += WAVEWriter.cpp
-       LOCAL_SRC_FILES         += LPAPlayerALSA.cpp TunnelPlayer.cpp
 ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
 else

@@ -881,17 +881,16 @@ status_t StagefrightRecorder::start() {
 }
 
 sp<MediaSource> StagefrightRecorder::createAudioSource() {
-#ifdef QCOM_HARDWARE
-    bool tunneledSource = false;
     int32_t res;
-    const char *tunnelMime;
-
     //check permissions
     res = mAppOpsManager.noteOp(AppOpsManager::OP_RECORD_AUDIO, mClientUid, mClientName);
     if (res != AppOpsManager::MODE_ALLOWED) {
         return NULL;
     }
 
+#ifdef QCOM_DIRECTTRACK
+    bool tunneledSource = false;
+    const char *tunnelMime;
     {
         AudioParameter param;
         String8 key("tunneled-input-formats");

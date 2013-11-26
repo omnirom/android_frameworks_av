@@ -327,7 +327,7 @@ status_t AudioSystem::getLatency(audio_io_handle_t output,
                                  audio_stream_type_t streamType,
                                  uint32_t* latency)
 {
-#ifndef QCOM_HARDWARE
+#ifndef QCOM_DIRECTTRACK
     OutputDescriptor *outputDesc;
 
     gLock.lock();
@@ -338,7 +338,7 @@ status_t AudioSystem::getLatency(audio_io_handle_t output,
         const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
         if (af == 0) return PERMISSION_DENIED;
         *latency = af->latency(output);
-#ifndef QCOM_HARDWARE
+#ifndef QCOM_DIRECTTRACK
     } else {
         *latency = outputDesc->latency;
         gLock.unlock();
