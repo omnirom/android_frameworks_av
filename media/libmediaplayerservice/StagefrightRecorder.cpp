@@ -1630,8 +1630,8 @@ status_t StagefrightRecorder::setupVideoEncoder(
     }
 
 #ifdef QCOM_HARDWARE
-    status_t retVal = ExtendedUtils::HFR::reCalculateFileDuration(
-            meta, enc_meta, mMaxFileDurationUs, mFrameRate, mVideoEncoder);
+    status_t retVal = ExtendedUtils::HFR::initializeHFR(
+            meta, enc_meta, mMaxFileDurationUs, mVideoEncoder);
     if(retVal != OK) {
         return retVal;
     }
@@ -1664,6 +1664,7 @@ status_t StagefrightRecorder::setupVideoEncoder(
     if (mCaptureTimeLapse) {
         encoder_flags |= OMXCodec::kOnlySubmitOneInputBufferAtOneTime;
     }
+    encoder_flags |= ExtendedUtils::getEncoderTypeFlags();
 
     sp<MediaSource> encoder = OMXCodec::Create(
             client.interface(), enc_meta,
