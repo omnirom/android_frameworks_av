@@ -140,7 +140,9 @@ struct ExtendedCodec {
             const char* componentName);
 
     static bool useHWAACDecoder(const char *mime);
-
+#ifdef QCOM_HARDWARE
+    static bool isSourcePauseRequired(const char *componentName);
+#endif
 private:
     static const char* getMsgKey(int key );
 

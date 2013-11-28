@@ -64,6 +64,9 @@
 #include <sec_format.h>
 #endif
 
+#ifdef QCOM_HARDWARE
+#include "include/ExtendedUtils.h"
+#endif
 namespace android {
 
 #ifdef USE_SAMSUNG_COLORFORMAT
@@ -1012,7 +1015,7 @@ status_t OMXCodec::isColorFormatSupported(
         // the incremented index (bug 2897413).
         CHECK_EQ(index, portFormat.nIndex);
         if (portFormat.eColorFormat == colorFormat) {
-            CODEC_LOGE("Found supported color format: %d", portFormat.eColorFormat);
+            CODEC_LOGV("Found supported color format: %d", portFormat.eColorFormat);
             return OK;  // colorFormat is supported!
         }
         ++index;
@@ -5381,8 +5384,12 @@ status_t QueryCodec(
 #else
     portFormat.nPortIndex = !isEncoder ? 1 : 0;
 #endif
+#ifndef QCOM_HARDWARE
     for (OMX_U32 index = 0;;index++)  {
         portFormat.nIndex = index;
+#else
+    for (portFormat.nIndex = 0;; ++portFormat.nIndex)  {
+#endif
         err = omx->getParameter(
                 node, OMX_IndexParamVideoPortFormat,
                 &portFormat, sizeof(portFormat));
