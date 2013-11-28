@@ -42,15 +42,15 @@
 #include <cutils/properties.h>
 #include <media/stagefright/MediaExtractor.h>
 
+#include <QCMetaData.h>
+#include <QCMediaDefs.h>
+
 #include "include/ExtendedUtils.h"
 
 static const int64_t kDefaultAVSyncLateMargin =  40000;
 static const int64_t kMaxAVSyncLateMargin     = 250000;
 
 #if defined(ENABLE_AV_ENHANCEMENTS) || defined(QCOM_LEGACY_MMPARSER)
-
-#include <QCMetaData.h>
-#include <QCMediaDefs.h>
 
 #include "include/ExtendedExtractor.h"
 #include "include/avc_utils.h"
