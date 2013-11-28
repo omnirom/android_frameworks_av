@@ -21,7 +21,9 @@
 #include <media/AudioParameter.h>
 #endif
 #include "StagefrightRecorder.h"
-
+#ifdef QCOM_HARDWARE
+#include <binder/AppOpsManager.h>
+#endif
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
 
@@ -884,7 +886,14 @@ status_t StagefrightRecorder::start() {
 sp<MediaSource> StagefrightRecorder::createAudioSource() {
 #ifdef QCOM_HARDWARE
     bool tunneledSource = false;
+    int32_t res;
     const char *tunnelMime;
+    //check permissions
+    res = mAppOpsManager.noteOp(AppOpsManager::OP_RECORD_AUDIO, mClientUid, mClientName);
+    if (res != AppOpsManager::MODE_ALLOWED) {
+        return NULL;
+    }
+
     {
         AudioParameter param;
         String8 key("tunneled-input-formats");
@@ -1523,18 +1532,10 @@ status_t StagefrightRecorder::setupCameraSource(
                 mTimeBetweenTimeLapseFrameCaptureUs);
         *cameraSource = mCameraSourceTimeLapse;
     } else {
-        bool useMeta = true;
-#ifdef QCOM_HARDWARE
-        char value[PROPERTY_VALUE_MAX];
-        if (property_get("debug.camcorder.disablemeta", value, NULL) &&
-            atoi(value)) {
-            useMeta = false;
-        }
-#endif
         *cameraSource = CameraSource::CreateFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid,
                 videoSize, mFrameRate,
-                mPreviewSurface, useMeta /*storeMetaDataInVideoBuffers*/);
+                mPreviewSurface, true /*storeMetaDataInVideoBuffers*/);
     }
     mCamera.clear();
     mCameraProxy.clear();

@@ -485,8 +485,10 @@ uint32_t AudioTrack::latency() const
         uint32_t afLatency = 0;
         uint32_t newLatency = 0;
         AudioSystem::getLatency(mOutput, mStreamType, &afLatency);
-        if (0 != mSampleRate){
-            newLatency = afLatency + (1000*mCblk->frameCount_) / mSampleRate;
+        if(0 != mSampleRate) {
+            newLatency = (mCblk == NULL) ? afLatency : (afLatency + (1000*mCblk->frameCount_) / mSampleRate);
+        } else {
+            newLatency = afLatency;
         }
         ALOGD("latency() mLatency = %d, newLatency = %d", mLatency, newLatency);
         return newLatency;
@@ -497,7 +499,7 @@ uint32_t AudioTrack::latency() const
 
 status_t AudioTrack::start()
 {
-    status_t status =- NO_ERROR;
+    status_t status = NO_ERROR;
     AutoMutex lock(mLock);
     if (mState == STATE_ACTIVE) {
         return INVALID_OPERATION;
@@ -1960,7 +1962,12 @@ status_t AudioTrack::dump(int fd, const Vector<String16>& args) const
 #ifdef QCOM_HARDWARE
     uint32_t afLatency = 0;
     AudioSystem::getLatency(mOutput, mStreamType, &afLatency);
-    snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState, afLatency + (1000*mCblk->frameCount_) / mSampleRate);
+    if(0 != mSampleRate) {
+        snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState,
+                (mCblk == NULL) ? afLatency : (afLatency + (1000*mCblk->frameCount_) / mSampleRate));
+    } else {
+        snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState, afLatency);
+    }
 #else
     snprintf(buffer, 255, "  state(%d), latency (%d)\n", mState, mLatency);
 #endif

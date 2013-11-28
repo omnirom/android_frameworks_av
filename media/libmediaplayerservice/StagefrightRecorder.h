@@ -23,6 +23,9 @@
 #include <utils/String8.h>
 
 #include <system/audio.h>
+#ifdef QCOM_HARDWARE
+#include <binder/AppOpsManager.h>
+#endif
 
 namespace android {
 
@@ -69,6 +72,9 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() const;
 
 private:
+#ifdef QCOM_HARDWARE
+    AppOpsManager mAppOpsManager;
+#endif
     sp<ICamera> mCamera;
     sp<ICameraRecordingProxy> mCameraProxy;
     sp<IGraphicBufferProducer> mPreviewSurface;

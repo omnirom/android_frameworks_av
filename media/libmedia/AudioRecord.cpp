@@ -153,7 +153,7 @@ status_t AudioRecord::set(
         }
         break;
     case TRANSFER_OBTAIN:
-   case TRANSFER_SYNC:
+    case TRANSFER_SYNC:
         break;
     default:
         ALOGE("Invalid transfer type %d", transferType);
@@ -570,7 +570,11 @@ status_t AudioRecord::openRecord_l(size_t epoch)
     void *buffers = (char*)cblk + sizeof(audio_track_cblk_t);
 
     // update proxy
+#ifndef QCOM_HARDWARE
     mProxy = new AudioRecordClientProxy(cblk, buffers, mFrameCount, mFrameSize);
+#else
+    mProxy = new AudioRecordClientProxy(cblk, buffers, mCblk->frameCount_, mFrameSize);
+#endif
     mProxy->setEpoch(epoch);
     mProxy->setMinimum(mNotificationFramesAct);
 
