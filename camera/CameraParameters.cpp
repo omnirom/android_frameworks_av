@@ -545,7 +545,7 @@ void CameraParameters::set(const char *key, const char *value)
 void CameraParameters::set(const char *key, int value)
 {
     char str[16];
-    snprintf(str, sizeof(str), "%d", value);
+    sprintf(str, "%d", value);
     set(key, str);
 }
 
@@ -671,7 +671,7 @@ static void parseSizesList(const char *sizesStr, Vector<Size> &sizes)
 void CameraParameters::setPreviewSize(int width, int height)
 {
     char str[32];
-    snprintf(str, sizeof(str), "%dx%d", width, height);
+    sprintf(str, "%dx%d", width, height);
     set(KEY_PREVIEW_SIZE, str);
 }
 

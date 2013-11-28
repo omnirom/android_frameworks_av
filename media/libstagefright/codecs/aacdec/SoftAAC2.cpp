@@ -403,6 +403,11 @@ void SoftAAC2::onQueueFilled(OMX_U32 portIndex) {
             }
 
             outHeader->nFlags = OMX_BUFFERFLAG_EOS;
+#ifdef QCOM_HARDWARE
+            outHeader->nTimeStamp =
+                mAnchorTimeUs
+                    + (mNumSamplesOutput * 1000000ll) / mStreamInfo->sampleRate;
+#endif
 
             outQueue.erase(outQueue.begin());
             outInfo->mOwnedByUs = false;
