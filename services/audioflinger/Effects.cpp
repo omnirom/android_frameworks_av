@@ -2002,6 +2002,11 @@ void *AudioFlinger::DirectAudioTrack::EffectsThreadWrapper(void *me) {
 }
 
 void AudioFlinger::DirectAudioTrack::EffectsThreadEntry() {
+#ifdef QCOM_HARDWARE
+    uint32_t event_interval = 20000;   // FIXME: 20ms is an estimated value
+    // Worst delay case is (event_interval*MAX_WAIT_ITERS)
+    const size_t MAX_WAIT_ITERS = 10;
+#endif
     while(1) {
         mEffectLock.lock();
         if (!mEffectConfigChanged && !mKillEffectsThread) {
@@ -2014,6 +2019,16 @@ void AudioFlinger::DirectAudioTrack::EffectsThreadEntry() {
         if (mEffectConfigChanged) {
             mEffectConfigChanged = false;
             if (mFlag & AUDIO_OUTPUT_FLAG_LPA) {
+#ifdef QCOM_HARDWARE
+                for (size_t idx=0; idx<MAX_WAIT_ITERS; ++idx) {
+                    usleep(event_interval);
+                    if (mEffectConfigChanged) {
+                        mEffectConfigChanged = false;
+                        continue;
+                    }
+                    break;
+                }
+#endif
                 for ( List<BufferInfo>::iterator it = mEffectsPool.begin();
                       it != mEffectsPool.end(); it++) {
                     ALOGV("ete: calling applyEffectsOn buff %x",it->localBuf);

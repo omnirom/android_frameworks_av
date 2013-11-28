@@ -2331,6 +2331,7 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
 #ifdef QCOM_HARDWARE
     if (objectTypeIndication  == 0x6b
          || objectTypeIndication  == 0x69) {
+        // Our software MP3 audio decoder may not be able to handle
          mLastTrack->meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
          ALOGD("objectTypeIndication:0x%x, set mimetype to mpeg ",objectTypeIndication);
          return OK;
