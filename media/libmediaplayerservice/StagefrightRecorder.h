@@ -135,9 +135,7 @@ private:
     status_t startMPEG4Recording();
     status_t startAMRRecording();
     status_t startAACRecording();
-#ifdef QCOM_HARDWARE
     status_t startWAVERecording();
-#endif
     status_t startRawAudioRecording();
     status_t startRTPRecording();
     status_t startMPEG2TSRecording();

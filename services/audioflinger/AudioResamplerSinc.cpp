@@ -497,7 +497,6 @@ void AudioResamplerSinc::init() {
     mRingFull = mImpulse + (numCoefs+1)*mChannelCount;
 }
 
-#ifdef QCOM_HARDWARE
 void AudioResamplerSinc::reset(){
     mInputIndex = 0;
     mPhaseFraction = 0;
@@ -506,7 +505,6 @@ void AudioResamplerSinc::reset(){
     const size_t stateSize = (2*c.halfNumCoefs) * mChannelCount * 2;
     memset(mState, 0, sizeof(int16_t)*stateSize);
 }
-#endif
 
 void AudioResamplerSinc::setVolume(int16_t left, int16_t right) {
     AudioResampler::setVolume(left, right);

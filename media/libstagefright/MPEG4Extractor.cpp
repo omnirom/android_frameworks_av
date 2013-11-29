@@ -310,10 +310,8 @@ static const char *FourCC2MIME(uint32_t fourcc) {
     switch (fourcc) {
         case FOURCC('m', 'p', '4', 'a'):
             return MEDIA_MIMETYPE_AUDIO_AAC;
-#ifdef QCOM_HARDWARE
         case FOURCC('.', 'm', 'p', '3'):
             return MEDIA_MIMETYPE_AUDIO_MPEG;
-#endif
 
         case FOURCC('s', 'a', 'm', 'r'):
             return MEDIA_MIMETYPE_AUDIO_AMR_NB;
@@ -1264,12 +1262,9 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 
         case FOURCC('m', 'p', '4', 'a'):
         case FOURCC('e', 'n', 'c', 'a'):
-#ifdef QCOM_HARDWARE
         case FOURCC('.', 'm', 'p', '3'):
-#endif
         case FOURCC('s', 'a', 'm', 'r'):
         case FOURCC('s', 'a', 'w', 'b'):
-#ifdef QCOM_HARDWARE
         case FOURCC('s', 'e', 'v', 'c'):
         case FOURCC('s', 'q', 'c', 'p'):
         case FOURCC('d', 't', 's', 'c'):
@@ -1278,7 +1273,6 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC('d', 't', 's', 'e'):
         case FOURCC('a', 'c', '-', '3'):
         case FOURCC('e', 'c', '-', '3'):
-#endif
         {
             uint8_t buffer[8 + 20];
             if (chunk_data_size < (ssize_t)sizeof(buffer)) {
@@ -1313,16 +1307,12 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             mLastTrack->meta->setInt32(kKeySampleRate, sample_rate);
 
             off64_t stop_offset = *offset + chunk_size;
-#ifdef QCOM_HARDWARE
             if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_MPEG, FourCC2MIME(chunk_type)) ||
                 !strcasecmp(MEDIA_MIMETYPE_AUDIO_AMR_WB, FourCC2MIME(chunk_type))) {
                *offset = stop_offset;
             } else {
-#endif
             *offset = data_offset + sizeof(buffer);
-#ifdef QCOM_HARDWARE
             }
-#endif
             while (*offset < stop_offset) {
                 status_t err = parseChunk(offset, depth + 1);
                 if (err != OK) {
@@ -1596,7 +1586,6 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             break;
         }
 
-#ifdef QCOM_HARDWARE
         case FOURCC('d', 'd', 't', 's'):
         case FOURCC('d', 'a', 'c', '3'):
         case FOURCC('d', 'e', 'c', '3'):
@@ -1605,7 +1594,6 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             *offset += chunk_size;
             break;
         }
-#endif
         case FOURCC('a', 'v', 'c', 'C'):
         {
             sp<ABuffer> buffer = new ABuffer(chunk_data_size);
@@ -2319,8 +2307,6 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
        mLastTrack->meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_EVRC);
        return OK;
     }
-#endif
-#if defined(ENABLE_QC_AV_ENHANCEMENTS) || !defined(QCOM_HARDWARE)
     if (objectTypeIndication == 0xe1) {
         // This isn't MPEG4 audio at all, it's QCELP 14k...
         mLastTrack->meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_QCELP);
@@ -2328,20 +2314,12 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
     }
 #endif
 
-#ifdef QCOM_HARDWARE
     if (objectTypeIndication  == 0x6b
          || objectTypeIndication  == 0x69) {
+        // Our software MP3 audio decoder may not be able to handle
          mLastTrack->meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
          ALOGD("objectTypeIndication:0x%x, set mimetype to mpeg ",objectTypeIndication);
          return OK;
-#else
-    if (objectTypeIndication  == 0x6b) {
-        // The media subtype is MP3 audio
-        // Our software MP3 audio decoder may not be able to handle
-        // packetized MP3 audio; for now, lets just return ERROR_UNSUPPORTED
-        ALOGE("MP3 track in MP4/3GPP file is not supported");
-        return ERROR_UNSUPPORTED;
-#endif
     }
 
     const uint8_t *csd;
@@ -3686,12 +3664,8 @@ static bool LegacySniffMPEG4(
         return false;
     }
 
-#ifdef QCOM_HARDWARE
     if (!memcmp(header, "ftyp3g2a", 8) || !memcmp(header, "ftyp3g2b", 8) || !memcmp(header, "ftyp3g2c", 8)
         || !memcmp(header, "ftyp3gp", 7) || !memcmp(header, "ftypmp42", 8)
-#else
-    if (!memcmp(header, "ftyp3gp", 7) || !memcmp(header, "ftypmp42", 8)
-#endif
         || !memcmp(header, "ftyp3gr6", 8) || !memcmp(header, "ftyp3gs6", 8)
         || !memcmp(header, "ftyp3ge6", 8) || !memcmp(header, "ftyp3gg6", 8)
         || !memcmp(header, "ftypisom", 8) || !memcmp(header, "ftypM4V ", 8)

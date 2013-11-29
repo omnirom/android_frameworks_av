@@ -362,11 +362,7 @@ void SoftAAC2::onQueueFilled(OMX_U32 portIndex) {
             inInfo->mOwnedByUs = false;
             notifyEmptyBufferDone(inHeader);
 
-#ifdef QCOM_HARDWARE
             if (mDecoderHasData || mInputBufferCount) {
-#else
-            if (mDecoderHasData) {
-#endif
                 // flush out the decoder's delayed data by calling DecodeFrame
                 // one more time, with the AACDEC_FLUSH flag set
 
