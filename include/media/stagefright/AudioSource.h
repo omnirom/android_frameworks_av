@@ -23,9 +23,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MediaBuffer.h>
 #include <utils/List.h>
-#ifdef QCOM_HARDWARE
 #include <utils/String8.h>
-#endif
 #include <system/audio.h>
 
 namespace android {
@@ -87,9 +85,7 @@ private:
     int64_t mInitialReadTimeUs;
     int64_t mNumFramesReceived;
     int64_t mNumClientOwnedBuffers;
-#ifdef QCOM_HARDWARE
     int64_t mAutoRampStartUs;
-#endif
 
     List<MediaBuffer * > mBuffersReceived;
 
@@ -108,7 +104,6 @@ private:
 
     AudioSource(const AudioSource &);
     AudioSource &operator=(const AudioSource &);
-#ifdef QCOM_HARDWARE
 public:
     AudioSource(
         audio_source_t inputSource, const sp<MetaData>& meta );
@@ -117,7 +112,6 @@ private:
     String8 mMime;
     int32_t mMaxBufferSize;
     int64_t bufferDurationUs( ssize_t n );
-#endif
 };
 
 }  // namespace android

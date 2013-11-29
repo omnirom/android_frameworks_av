@@ -44,9 +44,7 @@ public:
 private:
     void init();
 
-#ifdef QCOM_HARDWARE
     void reset();
-#endif
 
     virtual void setVolume(int16_t left, int16_t right);
 

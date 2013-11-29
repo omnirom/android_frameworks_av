@@ -2,6 +2,7 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := \
+        MP3Decoder.cpp \
 	src/pvmp3_normalize.cpp \
  	src/pvmp3_alias_reduction.cpp \
  	src/pvmp3_crc.cpp \
@@ -27,10 +28,6 @@ LOCAL_SRC_FILES := \
  	src/pvmp3_seek_synch.cpp \
  	src/pvmp3_stereo_proc.cpp \
  	src/pvmp3_reorder.cpp \
-
-ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-       LOCAL_SRC_FILES += MP3Decoder.cpp
-endif
 
 ifeq ($(TARGET_ARCH),arm)
 LOCAL_SRC_FILES += \

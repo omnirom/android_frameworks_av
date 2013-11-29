@@ -58,7 +58,6 @@ void NuPlayer::Decoder::configure(const sp<AMessage> &format) {
         mCSD.push(csd);
     }
 
-#ifdef QCOM_HARDWARE
     sp<ABuffer> extendedCSD = ExtendedCodec::getRawCodecSpecificData(format);
     if (extendedCSD != NULL) {
         ALOGV("pushing extended CSD of size %d", extendedCSD->size());
@@ -70,7 +69,6 @@ void NuPlayer::Decoder::configure(const sp<AMessage> &format) {
         ALOGV("pushing AAC CSD of size %d", aacCSD->size());
         mCSD.push(aacCSD);
     }
-#endif
 
     if (mNativeWindow != NULL) {
         format->setObject("native-window", mNativeWindow);

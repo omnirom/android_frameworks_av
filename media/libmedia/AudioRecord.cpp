@@ -60,14 +60,10 @@ status_t AudioRecord::getMinFrameCount(
     // We double the size of input buffer for ping pong use of record buffer.
     size <<= 1;
 
-#ifdef QCOM_HARDWARE
     if (audio_is_linear_pcm(format) || format == AUDIO_FORMAT_AMR_WB) {
-#endif
     uint32_t channelCount = popcount(channelMask);
     size /= channelCount * audio_bytes_per_sample(format);
-#ifdef QCOM_HARDWARE
     }
-#endif
 
     *frameCount = size;
     return NO_ERROR;
@@ -153,7 +149,7 @@ status_t AudioRecord::set(
         }
         break;
     case TRANSFER_OBTAIN:
-   case TRANSFER_SYNC:
+    case TRANSFER_SYNC:
         break;
     default:
         ALOGE("Invalid transfer type %d", transferType);
@@ -199,13 +195,6 @@ status_t AudioRecord::set(
         ALOGE("Invalid format %d", format);
         return BAD_VALUE;
     }
-#ifndef QCOM_HARDWARE
-    // Temporary restriction: AudioFlinger currently supports 16-bit PCM only
-    if (format != AUDIO_FORMAT_PCM_16_BIT) {
-        ALOGE("Format %d is not supported", format);
-        return BAD_VALUE;
-    }
-#endif
     mFormat = format;
 
     if (!audio_is_input_channel(channelMask)) {
@@ -213,39 +202,19 @@ status_t AudioRecord::set(
         return BAD_VALUE;
     }
     mChannelMask = channelMask;
-#ifdef QCOM_HARDWARE
     uint32_t channelCount = popcount(channelMask
         &(AUDIO_CHANNEL_IN_STEREO|AUDIO_CHANNEL_IN_MONO|AUDIO_CHANNEL_IN_5POINT1));
-#else
-    uint32_t channelCount = popcount(channelMask);
-#endif
     mChannelCount = channelCount;
 
-#ifdef QCOM_HARDWARE
     mFrameSize = frameSize();
 
     size_t inputBuffSizeInBytes = -1;
     status_t status = AudioSystem::getInputBufferSize(sampleRate, format, channelMask, &inputBuffSizeInBytes);
-#else
-    mFrameSize = channelCount * audio_bytes_per_sample(format);
-
-   // validate framecount
-    size_t minFrameCount = 0;
-    status_t status = AudioRecord::getMinFrameCount(&minFrameCount,
-            sampleRate, format, channelMask);
-#endif
-
     if (status != NO_ERROR) {
-#ifdef QCOM_HARDWARE
         ALOGE("AudioSystem could not query the input buffer size; status %d", status);
         return NO_INIT;
-#else
-        ALOGE("getMinFrameCount() failed; status %d", status);
-        return status;
-#endif
     }
 
-#ifdef QCOM_HARDWARE
     if (inputBuffSizeInBytes == 0) {
         ALOGE("Unsupported configuration: sampleRate %u, format %d, channelMask %#x",
             sampleRate, format, channelMask);
@@ -253,7 +222,6 @@ status_t AudioRecord::set(
     }
 
     int minFrameCount = (inputBuffSizeInBytes * 2)/mFrameSize;
-#endif
 
     ALOGV("AudioRecord::set() minFrameCount = %d", minFrameCount);
 
@@ -311,12 +279,10 @@ status_t AudioRecord::set(
     return NO_ERROR;
 }
 
-#ifdef QCOM_HARDWARE
 audio_source_t AudioRecord::inputSource() const
 {
     return mInputSource;
 }
-#endif
 
 // -------------------------------------------------------------------------
 
@@ -505,12 +471,10 @@ status_t AudioRecord::openRecord_l(size_t epoch)
     }
 
     int originalSessionId = mSessionId;
-#ifdef QCOM_HARDWARE
     if (inputSource() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
         ALOGV("Notify use of Voice Communication");
         trackFlags |= IAudioFlinger::TRACK_VOICE_COMMUNICATION;
     }
-#endif
     sp<IAudioRecord> record = audioFlinger->openRecord(input,
                                                        mSampleRate, mFormat,
                                                        mChannelMask,
@@ -1000,7 +964,6 @@ status_t AudioRecord::restoreRecord_l(const char *from)
     return result;
 }
 
-#ifdef QCOM_HARDWARE
 size_t AudioRecord::frameSize() const
 {
     if (inputSource() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
@@ -1030,7 +993,7 @@ size_t AudioRecord::frameSize() const
         }
    }
 }
-#endif
+
 // =========================================================================
 
 void AudioRecord::DeathNotifier::binderDied(const wp<IBinder>& who)
