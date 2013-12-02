@@ -1764,7 +1764,12 @@ OMXCodec::OMXCodec(
       mPaused(false),
       mNativeWindow(
               (!strncmp(componentName, "OMX.google.", 11))
-                        ? NULL : nativeWindow) {
+                        ? NULL : nativeWindow),
+#ifdef QCOM_HARDWARE
+      mNumBFrames(0),
+#endif
+      mInSmoothStreamingMode(false),
+      mOutputCropChanged(false) {
     mPortStatus[kPortIndexInput] = ENABLED;
     mPortStatus[kPortIndexOutput] = ENABLED;
 
@@ -2068,6 +2073,7 @@ status_t OMXCodec::allocateBuffersOnPort(OMX_U32 portIndex) {
         info.mStatus = OWNED_BY_US;
         info.mMem = mem;
         info.mMediaBuffer = NULL;
+        info.mOutputCropChanged = false;
 
         if (portIndex == kPortIndexOutput) {
             if (!(mOMXLivesLocally
@@ -2783,6 +2789,10 @@ void OMXCodec::on_message(const omx_message &msg) {
                     mTargetTimeUs = -1;
                 }
 
+                if (mOutputCropChanged) {
+                    mOutputCropChanged = false;
+                    info->mOutputCropChanged = true;
+                }
                 mFilledBuffers.push_back(i);
                 mBufferFilled.signal();
                 if (mIsEncoder) {
@@ -4643,6 +4653,10 @@ status_t OMXCodec::read(
     }
     *buffer = info->mMediaBuffer;
 
+    if (info->mOutputCropChanged) {
+        initNativeWindowCrop();
+        info->mOutputCropChanged = false;
+    }
     return OK;
 }
 
@@ -5270,14 +5284,11 @@ void OMXCodec::initOutputFormat(const sp<MetaData> &inputFormat) {
                 }
 
                 if (mNativeWindow != NULL) {
-#ifdef QCOM_HARDWARE
-                    if (mInSmoothStreamingMode) {
-                        ExtendedUtils::updateNativeWindowBufferGeometry(
-                                mNativeWindow.get(), video_def->nFrameWidth,
-                                video_def->nFrameHeight, video_def->eColorFormat);
-                    }
-#endif
-                    initNativeWindowCrop();
+                     if (mInSmoothStreamingMode) {
+                         mOutputCropChanged = true;
+                     } else {
+                         initNativeWindowCrop();
+                     }
                 }
 #ifdef QCOM_HARDWARE
             } else {
