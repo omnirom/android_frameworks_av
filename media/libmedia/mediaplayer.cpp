@@ -762,6 +762,7 @@ void MediaPlayer::notify(int msg, int ext1, int ext2, const Parcel *obj)
         break;
     case MEDIA_SUBTITLE_DATA:
         ALOGV("Received subtitle data message");
+        break;
 #ifdef QCOM_HARDWARE
     case MEDIA_QOE:
         ALOGV("Received QOE Message for event : %d",ext2);

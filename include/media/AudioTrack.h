@@ -24,6 +24,7 @@
 #include <media/AudioTimestamp.h>
 #include <media/IAudioTrack.h>
 #include <utils/threads.h>
+
 #ifdef QCOM_HARDWARE
 #include <media/IDirectTrack.h>
 #include <media/IDirectTrackClient.h>
@@ -237,6 +238,7 @@ protected:
 #ifndef QCOM_HARDWARE
 public:
 #endif
+
     /* Initialize an AudioTrack that was created using the AudioTrack() constructor.
      * Don't call set() more than once, or after the AudioTrack() constructors that take parameters.
      * Returned status (from utils/Errors.h) can be:
@@ -755,6 +757,7 @@ protected:
     int                     mAuxEffectId;
 
     mutable Mutex           mLock;
+
 #ifdef QCOM_HARDWARE
     void*                   mObserver;
 #endif

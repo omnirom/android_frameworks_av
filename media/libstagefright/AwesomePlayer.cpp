@@ -2351,6 +2351,8 @@ void AwesomePlayer::onVideoEvent() {
                 int64_t delayUs = mFrameDurationUs - eventDurationUs - latenessUs - earlyGapUs;
                 delayUs = delayUs > kDefaultEventDelayUs ? kDefaultEventDelayUs : delayUs;
                 postVideoEvent_l(delayUs > 0 ? delayUs : 0);
+#else
+                postVideoEvent_l();
 #endif
                 return;
             }
@@ -2424,6 +2426,8 @@ void AwesomePlayer::onVideoEvent() {
     int64_t delayUs = mFrameDurationUs - eventDurationUs - latenessUs - earlyGapUs;
     delayUs = delayUs > kDefaultEventDelayUs ? kDefaultEventDelayUs : delayUs;
     postVideoEvent_l(delayUs > 0 ? delayUs : 0);
+#else
+    postVideoEvent_l();
 #endif
 }
 
