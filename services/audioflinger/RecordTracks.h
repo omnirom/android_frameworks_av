@@ -29,7 +29,8 @@ public:
                                 audio_channel_mask_t channelMask,
                                 size_t frameCount,
                                 uint32_t flags,
-                                int sessionId);
+                                int sessionId,
+                                int uid);
     virtual             ~RecordTrack();
 
     virtual status_t    start(AudioSystem::sync_event_t event, int triggerSession);

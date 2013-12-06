@@ -75,7 +75,7 @@ class MediaPlayerService : public BnMediaPlayerService
         class CallbackData;
 
      public:
-                                AudioOutput(int sessionId);
+                                AudioOutput(int sessionId, int uid);
         virtual                 ~AudioOutput();
 
         virtual bool            ready() const { return mTrack != 0; }
@@ -104,7 +104,10 @@ class MediaPlayerService : public BnMediaPlayerService
         virtual void            flush();
         virtual void            pause();
         virtual void            close();
-                void            setAudioStreamType(audio_stream_type_t streamType) { mStreamType = streamType; }
+                void            setAudioStreamType(audio_stream_type_t streamType) {
+                                                                        mStreamType = streamType; }
+        virtual audio_stream_type_t getAudioStreamType() const { return mStreamType; }
+
                 void            setVolume(float left, float right);
         virtual status_t        setPlaybackRatePermille(int32_t ratePermille);
                 status_t        setAuxEffectSendLevel(float level);
@@ -143,6 +146,7 @@ class MediaPlayerService : public BnMediaPlayerService
         uint32_t                mSampleRateHz; // sample rate of the content, as set in open()
         float                   mMsecsPerFrame;
         int                     mSessionId;
+        int                     mUid;
         float                   mSendLevel;
         int                     mAuxEffectId;
         static bool             mIsOnEmulator;
@@ -214,6 +218,9 @@ class MediaPlayerService : public BnMediaPlayerService
         virtual void            pause() {}
         virtual void            close() {}
                 void            setAudioStreamType(audio_stream_type_t streamType) {}
+                // stream type is not used for AudioCache
+        virtual audio_stream_type_t getAudioStreamType() const { return AUDIO_STREAM_DEFAULT; }
+
                 void            setVolume(float left, float right) {}
         virtual status_t        setPlaybackRatePermille(int32_t ratePermille) { return INVALID_OPERATION; }
                 audio_format_t  format() const { return mFormat; }
