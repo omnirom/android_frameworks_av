@@ -703,6 +703,9 @@ void AwesomePlayer::reset_l() {
 
     mWatchForAudioSeekComplete = false;
     mWatchForAudioEOS = false;
+
+    mMediaRenderingStartGeneration = 0;
+    mStartGeneration = 0;
 }
 
 void AwesomePlayer::notifyListener_l(int msg, int ext1, int ext2) {
@@ -991,6 +994,8 @@ status_t AwesomePlayer::play_l() {
     if (mFlags & PLAYING) {
         return OK;
     }
+
+    mMediaRenderingStartGeneration = ++mStartGeneration;
 
     if (!(mFlags & PREPARED)) {
         status_t err = prepare_l();
@@ -1388,8 +1393,7 @@ void AwesomePlayer::initRenderer_l() {
     setVideoScalingMode_l(mVideoScalingMode);
     if (USE_SURFACE_ALLOC
             && !strncmp(component, "OMX.", 4)
-            && strncmp(component, "OMX.google.", 11)
-            && strcmp(component, "OMX.Nvidia.mpeg2v.decode")) {
+            && strncmp(component, "OMX.google.", 11)) {
         // Hardware decoders avoid the CPU color conversion by decoding
         // directly to ANativeBuffers, so we must use a renderer that
         // just pushes those buffers to the ANativeWindow.
@@ -1697,7 +1701,13 @@ status_t AwesomePlayer::initAudioDecoder() {
     // This doesn't guarantee that the hardware has a free stream
     // but it avoids us attempting to open (and re-open) an offload
     // stream to hardware that doesn't have the necessary codec
-    mOffloadAudio = canOffloadStream(meta, (mVideoSource != NULL), isStreamingHTTP());
+    audio_stream_type_t streamType = AUDIO_STREAM_MUSIC;
+    if (mAudioSink != NULL) {
+        streamType = mAudioSink->getAudioStreamType();
+    }
+
+    mOffloadAudio = canOffloadStream(meta, (mVideoSource != NULL),
+                                     isStreamingHTTP(), streamType);
 
     int32_t nchannels = 0;
     int32_t isADTS = 0;
@@ -2268,10 +2278,7 @@ void AwesomePlayer::onVideoEvent() {
                     if(!(mFlags & AT_EOS)) logLate(timeUs,nowUs,latenessUs);
                 }
 
-                int64_t eventDurationUs = mSystemTimeSource.getRealTimeUs() - eventStartTimeUs;
-                int64_t delayUs = mFrameDurationUs - eventDurationUs - latenessUs - earlyGapUs;
-                delayUs = delayUs > kDefaultEventDelayUs ? kDefaultEventDelayUs : delayUs;
-                postVideoEvent_l(delayUs > 0 ? delayUs : 0);
+                postVideoEvent_l(0);
                 return;
             }
         }
@@ -2339,6 +2346,43 @@ void AwesomePlayer::onVideoEvent() {
     int64_t delayUs = mFrameDurationUs - eventDurationUs - latenessUs - earlyGapUs;
     delayUs = delayUs > kDefaultEventDelayUs ? kDefaultEventDelayUs : delayUs;
     postVideoEvent_l(delayUs > 0 ? delayUs : 0);
+
+    /* get next frame time */
+    if (wasSeeking == NO_SEEK) {
+        MediaSource::ReadOptions options;
+        for (;;) {
+            status_t err = mVideoSource->read(&mVideoBuffer, &options);
+            if (err != OK) {
+                // deal with any errors next time
+                CHECK(mVideoBuffer == NULL);
+                postVideoEvent_l(0);
+                return;
+            }
+
+            if (mVideoBuffer->range_length() != 0) {
+                break;
+            }
+
+            // Some decoders, notably the PV AVC software decoder
+            // return spurious empty buffers that we just want to ignore.
+
+            mVideoBuffer->release();
+            mVideoBuffer = NULL;
+        }
+
+        {
+            Mutex::Autolock autoLock(mStatsLock);
+            ++mStats.mNumVideoFramesDecoded;
+        }
+
+        int64_t nextTimeUs;
+        CHECK(mVideoBuffer->meta_data()->findInt64(kKeyTime, &nextTimeUs));
+        int64_t delayUs = nextTimeUs - ts->getRealTimeUs() + mTimeSourceDeltaUs;
+        postVideoEvent_l(delayUs > 10000 ? 10000 : delayUs < 0 ? 0 : delayUs);
+        return;
+    }
+
+    postVideoEvent_l();
 }
 
 void AwesomePlayer::postVideoEvent_l(int64_t delayUs) {

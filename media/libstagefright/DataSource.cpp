@@ -108,6 +108,7 @@ status_t DataSource::getSize(off64_t *size) {
 
 Mutex DataSource::gSnifferMutex;
 List<DataSource::SnifferFunc> DataSource::gSniffers;
+bool DataSource::gSniffersRegistered = false;
 
 bool DataSource::sniff(
         String8 *mimeType, float *confidence, sp<AMessage> *meta) {
@@ -115,7 +116,13 @@ bool DataSource::sniff(
     *confidence = 0.0f;
     meta->clear();
 
-    Mutex::Autolock autoLock(gSnifferMutex);
+    {
+        Mutex::Autolock autoLock(gSnifferMutex);
+        if (!gSniffersRegistered) {
+            return false;
+        }
+    }
+
     for (List<SnifferFunc>::iterator it = gSniffers.begin();
          it != gSniffers.end(); ++it) {
         String8 newMimeType;
@@ -134,9 +141,7 @@ bool DataSource::sniff(
 }
 
 // static
-void DataSource::RegisterSniffer(SnifferFunc func) {
-    Mutex::Autolock autoLock(gSnifferMutex);
-
+void DataSource::RegisterSniffer_l(SnifferFunc func) {
     for (List<SnifferFunc>::iterator it = gSniffers.begin();
          it != gSniffers.end(); ++it) {
         if (*it == func) {
@@ -149,24 +154,29 @@ void DataSource::RegisterSniffer(SnifferFunc func) {
 
 // static
 void DataSource::RegisterDefaultSniffers() {
-    RegisterSniffer(SniffMPEG4);
-    RegisterSniffer(SniffMatroska);
-    RegisterSniffer(SniffOgg);
-    RegisterSniffer(SniffWAV);
-    RegisterSniffer(SniffFLAC);
-    RegisterSniffer(SniffAMR);
-    RegisterSniffer(SniffMPEG2TS);
-    RegisterSniffer(SniffMP3);
-    RegisterSniffer(SniffAAC);
-    RegisterSniffer(SniffMPEG2PS);
-    RegisterSniffer(SniffWVM);
-    RegisterSniffer(ExtendedExtractor::Sniff);
+    Mutex::Autolock autoLock(gSnifferMutex);
+    if (gSniffersRegistered) {
+        return;
+    }
+
+    RegisterSniffer_l(SniffMPEG4);
+    RegisterSniffer_l(SniffMatroska);
+    RegisterSniffer_l(SniffOgg);
+    RegisterSniffer_l(SniffWAV);
+    RegisterSniffer_l(SniffFLAC);
+    RegisterSniffer_l(SniffAMR);
+    RegisterSniffer_l(SniffMPEG2TS);
+    RegisterSniffer_l(SniffMP3);
+    RegisterSniffer_l(SniffAAC);
+    RegisterSniffer_l(SniffMPEG2PS);
+    RegisterSniffer_l(SniffWVM);
 
     char value[PROPERTY_VALUE_MAX];
     if (property_get("drm.service.enabled", value, NULL)
             && (!strcmp(value, "1") || !strcasecmp(value, "true"))) {
-        RegisterSniffer(SniffDRM);
+        RegisterSniffer_l(SniffDRM);
     }
+    gSniffersRegistered = true;
 }
 
 // static
