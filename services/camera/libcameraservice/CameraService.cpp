@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include <binder/AppOpsManager.h>
 #include <binder/IPCThreadState.h>
@@ -37,6 +39,7 @@
 #include <utils/Log.h>
 #include <utils/String16.h>
 
+#include <system/camera.h>
 #include "CameraService.h"
 #include "api1/CameraClient.h"
 #include "api1/Camera2Client.h"
@@ -84,6 +87,24 @@ static void camera_device_status_change(
 } // extern "C"
 
 // ----------------------------------------------------------------------------
+
+#if defined(BOARD_HAVE_HTC_FFC)
+#define HTC_SWITCH_CAMERA_FILE_PATH "/sys/android_camera2/htcwc"
+static void htcCameraSwitch(int cameraId)
+{
+    char buffer[16];
+    int fd;
+
+    if (access(HTC_SWITCH_CAMERA_FILE_PATH, W_OK) == 0) {
+        snprintf(buffer, sizeof(buffer), "%d", cameraId);
+
+        fd = open(HTC_SWITCH_CAMERA_FILE_PATH, O_WRONLY);
+        write(fd, buffer, strlen(buffer));
+        close(fd);
+    }
+}
+#endif
+
 
 // This is ugly and only safe if we never re-create the CameraService, but
 // should be ok for now.
@@ -364,6 +385,10 @@ bool CameraService::canConnectUnsafe(int cameraId,
                                      sp<BasicClient> &client) {
     String8 clientName8(clientPackageName);
     int callingPid = getCallingPid();
+
+#if defined(BOARD_HAVE_HTC_FFC)
+    htcCameraSwitch(cameraId);
+#endif
 
     if (mClient[cameraId] != 0) {
         client = mClient[cameraId].promote();
@@ -881,8 +906,18 @@ void CameraService::loadSound() {
     LOG1("CameraService::loadSound ref=%d", mSoundRef);
     if (mSoundRef++) return;
 
-    mSoundPlayer[SOUND_SHUTTER] = newMediaPlayer("/system/media/audio/ui/camera_click.ogg");
-    mSoundPlayer[SOUND_RECORDING] = newMediaPlayer("/system/media/audio/ui/VideoRecord.ogg");
+    char value[PROPERTY_VALUE_MAX];
+    property_get("persist.camera.shutter.disable", value, "0");
+    int disableSound = atoi(value);
+
+    if(!disableSound) {
+        mSoundPlayer[SOUND_SHUTTER] = newMediaPlayer("/system/media/audio/ui/camera_click.ogg");
+        mSoundPlayer[SOUND_RECORDING] = newMediaPlayer("/system/media/audio/ui/VideoRecord.ogg");
+    }
+    else {
+        mSoundPlayer[SOUND_SHUTTER] = NULL;
+        mSoundPlayer[SOUND_RECORDING] = NULL;
+    }
 }
 
 void CameraService::releaseSound() {
@@ -926,6 +961,7 @@ CameraService::Client::Client(const sp<CameraService>& cameraService,
     LOG1("Client::Client E (pid %d, id %d)", callingPid, cameraId);
 
     mRemoteCallback = cameraClient;
+    mLongshotEnabled = false;
 
     cameraService->setCameraBusy(cameraId);
     cameraService->loadSound();
@@ -960,6 +996,9 @@ CameraService::BasicClient::BasicClient(const sp<CameraService>& cameraService,
     mServicePid = servicePid;
     mOpsActive = false;
     mDestructionStarted = false;
+#ifdef QCOM_HARDWARE
+    mBurstCnt = 0;
+#endif
 }
 
 CameraService::BasicClient::~BasicClient() {

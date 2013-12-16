@@ -30,6 +30,13 @@
 #include <gui/Surface.h>
 #include <utils/String8.h>
 #include <cutils/properties.h>
+#ifdef QCOM_HARDWARE
+#include "include/ExtendedUtils.h"
+#endif
+
+#ifdef USE_TI_CUSTOM_DOMX
+#include <OMX_TI_IVCommon.h>
+#endif
 
 namespace android {
 
@@ -105,7 +112,11 @@ static int32_t getColorFormat(const char* colorFormat) {
     }
 
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_YUV422I)) {
+#if defined(TARGET_OMAP3) && defined(OMAP_ENHANCEMENT)
+        return OMX_COLOR_FormatCbYCrY;
+#else
         return OMX_COLOR_FormatYCbYCr;
+#endif
     }
 
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_RGB565)) {
@@ -345,11 +356,13 @@ status_t CameraSource::configureCamera(
         ALOGV("Supported frame rates: %s", supportedFrameRates);
         char buf[4];
         snprintf(buf, 4, "%d", frameRate);
+#ifndef HTC_3D_SUPPORT  // HTC uses invalid frame rates intentionally on the 3D camera
         if (strstr(supportedFrameRates, buf) == NULL) {
             ALOGE("Requested frame rate (%d) is not supported: %s",
                 frameRate, supportedFrameRates);
             return BAD_VALUE;
         }
+#endif
 
         // The frame rate is supported, set the camera to the requested value.
         params->setPreviewFrameRate(frameRate);
@@ -447,11 +460,13 @@ status_t CameraSource::checkFrameRate(
 
     // Check the actual video frame rate against the target/requested
     // video frame rate.
+#ifndef HTC_3D_SUPPORT  // HTC uses invalid frame rates intentionally on the 3D camera
     if (frameRate != -1 && (frameRateActual - frameRate) != 0) {
         ALOGE("Failed to set preview frame rate to %d fps. The actual "
                 "frame rate is %d", frameRate, frameRateActual);
         return UNKNOWN_ERROR;
     }
+#endif
 
     // Good now.
     mVideoFrameRate = frameRateActual;
@@ -568,6 +583,11 @@ status_t CameraSource::initWithCameraAccess(
     mMeta->setInt32(kKeyStride,      mVideoSize.width);
     mMeta->setInt32(kKeySliceHeight, mVideoSize.height);
     mMeta->setInt32(kKeyFrameRate,   mVideoFrameRate);
+
+#ifdef QCOM_HARDWARE
+    ExtendedUtils::HFR::setHFRIfEnabled(params, mMeta);
+#endif
+
     return OK;
 }
 
@@ -818,6 +838,10 @@ status_t CameraSource::read(
 void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
         int32_t msgType, const sp<IMemory> &data) {
     ALOGV("dataCallbackTimestamp: timestamp %lld us", timestampUs);
+    if (!mStarted) {
+       ALOGD("Stop recording issued. Return here.");
+       return;
+    }
     Mutex::Autolock autoLock(mLock);
     if (!mStarted || (mNumFramesReceived == 0 && timestampUs < mStartTimeUs)) {
         ALOGV("Drop frame at %lld/%lld us", timestampUs, mStartTimeUs);

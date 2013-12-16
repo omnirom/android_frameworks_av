@@ -60,9 +60,14 @@ status_t AudioRecord::getMinFrameCount(
     // We double the size of input buffer for ping pong use of record buffer.
     size <<= 1;
 
-    // Assumes audio_is_linear_pcm(format)
+#ifdef QCOM_HARDWARE
+    if (audio_is_linear_pcm(format) || format == AUDIO_FORMAT_AMR_WB) {
+#endif
     uint32_t channelCount = popcount(channelMask);
     size /= channelCount * audio_bytes_per_sample(format);
+#ifdef QCOM_HARDWARE
+    }
+#endif
 
     *frameCount = size;
     return NO_ERROR;
@@ -133,6 +138,8 @@ status_t AudioRecord::set(
         transfer_type transferType,
         audio_input_flags_t flags)
 {
+    ALOGV("sampleRate %u, channelMask %#x, format %d", sampleRate, channelMask, format);
+    ALOGV("inputSource %d", inputSource);
     switch (transferType) {
     case TRANSFER_DEFAULT:
         if (cbf == NULL || threadCanCallJava) {
@@ -194,11 +201,13 @@ status_t AudioRecord::set(
         ALOGE("Invalid format %d", format);
         return BAD_VALUE;
     }
+#ifndef QCOM_HARDWARE
     // Temporary restriction: AudioFlinger currently supports 16-bit PCM only
     if (format != AUDIO_FORMAT_PCM_16_BIT) {
         ALOGE("Format %d is not supported", format);
         return BAD_VALUE;
     }
+#endif
     mFormat = format;
 
     if (!audio_is_input_channel(channelMask)) {
@@ -206,9 +215,32 @@ status_t AudioRecord::set(
         return BAD_VALUE;
     }
     mChannelMask = channelMask;
-    uint32_t channelCount = popcount(channelMask);
+    uint32_t channelCount = popcount(channelMask
+#ifdef QCOM_HARDWARE
+        &(AUDIO_CHANNEL_IN_STEREO|AUDIO_CHANNEL_IN_MONO|AUDIO_CHANNEL_IN_5POINT1));
+#else
+    );
+#endif
     mChannelCount = channelCount;
 
+#ifdef QCOM_HARDWARE
+    mFrameSize = frameSize();
+
+    size_t inputBuffSizeInBytes = -1;
+    status_t status = AudioSystem::getInputBufferSize(sampleRate, format, channelMask, &inputBuffSizeInBytes);
+    if (status != NO_ERROR) {
+        ALOGE("AudioSystem could not query the input buffer size; status %d", status);
+        return NO_INIT;
+    }
+
+    if (inputBuffSizeInBytes == 0) {
+        ALOGE("Unsupported configuration: sampleRate %u, format %d, channelMask %#x",
+            sampleRate, format, channelMask);
+        return BAD_VALUE;
+    }
+
+    int minFrameCount = (inputBuffSizeInBytes * 2)/mFrameSize;
+#else
     // Assumes audio_is_linear_pcm(format), else sizeof(uint8_t)
     mFrameSize = channelCount * audio_bytes_per_sample(format);
 
@@ -220,6 +252,8 @@ status_t AudioRecord::set(
         ALOGE("getMinFrameCount() failed; status %d", status);
         return status;
     }
+#endif
+
     ALOGV("AudioRecord::set() minFrameCount = %d", minFrameCount);
 
     if (frameCount == 0) {
@@ -275,6 +309,13 @@ status_t AudioRecord::set(
 
     return NO_ERROR;
 }
+
+#ifdef QCOM_HARDWARE
+audio_source_t AudioRecord::inputSource() const
+{
+    return mInputSource;
+}
+#endif
 
 // -------------------------------------------------------------------------
 
@@ -463,6 +504,12 @@ status_t AudioRecord::openRecord_l(size_t epoch)
     }
 
     int originalSessionId = mSessionId;
+#ifdef QCOM_HARDWARE
+    if (inputSource() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
+        ALOGV("Notify use of Voice Communication");
+        trackFlags |= IAudioFlinger::TRACK_VOICE_COMMUNICATION;
+    }
+#endif
     sp<IAudioRecord> record = audioFlinger->openRecord(input,
                                                        mSampleRate, mFormat,
                                                        mChannelMask,
@@ -522,7 +569,7 @@ status_t AudioRecord::openRecord_l(size_t epoch)
     void *buffers = (char*)cblk + sizeof(audio_track_cblk_t);
 
     // update proxy
-    mProxy = new AudioRecordClientProxy(cblk, buffers, mFrameCount, mFrameSize);
+    mProxy = new AudioRecordClientProxy(cblk, buffers, mCblk->frameCount_, mFrameSize);
     mProxy->setEpoch(epoch);
     mProxy->setMinimum(mNotificationFramesAct);
 
@@ -951,6 +998,38 @@ status_t AudioRecord::restoreRecord_l(const char *from)
 
     return result;
 }
+
+#ifdef QCOM_HARDWARE
+size_t AudioRecord::frameSize() const
+{
+    if (inputSource() == AUDIO_SOURCE_VOICE_COMMUNICATION) {
+        if (audio_is_linear_pcm(mFormat)) {
+            return channelCount()*audio_bytes_per_sample(mFormat);
+        } else {
+            return channelCount()*sizeof(int16_t);
+        }
+    } else {
+        if (format() ==AUDIO_FORMAT_AMR_NB) {
+            return channelCount() * AMR_FRAMESIZE; // Full rate framesize
+        } else if (format() == AUDIO_FORMAT_EVRC) {
+            return channelCount() * EVRC_FRAMESIZE; // Full rate framesize
+        } else if (format() == AUDIO_FORMAT_QCELP) {
+           return channelCount() * QCELP_FRAMESIZE; // Full rate framesize
+        } else if (format() == AUDIO_FORMAT_AAC) {
+            // Not actual framsize but for variable frame rate AAC encoding,
+            // buffer size is treated as a frame size
+            return AAC_FRAMESIZE;
+        } else if(format() == AUDIO_FORMAT_AMR_WB) {
+            return channelCount() * AMR_WB_FRAMESIZE;
+        }
+        if (audio_is_linear_pcm(mFormat)) {
+            return channelCount()*audio_bytes_per_sample(mFormat);
+        } else {
+            return sizeof(uint8_t);
+        }
+   }
+}
+#endif
 
 // =========================================================================
 

@@ -42,6 +42,11 @@ LOCAL_SRC_FILES += \
  	src/pvmp3_dct_16.cpp
 endif
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+LOCAL_SRC_FILES += \
+	MP3Decoder.cpp
+endif
+
 LOCAL_C_INCLUDES := \
         frameworks/av/media/libstagefright/include \
         $(LOCAL_PATH)/src \
