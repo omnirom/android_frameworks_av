@@ -64,8 +64,12 @@ AudioPlayer::AudioPlayer(
       mPinnedTimeUs(-1ll),
       mPlaying(false),
       mStartPosUs(0),
+#ifdef QCOM_HARDWARE
       mCreateFlags(flags),
       mPauseRequired(false) {
+#else
+      mCreateFlags(flags) {
+#endif
 }
 
 AudioPlayer::~AudioPlayer() {
@@ -256,11 +260,13 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
     mStarted = true;
     mPlaying = true;
     mPinnedTimeUs = -1ll;
+#ifdef QCOM_HARDWARE
     const char *componentName;
     if (!(format->findCString(kKeyDecoderComponent, &componentName))) {
           componentName = "none";
     }
     mPauseRequired = ExtendedCodec::isSourcePauseRequired(componentName);
+#endif
     return OK;
 }
 
@@ -398,7 +404,9 @@ void AudioPlayer::reset() {
     mStarted = false;
     mPlaying = false;
     mStartPosUs = 0;
+#ifdef QCOM_HARDWARE
     mPauseRequired = false;
+#endif
 }
 
 // static
@@ -565,10 +573,12 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
                 mIsFirstBuffer = false;
             } else {
                 err = mSource->read(&mInputBuffer, &options);
+#ifdef QCOM_HARDWARE
                 if (err == OK && mInputBuffer == NULL && mSourcePaused) {
                     ALOGV("mSourcePaused, return 0 from fillBuffer");
                     return 0;
                 }
+#endif
             }
 
             CHECK((err == OK && mInputBuffer != NULL)
@@ -709,11 +719,16 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
     {
         Mutex::Autolock autoLock(mLock);
         mNumFramesPlayed += size_done / mFrameSize;
+#ifndef QCOM_HARDWARE
+            mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
+#endif
 
         if (mReachedEOS) {
             mPinnedTimeUs = mNumFramesPlayedSysTimeUs;
         } else {
+#ifdef QCOM_HARDWARE
             mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
+#endif
             mPinnedTimeUs = -1ll;
         }
     }
@@ -752,9 +767,11 @@ int64_t AudioPlayer::getRealTimeUsLocked() const {
     // compensate using system time.
     int64_t diffUs;
     if (mPinnedTimeUs >= 0ll) {
+#ifdef QCOM_HARDWARE
         if(mReachedEOS)
             diffUs = ALooper::GetNowUs();
         else
+#endif
             diffUs = mPinnedTimeUs;
 
     } else {
@@ -763,10 +780,14 @@ int64_t AudioPlayer::getRealTimeUsLocked() const {
 
     diffUs -= mNumFramesPlayedSysTimeUs;
 
+#ifdef QCOM_HARDWARE
     if((result + diffUs <= mPositionTimeRealUs) || (!mReachedEOS))
         return result + diffUs;
     else
         return mPositionTimeRealUs;
+#else
+    return result + diffUs;
+#endif
 }
 
 int64_t AudioPlayer::getOutputPlayPositionUs_l() const

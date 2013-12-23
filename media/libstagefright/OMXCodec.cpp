@@ -766,8 +766,10 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
             setVideoInputFormat(mMIME, meta);
 #endif
         } else {
+#ifdef QCOM_HARDWARE
             ExtendedCodec::configureVideoDecoder(
                     meta, mMIME, mOMX, mFlags, mNode, mComponentName);
+#endif
 
             status_t err = setVideoOutputFormat(
                     mMIME, meta);

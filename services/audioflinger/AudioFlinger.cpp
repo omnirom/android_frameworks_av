@@ -188,10 +188,12 @@ void AudioFlinger::onFirstRef()
 
     Mutex::Autolock _l(mLock);
 
+#ifdef QCOM_HARDWARE
     /* TODO: move all this work into an Init() function */
     mLPASessionId = -2; // -2 is invalid session ID
     mIsEffectConfigChanged = false;
     mLPAEffectChain = NULL;
+#endif
     char val_str[PROPERTY_VALUE_MAX] = { 0 };
     if (property_get("ro.audio.flinger_standbytime_ms", val_str, NULL) >= 0) {
         uint32_t int_val;
@@ -2226,10 +2228,14 @@ status_t AudioFlinger::setStreamOutput(audio_stream_type_t stream, audio_io_hand
 
     for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
         PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+#ifdef QCOM_HARDWARE
         // Do not invalidate voip stream which uses directoutput thread
         if(!(thread->type() == ThreadBase::DIRECT && (thread->mOutputFlags & AUDIO_OUTPUT_FLAG_VOIP_RX))) {
             thread->invalidateTracks(stream);
         }
+#else
+        thread->invalidateTracks(stream);
+#endif
     }
 
     return NO_ERROR;
