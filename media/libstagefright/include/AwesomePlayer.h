@@ -236,6 +236,7 @@ private:
     void postAudioTearDownEvent(int64_t delayUs);
 
     status_t play_l();
+    status_t fallbackToSWDecoder();
 
     MediaBuffer *mVideoBuffer;
 
