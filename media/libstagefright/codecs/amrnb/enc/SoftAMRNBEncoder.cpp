@@ -71,7 +71,11 @@ void SoftAMRNBEncoder::initPorts() {
     def.eDir = OMX_DirInput;
     def.nBufferCountMin = kNumBuffers;
     def.nBufferCountActual = def.nBufferCountMin;
+#ifdef QCOM_HARDWARE
+    def.nBufferSize = kNumSamplesPerFrame * sizeof(int16_t) * 4;
+#else
     def.nBufferSize = kNumSamplesPerFrame * sizeof(int16_t);
+#endif
     def.bEnabled = OMX_TRUE;
     def.bPopulated = OMX_FALSE;
     def.eDomain = OMX_PortDomainAudio;

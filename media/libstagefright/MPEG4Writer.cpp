@@ -40,10 +40,17 @@
 
 #include "include/ESDS.h"
 
+#ifdef QCOM_HARDWARE
+#include "include/ExtendedUtils.h"
+#endif
+
 namespace android {
 
 static const int64_t kMinStreamableFileSizeInBytes = 5 * 1024 * 1024;
 static const int64_t kMax32BitFileSize = 0x007fffffffLL;
+#ifdef QCOM_HARDWARE
+static const int64_t kMax64BitFileSize = 0x00ffffffffLL; //fat32 max size limited to 4GB
+#endif
 static const uint8_t kNalUnitTypeSeqParamSet = 0x07;
 static const uint8_t kNalUnitTypePicParamSet = 0x08;
 static const int64_t kInitialDelayTimeUs     = 700000LL;
@@ -440,7 +447,12 @@ status_t MPEG4Writer::addSource(const sp<MediaSource> &source) {
 
     // A track of type other than video or audio is not supported.
     const char *mime;
+#ifdef QCOM_HARDWARE
+    sp<MetaData> meta = source->getFormat();
+    CHECK(meta->findCString(kKeyMIMEType, &mime));
+#else
     source->getFormat()->findCString(kKeyMIMEType, &mime);
+#endif
     bool isAudio = !strncasecmp(mime, "audio/", 6);
     bool isVideo = !strncasecmp(mime, "video/", 6);
     if (!isAudio && !isVideo) {
@@ -508,7 +520,11 @@ int64_t MPEG4Writer::estimateMoovBoxSize(int32_t bitRate) {
 
     // If the estimation is wrong, we will pay the price of wasting
     // some reserved space. This should not happen so often statistically.
+#ifdef QCOM_HARDWARE
+    int32_t factor = mUse32BitOffset? 1: 2;
+#else
     static const int32_t factor = mUse32BitOffset? 1: 2;
+#endif
     static const int64_t MIN_MOOV_BOX_SIZE = 3 * 1024;  // 3 KB
     static const int64_t MAX_MOOV_BOX_SIZE = (180 * 3000000 * 6LL / 8000);
     int64_t size = MIN_MOOV_BOX_SIZE;
@@ -567,11 +583,16 @@ status_t MPEG4Writer::start(MetaData *param) {
         mIsFileSizeLimitExplicitlyRequested = true;
     }
 
-    int32_t use64BitOffset;
+    int32_t use64BitOffset = 0;
     if (param &&
         param->findInt32(kKey64BitFileOffset, &use64BitOffset) &&
         use64BitOffset) {
         mUse32BitOffset = false;
+#ifdef QCOM_HARDWARE
+        if (mMaxFileSizeLimitBytes == 0) {
+            mMaxFileSizeLimitBytes = kMax64BitFileSize;
+        }
+#endif
     }
 
     if (mUse32BitOffset) {
@@ -2182,6 +2203,12 @@ status_t MPEG4Writer::Track::threadEntry() {
         meta_data->findInt32(kKeyIsSyncFrame, &isSync);
         CHECK(meta_data->findInt64(kKeyTime, &timestampUs));
 
+#ifdef QCOM_HARDWARE
+        if (!mIsAudio) {
+            ExtendedUtils::HFR::reCalculateTimeStamp(mMeta, timestampUs);
+        }
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
         if (mStszTableEntries->count() == 0) {
             mFirstSampleTimeRealUs = systemTime() / 1000;
@@ -2207,12 +2234,26 @@ status_t MPEG4Writer::Track::threadEntry() {
              * Decoding time: decodingTimeUs
              * Composition time offset = composition time - decoding time
              */
+#ifdef QCOM_HARDWARE
+            int64_t tmpCttsOffsetTimeUs;
+#endif
             int64_t decodingTimeUs;
             CHECK(meta_data->findInt64(kKeyDecodingTime, &decodingTimeUs));
+#ifdef QCOM_HARDWARE
+            ExtendedUtils::HFR::reCalculateTimeStamp(mMeta, decodingTimeUs);
+#endif
+
             decodingTimeUs -= previousPausedDurationUs;
             cttsOffsetTimeUs =
+#ifdef QCOM_HARDWARE
+                    timestampUs - decodingTimeUs;
+            tmpCttsOffsetTimeUs = kMaxCttsOffsetTimeUs;
+            ExtendedUtils::HFR::reCalculateTimeStamp(mMeta, tmpCttsOffsetTimeUs);
+            CHECK_GE(tmpCttsOffsetTimeUs, decodingTimeUs - timestampUs);
+#else
                     timestampUs + kMaxCttsOffsetTimeUs - decodingTimeUs;
             CHECK_GE(cttsOffsetTimeUs, 0ll);
+#endif
             timestampUs = decodingTimeUs;
             ALOGV("decoding time: %lld and ctts offset time: %lld",
                 timestampUs, cttsOffsetTimeUs);

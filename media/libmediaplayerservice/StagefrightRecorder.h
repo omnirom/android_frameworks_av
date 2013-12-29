@@ -23,6 +23,7 @@
 #include <utils/String8.h>
 
 #include <system/audio.h>
+#include <binder/AppOpsManager.h>
 
 namespace android {
 
@@ -69,6 +70,7 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() const;
 
 private:
+    AppOpsManager mAppOpsManager;
     sp<ICamera> mCamera;
     sp<ICameraRecordingProxy> mCameraProxy;
     sp<IGraphicBufferProducer> mPreviewSurface;
@@ -135,6 +137,9 @@ private:
     status_t startMPEG4Recording();
     status_t startAMRRecording();
     status_t startAACRecording();
+#ifdef QCOM_HARDWARE
+    status_t startWAVERecording();
+#endif
     status_t startRawAudioRecording();
     status_t startRTPRecording();
     status_t startMPEG2TSRecording();
@@ -191,6 +196,9 @@ private:
 
     StagefrightRecorder(const StagefrightRecorder &);
     StagefrightRecorder &operator=(const StagefrightRecorder &);
+#ifdef ENABLE_AV_ENHANCEMENTS
+    status_t startExtendedRecording();
+#endif
 };
 
 }  // namespace android

@@ -418,15 +418,12 @@ status_t AudioPolicyService::setStreamVolumeIndex(audio_stream_type_t stream,
         return BAD_VALUE;
     }
     Mutex::Autolock _l(mLock);
-#ifndef ICS_AUDIO_BLOB
     if (mpAudioPolicy->set_stream_volume_index_for_device) {
         return mpAudioPolicy->set_stream_volume_index_for_device(mpAudioPolicy,
                                                                 stream,
                                                                 index,
                                                                 device);
-    } else 
-#endif
-    {
+    } else {
         return mpAudioPolicy->set_stream_volume_index(mpAudioPolicy, stream, index);
     }
 }
@@ -442,15 +439,12 @@ status_t AudioPolicyService::getStreamVolumeIndex(audio_stream_type_t stream,
         return BAD_VALUE;
     }
     Mutex::Autolock _l(mLock);
-#ifndef ICS_AUDIO_BLOB
     if (mpAudioPolicy->get_stream_volume_index_for_device) {
         return mpAudioPolicy->get_stream_volume_index_for_device(mpAudioPolicy,
                                                                 stream,
                                                                 index,
                                                                 device);
-    } else 
-#endif
-    {
+    } else {
         return mpAudioPolicy->get_stream_volume_index(mpAudioPolicy, stream, index);
     }
 }
@@ -1026,7 +1020,9 @@ void AudioPolicyService::AudioCommandThread::insertCommand_l(AudioCommand *comma
             } else {
                 data2->mKeyValuePairs = param2.toString();
             }
-            command->mTime = command2->mTime;
+            if (!strcmp(data2->mKeyValuePairs.string(), data->mKeyValuePairs.string())){
+                command->mTime = command2->mTime;
+            }
             // force delayMs to non 0 so that code below does not request to wait for
             // command status as the command is now delayed
             delayMs = 1;

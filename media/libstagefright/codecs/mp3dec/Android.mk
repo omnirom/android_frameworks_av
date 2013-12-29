@@ -28,6 +28,10 @@ LOCAL_SRC_FILES := \
  	src/pvmp3_stereo_proc.cpp \
  	src/pvmp3_reorder.cpp \
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+       LOCAL_SRC_FILES += MP3Decoder.cpp
+endif
+
 ifeq ($(TARGET_ARCH),arm)
 LOCAL_SRC_FILES += \
 	src/asm/pvmp3_polyphase_filter_window_gcc.s \
