@@ -362,9 +362,17 @@ void SoftAAC2::onQueueFilled(OMX_U32 portIndex) {
             inInfo->mOwnedByUs = false;
             notifyEmptyBufferDone(inHeader);
 
+#ifdef QCOM_HARDWARE
+            if (mDecoderHasData || mInputBufferCount) {
+#else
             if (mDecoderHasData) {
+#endif
                 // flush out the decoder's delayed data by calling DecodeFrame
                 // one more time, with the AACDEC_FLUSH flag set
+
+                // for the use case where the first frame in the buffer is EOS,
+                // decode the header to update the sample rate and channel mode
+                // and flush out the buffer.
                 INT_PCM *outBuffer =
                         reinterpret_cast<INT_PCM *>(
                                 outHeader->pBuffer + outHeader->nOffset);
@@ -395,6 +403,9 @@ void SoftAAC2::onQueueFilled(OMX_U32 portIndex) {
             }
 
             outHeader->nFlags = OMX_BUFFERFLAG_EOS;
+            outHeader->nTimeStamp =
+                mAnchorTimeUs
+                    + (mNumSamplesOutput * 1000000ll) / mStreamInfo->sampleRate;
 
             outQueue.erase(outQueue.begin());
             outInfo->mOwnedByUs = false;

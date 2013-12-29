@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Not a Contribution.
  * Copyright (C) 2009 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +31,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
+#include <media/stagefright/ExtendedCodec.h>
 
 #include "include/AwesomePlayer.h"
 
@@ -36,8 +39,7 @@ namespace android {
 
 AudioPlayer::AudioPlayer(
         const sp<MediaPlayerBase::AudioSink> &audioSink,
-        uint32_t flags,
-        AwesomePlayer *observer)
+        uint32_t flags, AwesomePlayer *observer)
     : mInputBuffer(NULL),
       mSampleRate(0),
       mLatencyUs(0),
@@ -51,6 +53,9 @@ AudioPlayer::AudioPlayer(
       mFinalStatus(OK),
       mSeekTimeUs(0),
       mStarted(false),
+#ifdef QCOM_HARDWARE
+      mSourcePaused(false),
+#endif
       mIsFirstBuffer(false),
       mFirstBufferResult(OK),
       mFirstBuffer(NULL),
@@ -59,7 +64,12 @@ AudioPlayer::AudioPlayer(
       mPinnedTimeUs(-1ll),
       mPlaying(false),
       mStartPosUs(0),
+#ifdef QCOM_HARDWARE
+      mCreateFlags(flags),
+      mPauseRequired(false) {
+#else
       mCreateFlags(flags) {
+#endif
 }
 
 AudioPlayer::~AudioPlayer() {
@@ -79,6 +89,9 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
 
     status_t err;
     if (!sourceAlreadyStarted) {
+#ifdef QCOM_HARDWARE
+        mSourcePaused = false;
+#endif
         err = mSource->start();
 
         if (err != OK) {
@@ -247,13 +260,18 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
     mStarted = true;
     mPlaying = true;
     mPinnedTimeUs = -1ll;
-
+#ifdef QCOM_HARDWARE
+    const char *componentName;
+    if (!(format->findCString(kKeyDecoderComponent, &componentName))) {
+          componentName = "none";
+    }
+    mPauseRequired = ExtendedCodec::isSourcePauseRequired(componentName);
+#endif
     return OK;
 }
 
 void AudioPlayer::pause(bool playPendingSamples) {
     CHECK(mStarted);
-
     if (playPendingSamples) {
         if (mAudioSink.get() != NULL) {
             mAudioSink->stop();
@@ -274,10 +292,25 @@ void AudioPlayer::pause(bool playPendingSamples) {
     }
 
     mPlaying = false;
+#ifdef QCOM_HARDWARE
+    CHECK(mSource != NULL);
+    if (mPauseRequired) {
+        if (mSource->pause() == OK) {
+            mSourcePaused = true;
+        }
+    }
+#endif
 }
 
 status_t AudioPlayer::resume() {
     CHECK(mStarted);
+#ifdef QCOM_HARDWARE
+    CHECK(mSource != NULL);
+    if (mSourcePaused == true) {
+        mSourcePaused = false;
+        mSource->start();
+    }
+#endif
     status_t err;
 
     if (mAudioSink.get() != NULL) {
@@ -339,7 +372,9 @@ void AudioPlayer::reset() {
         mInputBuffer->release();
         mInputBuffer = NULL;
     }
-
+#ifdef QCOM_HARDWARE
+    mSourcePaused = false;
+#endif
     mSource->stop();
 
     // The following hack is necessary to ensure that the OMX
@@ -369,6 +404,9 @@ void AudioPlayer::reset() {
     mStarted = false;
     mPlaying = false;
     mStartPosUs = 0;
+#ifdef QCOM_HARDWARE
+    mPauseRequired = false;
+#endif
 }
 
 // static
@@ -415,6 +453,13 @@ size_t AudioPlayer::AudioSinkCallback(
         MediaPlayerBase::AudioSink::cb_event_t event) {
     AudioPlayer *me = (AudioPlayer *)cookie;
 
+#ifdef QCOM_HARDWARE
+    if (buffer == NULL) {
+        //Not applicable for AudioPlayer
+        ALOGE("This indicates the event underrun case for LPA/Tunnel");
+        return 0;
+    }
+#endif
     switch(event) {
     case MediaPlayerBase::AudioSink::CB_EVENT_FILL_BUFFER:
         return me->fillBuffer(buffer, size);
@@ -528,6 +573,12 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
                 mIsFirstBuffer = false;
             } else {
                 err = mSource->read(&mInputBuffer, &options);
+#ifdef QCOM_HARDWARE
+                if (err == OK && mInputBuffer == NULL && mSourcePaused) {
+                    ALOGV("mSourcePaused, return 0 from fillBuffer");
+                    return 0;
+                }
+#endif
             }
 
             CHECK((err == OK && mInputBuffer != NULL)
@@ -668,11 +719,16 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
     {
         Mutex::Autolock autoLock(mLock);
         mNumFramesPlayed += size_done / mFrameSize;
-        mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
+#ifndef QCOM_HARDWARE
+            mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
+#endif
 
         if (mReachedEOS) {
             mPinnedTimeUs = mNumFramesPlayedSysTimeUs;
         } else {
+#ifdef QCOM_HARDWARE
+            mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
+#endif
             mPinnedTimeUs = -1ll;
         }
     }
@@ -711,14 +767,27 @@ int64_t AudioPlayer::getRealTimeUsLocked() const {
     // compensate using system time.
     int64_t diffUs;
     if (mPinnedTimeUs >= 0ll) {
-        diffUs = mPinnedTimeUs;
+#ifdef QCOM_HARDWARE
+        if(mReachedEOS)
+            diffUs = ALooper::GetNowUs();
+        else
+#endif
+            diffUs = mPinnedTimeUs;
+
     } else {
         diffUs = ALooper::GetNowUs();
     }
 
     diffUs -= mNumFramesPlayedSysTimeUs;
 
+#ifdef QCOM_HARDWARE
+    if((result + diffUs <= mPositionTimeRealUs) || (!mReachedEOS))
+        return result + diffUs;
+    else
+        return mPositionTimeRealUs;
+#else
     return result + diffUs;
+#endif
 }
 
 int64_t AudioPlayer::getOutputPlayPositionUs_l() const

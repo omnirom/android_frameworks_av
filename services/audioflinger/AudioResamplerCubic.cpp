@@ -32,6 +32,16 @@ void AudioResamplerCubic::init() {
     memset(&right, 0, sizeof(state));
 }
 
+#ifdef QCOM_HARDWARE
+void AudioResamplerCubic::reset(){
+   mInputIndex = 0;
+   mPhaseFraction = 0;
+   mBuffer.frameCount = 0;
+   memset(&left, 0, sizeof(state));
+   memset(&right, 0, sizeof(state));
+}
+#endif
+
 void AudioResamplerCubic::resample(int32_t* out, size_t outFrameCount,
         AudioBufferProvider* provider) {
 

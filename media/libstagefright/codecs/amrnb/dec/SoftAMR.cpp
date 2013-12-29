@@ -352,7 +352,18 @@ void SoftAMR::onQueueFilled(OMX_U32 portIndex) {
             }
 
             size_t frameSize = getFrameSize(mode);
+#ifdef QCOM_HARDWARE
+            if (inHeader->nFilledLen < frameSize) {
+                ALOGE("Filled length vs frameSize %d vs %d. Corrupt clip?",
+                   inHeader->nFilledLen, frameSize);
+
+                notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
+                mSignalledError = true;
+                return;
+            }
+#else
             CHECK_GE(inHeader->nFilledLen, frameSize);
+#endif
 
             int16_t *outPtr = (int16_t *)outHeader->pBuffer;
 
@@ -429,6 +440,15 @@ void SoftAMR::onQueueFilled(OMX_U32 portIndex) {
 }
 
 void SoftAMR::onPortFlushCompleted(OMX_U32 portIndex) {
+#ifdef QCOM_HARDWARE
+        ALOGE("onPortFlushCompleted portindex %d, resetting frame ",portIndex);
+        if(portIndex == 0) {
+           if(mMode == MODE_NARROW)
+              Speech_Decode_Frame_reset(mState);
+           else
+              pvDecoder_AmrWb_Reset(mState, 0);
+        }
+#endif
 }
 
 void SoftAMR::onPortEnableCompleted(OMX_U32 portIndex, bool enabled) {

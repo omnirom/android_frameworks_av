@@ -1,5 +1,6 @@
 /*
-**
+** Copyright (c) 2013, The Linux Foundation. All rights reserved.
+** Not a Contribution.
 ** Copyright 2012, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -137,6 +138,9 @@ public:
     virtual     status_t    setParameters(const String8& keyValuePairs);
     virtual     String8     getParameters(const String8& keys) = 0;
     virtual     void        audioConfigChanged_l(int event, int param = 0) = 0;
+#ifdef QCOM_HARDWARE
+                void        effectConfigChanged();
+#endif
                 void        sendIoConfigEvent(int event, int param = 0);
                 void        sendIoConfigEvent_l(int event, int param = 0);
                 void        sendPrioConfigEvent_l(pid_t pid, pid_t tid, int32_t prio);
@@ -555,6 +559,9 @@ private:
     int                             mNumWrites;
     int                             mNumDelayedWrites;
     bool                            mInWrite;
+    // cache the flags here. Based on falgs type of output(normal/direct) to be open
+    // is decided  in createtrack_l()
+    audio_output_flags_t            mOutputFlags;
 
     // FIXME rename these former local variables of threadLoop to standard "m" names
     nsecs_t                         standbyTime;

@@ -504,7 +504,13 @@ int64_t ElementaryStreamQueue::fetchTimestamp(size_t size) {
 
         if (first) {
             timeUs = info->mTimestampUs;
+#ifdef QCOM_HARDWARE
+            if(mMode != AAC) {
+                first = false;
+            }
+#else
             first = false;
+#endif
         }
 
         if (info->mLength > size) {

@@ -32,16 +32,23 @@
 #include <media/stagefright/NativeWindowWrapper.h>
 #include <media/stagefright/OMXClient.h>
 #include <media/stagefright/OMXCodec.h>
+#include <media/stagefright/ExtendedCodec.h>
 
 #include <media/hardware/HardwareAPI.h>
 
 #include <OMX_Component.h>
+#ifdef QCOM_HARDWARE
+#include <media/stagefright/ExtendedCodec.h>
+#endif
 
 #ifdef USE_SAMSUNG_COLORFORMAT
 #include <sec_format.h>
 #endif
 
 #include "include/avc_utils.h"
+#ifdef QCOM_HARDWARE
+#include "include/ExtendedUtils.h"
+#endif
 
 namespace android {
 
@@ -374,7 +381,12 @@ ACodec::ACodec()
       mDequeueCounter(0),
       mStoreMetaDataInOutputBuffers(false),
       mMetaDataBuffersToSubmit(0),
+#ifdef QCOM_HARDWARE
+      mRepeatFrameDelayUs(-1ll),
+      mInSmoothStreamingMode(false) {
+#else
       mRepeatFrameDelayUs(-1ll) {
+#endif
     mUninitializedState = new UninitializedState(this);
     mLoadedState = new LoadedState(this);
     mLoadedToIdleState = new LoadedToIdleState(this);
@@ -987,6 +999,10 @@ status_t ACodec::setComponentRole(
             "audio_decoder.amrnb", "audio_encoder.amrnb" },
         { MEDIA_MIMETYPE_AUDIO_AMR_WB,
             "audio_decoder.amrwb", "audio_encoder.amrwb" },
+#ifdef ENABLE_AV_ENHANCEMENTS
+        { MEDIA_MIMETYPE_AUDIO_AMR_WB_PLUS,
+            "audio_decoder.amrwbplus", "audio_encoder.amrwbplus" },
+#endif
         { MEDIA_MIMETYPE_AUDIO_AAC,
             "audio_decoder.aac", "audio_encoder.aac" },
         { MEDIA_MIMETYPE_AUDIO_VORBIS,
@@ -1024,7 +1040,11 @@ status_t ACodec::setComponentRole(
     }
 
     if (i == kNumMimeToRole) {
+#ifdef QCOM_HARDWARE
+        return ExtendedCodec::setSupportedRole(mOMX, mNode, isEncoder, mime);
+#else
         return ERROR_UNSUPPORTED;
+#endif
     }
 
     const char *role =
@@ -1220,6 +1240,12 @@ status_t ACodec::configureCodec(
                 err = setupVideoDecoder(mime, width, height);
             }
         }
+#ifdef QCOM_HARDWARE
+        if (err == OK) {
+            const char* componentName = mComponentName.c_str();
+            ExtendedCodec::configureVideoDecoder(msg, mime, mOMX, 0, mNode, componentName);
+        }
+#endif
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MPEG)) {
         int32_t numChannels, sampleRate;
         if (!msg->findInt32("channel-count", &numChannels)
@@ -1302,6 +1328,21 @@ status_t ACodec::configureCodec(
         } else {
             err = setupRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
         }
+#ifdef QCOM_HARDWARE
+    } else {
+        if (encoder) {
+            int32_t numChannels, sampleRate;
+            if (msg->findInt32("channel-count", &numChannels)
+                  && msg->findInt32("sample-rate", &sampleRate)) {
+                setupRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
+            }
+       }
+       err = ExtendedCodec::setAudioFormat(
+                 msg, mime, mOMX, mNode, mIsEncoder);
+       if(err != OK) {
+           return err;
+       }
+#endif
     }
 
     if (err != OK) {
@@ -1780,7 +1821,13 @@ status_t ACodec::setupVideoDecoder(
     status_t err = GetVideoCodingTypeFromMime(mime, &compressionFormat);
 
     if (err != OK) {
+#ifdef QCOM_HARDWARE
+        err = ExtendedCodec::setVideoOutputFormat(mime, &compressionFormat);
+        if (err != OK)
+            return err;
+#else
         return err;
+#endif
     }
 
     err = setVideoPortFormatType(
@@ -1809,6 +1856,11 @@ status_t ACodec::setupVideoDecoder(
     if (err != OK) {
         return err;
     }
+
+#ifdef QCOM_HARDWARE
+    ExtendedCodec::enableSmoothStreaming(
+            mOMX, mNode, &mInSmoothStreamingMode, mComponentName.c_str());
+#endif
 
     return OK;
 }
@@ -1903,7 +1955,15 @@ status_t ACodec::setupVideoEncoder(const char *mime, const sp<AMessage> &msg) {
     err = GetVideoCodingTypeFromMime(mime, &compressionFormat);
 
     if (err != OK) {
+#ifdef QCOM_HARDWARE
+        err = ExtendedCodec::setVideoInputFormat(mime, &compressionFormat);
+        if (err != OK) {
+            ALOGE("Not a supported video mime type: %s", mime);
+            return err;
+        }
+#else
         return err;
+#endif
     }
 
     err = setVideoPortFormatType(
@@ -2583,6 +2643,11 @@ void ACodec::sendFormatChange(const sp<AMessage> &reply) {
                             rect.nTop,
                             rect.nLeft + rect.nWidth,
                             rect.nTop + rect.nHeight);
+#ifdef QCOM_HARDWARE
+                    reply->setInt32(
+                            "color-format",
+                            (int)(videoDef->eColorFormat));
+#endif
                 }
             }
             break;
@@ -2699,7 +2764,26 @@ void ACodec::sendFormatChange(const sp<AMessage> &reply) {
                 }
 
                 default:
+                {
+#ifdef QCOM_HARDWARE
+                    AString mimeType;
+                    status_t err = ExtendedCodec::handleSupportedAudioFormats(
+                        audioDef->eEncoding, &mimeType);
+                    if (err == OK) {
+                        int channelCount;
+                        err = ExtendedCodec::getSupportedAudioFormatInfo(
+                                      &mimeType,
+                                      mOMX,
+                                      mNode,
+                                      kPortIndexOutput,
+                                      &channelCount);
+                        notify->setString("mime", mimeType.c_str());
+                        notify->setInt32("channel-count", channelCount);
+                        break;
+                    }
+#endif
                     TRESPASS();
+                }
             }
             break;
         }
@@ -3454,6 +3538,15 @@ void ACodec::BaseState::onOutputBufferDrained(const sp<AMessage> &msg) {
     android_native_rect_t crop;
     if (msg->findRect("crop",
             &crop.left, &crop.top, &crop.right, &crop.bottom)) {
+#ifdef QCOM_HARDWARE
+        if (mCodec->mInSmoothStreamingMode) {
+            OMX_COLOR_FORMATTYPE eColorFormat = OMX_COLOR_FormatUnused;
+            CHECK(msg->findInt32("color-format", (int32_t*)&eColorFormat));
+            ExtendedUtils::updateNativeWindowBufferGeometry(
+                    mCodec->mNativeWindow.get(), crop.right,
+                    crop.bottom, eColorFormat);
+        }
+#endif
         CHECK_EQ(0, native_window_set_crop(
                 mCodec->mNativeWindow.get(), &crop));
     }
@@ -3666,6 +3759,9 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
             ++matchIndex) {
         componentName = matchingCodecs.itemAt(matchIndex).mName.string();
         quirks = matchingCodecs.itemAt(matchIndex).mQuirks;
+#ifdef QCOM_HARDWARE
+        ExtendedCodec::overrideComponentName(quirks, msg, &componentName);
+#endif
 
         pid_t tid = androidGetTid();
         int prevPriority = androidGetThreadPriority(tid);

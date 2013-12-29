@@ -43,6 +43,9 @@ private:
         int32_t a, b, c, y0, y1, y2, y3;
     } state;
     void init();
+#ifdef QCOM_HARDWARE
+    void reset ();
+#endif
     void resampleMono16(int32_t* out, size_t outFrameCount,
             AudioBufferProvider* provider);
     void resampleStereo16(int32_t* out, size_t outFrameCount,

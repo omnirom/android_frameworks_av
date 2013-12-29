@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Not a Contribution.
  * Copyright (C) 2009 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,11 +53,33 @@ public:
     virtual ~AudioPlayer();
 
     // Caller retains ownership of "source".
+#ifdef QCOM_HARDWARE
+    virtual void setSource(const sp<MediaSource> &source);
+#else
     void setSource(const sp<MediaSource> &source);
+#endif
 
     // Return time in us.
     virtual int64_t getRealTimeUs();
 
+#ifdef QCOM_HARDWARE
+    virtual status_t start(bool sourceAlreadyStarted = false);
+
+    virtual void pause(bool playPendingSamples = false);
+    virtual status_t resume();
+
+    // Returns the timestamp of the last buffer played (in us).
+    virtual int64_t getMediaTimeUs();
+
+    // Returns true iff a mapping is established, i.e. the AudioPlayer
+    // has played at least one frame of audio.
+    virtual bool getMediaTimeMapping(int64_t *realtime_us, int64_t *mediatime_us);
+
+    virtual status_t seekTo(int64_t time_us);
+
+    virtual bool isSeeking();
+    virtual bool reachedEOS(status_t *finalStatus);
+#else
     status_t start(bool sourceAlreadyStarted = false);
 
     void pause(bool playPendingSamples = false);
@@ -72,6 +96,7 @@ public:
 
     bool isSeeking();
     bool reachedEOS(status_t *finalStatus);
+#endif
 
     status_t setPlaybackRatePermille(int32_t ratePermille);
 
@@ -101,6 +126,9 @@ private:
     int64_t mSeekTimeUs;
 
     bool mStarted;
+#ifdef QCOM_HARDWARE
+    bool mSourcePaused;
+#endif
 
     bool mIsFirstBuffer;
     status_t mFirstBufferResult;
@@ -113,6 +141,9 @@ private:
     bool mPlaying;
     int64_t mStartPosUs;
     const uint32_t mCreateFlags;
+#ifdef QCOM_HARDWARE
+    bool mPauseRequired;
+#endif
 
     static void AudioCallback(int event, void *user, void *info);
     void AudioCallback(int event, void *info);
