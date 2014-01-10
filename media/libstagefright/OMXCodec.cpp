@@ -3383,32 +3383,29 @@ void OMXCodec::onPortSettingsChanged(OMX_U32 portIndex) {
 bool OMXCodec::flushPortAsync(OMX_U32 portIndex) {
     CHECK(mState == EXECUTING || mState == RECONFIGURING
 #ifdef QCOM_HARDWARE
-            || mState == EXECUTING_TO_IDLE || mState == FLUSHING);
+            || mState == FLUSHING
+#endif
+            || mState == EXECUTING_TO_IDLE);
 
     if (portIndex == (OMX_U32) -1 ) {
         mPortStatus[kPortIndexInput] = SHUTTING_DOWN;
         mPortStatus[kPortIndexOutput] = SHUTTING_DOWN;
     } else {
-#else
-            || mState == EXECUTING_TO_IDLE);
-#endif
-    CODEC_LOGV("flushPortAsync(%ld): we own %d out of %d buffers already.",
-         portIndex, countBuffersWeOwn(mPortBuffers[portIndex]),
-         mPortBuffers[portIndex].size());
+        CODEC_LOGV("flushPortAsync(%ld): we own %d out of %d buffers already.",
+             portIndex, countBuffersWeOwn(mPortBuffers[portIndex]),
+             mPortBuffers[portIndex].size());
 
-    CHECK_EQ((int)mPortStatus[portIndex], (int)ENABLED);
-    mPortStatus[portIndex] = SHUTTING_DOWN;
+        CHECK_EQ((int)mPortStatus[portIndex], (int)ENABLED);
+        mPortStatus[portIndex] = SHUTTING_DOWN;
 
-    if ((mQuirks & kRequiresFlushCompleteEmulation)
-        && countBuffersWeOwn(mPortBuffers[portIndex])
-                == mPortBuffers[portIndex].size()) {
-        // No flush is necessary and this component fails to send a
-        // flush-complete event in this case.
+        if ((mQuirks & kRequiresFlushCompleteEmulation)
+            && countBuffersWeOwn(mPortBuffers[portIndex])
+                    == mPortBuffers[portIndex].size()) {
+            // No flush is necessary and this component fails to send a
+            // flush-complete event in this case.
 
-        return false;
-#ifdef QCOM_HARDWARE
+            return false;
         }
-#endif
     }
 
     status_t err =
@@ -4298,24 +4295,8 @@ status_t OMXCodec::start(MetaData *meta) {
 
 #ifdef QCOM_HARDWARE
     if (mPaused) {
-        if (!strncmp(mComponentName, "OMX.qcom.", 9)) {
-            while (isIntermediateState(mState)) {
-                mAsyncCompletion.wait(mLock);
-            }
-            CHECK_EQ(mState, (status_t)PAUSED);
-            status_t err = mOMX->sendCommand(mNode,OMX_CommandStateSet, OMX_StateExecuting);
-            CHECK_EQ(err, (status_t)OK);
-            setState(IDLE_TO_EXECUTING);
-            mPaused = false;
-            while (mState != EXECUTING && mState != ERROR) {
-                mAsyncCompletion.wait(mLock);
-            }
-            drainInputBuffers();
-            return mState == ERROR ? UNKNOWN_ERROR : OK;
-        } else {   // SW Codec
-            mPaused = false;
-            return OK;
-        }
+        status_t err = resumeLocked(true);
+        return err;
     }
 #endif
 
@@ -4514,6 +4495,16 @@ status_t OMXCodec::read(
     *buffer = NULL;
 
     Mutex::Autolock autoLock(mLock);
+
+#ifdef QCOM_HARDWARE
+    if (mPaused) {
+        err = resumeLocked(false);
+        if(err != OK) {
+            CODEC_LOGE("Failed to restart codec err= %d", err);
+            return err;
+        }
+    }
+#endif
 
     if (mState != EXECUTING && mState != RECONFIGURING) {
         return UNKNOWN_ERROR;
@@ -5363,7 +5354,35 @@ status_t OMXCodec::pause() {
     mPaused = true;
     return OK;
 #endif
+
 }
+
+#ifdef QCOM_HARDWARE
+status_t OMXCodec::resumeLocked(bool drainInputBuf) {
+   CODEC_LOGV("resume mState=%d", mState);
+
+   if (!strncmp(mComponentName, "OMX.qcom.", 9)) {
+        while (isIntermediateState(mState)) {
+            mAsyncCompletion.wait(mLock);
+        }
+        CHECK_EQ(mState, (status_t)PAUSED);
+        status_t err = mOMX->sendCommand(mNode,
+        OMX_CommandStateSet, OMX_StateExecuting);
+        CHECK_EQ(err, (status_t)OK);
+        setState(IDLE_TO_EXECUTING);
+        mPaused = false;
+        while (mState != EXECUTING && mState != ERROR) {
+            mAsyncCompletion.wait(mLock);
+        }
+        if(drainInputBuf)
+            drainInputBuffers();
+        return mState == ERROR ? UNKNOWN_ERROR : OK;
+    } else {   // SW Codec
+        mPaused = false;
+        return OK;
+    }
+}
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 

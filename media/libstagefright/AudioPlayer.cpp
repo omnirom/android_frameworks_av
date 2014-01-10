@@ -33,6 +33,10 @@
 #include <media/stagefright/Utils.h>
 #include <media/stagefright/ExtendedCodec.h>
 
+#ifdef QCOM_HARDWARE
+#include <media/stagefright/ExtendedCodec.h>
+#endif
+
 #include "include/AwesomePlayer.h"
 
 namespace android {
@@ -65,11 +69,9 @@ AudioPlayer::AudioPlayer(
       mPinnedTimeUs(-1ll),
       mPlaying(false),
       mStartPosUs(0),
+      mCreateFlags(flags)
 #ifdef QCOM_HARDWARE
-      mCreateFlags(flags),
-      mPauseRequired(false) {
-#else
-      mCreateFlags(flags) {
+      ,mPauseRequired(false)
 #endif
 }
 
