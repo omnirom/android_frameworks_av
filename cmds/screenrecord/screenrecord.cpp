@@ -12,6 +12,20 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * Per article 5 of the Apache 2.0 License, some modifications to this code
+ * were made by the OmniROM Project.
+ *
+ * Modifications Copyright (C) 2013 The OmniROM Project
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 3
+ * of the License, or (at your option) any later version.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #define LOG_TAG "ScreenRecord"
@@ -27,13 +41,17 @@
 #include <gui/SurfaceComposerClient.h>
 #include <gui/ISurfaceComposer.h>
 #include <ui/DisplayInfo.h>
+#include <media/AudioSystem.h>
 #include <media/openmax/OMX_IVCommon.h>
+#include <media/stagefright/AudioSource.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/MediaCodec.h>
+#include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MediaMuxer.h>
+#include <media/stagefright/MetaData.h>
 #include <media/ICrypto.h>
 
 #include <stdlib.h>
@@ -68,6 +86,7 @@ static uint32_t gVideoWidth = 0;            // default width+height
 static uint32_t gVideoHeight = 0;
 static uint32_t gBitRate = 4000000;         // 4Mbps
 static uint32_t gTimeLimitSec = kMaxTimeLimitSec;
+static audio_source_t gAudioInput = AUDIO_SOURCE_REMOTE_SUBMIX;
 
 // Set by signal handler to stop recording.
 static bool gStopRequested;
@@ -130,6 +149,93 @@ static status_t configureSignals()
 static bool isDeviceRotated(int orientation) {
     return orientation != DISPLAY_ORIENTATION_0 &&
             orientation != DISPLAY_ORIENTATION_180;
+}
+
+static status_t prepareAudioEncoder(sp<MediaCodec>* pCodec,
+        sp<AudioSource>* pSource, Vector< sp<ABuffer> >* inputBuffers) {
+    status_t err = OK;
+
+    // Setup the audio source. Note that audio will be bypassed from the
+    // actual device speakers.
+    if (gAudioInput == AUDIO_SOURCE_REMOTE_SUBMIX) {
+        // We make sure that the audio source is enabled
+        err = AudioSystem::setDeviceConnectionState(
+                AUDIO_DEVICE_OUT_REMOTE_SUBMIX,
+                AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
+                NULL /* device_address */);
+
+        if (err != OK) {
+            fprintf(stderr, "WARN: Unable to set device connection state for audio submix OUT\n");
+        }
+    }
+
+    // Then we capture that source
+    sp<AudioSource> source = new AudioSource(
+            gAudioInput,
+            48000 /* sampleRate */,
+            2 /* channelCount */);
+
+    err = source->initCheck();
+    if (err != OK) {
+        fprintf(stderr, "Unable to instantiate audio source (error %d)!\n", err);
+        source = NULL;
+        return err;
+    }
+
+    sp<MetaData> params = new MetaData;
+    params->setInt64(kKeyTime, 1ll);
+    err = source->start(params.get());
+    if (err != OK) {
+        fprintf(stderr, "Cannot start AudioSource\n");
+        source = NULL;
+        return err;
+    }
+
+    // AAC Encoder: 128kbps, 48KHz, Stereo
+    sp<AMessage> format = new AMessage;
+    format->setString("mime", MEDIA_MIMETYPE_AUDIO_AAC, strlen(MEDIA_MIMETYPE_AUDIO_AAC));
+    format->setInt32("bitrate", 128000);
+    format->setInt32("sample-rate", 48000);
+    format->setInt32("channel-count", 2);
+
+    sp<ALooper> looper = new ALooper;
+    looper->setName("audiorecord_looper");
+    looper->start();
+
+    sp<MediaCodec> encoder = MediaCodec::CreateByType(looper, MEDIA_MIMETYPE_AUDIO_AAC, true);
+    if (encoder == NULL) {
+        fprintf(stderr, "ERROR: unable to create %s codec instance\n",
+                MEDIA_MIMETYPE_AUDIO_AAC);
+        return -1;
+    }
+    err = encoder->configure(format, NULL, NULL,
+            MediaCodec::CONFIGURE_FLAG_ENCODE);
+    if (err != NO_ERROR) {
+        encoder->release();
+        encoder.clear();
+
+        fprintf(stderr, "ERROR: unable to configure codec (err=%d)\n", err);
+        return -1;
+    }
+
+    encoder->start();
+
+    // We don't have any buffer producer from audio source, so we'll be in charge
+    // of feeding our RAW PCM buffers to the audio encoder ourselves.
+    err = encoder->getInputBuffers(inputBuffers);
+
+    if (err != OK) {
+        fprintf(stderr, "ERROR: unable to set input buffers to the encoder (err=%d)\n", err);
+        encoder->release();
+        encoder.clear();
+
+        return err;
+    }
+
+    *pCodec = encoder;
+    *pSource = source;
+
+    return NO_ERROR;
 }
 
 /*
@@ -290,6 +396,114 @@ static status_t prepareVirtualDisplay(const DisplayInfo& mainDpyInfo,
     return NO_ERROR;
 }
 
+static status_t processDequeue(const sp<MediaCodec>& encoder,
+        ssize_t* trackIdx,
+        const uint32_t* debugNumFrames,
+        Vector<sp<ABuffer> >* buffers,
+        const sp<MediaMuxer>& muxer,
+        bool isAudio) {
+    static int kTimeout = 1;   // be responsive on signal
+    size_t bufIndex, offset, size;
+    int64_t ptsUsec;
+    uint32_t flags;
+    status_t err = NO_ERROR;
+
+    ALOGV("Calling dequeueOutputBuffer");
+    err = encoder->dequeueOutputBuffer(&bufIndex, &offset, &size, &ptsUsec,
+            &flags, kTimeout);
+    ALOGV("dequeueOutputBuffer returned %d", err);
+
+    switch (err) {
+    case NO_ERROR:
+        // got a buffer
+        if ((flags & MediaCodec::BUFFER_FLAG_CODECCONFIG) != 0) {
+            // ignore this -- we passed the CSD into MediaMuxer when
+            // we got the format change notification
+            ALOGV("Got codec config buffer (%u bytes); ignoring", size);
+            size = 0;
+        }
+        if (size != 0) {
+            ALOGV("Got data in buffer %d, size=%d, pts=%lld",
+                    bufIndex, size, ptsUsec);
+            CHECK(*trackIdx != -1);
+
+            // If the virtual display isn't providing us with timestamps,
+            // use the current time.
+            if (ptsUsec <= 0) {
+                ptsUsec = systemTime(SYSTEM_TIME_MONOTONIC) / 1000;
+            }
+
+            // The MediaMuxer docs are unclear, but it appears that we
+            // need to pass either the full set of BufferInfo flags, or
+            // (flags & BUFFER_FLAG_SYNCFRAME).
+            err = muxer->writeSampleData((*buffers)[bufIndex], *trackIdx,
+                    ptsUsec, flags);
+            if (err != NO_ERROR) {
+                fprintf(stderr, "Failed writing data to muxer (err=%d)\n",
+                        err);
+                return err;
+            }
+            debugNumFrames++;
+        }
+        err = encoder->releaseOutputBuffer(bufIndex);
+        if (err != NO_ERROR) {
+            fprintf(stderr, "Unable to release output buffer (err=%d)\n",
+                    err);
+            return err;
+        }
+        if ((flags & MediaCodec::BUFFER_FLAG_EOS) != 0) {
+            // Not expecting EOS from SurfaceFlinger.  Go with it.
+            ALOGD("Received end-of-stream");
+            gStopRequested = false;
+        }
+        break;
+    case -EAGAIN:                       // INFO_TRY_AGAIN_LATER
+        ALOGV("Got -EAGAIN, looping");
+        break;
+    case INFO_FORMAT_CHANGED:           // INFO_OUTPUT_FORMAT_CHANGED
+        {
+            // format includes CSD, which we must provide to muxer
+            ALOGV("Encoder format changed");
+            sp<AMessage> newFormat;
+            encoder->getOutputFormat(&newFormat);
+            *trackIdx = muxer->addTrack(newFormat);
+
+            // Audio is dequeued after video, so in order to have both
+            // tracks set in the muxer, we start it only on audio
+            if (isAudio) {
+                ALOGV("Starting muxer");
+                err = muxer->start();
+            } else {
+                err = NO_ERROR;
+            }
+            if (err != NO_ERROR) {
+                fprintf(stderr, "Unable to start muxer (err=%d)\n", err);
+                return err;
+            }
+        }
+        break;
+    case INFO_OUTPUT_BUFFERS_CHANGED:   // INFO_OUTPUT_BUFFERS_CHANGED
+        // not expected for an encoder; handle it anyway
+        ALOGV("Encoder buffers changed");
+        err = encoder->getOutputBuffers(buffers);
+        if (err != NO_ERROR) {
+            fprintf(stderr,
+                    "Unable to get new output buffers (err=%d)\n", err);
+            return err;
+        }
+        break;
+    case INVALID_OPERATION:
+        fprintf(stderr, "Request for encoder buffer failed\n");
+        return err;
+    default:
+        fprintf(stderr,
+                "Got weird result %d from dequeueOutputBuffer\n", err);
+        return err;
+    }
+
+    return err;
+}
+
 /*
  * Runs the MediaCodec encoder, sending the output to the MediaMuxer.  The
  * input frames are coming from the virtual display as fast as SurfaceFlinger
@@ -298,18 +512,28 @@ static status_t prepareVirtualDisplay(const DisplayInfo& mainDpyInfo,
  * The muxer must *not* have been started before calling.
  */
 static status_t runEncoder(const sp<MediaCodec>& encoder,
+        const sp<MediaCodec>& audioEncoder,
+        const sp<AudioSource>& audioSource,
+        const Vector< sp<ABuffer> >& audioEncoderInBuf,
         const sp<MediaMuxer>& muxer) {
-    static int kTimeout = 250000;   // be responsive on signal
     status_t err;
-    ssize_t trackIdx = -1;
-    uint32_t debugNumFrames = 0;
+    ssize_t trackIdx = -1,
+        audioTrackIdx = -1;
+    uint32_t debugNumFrames = 0,
+        debugNumAudioFrames = 0;
     int64_t startWhenNsec = systemTime(CLOCK_MONOTONIC);
     int64_t endWhenNsec = startWhenNsec + seconds_to_nanoseconds(gTimeLimitSec);
 
-    Vector<sp<ABuffer> > buffers;
+    Vector<sp<ABuffer> > buffers, audioBuffers;
     err = encoder->getOutputBuffers(&buffers);
     if (err != NO_ERROR) {
-        fprintf(stderr, "Unable to get output buffers (err=%d)\n", err);
+        fprintf(stderr, "Unable to get video output buffers (err=%d)\n", err);
+        return err;
+    }
+
+    err = audioEncoder->getOutputBuffers(&audioBuffers);
+    if (err != NO_ERROR) {
+        fprintf(stderr, "Unable to get audio output buffers (err=%d)\n", err);
         return err;
     }
 
@@ -318,9 +542,10 @@ static status_t runEncoder(const sp<MediaCodec>& encoder,
 
     // Run until we're signaled.
     while (!gStopRequested) {
-        size_t bufIndex, offset, size;
         int64_t ptsUsec;
-        uint32_t flags;
+        size_t bufIndex;
+        MediaBuffer* mbuf;
+        Vector<int> bufferIndexes;
 
         if (systemTime(CLOCK_MONOTONIC) > endWhenNsec) {
             if (gVerbose) {
@@ -329,90 +554,41 @@ static status_t runEncoder(const sp<MediaCodec>& encoder,
             break;
         }
 
-        ALOGV("Calling dequeueOutputBuffer");
-        err = encoder->dequeueOutputBuffer(&bufIndex, &offset, &size, &ptsUsec,
-                &flags, kTimeout);
-        ALOGV("dequeueOutputBuffer returned %d", err);
-        switch (err) {
-        case NO_ERROR:
-            // got a buffer
-            if ((flags & MediaCodec::BUFFER_FLAG_CODECCONFIG) != 0) {
-                // ignore this -- we passed the CSD into MediaMuxer when
-                // we got the format change notification
-                ALOGV("Got codec config buffer (%u bytes); ignoring", size);
-                size = 0;
-            }
-            if (size != 0) {
-                ALOGV("Got data in buffer %d, size=%d, pts=%lld",
-                        bufIndex, size, ptsUsec);
-                CHECK(trackIdx != -1);
+        // Process audio input (route PCM to AAC encoder)
+        while (err == NO_ERROR) {
+            err = audioEncoder->dequeueInputBuffer(&bufIndex);
 
-                // If the virtual display isn't providing us with timestamps,
-                // use the current time.
-                if (ptsUsec == 0) {
-                    ptsUsec = systemTime(SYSTEM_TIME_MONOTONIC) / 1000;
-                }
-
-                // The MediaMuxer docs are unclear, but it appears that we
-                // need to pass either the full set of BufferInfo flags, or
-                // (flags & BUFFER_FLAG_SYNCFRAME).
-                err = muxer->writeSampleData(buffers[bufIndex], trackIdx,
-                        ptsUsec, flags);
-                if (err != NO_ERROR) {
-                    fprintf(stderr, "Failed writing data to muxer (err=%d)\n",
-                            err);
-                    return err;
-                }
-                debugNumFrames++;
+            if (err == NO_ERROR) {
+                bufferIndexes.push_back(bufIndex);
             }
-            err = encoder->releaseOutputBuffer(bufIndex);
-            if (err != NO_ERROR) {
-                fprintf(stderr, "Unable to release output buffer (err=%d)\n",
-                        err);
-                return err;
-            }
-            if ((flags & MediaCodec::BUFFER_FLAG_EOS) != 0) {
-                // Not expecting EOS from SurfaceFlinger.  Go with it.
-                ALOGD("Received end-of-stream");
-                gStopRequested = false;
-            }
-            break;
-        case -EAGAIN:                       // INFO_TRY_AGAIN_LATER
-            ALOGV("Got -EAGAIN, looping");
-            break;
-        case INFO_FORMAT_CHANGED:           // INFO_OUTPUT_FORMAT_CHANGED
-            {
-                // format includes CSD, which we must provide to muxer
-                ALOGV("Encoder format changed");
-                sp<AMessage> newFormat;
-                encoder->getOutputFormat(&newFormat);
-                trackIdx = muxer->addTrack(newFormat);
-                ALOGV("Starting muxer");
-                err = muxer->start();
-                if (err != NO_ERROR) {
-                    fprintf(stderr, "Unable to start muxer (err=%d)\n", err);
-                    return err;
-                }
-            }
-            break;
-        case INFO_OUTPUT_BUFFERS_CHANGED:   // INFO_OUTPUT_BUFFERS_CHANGED
-            // not expected for an encoder; handle it anyway
-            ALOGV("Encoder buffers changed");
-            err = encoder->getOutputBuffers(&buffers);
-            if (err != NO_ERROR) {
-                fprintf(stderr,
-                        "Unable to get new output buffers (err=%d)\n", err);
-                return err;
-            }
-            break;
-        case INVALID_OPERATION:
-            fprintf(stderr, "Request for encoder buffer failed\n");
-            return err;
-        default:
-            fprintf(stderr,
-                    "Got weird result %d from dequeueOutputBuffer\n", err);
-            return err;
         }
+
+        err = NO_ERROR;
+        while (err == NO_ERROR && bufferIndexes.size() > 0) {
+            err = audioSource->read(&mbuf);
+
+            if (err == NO_ERROR) {
+                bufIndex = *bufferIndexes.begin();
+                bufferIndexes.erase(bufferIndexes.begin());
+
+                memcpy(audioEncoderInBuf.itemAt(bufIndex)->data(), mbuf->data(), mbuf->size());
+                ptsUsec = systemTime(SYSTEM_TIME_MONOTONIC) / 1000;
+                err = audioEncoder->queueInputBuffer(bufIndex, 0, mbuf->size(), ptsUsec, 0);
+
+                if (err != NO_ERROR) {
+                    fprintf(stderr, "Unable to queue PCM data to AAC encoder (err=%d)\n", err);
+                }
+
+                mbuf->release();
+                mbuf = NULL;
+            }
+        }
+
+        // Process video frame
+        processDequeue(encoder, &trackIdx, &debugNumFrames, &buffers, muxer, false);
+
+        // Process audio output (route AAC to muxer)
+        processDequeue(audioEncoder, &audioTrackIdx, &debugNumAudioFrames, &audioBuffers, muxer, true);
     }
 
     ALOGV("Encoder stopping (req=%d)", gStopRequested);
@@ -509,6 +685,12 @@ static status_t recordScreen(const char* fileName) {
         return err;
     }
 
+    // Configure and start the audio encoder.
+    Vector< sp<ABuffer> > audioEncoderInBuf;
+    sp<MediaCodec> audioEncoder;
+    sp<AudioSource> audioSource;
+    err = prepareAudioEncoder(&audioEncoder, &audioSource, &audioEncoderInBuf);
+
     // Configure, but do not start, muxer.
     sp<MediaMuxer> muxer = new MediaMuxer(fileName,
             MediaMuxer::OUTPUT_FORMAT_MPEG_4);
@@ -517,7 +699,7 @@ static status_t recordScreen(const char* fileName) {
     }
 
     // Main encoder loop.
-    err = runEncoder(encoder, muxer);
+    err = runEncoder(encoder, audioEncoder, audioSource, audioEncoderInBuf, muxer);
     if (err != NO_ERROR) {
         encoder->release();
         encoder.clear();
@@ -534,8 +716,11 @@ static status_t recordScreen(const char* fileName) {
     SurfaceComposerClient::destroyDisplay(dpy);
 
     encoder->stop();
+    audioEncoder->stop();
+    audioSource->stop();
     muxer->stop();
     encoder->release();
+    audioEncoder->release();
 
     return 0;
 }
@@ -648,6 +833,8 @@ static void usage() {
         "    Set the maximum recording time, in seconds.  Default / maximum is %d.\n"
         "--rotate\n"
         "    Rotate the output 90 degrees.\n"
+        "--microphone\n"
+        "    Uses the microphone instead of the mix output\n"
         "--verbose\n"
         "    Display interesting information on stdout.\n"
         "--help\n"
@@ -670,6 +857,7 @@ int main(int argc, char* const argv[]) {
         { "bit-rate",   required_argument,  NULL, 'b' },
         { "time-limit", required_argument,  NULL, 't' },
         { "rotate",     no_argument,        NULL, 'r' },
+        { "microphone", no_argument,        NULL, 'm' },
         { NULL,         0,                  NULL, 0 }
     };
 
@@ -721,6 +909,9 @@ int main(int argc, char* const argv[]) {
             break;
         case 'r':
             gRotate = true;
+            break;
+        case 'm':
+            gAudioInput = AUDIO_SOURCE_MIC;
             break;
         default:
             if (ic != '?') {
