@@ -4556,8 +4556,7 @@ status_t OMXCodec::read(
 
 #ifdef QCOM_HARDWARE
     if (seeking) {
-        CHECK_EQ((int)mState, (int)FLUSHING);
-        setState(EXECUTING);
+        CHECK_EQ((int)mState, (int)EXECUTING);
     }
 #endif
 
