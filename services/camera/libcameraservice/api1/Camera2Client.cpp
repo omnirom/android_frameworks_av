@@ -1054,7 +1054,7 @@ void Camera2Client::stopRecording() {
             return;
     };
 
-    mCameraService->playSound(CameraService::SOUND_RECORDING);
+    mCameraService->playSound(CameraService::SOUND_RECORDING_STOP);
 
     res = startPreviewL(l.mParameters, true);
     if (res != OK) {
