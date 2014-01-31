@@ -53,6 +53,8 @@
 #include <media/stagefright/MediaMuxer.h>
 #include <media/stagefright/MetaData.h>
 #include <media/ICrypto.h>
+#include <system/audio_policy.h>
+#include <system/audio.h>
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -151,6 +153,28 @@ static bool isDeviceRotated(int orientation) {
             orientation != DISPLAY_ORIENTATION_180;
 }
 
+static status_t setAudioRouteStatus(const audio_source_t input,
+        audio_policy_dev_state_t state) {
+    return AudioSystem::setDeviceConnectionState(
+            input,
+            state,
+            NULL /* device_address */);
+}
+
+static void setAudioSubMixRouting(bool enabled) {
+    status_t err = setAudioRouteStatus((audio_source_t) AUDIO_DEVICE_IN_REMOTE_SUBMIX,
+            enabled ? AUDIO_POLICY_DEVICE_STATE_AVAILABLE : AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE);
+    if (err != OK) {
+        fprintf(stderr, "WARN: Unable to set device connection state for audio submix IN\n");
+    }
+
+    err = setAudioRouteStatus((audio_source_t) AUDIO_DEVICE_OUT_REMOTE_SUBMIX,
+            enabled ? AUDIO_POLICY_DEVICE_STATE_AVAILABLE : AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE);
+    if (err != OK) {
+        fprintf(stderr, "WARN: Unable to set device connection state for audio submix OUT\n");
+    }
+}
+
 static status_t prepareAudioEncoder(sp<MediaCodec>* pCodec,
         sp<AudioSource>* pSource, Vector< sp<ABuffer> >* inputBuffers) {
     status_t err = OK;
@@ -159,14 +183,7 @@ static status_t prepareAudioEncoder(sp<MediaCodec>* pCodec,
     // actual device speakers.
     if (gAudioInput == AUDIO_SOURCE_REMOTE_SUBMIX) {
         // We make sure that the audio source is enabled
-        err = AudioSystem::setDeviceConnectionState(
-                AUDIO_DEVICE_OUT_REMOTE_SUBMIX,
-                AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
-                NULL /* device_address */);
-
-        if (err != OK) {
-            fprintf(stderr, "WARN: Unable to set device connection state for audio submix OUT\n");
-        }
+        setAudioSubMixRouting(true);
     }
 
     // Then we capture that source
@@ -721,6 +738,9 @@ static status_t recordScreen(const char* fileName) {
     muxer->stop();
     encoder->release();
     audioEncoder->release();
+
+    // Reset audio routing status
+    setAudioSubMixRouting(false);
 
     return 0;
 }
