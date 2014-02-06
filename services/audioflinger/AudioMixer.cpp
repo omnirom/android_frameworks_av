@@ -1128,8 +1128,13 @@ void AudioMixer::process__genericNoResampling(state_t* state, int64_t pts)
         t.in = t.buffer.raw;
         // t.in == NULL can happen if the track was flushed just after having
         // been enabled for mixing.
-        if (t.in == NULL)
+        if (t.in == NULL) {
             enabledTracks &= ~(1<<i);
+
+            // We need to clear buffer here or there will be strange artifact
+            // on I9082's speaker
+            memset(t.mainBuffer, 0, sizeof(int16_t) * MAX_NUM_CHANNELS * state->frameCount);
+        }
     }
 
     e0 = enabledTracks;
