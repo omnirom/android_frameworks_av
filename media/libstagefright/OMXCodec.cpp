@@ -791,6 +791,18 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
     if (meta->findInt32(kKeyMaxInputSize, &maxInputSize)) {
         setMinBufferSize(kPortIndexInput, (OMX_U32)maxInputSize);
     }
+// Capri's OMX fail to set a reasonable default size from width and height
+#ifdef CAPRI_HWC
+    else if (!strncmp(mComponentName, "OMX.BRCM.vc4.decoder.", 21)) {
+        int32_t width;
+        int32_t height;
+        if (meta->findInt32(kKeyWidth, &width) && meta->findInt32(kKeyHeight, &height)) {
+            setMinBufferSize(kPortIndexInput, (width * height * 3) / 2);
+        } else {
+            ALOGE("Failed to set min buffer size");
+        }
+    }
+#endif
 
     initOutputFormat(meta);
 
