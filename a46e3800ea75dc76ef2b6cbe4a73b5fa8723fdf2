@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "8b77b57d_1984efb5",
+        "filename": "include/media/AudioTrack.h",
+        "patchSetId": 7
+      },
+      "lineNbr": 301,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2014-02-16T17:11:09Z",
+      "side": 1,
+      "message": "This line causes the build to break on all QCOM_HARDWARE devices",
+      "revId": "a46e3800ea75dc76ef2b6cbe4a73b5fa8723fdf2",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
