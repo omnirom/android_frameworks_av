@@ -123,6 +123,13 @@ AudioSource::AudioSource(
         mInitCheck = mRecord->initCheck();
 #ifdef QCOM_HARDWARE //FIXME - should this be ifdefed?
         mAutoRampStartUs = kAutoRampStartUs;
+        uint32_t playbackLatencyMs = 0;
+        if (AudioSystem::getOutputLatency(&playbackLatencyMs,
+                                          AUDIO_STREAM_DEFAULT) == OK) {
+            if (2*playbackLatencyMs*1000LL > kAutoRampStartUs) {
+                mAutoRampStartUs = 2*playbackLatencyMs*1000LL;
+            }
+        }
         ALOGD("Start autoramp from %lld", mAutoRampStartUs);
 #endif
     } else {
@@ -371,7 +378,6 @@ status_t AudioSource::read(
 
         int32_t autoRampStartFrames =
                     ((int64_t)kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL; //Need type casting
-
         int32_t nFrames = mNumFramesReceived - autoRampStartFrames;
         rampVolume(nFrames, autoRampDurationFrames,
                 (uint8_t *) buffer->data(), buffer->range_length());
