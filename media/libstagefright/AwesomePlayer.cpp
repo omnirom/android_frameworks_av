@@ -1690,7 +1690,7 @@ status_t AwesomePlayer::initAudioDecoder() {
     }
     else
        ALOGD("Normal Audio Playback");
-#endif
+#endif // USE_TUNNEL_MODE
 
     checkTunnelExceptions();
 
@@ -1704,13 +1704,8 @@ status_t AwesomePlayer::initAudioDecoder() {
         if(mIsTunnelAudio) {
             mTunnelAliveAP++;
         }
-#else // QCOM_HARDWARE
-    if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
-        ALOGV("createAudioPlayer: bypass OMX (raw)");
-#endif // QCOM_HARDWARE
         mAudioSource = mAudioTrack;
     } else {
-#ifdef QCOM_DIRECTTRACK
         // For LPA Playback use the decoder without OMX layer
         char *matchComponentName = NULL;
         int64_t durationUs;
@@ -1757,14 +1752,22 @@ status_t AwesomePlayer::initAudioDecoder() {
                 mClient.interface(), mAudioTrack->getFormat(),
                 false, // createEncoder
                 mAudioTrack, matchComponentName, flags,NULL);
-#else // QCOM_HARDWARE
+#else // QCOM_DIRECTTRACK
+    if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
+        ALOGV("createAudioPlayer: bypass OMX (raw)");
+        mAudioSource = mAudioTrack;
+        // For PCM offload fallback
+        if (mOffloadAudio) {
+            mOmxSource = mAudioSource;
+        }
+    } else {
         // If offloading we still create a OMX decoder as a fall-back
         // but we don't start it
         mOmxSource = OMXCodec::Create(
                 mClient.interface(), mAudioTrack->getFormat(),
                 false, // createEncoder
                 mAudioTrack);
-#endif // QCOM_HARDWARE
+#endif // QCOM_DIRECTTRACK
 
         if (mOffloadAudio) {
             ALOGD("use compress offload playback path(copl)");
@@ -1780,7 +1783,7 @@ status_t AwesomePlayer::initAudioDecoder() {
     mAudioTrack->getFormat()->findInt64(kKeyDuration, &durationUs);
 
     if (!mOffloadAudio && mAudioSource != NULL) {
-        ALOGW("Could not offload audio decode, try pcm offload");
+        ALOGI("Could not offload audio decode, try pcm offload");
         sp<MetaData> format = mAudioSource->getFormat();
         if (durationUs >= 0) {
             format->setInt64(kKeyDuration, durationUs);
