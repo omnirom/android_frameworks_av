@@ -550,7 +550,7 @@ uint32_t AudioTrack::latency() const
 
 status_t AudioTrack::start()
 {
-    status_t status =- NO_ERROR;
+    status_t status = NO_ERROR;
     AutoMutex lock(mLock);
     if (mState == STATE_ACTIVE) {
         return INVALID_OPERATION;
