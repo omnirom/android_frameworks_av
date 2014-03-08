@@ -88,7 +88,11 @@ static uint32_t gVideoWidth = 0;            // default width+height
 static uint32_t gVideoHeight = 0;
 static uint32_t gBitRate = 4000000;         // 4Mbps
 static uint32_t gTimeLimitSec = kMaxTimeLimitSec;
+#ifdef DEVICE_FORCE_AUDIO_MIC
+static audio_source_t gAudioInput = AUDIO_SOURCE_MIC;
+#else
 static audio_source_t gAudioInput = AUDIO_SOURCE_REMOTE_SUBMIX;
+#endif
 
 // Set by signal handler to stop recording.
 static bool gStopRequested;
