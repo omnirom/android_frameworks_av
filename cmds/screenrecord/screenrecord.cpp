@@ -157,6 +157,7 @@ static bool isDeviceRotated(int orientation) {
             orientation != DISPLAY_ORIENTATION_180;
 }
 
+#ifndef DEVICE_DISABLE_AUDIO
 static status_t setAudioRouteStatus(const audio_source_t input,
         audio_policy_dev_state_t state) {
     return AudioSystem::setDeviceConnectionState(
@@ -258,6 +259,7 @@ static status_t prepareAudioEncoder(sp<MediaCodec>* pCodec,
 
     return NO_ERROR;
 }
+#endif
 
 /*
  * Configures and starts the MediaCodec encoder.  Obtains an input surface
@@ -417,6 +419,7 @@ static status_t prepareVirtualDisplay(const DisplayInfo& mainDpyInfo,
     return NO_ERROR;
 }
 
+#ifndef DEVICE_DISABLE_AUDIO
 static status_t processDequeue(const sp<MediaCodec>& encoder,
         ssize_t* trackIdx,
         const uint32_t* debugNumFrames,
@@ -620,6 +623,134 @@ static status_t runEncoder(const sp<MediaCodec>& encoder,
     }
     return NO_ERROR;
 }
+#else
+static status_t runEncoder(const sp<MediaCodec>& encoder,
+        const sp<MediaMuxer>& muxer) {
+    static int kTimeout = 250000;   // be responsive on signal
+    status_t err;
+    ssize_t trackIdx = -1;
+    uint32_t debugNumFrames = 0;
+    int64_t startWhenNsec = systemTime(CLOCK_MONOTONIC);
+    int64_t endWhenNsec = startWhenNsec + seconds_to_nanoseconds(gTimeLimitSec);
+
+    Vector<sp<ABuffer> > buffers;
+    err = encoder->getOutputBuffers(&buffers);
+    if (err != NO_ERROR) {
+        fprintf(stderr, "Unable to get output buffers (err=%d)\n", err);
+        return err;
+    }
+
+    // This is set by the signal handler.
+    gStopRequested = false;
+
+    // Run until we're signaled.
+    while (!gStopRequested) {
+        size_t bufIndex, offset, size;
+        int64_t ptsUsec;
+        uint32_t flags;
+
+        if (systemTime(CLOCK_MONOTONIC) > endWhenNsec) {
+            if (gVerbose) {
+                printf("Time limit reached\n");
+            }
+            break;
+        }
+
+        ALOGV("Calling dequeueOutputBuffer");
+        err = encoder->dequeueOutputBuffer(&bufIndex, &offset, &size, &ptsUsec,
+                &flags, kTimeout);
+        ALOGV("dequeueOutputBuffer returned %d", err);
+        switch (err) {
+        case NO_ERROR:
+            // got a buffer
+            if ((flags & MediaCodec::BUFFER_FLAG_CODECCONFIG) != 0) {
+                // ignore this -- we passed the CSD into MediaMuxer when
+                // we got the format change notification
+                ALOGV("Got codec config buffer (%u bytes); ignoring", size);
+                size = 0;
+            }
+            if (size != 0) {
+                ALOGV("Got data in buffer %d, size=%d, pts=%lld",
+                        bufIndex, size, ptsUsec);
+                CHECK(trackIdx != -1);
+
+                // If the virtual display isn't providing us with timestamps,
+                // use the current time.
+                if (ptsUsec == 0) {
+                    ptsUsec = systemTime(SYSTEM_TIME_MONOTONIC) / 1000;
+                }
+
+                // The MediaMuxer docs are unclear, but it appears that we
+                // need to pass either the full set of BufferInfo flags, or
+                // (flags & BUFFER_FLAG_SYNCFRAME).
+                err = muxer->writeSampleData(buffers[bufIndex], trackIdx,
+                        ptsUsec, flags);
+                if (err != NO_ERROR) {
+                    fprintf(stderr, "Failed writing data to muxer (err=%d)\n",
+                            err);
+                    return err;
+                }
+                debugNumFrames++;
+            }
+            err = encoder->releaseOutputBuffer(bufIndex);
+            if (err != NO_ERROR) {
+                fprintf(stderr, "Unable to release output buffer (err=%d)\n",
+                        err);
+                return err;
+            }
+            if ((flags & MediaCodec::BUFFER_FLAG_EOS) != 0) {
+                // Not expecting EOS from SurfaceFlinger.  Go with it.
+                ALOGD("Received end-of-stream");
+                gStopRequested = false;
+            }
+            break;
+        case -EAGAIN:                       // INFO_TRY_AGAIN_LATER
+            ALOGV("Got -EAGAIN, looping");
+            break;
+        case INFO_FORMAT_CHANGED:           // INFO_OUTPUT_FORMAT_CHANGED
+            {
+                // format includes CSD, which we must provide to muxer
+                ALOGV("Encoder format changed");
+                sp<AMessage> newFormat;
+                encoder->getOutputFormat(&newFormat);
+                trackIdx = muxer->addTrack(newFormat);
+                ALOGV("Starting muxer");
+                err = muxer->start();
+                if (err != NO_ERROR) {
+                    fprintf(stderr, "Unable to start muxer (err=%d)\n", err);
+                    return err;
+                }
+            }
+            break;
+        case INFO_OUTPUT_BUFFERS_CHANGED:   // INFO_OUTPUT_BUFFERS_CHANGED
+            // not expected for an encoder; handle it anyway
+            ALOGV("Encoder buffers changed");
+            err = encoder->getOutputBuffers(&buffers);
+            if (err != NO_ERROR) {
+                fprintf(stderr,
+                        "Unable to get new output buffers (err=%d)\n", err);
+                return err;
+            }
+            break;
+        case INVALID_OPERATION:
+            fprintf(stderr, "Request for encoder buffer failed\n");
+            return err;
+        default:
+            fprintf(stderr,
+                    "Got weird result %d from dequeueOutputBuffer\n", err);
+            return err;
+        }
+    }
+
+    ALOGV("Encoder stopping (req=%d)", gStopRequested);
+    if (gVerbose) {
+        printf("Encoder stopping; recorded %u frames in %lld seconds\n",
+                debugNumFrames,
+                nanoseconds_to_seconds(systemTime(CLOCK_MONOTONIC) - startWhenNsec));
+    }
+    return NO_ERROR;
+}
+#endif
 
 /*
  * Main "do work" method.
@@ -706,11 +837,13 @@ static status_t recordScreen(const char* fileName) {
         return err;
     }
 
+#ifndef DEVICE_DISABLE_AUDIO
     // Configure and start the audio encoder.
     Vector< sp<ABuffer> > audioEncoderInBuf;
     sp<MediaCodec> audioEncoder;
     sp<AudioSource> audioSource;
     err = prepareAudioEncoder(&audioEncoder, &audioSource, &audioEncoderInBuf);
+#endif
 
     // Configure, but do not start, muxer.
     sp<MediaMuxer> muxer = new MediaMuxer(fileName,
@@ -720,7 +853,11 @@ static status_t recordScreen(const char* fileName) {
     }
 
     // Main encoder loop.
+#ifndef DEVICE_DISABLE_AUDIO
     err = runEncoder(encoder, audioEncoder, audioSource, audioEncoderInBuf, muxer);
+#else
+    err = runEncoder(encoder, muxer);
+#endif
     if (err != NO_ERROR) {
         encoder->release();
         encoder.clear();
@@ -737,14 +874,18 @@ static status_t recordScreen(const char* fileName) {
     SurfaceComposerClient::destroyDisplay(dpy);
 
     encoder->stop();
+#ifndef DEVICE_DISABLE_AUDIO
     audioEncoder->stop();
     audioSource->stop();
+#endif
     muxer->stop();
     encoder->release();
+#ifndef DEVICE_DISABLE_AUDIO
     audioEncoder->release();
 
     // Reset audio routing status
     setAudioSubMixRouting(false);
+#endif
 
     return 0;
 }
@@ -857,8 +998,10 @@ static void usage() {
         "    Set the maximum recording time, in seconds.  Default / maximum is %d.\n"
         "--rotate\n"
         "    Rotate the output 90 degrees.\n"
+#ifndef DEVICE_DISABLE_AUDIO
         "--microphone\n"
         "    Uses the microphone instead of the mix output\n"
+#endif
         "--verbose\n"
         "    Display interesting information on stdout.\n"
         "--help\n"
@@ -881,7 +1024,9 @@ int main(int argc, char* const argv[]) {
         { "bit-rate",   required_argument,  NULL, 'b' },
         { "time-limit", required_argument,  NULL, 't' },
         { "rotate",     no_argument,        NULL, 'r' },
+#ifndef DEVICE_DISABLE_AUDIO
         { "microphone", no_argument,        NULL, 'm' },
+#endif
         { NULL,         0,                  NULL, 0 }
     };
 
@@ -934,9 +1079,11 @@ int main(int argc, char* const argv[]) {
         case 'r':
             gRotate = true;
             break;
+#ifndef DEVICE_DISABLE_AUDIO
         case 'm':
             gAudioInput = AUDIO_SOURCE_MIC;
             break;
+#endif
         default:
             if (ic != '?') {
                 fprintf(stderr, "getopt_long returned unexpected value 0x%x\n", ic);
