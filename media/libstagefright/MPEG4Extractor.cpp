@@ -397,14 +397,10 @@ static const char *FourCC2MIME(uint32_t fourcc) {
         case FOURCC('h', 'v', 'c', '1'):
         case FOURCC('h', 'e', 'v', '1'):
             return MEDIA_MIMETYPE_VIDEO_HEVC;
-#ifdef DOLBY_ENABLE
         case FOURCC('a', 'c', '-', '3'):
-            DLOGD("@DDP Track FOURCC = 'ac-3'");
             return MEDIA_MIMETYPE_AUDIO_AC3;
         case FOURCC('e', 'c', '-', '3'):
-            DLOGD("@DDP Track FOURCC = 'ec-3'");
             return MEDIA_MIMETYPE_AUDIO_EAC3;
-#endif // DOLBY_END
         default:
 #ifdef DOLBY_ENABLE
             ALOGD("@DDP FourCC2Mime default (not found)");
