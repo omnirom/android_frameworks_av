@@ -123,13 +123,6 @@ AudioSource::AudioSource(
         mInitCheck = mRecord->initCheck();
 #ifdef QCOM_HARDWARE //FIXME - should this be ifdefed?
         mAutoRampStartUs = kAutoRampStartUs;
-        uint32_t playbackLatencyMs = 0;
-        if (AudioSystem::getOutputLatency(&playbackLatencyMs,
-                                          AUDIO_STREAM_DEFAULT) == OK) {
-            if (2*playbackLatencyMs*1000LL > kAutoRampStartUs) {
-                mAutoRampStartUs = 2*playbackLatencyMs*1000LL;
-            }
-        }
         ALOGD("Start autoramp from %lld", mAutoRampStartUs);
 #endif
     } else {
