@@ -48,6 +48,10 @@ void OMXMaster::addVendorPlugin() {
 #ifdef SAMSUNG_OMX
     addPlugin("libsomxcore.so");
 #endif
+
+#ifdef TF101_OMX
+    addPlugin("libnvomx.so");
+#endif
 }
 
 void OMXMaster::addPlugin(const char *libname) {
@@ -71,11 +75,7 @@ void OMXMaster::addPlugin(const char *libname) {
 }
 
 void OMXMaster::addPlugin(OMXPluginBase *plugin) {
-#ifdef TF101_OMX
-    if (plugin == 0) {
-       return;
-    }
-#endif
+
     Mutex::Autolock autoLock(mLock);
 
     mPlugins.push_back(plugin);
@@ -116,21 +116,21 @@ void OMXMaster::clearPlugins() {
     mPluginByComponentName.clear();
 
 #ifdef TF101_OMX
-    int plugin = 1;
+	int plugin = 1;
 #endif
     for (List<OMXPluginBase *>::iterator it = mPlugins.begin();
             it != mPlugins.end(); ++it) {
         if (destroyOMXPlugin)
             destroyOMXPlugin(*it);
 #ifdef TF101_OMX
-        else {
-           ALOGV("plugin %d", *it);
-           if( *it != NULL && plugin != 1) // 1st plugin is NV, crashes on delete => skip, better than crash for the moment
-	      delete *it;
-        }
+		else {
+			ALOGV("plugin %d", *it);
+			if( *it != NULL && plugin != 1) // 1st plugin is NV, crashes on delete => skip, better than crash for the moment 
+                delete *it;
+		}
 
-        *it = NULL;
-    plugin++;
+		*it = NULL;
+	plugin++;
 #else
         else
             delete *it;
