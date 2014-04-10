@@ -139,7 +139,7 @@ struct BufferMeta {
         }
 
         // check component returns proper range
-        sp<ABuffer> codec = getBuffer(header, true /* limit */);
+        sp<ABuffer> codec = getBuffer(header,!(header->nFlags & OMX_BUFFERFLAG_EXTRADATA));
 
         memcpy(getPointer() + header->nOffset, codec->data(), codec->size());
     }
@@ -149,9 +149,11 @@ struct BufferMeta {
             return;
         }
 
+        size_t bytesToCopy = header->nFlags & OMX_BUFFERFLAG_EXTRADATA ?
+            header->nAllocLen - header->nOffset : header->nFilledLen;
         memcpy(header->pBuffer + header->nOffset,
                 getPointer() + header->nOffset,
-                header->nFilledLen);
+                bytesToCopy);
     }
 
     // return the codec buffer
