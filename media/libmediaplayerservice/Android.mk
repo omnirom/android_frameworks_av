@@ -65,7 +65,11 @@ LOCAL_MODULE:= libmediaplayerservice
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
     LOCAL_CFLAGS += -DENABLE_AV_ENHANCEMENTS
     LOCAL_C_INCLUDES += $(TOP)/frameworks/av/include/media
-    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+    ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+    else
+        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+    endif
 endif #TARGET_ENABLE_QC_AV_ENHANCEMENTS
 
 ifeq ($(TARGET_BOARD_PLATFORM),msm7x27a)
