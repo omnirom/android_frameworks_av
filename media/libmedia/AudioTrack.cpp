@@ -824,6 +824,19 @@ uint32_t AudioTrack::getSampleRate() const
         return mAudioFlinger->sampleRate(mAudioDirectOutput);
     }
 #endif
+
+    // sample rate can be updated during playback by the offloaded decoder so we need to
+    // query the HAL and update if needed.
+// FIXME use Proxy return channel to update the rate from server and avoid polling here
+    if (isOffloaded()) {
+        if (mOutput != 0) {
+            uint32_t sampleRate = 0;
+            status_t status = AudioSystem::getSamplingRate(mOutput, mStreamType, &sampleRate);
+            if (status == NO_ERROR) {
+                mSampleRate = sampleRate;
+            }
+        }
+    }
     return mSampleRate;
 }
 
@@ -1085,6 +1098,12 @@ status_t AudioTrack::createTrack_l(
         mFlags = flags;
     }
     ALOGV("createTrack_l() output %d afLatency %d", output, afLatency);
+
+    if ((flags & AUDIO_OUTPUT_FLAG_FAST) && sampleRate != afSampleRate) {
+        ALOGW("AUDIO_OUTPUT_FLAG_FAST denied by client due to mismatching sample rate (%d vs %d)",
+              sampleRate, afSampleRate);
+        flags = (audio_output_flags_t) (flags & ~AUDIO_OUTPUT_FLAG_FAST);
+    }
 
     // The client's AudioTrack buffer is divided into n parts for purpose of wakeup by server, where
     //  n = 1   fast track with single buffering; nBuffering is ignored
@@ -1919,7 +1938,6 @@ status_t AudioTrack::restoreTrack_l(const char *from)
 
     // take the frames that will be lost by track recreation into account in saved position
     size_t position = mProxy->getPosition() + mProxy->getFramesFilled();
-    mNewPosition = position + mUpdatePeriod;
     size_t bufferPosition = mStaticProxy != NULL ? mStaticProxy->getBufferPosition() : 0;
     result = createTrack_l(mStreamType,
                            mSampleRate,
