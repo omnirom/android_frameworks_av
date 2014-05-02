@@ -376,6 +376,11 @@ const char CameraParameters::FOCUS_MODE_CONTINUOUS_CAMERA[] = "continuous-camera
 #endif
 const char CameraParameters::FOCUS_MODE_NORMAL[] = "normal";
 
+#ifdef OPPO_CAMERA_HARDWARE
+// Values for Oppo Find 7 additionnal settings
+const char CameraParameters::FOCUS_MODE_MANUAL_POSITION[] = "manual-focus-position";
+const char CameraParameters::WHITE_BALANCE_MANUAL_CCT[] = "wb-manual-cct";
+#endif
 
 const char CameraParameters::KEY_SKIN_TONE_ENHANCEMENT[] = "skinToneEnhancement";
 const char CameraParameters::KEY_SUPPORTED_SKIN_TONE_ENHANCEMENT_MODES[] = "skinToneEnhancement-values";
