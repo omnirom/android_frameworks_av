@@ -938,6 +938,12 @@ public:
     static const char PANORAMA_MODE_NOT_INPROGRESS[];
     static const char PANORAMA_MODE_INPROGRESS[];
 #endif
+#ifdef OPPO_CAMERA_HARDWARE
+    // Oppo Find 7 additionnal parameters
+    static const char FOCUS_MODE_MANUAL_POSITION[];
+    static const char WHITE_BALANCE_MANUAL_CCT[];
+#endif
+
     // Normal focus mode. Applications should call
     // CameraHardwareInterface.autoFocus to start the focus in this mode.
     static const char FOCUS_MODE_NORMAL[];
