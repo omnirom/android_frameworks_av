@@ -67,7 +67,7 @@ public:
     virtual status_t start(bool sourceAlreadyStarted = false);
 
     virtual void pause(bool playPendingSamples = false);
-    virtual void resume();
+    virtual status_t resume();
 
     // Returns the timestamp of the last buffer played (in us).
     virtual int64_t getMediaTimeUs();
@@ -81,7 +81,7 @@ public:
     virtual bool isSeeking();
     virtual bool reachedEOS(status_t *finalStatus);
 
-    static int objectsAlive;
+    static int mObjectsAlive;
     static bool mLpaInProgress;
 private:
     int64_t mPositionTimeMediaUs;
@@ -236,7 +236,8 @@ private:
 
     static size_t AudioSinkCallback(
         MediaPlayerBase::AudioSink *audioSink,
-        void *data, size_t size, void *me);
+        void *data, size_t size, void *me,
+        MediaPlayerBase::AudioSink::cb_event_t event);
 
     enum A2DPState {
         A2DP_ENABLED,
