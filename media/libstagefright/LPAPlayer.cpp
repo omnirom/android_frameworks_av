@@ -61,7 +61,7 @@ bool LPAPlayer::mLpaInProgress = false;
 LPAPlayer::LPAPlayer(
                     const sp<MediaPlayerBase::AudioSink> &audioSink, bool &initCheck,
                     AwesomePlayer *observer)
-:AudioPlayer(audioSink,observer),
+:AudioPlayer(audioSink, 0, observer),
 mPositionTimeMediaUs(-1),
 mPositionTimeRealUs(-1),
 mInternalSeeking(false),
@@ -394,7 +394,7 @@ void LPAPlayer::pause(bool playPendingSamples) {
     }
 }
 
-void LPAPlayer::resume() {
+status_t LPAPlayer::resume() {
     Mutex::Autolock autoLock(mResumeLock);
     ALOGV("resume: mPaused %d",mPaused);
     if ( mPaused) {
@@ -416,12 +416,14 @@ void LPAPlayer::resume() {
         mTimeStarted = nanoseconds_to_microseconds(systemTime(SYSTEM_TIME_MONOTONIC));
         pthread_cond_signal(&decoder_cv);
     }
+    return NO_ERROR;
 }
 
 //static
 size_t LPAPlayer::AudioSinkCallback(
         MediaPlayerBase::AudioSink *audioSink,
-        void *buffer, size_t size, void *cookie) {
+        void *buffer, size_t size, void *cookie,
+        MediaPlayerBase::AudioSink::cb_event_t event) {
     if (buffer == NULL && size == AudioTrack::EVENT_UNDERRUN) {
         LPAPlayer *me = (LPAPlayer *)cookie;
         me->mReachedEOS = true;
@@ -787,9 +789,10 @@ status_t  LPAPlayer::setupAudioSink()
         err = mAudioSink->open(
             mSampleRate, mNumOutputChannels, mChannelMask, AUDIO_FORMAT_PCM_16_BIT,
             DEFAULT_AUDIOSINK_BUFFERCOUNT,
-            &LPAPlayer::AudioCallback,
+            &LPAPlayer::AudioSinkCallback,
             this,
-            (audio_output_flags_t)0);
+            (audio_output_flags_t)0,
+            NULL);
         if (err != NO_ERROR){
             ALOGE("setupAudioSink:Audio sink open failed.");
             pthread_mutex_unlock(&audio_sink_setup_mutex);
@@ -826,9 +829,10 @@ status_t  LPAPlayer::setupAudioSink()
         err = mAudioSink->open(
             mSampleRate, mNumOutputChannels, mChannelMask, AUDIO_FORMAT_PCM_16_BIT,
             DEFAULT_AUDIOSINK_BUFFERCOUNT,
-            &LPAPlayer::AudioCallback,
+            &LPAPlayer::AudioSinkCallback,
             this,
-            (audio_output_flags_t)0);
+            (audio_output_flags_t)0,
+            NULL);
         if (err != NO_ERROR){
             ALOGD("setupAudioSink:Audio sink open failed.");
             pthread_mutex_unlock(&audio_sink_setup_mutex);
@@ -868,7 +872,8 @@ status_t  LPAPlayer::setupAudioSink()
             DEFAULT_AUDIOSINK_BUFFERCOUNT,
             &LPAPlayer::AudioSinkCallback,
             this,
-            (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_LPA | AUDIO_OUTPUT_FLAG_DIRECT));
+            (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_LPA | AUDIO_OUTPUT_FLAG_DIRECT),
+            NULL);
         if (err != NO_ERROR){
             ALOGE("setupAudioSink:Audio sink open failed.");
             pthread_mutex_unlock(&audio_sink_setup_mutex);
