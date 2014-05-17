@@ -327,7 +327,7 @@ status_t AudioSystem::getLatency(audio_io_handle_t output,
                                  audio_stream_type_t streamType,
                                  uint32_t* latency)
 {
-#ifndef QCOM_HARDWARE
+#ifndef QCOM_DIRECTTRACK
     OutputDescriptor *outputDesc;
 
     gLock.lock();

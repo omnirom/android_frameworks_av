@@ -113,9 +113,10 @@ AudioTrack::AudioTrack(
     : mCblk(NULL),
       mStatus(NO_INIT),
       mIsTimed(false),
-      mPreviousPriority(ANDROID_PRIORITY_NORMAL), mPreviousSchedulingGroup(SP_DEFAULT)
+      mPreviousPriority(ANDROID_PRIORITY_NORMAL),
 #ifdef QCOM_HARDWARE
-      ,mAudioFlinger(NULL),
+      mPreviousSchedulingGroup(SP_DEFAULT),
+      mAudioFlinger(NULL),
       mObserver(NULL)
 #endif
 {
@@ -131,7 +132,7 @@ AudioTrack::AudioTrack()
     : mStatus(NO_INIT),
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
       mPreviousSchedulingGroup(SP_DEFAULT),
       mAudioFlinger(NULL),
       mObserver(NULL),
@@ -159,7 +160,7 @@ AudioTrack::AudioTrack(
     : mStatus(NO_INIT),
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
       mPreviousSchedulingGroup(SP_DEFAULT),
       mAudioFlinger(NULL),
       mObserver(NULL),
@@ -191,7 +192,7 @@ AudioTrack::AudioTrack(
     : mStatus(NO_INIT),
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
       mPreviousSchedulingGroup(SP_DEFAULT),
       mProxy(NULL),
       mAudioFlinger(NULL),
@@ -219,7 +220,7 @@ AudioTrack::~AudioTrack()
             mAudioTrackThread->requestExitAndWait();
             mAudioTrackThread.clear();
         }
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
         if (mAudioTrack != 0) {
             mAudioTrack->asBinder()->unlinkToDeath(mDeathNotifier, this);
             mAudioTrack.clear();
@@ -372,7 +373,7 @@ status_t AudioTrack::set(
     uint32_t channelCount = popcount(channelMask);
     mChannelCount = channelCount;
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if ((streamType == AUDIO_STREAM_VOICE_CALL)
          && (channelCount == 1)
          && ((sampleRate == 8000 || sampleRate == 16000)))
@@ -435,11 +436,9 @@ status_t AudioTrack::set(
     mAuxEffectId = 0;
     mFlags = flags;
     mCbf = cbf;
-#ifdef QCOM_HARDWARE
-    mSampleRate = sampleRate;
-#endif
+#ifdef QCOM DIRECTTRACK
+    msSampleRate = sampleRate;
 
-#ifdef QCOM_HARDWARE
     if (flags & AUDIO_OUTPUT_FLAG_LPA || flags & AUDIO_OUTPUT_FLAG_TUNNEL) {
         ALOGV("Creating Direct Track");
         const sp<IAudioFlinger>& audioFlinger = AudioSystem::get_audio_flinger();
@@ -495,7 +494,7 @@ status_t AudioTrack::set(
             AudioSystem::releaseOutput(output);
             return status;
         }
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
         AudioSystem::acquireAudioSessionId(mSessionId);
         mAudioDirectOutput = -1;
         mDirectTrack = NULL;
@@ -506,7 +505,7 @@ status_t AudioTrack::set(
     mStatus = NO_ERROR;
     mStreamType = streamType;
     mFormat = format;
-#ifndef QCOM_HARDWARE
+#ifndef QCOM_DIRECTTRACK
     mSharedBuffer = sharedBuffer;
 #endif
     mState = STATE_STOPPED;
@@ -516,7 +515,7 @@ status_t AudioTrack::set(
     mMarkerReached = false;
     mNewPosition = 0;
     mUpdatePeriod = 0;
-#ifndef QCOM_HARDWARE
+#ifndef QCOM_DIRECTTRACK
     AudioSystem::acquireAudioSessionId(mSessionId);
 #endif
     mSequence = 1;
@@ -528,7 +527,7 @@ status_t AudioTrack::set(
 }
 
 // -------------------------------------------------------------------------
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 uint32_t AudioTrack::latency() const
 {
     if (mAudioDirectOutput != -1) {
@@ -565,7 +564,7 @@ status_t AudioTrack::start()
     } else {
         mState = STATE_ACTIVE;
     }
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if (mDirectTrack != NULL) {
         mDirectTrack->start();
         return status;
@@ -634,7 +633,7 @@ void AudioTrack::stop()
         mState = STATE_STOPPED;
     }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if(mDirectTrack != NULL) {
         mDirectTrack->stop();
     } else if (mAudioTrack != NULL) {
@@ -662,7 +661,7 @@ void AudioTrack::stop()
             setpriority(PRIO_PROCESS, 0, mPreviousPriority);
             set_sched_policy(0, mPreviousSchedulingGroup);
         }
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     }
 #endif
 }
@@ -675,7 +674,7 @@ bool AudioTrack::stopped() const
 
 void AudioTrack::flush()
 {
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if(mDirectTrack != NULL) {
         ALOGE("mdirect track flush");
         mDirectTrack->flush();
@@ -721,7 +720,7 @@ void AudioTrack::pause()
     } else {
         return;
     }
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if(mDirectTrack != NULL) {
         ALOGV("mDirectTrack pause");
         mDirectTrack->pause();
@@ -729,7 +728,7 @@ void AudioTrack::pause()
 #endif
         mProxy->interrupt();
         mAudioTrack->pause();
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     }
 #endif
 }
@@ -743,16 +742,13 @@ status_t AudioTrack::setVolume(float left, float right)
     AutoMutex lock(mLock);
     mVolume[LEFT] = left;
     mVolume[RIGHT] = right;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if(mDirectTrack != NULL) {
         ALOGV("mDirectTrack->setVolume(left = %f , right = %f)", left,right);
         mDirectTrack->setVolume(left, right);
-    } else {
+    } else
 #endif
        mProxy->setVolumeLR((uint32_t(uint16_t(right * 0x1000)) << 16) | uint16_t(left * 0x1000));
-#ifdef QCOM_HARDWARE
-    }
-#endif
 
     if (isOffloaded()) {
         mAudioTrack->signal();
@@ -767,7 +763,7 @@ status_t AudioTrack::setVolume(float volume)
 
 status_t AudioTrack::setAuxEffectSendLevel(float level)
 {
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if (mDirectTrack != NULL) {
         return NO_ERROR;
     }
@@ -819,7 +815,7 @@ uint32_t AudioTrack::getSampleRate() const
     }
 
     AutoMutex lock(mLock);
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if(mAudioDirectOutput != -1) {
         return mAudioFlinger->sampleRate(mAudioDirectOutput);
     }
@@ -1458,7 +1454,7 @@ void AudioTrack::releaseBuffer(Buffer* audioBuffer)
 
 ssize_t AudioTrack::write(const void* buffer, size_t userSize)
 {
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     if (mDirectTrack != NULL) {
         ssize_t written = 0;
         written = mDirectTrack->write(buffer,userSize);
@@ -2021,7 +2017,7 @@ status_t AudioTrack::dump(int fd, const Vector<String16>& args) const
     result.append(buffer);
     snprintf(buffer, 255, "  sample rate(%u), status(%d)\n", mSampleRate, mStatus);
     result.append(buffer);
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     uint32_t afLatency = 0;
     AudioSystem::getLatency(mOutput, mStreamType, &afLatency);
     if(0 != mSampleRate) {
@@ -2055,7 +2051,7 @@ void AudioTrack::DeathNotifier::binderDied(const wp<IBinder>& who)
     }
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 void AudioTrack::notify(int msg) {
     if (msg == EVENT_UNDERRUN) {
         ALOGV("Posting event underrun to Audio Sink.");

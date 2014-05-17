@@ -42,7 +42,7 @@
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/timedtext/TimedTextDriver.h>
 #include <media/stagefright/AudioPlayer.h>
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 #include <media/stagefright/LPAPlayer.h>
 #endif
 #ifdef USE_TUNNEL_MODE
@@ -82,7 +82,7 @@ static int64_t kLowWaterMarkUs = 2000000ll;  // 2secs
 static int64_t kHighWaterMarkUs = 5000000ll;  // 5secs
 static const size_t kLowWaterMarkBytes = 40000;
 static const size_t kHighWaterMarkBytes = 200000;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 static const int64_t kInitFrameDurationUs = 16000;
 static const int64_t kScheduleLagGapUs = 1000;
 static const int64_t kDefaultEventDelayUs = 10000;
@@ -254,7 +254,7 @@ AwesomePlayer::AwesomePlayer()
     mAudioTearDownEventPending = false;
 
     reset();
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     mIsTunnelAudio = false;
     mLateAVSyncMargin = ExtendedUtils::ShellProp::getMaxAVSyncLateMargin();
 #endif
@@ -267,7 +267,7 @@ AwesomePlayer::~AwesomePlayer() {
 
     reset();
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     // Disable Tunnel Mode Audio
     if (mIsTunnelAudio) {
         if (mTunnelAliveAP > 0) {
@@ -1057,7 +1057,7 @@ status_t AwesomePlayer::play_l() {
             // We don't want to post an error notification at this point,
             // the error returned from MediaPlayer::start() will suffice.
             bool sendErrorNotification = false;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
             if(mIsTunnelAudio) {
                 // For tunnel Audio error has to be posted to the client
                 sendErrorNotification = true;
@@ -1163,7 +1163,7 @@ void AwesomePlayer::createAudioPlayer_l()
     uint32_t flags = 0;
     int64_t cachedDurationUs;
     bool eos;
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     sp<MetaData> format = mAudioTrack->getFormat();
     const char *mime;
     bool success = format->findCString(kKeyMIMEType, &mime);
@@ -1184,7 +1184,7 @@ void AwesomePlayer::createAudioPlayer_l()
     if (mVideoSource != NULL) {
         flags |= AudioPlayer::HAS_VIDEO;
     }
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 #ifdef USE_TUNNEL_MODE
     // Create tunnel player if tunnel mode is enabled
     ALOGW("Trying to create tunnel player mIsTunnelAudio %d, \
@@ -1756,7 +1756,7 @@ status_t AwesomePlayer::initAudioDecoder() {
     mOffloadAudio = canOffloadStream(meta, (mVideoSource != NULL),
                                      isStreamingHTTP(), streamType);
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
     int32_t nchannels = 0;
     int32_t isADTS = 0;
     meta->findInt32( kKeyChannelCount, &nchannels );
@@ -1885,7 +1885,7 @@ status_t AwesomePlayer::initAudioDecoder() {
         if (mOffloadAudio) {
             ALOGV("createAudioPlayer: bypass OMX (offload)");
             mAudioSource = mAudioTrack;
-#ifndef QCOM_HARDWARE
+#ifndef QCOM_DIRECTTRACK
         } else {
             mAudioSource = mOmxSource;
 #endif
@@ -3433,7 +3433,7 @@ void AwesomePlayer::onAudioTearDownEvent() {
     beginPrepareAsync_l();
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 bool AwesomePlayer::inSupportedTunnelFormats(const char * mime) {
     const char * tunnelFormats [ ] = {
         MEDIA_MIMETYPE_AUDIO_MPEG,
