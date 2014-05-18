@@ -1,0 +1,38 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "8b77b57d_2b9e82bc",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 688,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2014-05-18T01:13:55Z",
+      "side": 1,
+      "message": "not sure about this one",
+      "revId": "7c391adc43ef7622e3da395441c1bcb5a1f9a000",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "8b77b57d_4ba3befe",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 1439,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2014-05-18T01:13:55Z",
+      "side": 1,
+      "message": "Mainlined upstream fix AFAICT",
+      "revId": "7c391adc43ef7622e3da395441c1bcb5a1f9a000",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
