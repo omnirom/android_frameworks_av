@@ -3931,11 +3931,6 @@ status_t OMXCodec::waitForBufferFilled_l() {
         return mBufferFilled.wait(mLock);
     }
     status_t err = mBufferFilled.waitRelative(mLock, kBufferFilledEventTimeOutNs);
-#ifdef QCOM_HARDWARE
-    if ((err == -ETIMEDOUT) && (mPaused == true)){
-        err = OK;
-    }
-#endif
     if (err != OK) {
         CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
             countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
