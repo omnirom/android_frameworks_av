@@ -1170,6 +1170,13 @@ void AudioMixer::process__genericNoResampling(state_t* state, int64_t pts)
                     aux = t.auxBuffer + numFrames;
                 }
                 while (outFrames) {
+                    // t.in == NULL can happen if the track was flushed just after having
+                    // been enabled for mixing.
+                   if (t.in == NULL) {
+                        enabledTracks &= ~(1<<i);
+                        e1 &= ~(1<<i);
+                        break;
+                    }
                     size_t inFrames = (t.frameCount > outFrames)?outFrames:t.frameCount;
                     if (inFrames) {
                         t.hook(&t, outTemp + (BLOCKSIZE-outFrames)*MAX_NUM_CHANNELS, inFrames,

@@ -717,7 +717,7 @@ protected:
     sp<AudioTrackThread>    mAudioTrackThread;
     float                   mVolume[2];
     float                   mSendLevel;
-    uint32_t                mSampleRate;
+    mutable uint32_t        mSampleRate;            // mutable because getSampleRate() can update it.
     size_t                  mFrameCount;            // corresponds to current IAudioTrack
     size_t                  mReqFrameCount;         // frame count to request the next time a new
                                                     // IAudioTrack is needed
@@ -802,6 +802,7 @@ protected:
 
     bool                    mInUnderrun;            // whether track is currently in underrun state
     String8                 mName;                  // server's name for this IAudioTrack
+    uint32_t                mPausedPosition;
 
 private:
     class DeathNotifier : public IBinder::DeathRecipient {

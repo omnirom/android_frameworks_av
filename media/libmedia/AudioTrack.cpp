@@ -131,13 +131,14 @@ AudioTrack::AudioTrack()
     : mStatus(NO_INIT),
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
-#ifdef QCOM_HARDWARE
       mPreviousSchedulingGroup(SP_DEFAULT),
+#ifdef QCOM_HARDWARE
+      mPausedPosition(0),
       mAudioFlinger(NULL),
       mObserver(NULL),
       mCblk(NULL)
 #else
-      mPreviousSchedulingGroup(SP_DEFAULT)
+      mPausedPosition(0)
 #endif
 {
 }
@@ -159,13 +160,14 @@ AudioTrack::AudioTrack(
     : mStatus(NO_INIT),
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
-#ifdef QCOM_HARDWARE
       mPreviousSchedulingGroup(SP_DEFAULT),
+#ifdef QCOM_HARDWARE
+      mPausedPosition(0),
       mAudioFlinger(NULL),
       mObserver(NULL),
       mCblk(NULL)
 #else
-      mPreviousSchedulingGroup(SP_DEFAULT)
+      mPausedPosition(0)
 #endif
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
@@ -191,14 +193,15 @@ AudioTrack::AudioTrack(
     : mStatus(NO_INIT),
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
-#ifdef QCOM_HARDWARE
       mPreviousSchedulingGroup(SP_DEFAULT),
+#ifdef QCOM_HARDWARE
+      mPausedPosition(0),
       mProxy(NULL),
       mAudioFlinger(NULL),
       mObserver(NULL),
       mCblk(NULL)
 #else
-      mPreviousSchedulingGroup(SP_DEFAULT)
+      mPausedPosition(0)
 #endif
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
@@ -729,6 +732,16 @@ void AudioTrack::pause()
 #endif
         mProxy->interrupt();
         mAudioTrack->pause();
+
+        if (isOffloaded()) {
+            if (mOutput != 0) {
+                uint32_t halFrames;
+                // OffloadThread sends HAL pause in its threadLoop.. time saved
+                // here can be slightly off
+                AudioSystem::getRenderPosition(mOutput, &halFrames, &mPausedPosition);
+                ALOGV("AudioTrack::pause for offload, cache current position %u", mPausedPosition);
+            }
+        }
 #ifdef QCOM_HARDWARE
     }
 #endif
@@ -824,6 +837,19 @@ uint32_t AudioTrack::getSampleRate() const
         return mAudioFlinger->sampleRate(mAudioDirectOutput);
     }
 #endif
+
+    // sample rate can be updated during playback by the offloaded decoder so we need to
+    // query the HAL and update if needed.
+// FIXME use Proxy return channel to update the rate from server and avoid polling here
+    if (isOffloaded()) {
+        if (mOutput != 0) {
+            uint32_t sampleRate = 0;
+            status_t status = AudioSystem::getSamplingRate(mOutput, mStreamType, &sampleRate);
+            if (status == NO_ERROR) {
+                mSampleRate = sampleRate;
+            }
+        }
+    }
     return mSampleRate;
 }
 
@@ -954,6 +980,12 @@ status_t AudioTrack::getPosition(uint32_t *position) const
     AutoMutex lock(mLock);
     if (isOffloaded()) {
         uint32_t dspFrames = 0;
+
+        if ((mState == STATE_PAUSED) || (mState == STATE_PAUSED_STOPPING)) {
+            ALOGV("getPosition called in paused state, return cached position %u", mPausedPosition);
+            *position = mPausedPosition;
+            return NO_ERROR;
+        }
 
         if (mOutput != 0) {
             uint32_t halFrames;
@@ -1329,13 +1361,13 @@ status_t AudioTrack::obtainBuffer(Buffer* audioBuffer, int32_t waitCount)
     }
 
     const struct timespec *requested;
+    struct timespec timeout;
     if (waitCount == -1) {
         requested = &ClientProxy::kForever;
     } else if (waitCount == 0) {
         requested = &ClientProxy::kNonBlocking;
     } else if (waitCount > 0) {
         long long ms = WAIT_PERIOD_MS * (long long) waitCount;
-        struct timespec timeout;
         timeout.tv_sec = ms / 1000;
         timeout.tv_nsec = (int) (ms % 1000) * 1000000;
         requested = &timeout;
@@ -1679,6 +1711,7 @@ nsecs_t AudioTrack::processAudioBuffer(const sp<AudioTrackThread>& thread)
     }
     size_t misalignment = mProxy->getMisalignment();
     uint32_t sequence = mSequence;
+    sp<AudioTrackClientProxy> proxy = mProxy;
 
     // These fields don't need to be cached, because they are assigned only by set():
     //     mTransfer, mCbf, mUserData, mFormat, mFrameSize, mFrameSizeAF, mFlags
@@ -1687,35 +1720,32 @@ nsecs_t AudioTrack::processAudioBuffer(const sp<AudioTrackThread>& thread)
     mLock.unlock();
 
     if (waitStreamEnd) {
-        AutoMutex lock(mLock);
-
-        sp<AudioTrackClientProxy> proxy = mProxy;
-        sp<IMemory> iMem = mCblkMemory;
-
         struct timespec timeout;
         timeout.tv_sec = WAIT_STREAM_END_TIMEOUT_SEC;
         timeout.tv_nsec = 0;
 
-        mLock.unlock();
-        status_t status = mProxy->waitStreamEndDone(&timeout);
-        mLock.lock();
+        status_t status = proxy->waitStreamEndDone(&timeout);
         switch (status) {
         case NO_ERROR:
         case DEAD_OBJECT:
         case TIMED_OUT:
-            mLock.unlock();
             mCbf(EVENT_STREAM_END, mUserData, NULL);
-            mLock.lock();
-            if (mState == STATE_STOPPING) {
-                mState = STATE_STOPPED;
-                if (status != DEAD_OBJECT) {
-                   return NS_INACTIVE;
+            {
+                AutoMutex lock(mLock);
+                // The previously assigned value of waitStreamEnd is no longer valid,
+                // since the mutex has been unlocked and either the callback handler
+                // or another thread could have re-started the AudioTrack during that time.
+                waitStreamEnd = mState == STATE_STOPPING;
+                if (waitStreamEnd) {
+                    mState = STATE_STOPPED;
                 }
             }
-            return 0;
-        default:
-            return 0;
+            if (waitStreamEnd && status != DEAD_OBJECT) {
+               return NS_INACTIVE;
+            }
+            break;
         }
+        return 0;
     }
 
     // perform callbacks while unlocked
@@ -1925,7 +1955,6 @@ status_t AudioTrack::restoreTrack_l(const char *from)
 
     // take the frames that will be lost by track recreation into account in saved position
     size_t position = mProxy->getPosition() + mProxy->getFramesFilled();
-    mNewPosition = position + mUpdatePeriod;
     size_t bufferPosition = mStaticProxy != NULL ? mStaticProxy->getBufferPosition() : 0;
     result = createTrack_l(mStreamType,
                            mSampleRate,
