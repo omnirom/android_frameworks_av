@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "8b77b57d_d7adace7",
+        "filename": "media/libstagefright/omx/OMXMaster.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 75,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2014-06-05T12:46:27Z",
+      "side": 1,
+      "message": "pointers should be checked against NULL - right?",
+      "revId": "f954092228d6e48913e20a07e0bd30f85ec3b312",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
