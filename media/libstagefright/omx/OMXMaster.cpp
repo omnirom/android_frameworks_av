@@ -48,8 +48,11 @@ void OMXMaster::addVendorPlugin() {
 #ifdef SAMSUNG_OMX
     addPlugin("libsomxcore.so");
 #endif
-}
 
+#ifdef TF101_OMX
+    addPlugin("libnvomx.so");
+#endif
+}
 void OMXMaster::addPlugin(const char *libname) {
     mVendorLibHandle = dlopen(libname, RTLD_NOW);
 
