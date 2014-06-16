@@ -137,9 +137,6 @@ public:
     virtual status_t startTone(audio_policy_tone_t tone, audio_stream_type_t stream);
     virtual status_t stopTone();
     virtual status_t setVoiceVolume(float volume, int delayMs = 0);
-#ifdef QCOM_FM_ENABLED
-    virtual status_t setFmVolume(float volume, int delayMs = 0);
-#endif
     virtual bool isOffloadSupported(const audio_offload_info_t &config);
 
             status_t doStopOutput(audio_io_handle_t output,
@@ -170,9 +167,6 @@ private:
             SET_VOLUME,
             SET_PARAMETERS,
             SET_VOICE_VOLUME,
-#ifdef QCOM_FM_ENABLED
-            SET_FM_VOLUME,
-#endif
             STOP_OUTPUT,
             RELEASE_OUTPUT
         };
@@ -195,9 +189,6 @@ private:
                     status_t    parametersCommand(audio_io_handle_t ioHandle,
                                             const char *keyValuePairs, int delayMs = 0);
                     status_t    voiceVolumeCommand(float volume, int delayMs = 0);
-#ifdef QCOM_FM_ENABLED
-                    status_t    fmVolumeCommand(float volume, int delayMs = 0);
-#endif
                     void        stopOutputCommand(audio_io_handle_t output,
                                                   audio_stream_type_t stream,
                                                   int session);
@@ -246,13 +237,6 @@ private:
         public:
             float mVolume;
         };
-
-#ifdef QCOM_FM_ENABLED
-        class FmVolumeData {
-        public:
-            float mVolume;
-        };
-#endif
 
         class StopOutputData {
         public:
