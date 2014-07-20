@@ -313,6 +313,10 @@ static const char *FourCC2MIME(uint32_t fourcc) {
     switch (fourcc) {
         case FOURCC('m', 'p', '4', 'a'):
             return MEDIA_MIMETYPE_AUDIO_AAC;
+
+        case FOURCC('e', 'n', 'c', 'a'):
+            return MEDIA_MIMETYPE_AUDIO_AAC;
+
 #ifdef QCOM_HARDWARE
         case FOURCC('.', 'm', 'p', '3'):
             return MEDIA_MIMETYPE_AUDIO_MPEG;
@@ -325,6 +329,9 @@ static const char *FourCC2MIME(uint32_t fourcc) {
             return MEDIA_MIMETYPE_AUDIO_AMR_WB;
 
         case FOURCC('m', 'p', '4', 'v'):
+            return MEDIA_MIMETYPE_VIDEO_MPEG4;
+
+        case FOURCC('e', 'n', 'c', 'v'):
             return MEDIA_MIMETYPE_VIDEO_MPEG4;
 
         case FOURCC('s', '2', '6', '3'):
@@ -490,14 +497,14 @@ sp<MetaData> MPEG4Extractor::getTrackMetaData(
                 }
             } else {
                 uint32_t sampleIndex;
-                uint32_t sampleTime;
+                uint64_t sampleTime;
                 if (track->sampleTable->findThumbnailSample(&sampleIndex) == OK
                         && track->sampleTable->getMetaDataForSample(
                             sampleIndex, NULL /* offset */, NULL /* size */,
                             &sampleTime) == OK) {
                     track->meta->setInt64(
                             kKeyThumbnailTime,
-                            ((int64_t)sampleTime * 1000000) / track->timescale);
+                            (sampleTime * 1000000) / track->timescale);
                 }
             }
         }
@@ -1529,14 +1536,22 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 
         case FOURCC('s', 't', 's', 's'):
         {
-            status_t err =
-                mLastTrack->sampleTable->setSyncSampleParams(
-                        data_offset, chunk_data_size);
+            // Ignore stss block for audio even if its present
+            // All audio sample are sync samples itself,
+            // self decodeable and playable.
+            // Parsing this block for audio restricts audio seek to few entries
+            // available in this block, sometimes 0, which is undesired.
+            const char *mime;
+            CHECK(mLastTrack->meta->findCString(kKeyMIMEType, &mime));
+            if (strncasecmp("audio/", mime, 6)) {
+                status_t err =
+                    mLastTrack->sampleTable->setSyncSampleParams(
+                            data_offset, chunk_data_size);
 
-            if (err != OK) {
-                return err;
+                if (err != OK) {
+                    return err;
+                }
             }
-
             *offset += chunk_size;
             break;
         }
@@ -2343,20 +2358,20 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
        return OK;
     }
 #endif
-#if defined(ENABLE_QC_AV_ENHANCEMENTS) || !defined(QCOM_HARDWARE)
     if (objectTypeIndication == 0xe1) {
         // This isn't MPEG4 audio at all, it's QCELP 14k...
         mLastTrack->meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_QCELP);
         return OK;
     }
-#endif
 
 #ifdef QCOM_HARDWARE
     if (objectTypeIndication  == 0x6b
          || objectTypeIndication  == 0x69) {
+        // Our software MP3 audio decoder may not be able to handle
          mLastTrack->meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
          ALOGD("objectTypeIndication:0x%x, set mimetype to mpeg ",objectTypeIndication);
          return OK;
+    }
 #else
     if (objectTypeIndication  == 0x6b) {
         // The media subtype is MP3 audio
@@ -2364,8 +2379,8 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
         // packetized MP3 audio; for now, lets just return ERROR_UNSUPPORTED
         ALOGE("MP3 track in MP4/3GPP file is not supported");
         return ERROR_UNSUPPORTED;
-#endif
     }
+#endif
 
     const uint8_t *csd;
     size_t csd_size;
@@ -2403,18 +2418,23 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
         objectType = 32 + br.getBits(6);
     }
 
+#ifdef QCOM_DIRECTTRACK
     if(objectType == 1) { //AAC Main profile
         ALOGD("\n >>> Found AAC mainprofile in MPEG4 Extractor... \n");
     }
 
     mLastTrack->meta->setInt32(kKeyAACProfile, objectType);
+#endif
+
     //keep AOT type
     mLastTrack->meta->setInt32(kKeyAACAOT, objectType);
 
     uint32_t freqIndex = br.getBits(4);
 
     int32_t sampleRate = 0;
+    int32_t extSampleRate = 0;
     int32_t numChannels = 0;
+
     if (freqIndex == 15) {
         if (csd_size < 5) {
             return ERROR_MALFORMED;
@@ -2462,6 +2482,7 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
     }
 
     mLastTrack->meta->setInt32(kKeySampleRate, sampleRate);
+    mLastTrack->meta->setInt32(kKeyAACProfile, objectType);
 
     int32_t prevChannelCount;
     CHECK(mLastTrack->meta->findInt32(kKeyChannelCount, &prevChannelCount));
@@ -3210,7 +3231,7 @@ status_t MPEG4Source::read(
                     sampleIndex, &syncSampleIndex, findFlags);
         }
 
-        uint32_t sampleTime;
+        uint64_t sampleTime;
         if (err == OK) {
             err = mSampleTable->getMetaDataForSample(
                     sampleIndex, NULL, NULL, &sampleTime);
@@ -3234,7 +3255,7 @@ status_t MPEG4Source::read(
         }
 
 #if 0
-        uint32_t syncSampleTime;
+        uint64_t syncSampleTime;
         CHECK_EQ(OK, mSampleTable->getMetaDataForSample(
                     syncSampleIndex, NULL, NULL, &syncSampleTime));
 
@@ -3256,7 +3277,7 @@ status_t MPEG4Source::read(
 
     off64_t offset;
     size_t size;
-    uint32_t cts;
+    uint64_t cts;
     bool isSyncSample;
     bool newBuffer = false;
     if (mBuffer == NULL) {
@@ -3289,11 +3310,15 @@ status_t MPEG4Source::read(
 
                 return ERROR_IO;
             }
+#ifdef ENABLE_AV_ENHANCEMENTS
+            //for AC3/EAC3 detection
+            ExtendedUtils::helper_Mpeg4ExtractorCheckAC3EAC3(mBuffer, mFormat, size);
+#endif
             CHECK(mBuffer != NULL);
             mBuffer->set_range(0, size);
             mBuffer->meta_data()->clear();
             mBuffer->meta_data()->setInt64(
-                    kKeyTime, ((int64_t)cts * 1000000) / mTimescale);
+                    kKeyTime, (cts * 1000000) / mTimescale);
 
             if (targetSampleTimeUs >= 0) {
                 mBuffer->meta_data()->setInt64(
@@ -3415,7 +3440,7 @@ status_t MPEG4Source::read(
 
         mBuffer->meta_data()->clear();
         mBuffer->meta_data()->setInt64(
-                kKeyTime, ((int64_t)cts * 1000000) / mTimescale);
+                kKeyTime, (cts * 1000000) / mTimescale);
 
         if (targetSampleTimeUs >= 0) {
             mBuffer->meta_data()->setInt64(
@@ -3720,11 +3745,9 @@ static bool LegacySniffMPEG4(
         return false;
     }
 
-#ifdef QCOM_HARDWARE
-    if (!memcmp(header, "ftyp3g2a", 8) || !memcmp(header, "ftyp3g2b", 8) || !memcmp(header, "ftyp3g2c", 8)
-        || !memcmp(header, "ftyp3gp", 7) || !memcmp(header, "ftypmp42", 8)
-#else
     if (!memcmp(header, "ftyp3gp", 7) || !memcmp(header, "ftypmp42", 8)
+#ifdef QCOM_HARDWARE
+        || !memcmp(header, "ftyp3g2a", 8) || !memcmp(header, "ftyp3g2b", 8) || !memcmp(header, "ftyp3g2c", 8)
 #endif
         || !memcmp(header, "ftyp3gr6", 8) || !memcmp(header, "ftyp3gs6", 8)
         || !memcmp(header, "ftyp3ge6", 8) || !memcmp(header, "ftyp3gg6", 8)

@@ -88,6 +88,7 @@ public:
     virtual ~CameraSource();
 
     virtual status_t start(MetaData *params = NULL);
+    virtual status_t pause();
     virtual status_t stop() { return reset(); }
     virtual status_t read(
             MediaBuffer **buffer, const ReadOptions *options = NULL);
@@ -162,7 +163,10 @@ protected:
     int64_t mLastFrameTimestampUs;
     bool mStarted;
     int32_t mNumFramesEncoded;
-
+    bool mRecPause;
+    int64_t  mPauseAdjTimeUs;
+    int64_t  mPauseStartTimeUs;
+    int64_t  mPauseEndTimeUs;
     // Time between capture of two frames.
     int64_t mTimeBetweenFrameCaptureUs;
 
@@ -171,10 +175,6 @@ protected:
                  Size videoSize, int32_t frameRate,
                  const sp<IGraphicBufferProducer>& surface,
                  bool storeMetaDataInVideoBuffers);
-
-#ifdef SEMC_ICS_CAMERA_BLOB
-    virtual status_t getRecordingBuffer(unsigned int index, sp<MemoryBase>** buffer);
-#endif
 
     virtual void startCameraRecording();
     virtual void releaseRecordingFrame(const sp<IMemory>& frame);

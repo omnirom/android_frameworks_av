@@ -25,7 +25,9 @@
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/ACodec.h>
 #include <media/stagefright/MediaDefs.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedCodec.h>
+#endif
 
 namespace android {
 

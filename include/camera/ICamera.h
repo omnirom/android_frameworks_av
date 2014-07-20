@@ -23,10 +23,6 @@
 #include <binder/IMemory.h>
 #include <utils/String8.h>
 #include <camera/Camera.h>
-#ifdef SEMC_ICS_CAMERA_BLOB
-#include <binder/IMemory.h>
-#include <binder/MemoryBase.h>
-#endif
 
 namespace android {
 
@@ -115,10 +111,6 @@ public:
 
     // tell the camera hal to store meta data or real YUV data in video buffers.
     virtual status_t        storeMetaDataInBuffers(bool enabled) = 0;
-
-#ifdef SEMC_ICS_CAMERA_BLOB
-    virtual status_t        getRecordingBuffer(unsigned int index, sp<MemoryBase>** buffer) {};
-#endif
 };
 
 // ----------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-/*Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/*Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -40,8 +40,11 @@
 #include <OMX_Video.h>
 #include <android/native_window.h>
 
+#include <gui/DisplayEventReceiver.h>
+#include <utils/Looper.h>
+
 #define MIN_BITERATE_AAC 24000
-#define MAX_BITERATE_AAC 192000
+#define MAX_BITERATE_AAC 320000
 
 namespace android {
 
@@ -70,25 +73,26 @@ struct ExtendedUtils {
                 const CameraParameters& params, sp<MetaData> &meta);
 
         // recalculate fileduration when hfr is enabled
-        static status_t reCalculateFileDuration(
+        static status_t initializeHFR(
                 sp<MetaData> &meta, sp<MetaData> &enc_meta,
-                int64_t &maxFileDurationUs, int32_t frameRate,
-                video_encoder videoEncoder);
-
-        // compute timestamp when hfr is enabled
-        static void reCalculateTimeStamp(
-                sp<MetaData> &meta, int64_t &timestampUs);
-
-        // recalculate frameRate and bitrate when hfr is enabled
-        static void reCalculateHFRParams(
-                const sp<MetaData> &meta, int32_t &frameRate,
-                int32_t &bitrate);
+                int64_t &maxFileDurationUs, video_encoder videoEncoder);
 
         // Copy HFR params (bitrate,framerate) from output to
         // to input format, if HFR is enabled
         static void copyHFRParams(
                 const sp<MetaData> &inputFormat,
                 sp<MetaData> &outputFormat);
+
+        // Adjust clip timescale for authoring, if HFR is enabled
+        static int32_t getHFRRatio(
+                const sp<MetaData> &meta);
+
+        private:
+        // Query supported capabilities from target-specific profiles
+        static int32_t getHFRCapabilities(
+                video_encoder codec,
+                int& maxHFRWidth, int& maxHFRHeight, int& maxHFRFps,
+                int& maxBitrate);
     };
 
     /*
@@ -97,7 +101,7 @@ struct ExtendedUtils {
      */
     struct ShellProp {
         // check if shell property to disable audio is set
-        static bool isAudioDisabled();
+        static bool isAudioDisabled(bool isEncoder);
 
         //helper function to set encoding profiles
         static void setEncoderProfile(video_encoder &videoEncoder,
@@ -106,6 +110,10 @@ struct ExtendedUtils {
         static bool isSmoothStreamingEnabled();
 
         static int64_t getMaxAVSyncLateMargin();
+
+        static bool isCustomAVSyncEnabled();
+
+        static bool isMpeg4DPSupportedByHardware();
     };
 
     //set B frames for MPEG4
@@ -141,10 +149,65 @@ struct ExtendedUtils {
 
     static bool checkIsThumbNailMode(const uint32_t flags, char* componentName);
 
-    static void setArbitraryModeIfInterlaced(
-            const uint8_t *ptr, const sp<MetaData> &meta);
+    //helper function for MPEG4 Extractor to check for AC3/EAC3 contents
+    static void helper_Mpeg4ExtractorCheckAC3EAC3(MediaBuffer *buffer, sp<MetaData> &format,
+                                                   size_t size);
 
-    static int32_t checkIsInterlace(sp<MetaData> &meta);
+    static int32_t getEncoderTypeFlags();
+
+    static void prefetchSecurePool(int fd);
+
+    static void prefetchSecurePool(const char *uri);
+
+    static void prefetchSecurePool();
+
+    static void createSecurePool();
+
+    static void drainSecurePool();
+
+    //helper function to parse rtp port range form system property
+    static void parseRtpPortRangeFromSystemProperty(unsigned *start, unsigned *end);
+};
+
+class VSyncLocker : public RefBase {
+private:
+    //Number of frames profiled for calculating fps
+    static const int kMaxProfileCount = 60;
+
+    enum SyncState {
+        PROFILE_FPS,
+        ENABLE_SYNC,
+        BLOCK_SYNC,
+    };
+
+    volatile bool mExitVsyncEvent;
+    Looper *mLooper;
+    SyncState mSyncState;
+    int64_t mStartTime;
+    int mProfileCount;
+
+    pthread_t mThread;
+    Mutex mVsyncLock;
+    Condition mVSyncCondition;
+    DisplayEventReceiver mDisplayEventReceiver;
+
+    virtual void updateSyncState();
+    virtual void waitOnVSync();
+
+public:
+    static bool isSyncRenderEnabled();
+    static int receiver(int fd, int events, void *context);
+    static void *ThreadWrapper(void *context);
+
+    virtual void resetProfile();
+    virtual void blockSync();
+    virtual void blockOnVSync();
+    virtual void start();
+    void VSyncEvent();
+    void signalVSync();
+
+    virtual ~VSyncLocker();
+    VSyncLocker();
 };
 
 }

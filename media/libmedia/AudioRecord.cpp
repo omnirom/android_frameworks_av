@@ -1,6 +1,8 @@
 /*
 **
 ** Copyright 2008, The Android Open Source Project
+** Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+** Not a Contribution.
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -60,10 +62,14 @@ status_t AudioRecord::getMinFrameCount(
     // We double the size of input buffer for ping pong use of record buffer.
     size <<= 1;
     uint32_t channelCount = popcount(channelMask);
+#ifdef QCOM_HARDWARE
     if (audio_is_linear_pcm(format))
+#endif
         size /= channelCount * audio_bytes_per_sample(format);
+#ifdef QCOM_HARDWARE
     else
         size /= sizeof(uint8_t);
+#endif
 
     *frameCount = size;
     return NO_ERROR;
@@ -134,6 +140,8 @@ status_t AudioRecord::set(
         transfer_type transferType,
         audio_input_flags_t flags)
 {
+    ALOGV("sampleRate %u, channelMask %#x, format %d", sampleRate, channelMask, format);
+    ALOGV("inputSource %d", inputSource);
     switch (transferType) {
     case TRANSFER_DEFAULT:
         if (cbf == NULL || threadCanCallJava) {
@@ -149,7 +157,7 @@ status_t AudioRecord::set(
         }
         break;
     case TRANSFER_OBTAIN:
-   case TRANSFER_SYNC:
+    case TRANSFER_SYNC:
         break;
     default:
         ALOGE("Invalid transfer type %d", transferType);
@@ -214,11 +222,11 @@ status_t AudioRecord::set(
         return BAD_VALUE;
     }
     mChannelMask = channelMask;
-#ifdef QCOM_HARDWARE
     uint32_t channelCount = popcount(channelMask
+#ifdef QCOM_HARDWARE
         &(AUDIO_CHANNEL_IN_STEREO|AUDIO_CHANNEL_IN_MONO|AUDIO_CHANNEL_IN_5POINT1));
 #else
-    uint32_t channelCount = popcount(channelMask);
+    );
 #endif
     mChannelCount = channelCount;
 
@@ -240,7 +248,7 @@ status_t AudioRecord::set(
 
     int minFrameCount = (inputBuffSizeInBytes * 2)/mFrameSize;
 #else
-     // Assumes audio_is_linear_pcm(format), else sizeof(uint8_t)
+    // Assumes audio_is_linear_pcm(format), else sizeof(uint8_t)
 #ifdef QCOM_HARDWARE
     if (audio_is_linear_pcm(format))
         mFrameSize = channelCount * audio_bytes_per_sample(format);
@@ -250,7 +258,7 @@ status_t AudioRecord::set(
     mFrameSize = channelCount * audio_bytes_per_sample(format);
 #endif
 
-   // validate framecount
+    // validate framecount
     size_t minFrameCount = 0;
     status_t status = AudioRecord::getMinFrameCount(&minFrameCount,
             sampleRate, format, channelMask);
@@ -1040,6 +1048,7 @@ size_t AudioRecord::frameSize() const
    }
 }
 #endif
+
 // =========================================================================
 
 void AudioRecord::DeathNotifier::binderDied(const wp<IBinder>& who)

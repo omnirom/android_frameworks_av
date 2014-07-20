@@ -229,7 +229,9 @@ class MediaPlayerService : public BnMediaPlayerService
 
                 void            setVolume(float left, float right) {}
         virtual status_t        setPlaybackRatePermille(int32_t ratePermille) { return INVALID_OPERATION; }
-#ifndef QCOM_DIRECTTRACK
+#ifdef QCOM_DIRECTTRACK
+        virtual ssize_t         sampleRate() const;
+#else
                 uint32_t        sampleRate() const { return mSampleRate; }
 #endif
                 audio_format_t  format() const { return mFormat; }
@@ -241,9 +243,6 @@ class MediaPlayerService : public BnMediaPlayerService
         static  void            notify(void* cookie, int msg,
                                        int ext1, int ext2, const Parcel *obj);
         virtual status_t        dump(int fd, const Vector<String16>& args) const;
-#ifdef QCOM_DIRECTTRACK
-        virtual ssize_t         sampleRate() const;
-#endif
 
     private:
                                 AudioCache();
@@ -391,6 +390,9 @@ private:
         virtual status_t        dump(int fd, const Vector<String16>& args) const;
 
                 int             getAudioSessionId() { return mAudioSessionId; }
+
+        virtual status_t        suspend();
+        virtual status_t        resume();
 
     private:
         friend class MediaPlayerService;

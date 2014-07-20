@@ -34,11 +34,11 @@
 #include "include/ExtendedUtils.h"
 #endif
 
-#ifdef SEMC_ICS_CAMERA_BLOB
-#include <binder/IMemory.h>
-#include <binder/MemoryBase.h>
-#include <binder/MemoryHeapBase.h>
+#ifdef USE_TI_CUSTOM_DOMX
+#include <OMX_TI_IVCommon.h>
 #endif
+
+#include "include/ExtendedUtils.h"
 
 namespace android {
 
@@ -114,7 +114,11 @@ static int32_t getColorFormat(const char* colorFormat) {
     }
 
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_YUV422I)) {
+#if defined(TARGET_OMAP3) && defined(OMAP_ENHANCEMENT)
+        return OMX_COLOR_FormatCbYCrY;
+#else
         return OMX_COLOR_FormatYCbYCr;
+#endif
     }
 
     if (!strcmp(colorFormat, CameraParameters::PIXEL_FORMAT_RGB565)) {
@@ -186,6 +190,10 @@ CameraSource::CameraSource(
       mFirstFrameTimeUs(0),
       mNumFramesDropped(0),
       mNumGlitches(0),
+      mRecPause(false),
+      mPauseAdjTimeUs(0),
+      mPauseStartTimeUs(0),
+      mPauseEndTimeUs(0),
       mGlitchDurationThresholdUs(200000),
       mCollectStats(false) {
     mVideoSize.width  = -1;
@@ -505,17 +513,6 @@ status_t CameraSource::init(
     return err;
 }
 
-#ifdef SEMC_ICS_CAMERA_BLOB
-sp<MemoryBase> *mRecordingBuffers;
-
-status_t CameraSource::getRecordingBuffer(unsigned int index, sp<MemoryBase>** buffer)
-{
-    ALOGV("getRecordingbuffer");
-    *buffer = &mRecordingBuffers[index];
-    return OK;
-}
-#endif
-
 status_t CameraSource::initWithCameraAccess(
         const sp<ICamera>& camera,
         const sp<ICameraRecordingProxy>& proxy,
@@ -593,16 +590,6 @@ status_t CameraSource::initWithCameraAccess(
     ExtendedUtils::HFR::setHFRIfEnabled(params, mMeta);
 #endif
 
-#ifdef SEMC_ICS_CAMERA_BLOB
-    sp<MemoryBase>* ptrbuffer;
-    mRecordingBuffers = new sp<MemoryBase>[9];
-    for (uint_t i = 0; i < 9; i++) {
-        mCamera->getRecordingBuffer(i, &ptrbuffer);
-        ALOGE("Camerabuffer 0 ptr %p", ptrbuffer);
-        mRecordingBuffers[i] = *ptrbuffer;
-    }
-#endif
-
     return OK;
 }
 
@@ -650,6 +637,13 @@ void CameraSource::startCameraRecording() {
 
 status_t CameraSource::start(MetaData *meta) {
     ALOGV("start");
+    if(mRecPause) {
+        mRecPause = false;
+        mPauseAdjTimeUs = mPauseEndTimeUs - mPauseStartTimeUs;
+        ALOGV("resume : mPause Adj / End / Start : %lld / %lld / %lld us",
+            mPauseAdjTimeUs, mPauseEndTimeUs, mPauseStartTimeUs);
+        return OK;
+    }
     CHECK(!mStarted);
     if (mInitCheck != OK) {
         ALOGE("CameraSource is not initialized yet");
@@ -663,6 +657,10 @@ status_t CameraSource::start(MetaData *meta) {
     }
 
     mStartTimeUs = 0;
+    mRecPause = false;
+    mPauseAdjTimeUs = 0;
+    mPauseStartTimeUs = 0;
+    mPauseEndTimeUs = 0;
     mNumInputBuffers = 0;
     if (meta) {
         int64_t startTimeUs;
@@ -683,6 +681,14 @@ status_t CameraSource::start(MetaData *meta) {
     return OK;
 }
 
+status_t CameraSource::pause() {
+    mRecPause = true;
+    mPauseStartTimeUs = mLastFrameTimestampUs;
+    ALOGV("pause : mPauseStart %lld us, #Queued Frames : %d",
+        mPauseStartTimeUs, mFramesReceived.size());
+    return OK;
+}
+
 void CameraSource::stopCameraRecording() {
     ALOGV("stopCameraRecording");
     if (mCameraFlags & FLAGS_HOT_CAMERA) {
@@ -691,9 +697,6 @@ void CameraSource::stopCameraRecording() {
         mCamera->setListener(NULL);
         mCamera->stopRecording();
     }
-#ifdef SEMC_ICS_CAMERA_BLOB
-    delete [] mRecordingBuffers;
-#endif
 }
 
 void CameraSource::releaseCamera() {
@@ -856,12 +859,10 @@ status_t CameraSource::read(
 void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
         int32_t msgType, const sp<IMemory> &data) {
     ALOGV("dataCallbackTimestamp: timestamp %lld us", timestampUs);
-#ifdef QCOM_HARDWARE
     if (!mStarted) {
        ALOGD("Stop recording issued. Return here.");
        return;
     }
-#endif
     Mutex::Autolock autoLock(mLock);
     if (!mStarted || (mNumFramesReceived == 0 && timestampUs < mStartTimeUs)) {
         ALOGV("Drop frame at %lld/%lld us", timestampUs, mStartTimeUs);
@@ -869,6 +870,18 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
         return;
     }
 
+    if (mRecPause == true) {
+        if(!mFramesReceived.empty()) {
+            ALOGV("releaseQueuedFrames - #Queued Frames : %d", mFramesReceived.size());
+            releaseQueuedFrames();
+        }
+        ALOGV("release One Video Frame for Pause : %lld us", timestampUs);
+        releaseOneRecordingFrame(data);
+        mPauseEndTimeUs = timestampUs;
+        return;
+    }
+    timestampUs -= mPauseAdjTimeUs;
+    ALOGV("dataCallbackTimestamp: AdjTimestamp %lld us", timestampUs);
     if (mNumFramesReceived > 0) {
         CHECK(timestampUs > mLastFrameTimestampUs);
         if (timestampUs - mLastFrameTimestampUs > mGlitchDurationThresholdUs) {
@@ -903,13 +916,8 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
     mFramesReceived.push_back(data);
     int64_t timeUs = mStartTimeUs + (timestampUs - mFirstFrameTimeUs);
     mFrameTimes.push_back(timeUs);
-#ifdef SEMC_ICS_CAMERA_BLOB
-    ALOGV("initial delay: %lld, current time stamp: %lld, frames received: %d, frames being encoded: %d",
-        mStartTimeUs, timeUs, mFramesReceived.size(), mFramesBeingEncoded.size());
-#else
     ALOGV("initial delay: %lld, current time stamp: %lld",
         mStartTimeUs, timeUs);
-#endif
     mFrameAvailableCondition.signal();
 }
 

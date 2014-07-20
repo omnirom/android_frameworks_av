@@ -28,11 +28,22 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_STATIC_LIBRARIES := \
 	libregistermsext
 
+ifeq ($(BOARD_USE_SECTVOUT),true)
+	LOCAL_CFLAGS += -DSECTVOUT
+	LOCAL_SHARED_LIBRARIES += libTVOut
+endif
+
 LOCAL_C_INCLUDES := \
     frameworks/av/media/libmediaplayerservice \
     frameworks/av/services/medialog \
     frameworks/av/services/audioflinger \
     frameworks/av/services/camera/libcameraservice
+
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_LISTEN)),true)
+  LOCAL_SHARED_LIBRARIES += liblisten
+  LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio/audio-listen
+  LOCAL_CFLAGS += -DAUDIO_LISTEN_ENABLED
+endif
 
 LOCAL_MODULE:= mediaserver
 

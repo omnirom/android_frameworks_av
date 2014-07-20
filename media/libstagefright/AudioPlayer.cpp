@@ -18,7 +18,9 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "AudioPlayer"
+#define ATRACE_TAG ATRACE_TAG_AUDIO
 #include <utils/Log.h>
+#include <utils/Trace.h>
 #include <cutils/compiler.h>
 
 #include <binder/IPCThreadState.h>
@@ -31,7 +33,10 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
+
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedCodec.h>
+#endif
 
 #include "include/AwesomePlayer.h"
 
@@ -48,14 +53,13 @@ AudioPlayer::AudioPlayer(
       mNumFramesPlayedSysTimeUs(ALooper::GetNowUs()),
       mPositionTimeMediaUs(-1),
       mPositionTimeRealUs(-1),
+      mDurationUs(-1),
       mSeeking(false),
       mReachedEOS(false),
       mFinalStatus(OK),
       mSeekTimeUs(0),
       mStarted(false),
-#ifdef QCOM_HARDWARE
       mSourcePaused(false),
-#endif
       mIsFirstBuffer(false),
       mFirstBufferResult(OK),
       mFirstBuffer(NULL),
@@ -64,12 +68,9 @@ AudioPlayer::AudioPlayer(
       mPinnedTimeUs(-1ll),
       mPlaying(false),
       mStartPosUs(0),
-#ifdef QCOM_HARDWARE
       mCreateFlags(flags),
-      mPauseRequired(false) {
-#else
-      mCreateFlags(flags) {
-#endif
+      mPauseRequired(false)
+      {
 }
 
 AudioPlayer::~AudioPlayer() {
@@ -89,15 +90,14 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
 
     status_t err;
     if (!sourceAlreadyStarted) {
-#ifdef QCOM_HARDWARE
         mSourcePaused = false;
-#endif
         err = mSource->start();
 
         if (err != OK) {
             return err;
         }
     }
+    ALOGD("start of Playback, useOffload %d",useOffload());
 
     // We allow an optional INFO_FORMAT_CHANGED at the very beginning
     // of playback, if there is one, getFormat below will retrieve the
@@ -109,18 +109,37 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
     MediaSource::ReadOptions options;
     if (mSeeking) {
         options.setSeekTo(mSeekTimeUs);
-        mSeeking = false;
     }
 
-    mFirstBufferResult = mSource->read(&mFirstBuffer, &options);
+    do {
+        mFirstBufferResult = mSource->read(&mFirstBuffer, &options);
+    } while (mFirstBufferResult == -EAGAIN);
+
     if (mFirstBufferResult == INFO_FORMAT_CHANGED) {
         ALOGV("INFO_FORMAT_CHANGED!!!");
 
         CHECK(mFirstBuffer == NULL);
         mFirstBufferResult = OK;
         mIsFirstBuffer = false;
+
+        if (mSeeking) {
+            mPositionTimeRealUs = 0;
+            mPositionTimeMediaUs = mSeekTimeUs;
+            mSeeking = false;
+        }
+
     } else {
         mIsFirstBuffer = true;
+
+        if (mSeeking) {
+            mPositionTimeRealUs = 0;
+            if (mFirstBuffer == NULL || !mFirstBuffer->meta_data()->findInt64(
+                    kKeyTime, &mPositionTimeMediaUs)) {
+                return UNKNOWN_ERROR;
+            }
+            mSeeking = false;
+        }
+
     }
 
     sp<MetaData> format = mSource->getFormat();
@@ -132,15 +151,20 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
     success = format->findInt32(kKeySampleRate, &mSampleRate);
     CHECK(success);
 
-    int32_t numChannels, channelMask;
+    int32_t numChannels, channelMask = 0;
     success = format->findInt32(kKeyChannelCount, &numChannels);
     CHECK(success);
+
+    format->findInt64(kKeyDuration, &mDurationUs);
 
     if(!format->findInt32(kKeyChannelMask, &channelMask)) {
         // log only when there's a risk of ambiguity of channel mask selection
         ALOGI_IF(numChannels > 2,
                 "source format didn't specify channel mask, using (%d) channel order", numChannels);
         channelMask = CHANNEL_MASK_USE_CHANNEL_ORDER;
+    } else if (channelMask == 0) {
+        channelMask = audio_channel_out_mask_from_count(numChannels);
+        ALOGV("channel mask is zero,update from channel count %d", channelMask);
     }
 
     audio_format_t audioFormat = AUDIO_FORMAT_PCM_16_BIT;
@@ -150,6 +174,12 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
             ALOGE("Couldn't map mime type \"%s\" to a valid AudioSystem::audio_format", mime);
             audioFormat = AUDIO_FORMAT_INVALID;
         } else {
+#ifdef QCOM_HARDWARE
+            // Override audio format for PCM offload
+            if (audioFormat == AUDIO_FORMAT_PCM_16_BIT) {
+                audioFormat = AUDIO_FORMAT_PCM_16_BIT_OFFLOAD;
+            }
+#endif
             ALOGV("Mime type \"%s\" mapped to audio_format 0x%x", mime, audioFormat);
         }
     }
@@ -260,13 +290,16 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
     mStarted = true;
     mPlaying = true;
     mPinnedTimeUs = -1ll;
-#ifdef QCOM_HARDWARE
     const char *componentName;
     if (!(format->findCString(kKeyDecoderComponent, &componentName))) {
           componentName = "none";
     }
-    mPauseRequired = ExtendedCodec::isSourcePauseRequired(componentName);
-#endif
+    if (!strncmp(componentName, "OMX.qcom.", 9)) {
+        mPauseRequired = true;
+    } else {
+        mPauseRequired = false;
+    }
+
     return OK;
 }
 
@@ -292,25 +325,23 @@ void AudioPlayer::pause(bool playPendingSamples) {
     }
 
     mPlaying = false;
-#ifdef QCOM_HARDWARE
     CHECK(mSource != NULL);
     if (mPauseRequired) {
         if (mSource->pause() == OK) {
             mSourcePaused = true;
         }
     }
-#endif
+    ALOGD("Pause Playback at %lld",getMediaTimeUs());
 }
 
 status_t AudioPlayer::resume() {
     CHECK(mStarted);
-#ifdef QCOM_HARDWARE
     CHECK(mSource != NULL);
+    ALOGD("Resume Playback at %lld",getMediaTimeUs());
     if (mSourcePaused == true) {
         mSourcePaused = false;
         mSource->start();
     }
-#endif
     status_t err;
 
     if (mAudioSink.get() != NULL) {
@@ -329,7 +360,7 @@ status_t AudioPlayer::resume() {
 void AudioPlayer::reset() {
     CHECK(mStarted);
 
-    ALOGV("reset: mPlaying=%d mReachedEOS=%d useOffload=%d",
+    ALOGD("reset: mPlaying=%d mReachedEOS=%d useOffload=%d",
                                 mPlaying, mReachedEOS, useOffload() );
 
     if (mAudioSink.get() != NULL) {
@@ -372,9 +403,8 @@ void AudioPlayer::reset() {
         mInputBuffer->release();
         mInputBuffer = NULL;
     }
-#ifdef QCOM_HARDWARE
+
     mSourcePaused = false;
-#endif
     mSource->stop();
 
     // The following hack is necessary to ensure that the OMX
@@ -382,7 +412,11 @@ void AudioPlayer::reset() {
     // to instantiate it again.
     // When offloading, the OMX component is not used so this hack
     // is not needed
-    if (!useOffload()) {
+    sp<MetaData> format = mSource->getFormat();
+    const char *mime;
+    format->findCString(kKeyMIMEType, &mime);
+    if (!useOffload() ||
+        (useOffload() && !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW))) {
         wp<MediaSource> tmp = mSource;
         mSource.clear();
         while (tmp.promote() != NULL) {
@@ -404,9 +438,7 @@ void AudioPlayer::reset() {
     mStarted = false;
     mPlaying = false;
     mStartPosUs = 0;
-#ifdef QCOM_HARDWARE
     mPauseRequired = false;
-#endif
 }
 
 // static
@@ -517,6 +549,7 @@ uint32_t AudioPlayer::getNumFramesPendingPlayout() const {
 }
 
 size_t AudioPlayer::fillBuffer(void *data, size_t size) {
+    ATRACE_CALL();
     if (mNumFramesPlayed == 0) {
         ALOGV("AudioCallback");
     }
@@ -572,13 +605,23 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
 
                 mIsFirstBuffer = false;
             } else {
-                err = mSource->read(&mInputBuffer, &options);
-#ifdef QCOM_HARDWARE
-                if (err == OK && mInputBuffer == NULL && mSourcePaused) {
-                    ALOGV("mSourcePaused, return 0 from fillBuffer");
-                    return 0;
+                if(!mSourcePaused) {
+                    err = mSource->read(&mInputBuffer, &options);
+                    if (err == OK && mInputBuffer == NULL && mSourcePaused) {
+                        ALOGV("mSourcePaused, return 0 from fillBuffer");
+                        return 0;
+                    }
+                } else {
+                    break;
                 }
-#endif
+            }
+
+            if(err == -EAGAIN) {
+                if(mSourcePaused){
+                    break;
+                } else {
+                    continue;
+                }
             }
 
             CHECK((err == OK && mInputBuffer != NULL)
@@ -589,6 +632,23 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
             if (err != OK) {
                 if (!mReachedEOS) {
                     if (useOffload()) {
+                        // After seek there is a possible race condition if
+                        // OffloadThread is observing state_stopping_1 before
+                        // framesReady() > 0. Ensure sink stop is called
+                        // after last buffer is released. This ensures the
+                        // partial buffer is written to the driver before
+                        // stopping one is observed.The drawback is that
+                        // there will be an unnecessary call to the parser
+                        // after parser signalled EOS.
+
+                        int64_t playPosition = 0;
+                        playPosition = getOutputPlayPositionUs_l();
+                        if ((size_done > 0) && (playPosition < mDurationUs)) {
+                             ALOGW("send Partial buffer down\n");
+                             ALOGW("skip calling stop till next fillBuffer\n");
+                             break;
+                        }
+
                         // no more buffers to push - stop() and wait for STREAM_END
                         // don't set mReachedEOS until stream end received
                         if (mAudioSink != NULL) {
@@ -719,16 +779,11 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
     {
         Mutex::Autolock autoLock(mLock);
         mNumFramesPlayed += size_done / mFrameSize;
-#ifndef QCOM_HARDWARE
-            mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
-#endif
 
         if (mReachedEOS) {
             mPinnedTimeUs = mNumFramesPlayedSysTimeUs;
         } else {
-#ifdef QCOM_HARDWARE
             mNumFramesPlayedSysTimeUs = ALooper::GetNowUs();
-#endif
             mPinnedTimeUs = -1ll;
         }
     }
@@ -747,10 +802,14 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
 int64_t AudioPlayer::getRealTimeUs() {
     Mutex::Autolock autoLock(mLock);
     if (useOffload()) {
+        int64_t playPosition = 0;
         if (mSeeking) {
             return mSeekTimeUs;
         }
-        mPositionTimeRealUs = getOutputPlayPositionUs_l();
+        playPosition = getOutputPlayPositionUs_l();
+        if(!mReachedEOS)
+            mPositionTimeRealUs = playPosition;
+        mPositionTimeMediaUs = mPositionTimeRealUs;
         return mPositionTimeRealUs;
     }
 
@@ -767,11 +826,9 @@ int64_t AudioPlayer::getRealTimeUsLocked() const {
     // compensate using system time.
     int64_t diffUs;
     if (mPinnedTimeUs >= 0ll) {
-#ifdef QCOM_HARDWARE
         if(mReachedEOS)
             diffUs = ALooper::GetNowUs();
         else
-#endif
             diffUs = mPinnedTimeUs;
 
     } else {
@@ -780,24 +837,20 @@ int64_t AudioPlayer::getRealTimeUsLocked() const {
 
     diffUs -= mNumFramesPlayedSysTimeUs;
 
-#ifdef QCOM_HARDWARE
     if((result + diffUs <= mPositionTimeRealUs) || (!mReachedEOS))
         return result + diffUs;
     else
         return mPositionTimeRealUs;
-#else
-    return result + diffUs;
-#endif
 }
 
 int64_t AudioPlayer::getOutputPlayPositionUs_l()
 {
     uint32_t playedSamples = 0;
-    uint32_t sampleRate;
+    uint32_t sampleRate = 0;
     if (mAudioSink != NULL) {
         mAudioSink->getPosition(&playedSamples);
         sampleRate = mAudioSink->getSampleRate();
-    } else {
+    } else if (mAudioTrack != NULL) {
         mAudioTrack->getPosition(&playedSamples);
         sampleRate = mAudioTrack->getSampleRate();
     }
@@ -822,12 +875,17 @@ int64_t AudioPlayer::getMediaTimeUs() {
     Mutex::Autolock autoLock(mLock);
 
     if (useOffload()) {
+        int64_t playPosition = 0;
         if (mSeeking) {
             return mSeekTimeUs;
         }
-        mPositionTimeRealUs = getOutputPlayPositionUs_l();
-        ALOGV("getMediaTimeUs getOutputPlayPositionUs_l() mPositionTimeRealUs %lld",
-              mPositionTimeRealUs);
+
+        playPosition = getOutputPlayPositionUs_l();
+        if (!mReachedEOS)
+            mPositionTimeRealUs = playPosition;
+        ALOGV("getMediaTimeUs getOutputPlayPositionUs_l() playPosition = %lld,\
+              mPositionTimeRealUs %lld", playPosition, mPositionTimeRealUs);
+        mPositionTimeMediaUs = mPositionTimeRealUs;
         return mPositionTimeRealUs;
     }
 
@@ -850,7 +908,15 @@ bool AudioPlayer::getMediaTimeMapping(
     Mutex::Autolock autoLock(mLock);
 
     if (useOffload()) {
-        mPositionTimeRealUs = getOutputPlayPositionUs_l();
+        int64_t playPosition = 0;
+        if (mSeeking) {
+            playPosition = mSeekTimeUs;
+        } else {
+            playPosition = getOutputPlayPositionUs_l();
+        }
+        if(!mReachedEOS)
+            mPositionTimeRealUs = playPosition;
+        mPositionTimeMediaUs = mPositionTimeRealUs;
         *realtime_us = mPositionTimeRealUs;
         *mediatime_us = mPositionTimeRealUs;
     } else {
@@ -866,6 +932,23 @@ status_t AudioPlayer::seekTo(int64_t time_us) {
 
     ALOGV("seekTo( %lld )", time_us);
 
+    if(useOffload())
+    {
+        int64_t playPosition = 0;
+        playPosition = getOutputPlayPositionUs_l();
+
+        /*Ignore the seek if seek time is same as player position.
+        Time comparisons are done in msec because when seek time
+        is past EOF, media player reset it to the clip duration
+        which is in Msec converted from Usec */
+        if((time_us/1000) == (playPosition/1000))
+        {
+            ALOGE("Ignore seek and post seek complete");
+            if(mObserver)
+                mObserver->postAudioSeekComplete();
+            return OK;
+        }
+    }
     mSeeking = true;
     mPositionTimeRealUs = mPositionTimeMediaUs = -1;
     mReachedEOS = false;

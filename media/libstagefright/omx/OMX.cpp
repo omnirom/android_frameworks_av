@@ -345,15 +345,6 @@ status_t OMX::useBuffer(
             port_index, params, buffer);
 }
 
-#ifdef SEMC_ICS_CAMERA_BLOB
-status_t OMX::useBufferPmem(
-        node_id node, OMX_U32 portIndex, OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pmem_info, OMX_U32 size, void *vaddr,
-        buffer_id *buffer) {
-    return findInstance(node)->useBufferPmem(
-            portIndex, pmem_info, size, vaddr, buffer);
-}
-#endif
-
 status_t OMX::useGraphicBuffer(
         node_id node, OMX_U32 port_index,
         const sp<GraphicBuffer> &graphicBuffer, buffer_id *buffer) {
@@ -446,7 +437,12 @@ OMX_ERRORTYPE OMX::OnEvent(
     msg.u.event_data.data1 = nData1;
     msg.u.event_data.data2 = nData2;
 
-    findDispatcher(node)->post(msg);
+    sp<OMX::CallbackDispatcher> callbackDispatcher = findDispatcher(node);
+    if (callbackDispatcher != NULL) {
+        callbackDispatcher->post(msg);
+    } else {
+        ALOGE("OnEvent Callback dispatcher NULL, skip post");
+    }
 
     return OMX_ErrorNone;
 }
@@ -460,7 +456,12 @@ OMX_ERRORTYPE OMX::OnEmptyBufferDone(
     msg.node = node;
     msg.u.buffer_data.buffer = pBuffer;
 
-    findDispatcher(node)->post(msg);
+    sp<OMX::CallbackDispatcher> callbackDispatcher = findDispatcher(node);
+    if (callbackDispatcher != NULL) {
+        callbackDispatcher->post(msg);
+    } else {
+        ALOGE("OnEmptyBufferDone Callback dispatcher NULL, skip post");
+    }
 
     return OMX_ErrorNone;
 }
@@ -480,7 +481,12 @@ OMX_ERRORTYPE OMX::OnFillBufferDone(
     msg.u.extended_buffer_data.platform_private = pBuffer->pPlatformPrivate;
     msg.u.extended_buffer_data.data_ptr = pBuffer->pBuffer;
 
-    findDispatcher(node)->post(msg);
+    sp<OMX::CallbackDispatcher> callbackDispatcher = findDispatcher(node);
+    if (callbackDispatcher != NULL) {
+        callbackDispatcher->post(msg);
+    } else {
+        ALOGE("OnFillBufferDone Callback dispatcher NULL, skip post");
+    }
 
     return OMX_ErrorNone;
 }

@@ -81,7 +81,6 @@ public:
             CB_EVENT_FILL_BUFFER,   // Request to write more data to buffer.
             CB_EVENT_STREAM_END,    // Sent after all the buffers queued in AF and HW are played
                                     // back (after stop is called)
-
             CB_EVENT_TEAR_DOWN,      // The AudioTrack was invalidated due to use case change:
                                     // Need to re-evaluate offloading options
 #ifdef QCOM_DIRECTTRACK
@@ -227,6 +226,9 @@ public:
     virtual status_t dump(int fd, const Vector<String16> &args) const {
         return INVALID_OPERATION;
     }
+
+    virtual status_t suspend() { return INVALID_OPERATION; }
+    virtual status_t resume() { return INVALID_OPERATION; }
 
     virtual status_t updateProxyConfig(
             const char *host, int32_t port, const char *exclusionList) {

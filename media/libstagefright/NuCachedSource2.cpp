@@ -194,7 +194,10 @@ NuCachedSource2::NuCachedSource2(
       mHighwaterThresholdBytes(kDefaultHighWaterThreshold),
       mLowwaterThresholdBytes(kDefaultLowWaterThreshold),
       mKeepAliveIntervalUs(kDefaultKeepAliveIntervalUs),
-      mDisconnectAtHighwatermark(disconnectAtHighwatermark) {
+      mDisconnectAtHighwatermark(disconnectAtHighwatermark),
+      mIsNonBlockingMode(false),
+      mSuspended(false),
+      mCheckGeneration(0) {
     // We are NOT going to support disconnect-at-highwatermark indefinitely
     // and we are not guaranteeing support for client-specified cache
     // parameters. Both of these are temporary measures to solve a specific
@@ -227,6 +230,10 @@ NuCachedSource2::~NuCachedSource2() {
     mCache = NULL;
 }
 
+void NuCachedSource2::enableNonBlockingRead(bool flag) {
+    mIsNonBlockingMode = flag;
+}
+
 status_t NuCachedSource2::getEstimatedBandwidthKbps(int32_t *kbps) {
     if (mSource->flags() & kIsHTTPBasedSource) {
         HTTPBase* source = static_cast<HTTPBase *>(mSource.get());
@@ -254,7 +261,7 @@ status_t NuCachedSource2::getSize(off64_t *size) {
 uint32_t NuCachedSource2::flags() {
     // Remove HTTP related flags since NuCachedSource2 is not HTTP-based.
     uint32_t flags = mSource->flags() & ~(kWantsPrefetching | kIsHTTPBasedSource);
-    return (flags | kIsCachingDataSource);
+    return (flags | kIsCachingDataSource | kSupportNonBlockingRead);
 }
 
 void NuCachedSource2::onMessageReceived(const sp<AMessage> &msg) {
@@ -292,7 +299,7 @@ void NuCachedSource2::fetchInternal() {
         }
     }
 
-    if (reconnect) {
+    if (reconnect && !mSuspended) {
         status_t err =
             mSource->reconnectAtOffset(mCacheOffset + mCache->totalSize());
 
@@ -398,6 +405,12 @@ void NuCachedSource2::onFetch() {
         delayUs = 100000ll;
     }
 
+    if (mSuspended) {
+        static_cast<HTTPBase *>(mSource.get())->disconnect();
+        mFinalStatus = -EAGAIN;
+        return;
+    }
+
     (new AMessage(kWhatFetchMore, mReflector->id()))->post(delayUs);
 }
 
@@ -413,14 +426,28 @@ void NuCachedSource2::onRead(const sp<AMessage> &msg) {
     size_t size;
     CHECK(msg->findSize("size", &size));
 
+    int32_t isNonBlocking;
+    CHECK(msg->findInt32("isnonblocking", &isNonBlocking));
+
+    int32_t generation;
+    CHECK(msg->findInt32("generation", &generation));
+
+    //define mLock earlier to cover the scope of checking
+    //generation ID and updating mAsyncResult.
+    //remove the mlock defined in readInternal function
+    Mutex::Autolock autoLock(mLock);
+
+    if ( generation != mCheckGeneration) {
+       ALOGE("It is an outdated message. Ignore.");
+       return;
+    }
+
     ssize_t result = readInternal(offset, data, size);
 
-    if (result == -EAGAIN) {
+    if (result == -EAGAIN && !isNonBlocking) {
         msg->post(50000);
         return;
     }
-
-    Mutex::Autolock autoLock(mLock);
 
     CHECK(mAsyncResult == NULL);
 
@@ -462,6 +489,11 @@ void NuCachedSource2::restartPrefetcherIfNecessary_l(
 }
 
 ssize_t NuCachedSource2::readAt(off64_t offset, void *data, size_t size) {
+    return readAtInternal(offset, data, size, mIsNonBlockingMode);
+}
+
+ssize_t NuCachedSource2::readAtInternal(off64_t offset, void *data, size_t size, int32_t isNonBlocking) {
+
     Mutex::Autolock autoSerializer(mSerializer);
 
     ALOGV("readAt offset %lld, size %d", offset, size);
@@ -484,12 +516,28 @@ ssize_t NuCachedSource2::readAt(off64_t offset, void *data, size_t size) {
     msg->setInt64("offset", offset);
     msg->setPointer("data", data);
     msg->setSize("size", size);
+    msg->setInt32("isnonblocking", isNonBlocking);
+
+    mCheckGeneration++;
+    msg->setInt32("generation",mCheckGeneration);
 
     CHECK(mAsyncResult == NULL);
     msg->post();
 
     while (mAsyncResult == NULL) {
-        mCondition.wait(mLock);
+        if(!isNonBlocking)
+            mCondition.wait(mLock);
+        else {
+            status_t err = mCondition.waitRelative(mLock, kReadSourceTimeoutNs);
+            if (err == -ETIMEDOUT){
+                ALOGE("reading source timed out for %lld nanoseconds",kReadSourceTimeoutNs);
+                mCheckGeneration++; //update the current generation ID to ignore the outdate message
+                if (mAsyncResult == NULL){
+                    ALOGE("reatAt timed out and return -EAGAIN");
+                    return -EAGAIN;
+                }
+            }
+        }
     }
 
     int32_t result;
@@ -533,8 +581,6 @@ ssize_t NuCachedSource2::readInternal(off64_t offset, void *data, size_t size) {
     CHECK_LE(size, (size_t)mHighwaterThresholdBytes);
 
     ALOGV("readInternal offset %lld size %d", offset, size);
-
-    Mutex::Autolock autoLock(mLock);
 
     if (!mFetching) {
         mLastAccessPos = offset;
@@ -630,7 +676,12 @@ String8 NuCachedSource2::getMIMEType() const {
 
 void NuCachedSource2::updateCacheParamsFromSystemProperty() {
     char value[PROPERTY_VALUE_MAX];
-    if (!property_get("media.stagefright.cache-params", value, NULL)) {
+    // Use persistent property to save settings
+    if (property_get("persist.sys.media.cache-params", value, NULL)) {
+        ALOGV("Get cache params from property persist.sys.media.cache-params: [%s]", value);
+    } else if (property_get("media.stagefright.cache-params", value, NULL)) {
+        ALOGV("Get cache params from property media.stagefright.cache-params: [%s]", value);
+    } else {
         return;
     }
 
@@ -706,6 +757,27 @@ void NuCachedSource2::RemoveCacheSpecificHeaders(
 
         ALOGV("Client requested disconnection at highwater mark");
     }
+}
+
+status_t NuCachedSource2::disconnectWhileSuspend() {
+    if (mSource != NULL) {
+        static_cast<HTTPBase *>(mSource.get())->disconnect();
+        mFinalStatus = -EAGAIN;
+        mSuspended = true;
+    } else {
+        return ERROR_UNSUPPORTED;
+    }
+
+    return OK;
+}
+
+status_t NuCachedSource2::connectWhileResume() {
+    mSuspended = false;
+
+    // Begin to connect again and fetch more data
+    (new AMessage(kWhatFetchMore, mReflector->id()))->post();
+
+    return OK;
 }
 
 }  // namespace android

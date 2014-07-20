@@ -550,6 +550,8 @@ status_t FLACParser::init()
         }
         // check sample rate
         switch (getSampleRate()) {
+        case   100:
+        case  1000:
         case  8000:
         case 11025:
         case 12000:
@@ -557,7 +559,9 @@ status_t FLACParser::init()
         case 22050:
         case 24000:
         case 32000:
+        case 42000:
         case 44100:
+        case 46000:
         case 48000:
         case 88200:
         case 96000:
@@ -822,12 +826,14 @@ bool SniffFLAC(
 {
     // first 4 is the signature word
     // second 4 is the sizeof STREAMINFO
+    // 1st bit of 2nd 4 bytes represent whether last block of metadata or not
     // 042 is the mandatory STREAMINFO
     // no need to read rest of the header, as a premature EOF will be caught later
     uint8_t header[4+4];
     if (source->readAt(0, header, sizeof(header)) != sizeof(header)
-            || memcmp("fLaC\0\0\0\042", header, 4+4))
-    {
+            || memcmp("fLaC", header, 4)
+            || !(header[4] == 0x80 || header[4] == 0x00)
+            || memcmp("\0\0\042", header + 5, 3))    {
         return false;
     }
 

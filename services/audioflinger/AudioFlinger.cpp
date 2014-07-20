@@ -2,6 +2,8 @@
 ** Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
 ** Not a Contribution.
 ** Copyright 2007, The Android Open Source Project
+** Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+** Not a Contribution.
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -14,6 +16,24 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by DTS, Inc. The portions of the
+** code that are surrounded by "DTS..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2013 DTS, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License
 */
 
 
@@ -63,10 +83,8 @@
 #include <media/nbaio/PipeReader.h>
 #include <media/AudioParameter.h>
 #include <private/android_filesystem_config.h>
-
 #ifdef SRS_PROCESSING
-#include "srs_processing.h"
-#include "postpro_patch_ics.h"
+#include "postpro_patch.h"
 #endif
 
 // ----------------------------------------------------------------------------
@@ -190,8 +208,8 @@ void AudioFlinger::onFirstRef()
 
     Mutex::Autolock _l(mLock);
 
-#ifdef QCOM_DIRECTTRACK
     /* TODO: move all this work into an Init() function */
+#ifdef QCOM_DIRECTTRACK
     mLPASessionId = -2; // -2 is invalid session ID
     mIsEffectConfigChanged = false;
     mLPAEffectChain = NULL;
@@ -255,6 +273,13 @@ AudioFlinger::AudioHwDevice* AudioFlinger::findSuitableHwDev_l(
             if ((dev->get_supported_devices != NULL) &&
                     (dev->get_supported_devices(dev) & devices) == devices)
                 return audioHwDevice;
+#ifdef ICS_AUDIO_BLOB
+            else if (dev->get_supported_devices == NULL && i != 0 &&
+                    devices == 0x80)
+                // Reasonably safe assumption: A non-primary HAL without
+                // get_supported_devices is a locally-built A2DP binary
+                return audioHwDevice;
+#endif
         }
     } else {
         // check a match for the requested module handle
@@ -893,6 +918,7 @@ status_t AudioFlinger::setMasterMute(bool muted)
     Mutex::Autolock _l(mLock);
     mMasterMute = muted;
 
+#ifndef ICS_AUDIO_BLOB
     // Set master mute in the HALs which support it.
     for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
         AutoMutex lock(mHardwareLock);
@@ -909,7 +935,6 @@ status_t AudioFlinger::setMasterMute(bool muted)
     // assigned to HALs which do not have master mute support will apply master
     // mute during the mix operation.  Threads with HALs which do support master
     // mute will simply ignore the setting.
-#ifndef ICS_AUDIO_BLOB
     for (size_t i = 0; i < mPlaybackThreads.size(); i++)
         mPlaybackThreads.valueAt(i)->setMasterMute(muted);
 #endif
@@ -1062,12 +1087,15 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
     // ioHandle == 0 means the parameters are global to the audio hardware interface
     if (ioHandle == 0) {
         Mutex::Autolock _l(mLock);
-#ifdef SRS_PROCESSING
-        POSTPRO_PATCH_ICS_PARAMS_SET(keyValuePairs);
-        if (!mDirectAudioTracks.isEmpty())
-            audioConfigChanged_l(AudioSystem::EFFECT_CONFIG_CHANGED, 0, NULL);
-#endif
         status_t final_result = NO_ERROR;
+
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_PARAMS_SET(keyValuePairs);
+        for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+            PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+            thread->setPostPro();
+        }
+#endif
         {
             AutoMutex lock(mHardwareLock);
             mHardwareStatus = AUDIO_HW_SET_PARAMETER;
@@ -1079,11 +1107,27 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             mHardwareStatus = AUDIO_HW_IDLE;
         }
 
+        // invalidate all tracks of type MUSIC. This is handled in the player as a teardown
+        // event and can be used for fallback and retry.
         AudioParameter param = AudioParameter(keyValuePairs);
-#ifdef QCOM_DIRECTTRACK
         String8 value, key;
         int i = 0;
 
+        key = String8(AudioParameter::keySoundCardStatus);
+        if (param.get(key, value) == NO_ERROR) {
+            ALOGV("Set keySoundCardStatus:%s", value.string());
+            if ((value.find("OFFLINE", 0) != -1) ) {
+                ALOGV("OFFLINE detected - call InvalidateTracks()");
+                for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+                    PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+                    thread->onFatalError();
+                }
+           } else if ((value.find("OFFLINE", 0) != -1) ) {
+                ALOGV("ONLINE detected - what should I do?");
+           }
+        }
+
+#ifdef QCOM_DIRECTTRACK
         key = String8(AudioParameter::keyADSPStatus);
         if (param.get(key, value) == NO_ERROR) {
             ALOGV("Set keyADSPStatus:%s", value.string());
@@ -1096,8 +1140,6 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
                }
            }
         }
-#else
-        String8 value;
 #endif
 
         // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
@@ -1146,12 +1188,6 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             int device;
             if (param.getInt(key, device) == NO_ERROR) {
                 mDirectDevice = device;
-#ifdef SRS_PROCESSING
-                ALOGV("setParameters:: routing change to device %d", device);
-                POSTPRO_PATCH_ICS_OUTPROC_MIX_ROUTE(desc->trackRefPtr, param, device);
-                if(desc->flag & AUDIO_OUTPUT_FLAG_TUNNEL)
-                    audioConfigChanged_l(AudioSystem::EFFECT_CONFIG_CHANGED, 0, NULL);
-#endif
                 if(mLPAEffectChain != NULL){
                     mLPAEffectChain->setDevice_l(device);
                     audioConfigChanged_l(AudioSystem::EFFECT_CONFIG_CHANGED, 0, NULL);
@@ -1198,8 +1234,9 @@ String8 AudioFlinger::getParameters(audio_io_handle_t ioHandle, const String8& k
         String8 out_s8;
 
 #ifdef SRS_PROCESSING
-        POSTPRO_PATCH_ICS_PARAMS_GET(keys, out_s8);
+        POSTPRO_PATCH_PARAMS_GET(keys, out_s8);
 #endif
+
         for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
             char *s;
             {
@@ -1381,11 +1418,13 @@ void AudioFlinger::audioConfigChanged_l(int event, audio_io_handle_t ioHandle, c
         mIsEffectConfigChanged = true;
     }
     if (!mNotificationClients.isEmpty()){
+#endif
         size_t size = mNotificationClients.size();
         for (size_t i = 0; i < size; i++) {
             mNotificationClients.valueAt(i)->audioFlingerClient()->ioConfigChanged(event, ioHandle,
                                                                                    param2);
         }
+#ifdef QCOM_DIRECTTRACK
     }
     if ((!mDirectAudioTracks.isEmpty())&& (event == AudioSystem::EFFECT_CONFIG_CHANGED)){
         size_t dsize = mDirectAudioTracks.size();
@@ -1398,12 +1437,6 @@ void AudioFlinger::audioConfigChanged_l(int event, audio_io_handle_t ioHandle, c
                 ALOGV("not found track to signal directAudioTrack ");
             }
         }
-    }
-#else
-    size_t size = mNotificationClients.size();
-    for (size_t i = 0; i < size; i++) {
-        mNotificationClients.valueAt(i)->audioFlingerClient()->ioConfigChanged(event, ioHandle,
-                                                                               param2);
     }
 #endif
 }
@@ -1551,7 +1584,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
     if (format != AUDIO_FORMAT_PCM_16_BIT &&
             !audio_is_compress_voip_format(format) &&
             !audio_is_compress_capture_format(format)) {
-#else
+#else 
     if (format != AUDIO_FORMAT_PCM_16_BIT) {
 #endif
         ALOGE("openRecord() invalid format %d", format);
@@ -1871,7 +1904,7 @@ audio_io_handle_t AudioFlinger::openOutput(audio_module_handle_t module,
         AudioStreamOut *output = new AudioStreamOut(outHwDev, outStream, flags);
         if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
             thread = new OffloadThread(this, output, id, *pDevices);
-            ALOGV("openOutput() created offload output: ID %d thread %p", id, thread);
+            ALOGD("copl:openOutput() created offload output: ID %d thread %p", id, thread);
 #ifdef QCOM_DIRECTTRACK
         }
         if (flags & AUDIO_OUTPUT_FLAG_LPA || flags & AUDIO_OUTPUT_FLAG_TUNNEL ) {
@@ -1926,14 +1959,11 @@ audio_io_handle_t AudioFlinger::openOutput(audio_module_handle_t module,
         }
 #endif
 
+
         // the first primary output opened designates the primary hw device
         if ((mPrimaryHardwareDev == NULL) && (flags & AUDIO_OUTPUT_FLAG_PRIMARY)) {
             ALOGI("Using module %d has the primary audio interface", module);
             mPrimaryHardwareDev = outHwDev;
-#ifdef SRS_PROCESSING
-            SRS_Processing::RawDataSet(NULL, "qdsp hook", &mPrimaryHardwareDev,
-                sizeof(&mPrimaryHardwareDev));
-#endif
             AutoMutex lock(mHardwareLock);
             mHardwareStatus = AUDIO_HW_SET_MODE;
             hwDevHal->set_mode(hwDevHal, mMode);
@@ -1976,25 +2006,25 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
 {
     // keep strong reference on the playback thread so that
     // it is not destroyed while exit() is executed
-#ifdef QCOM_DIRECTTRACK
-    AudioSessionDescriptor *desc = mDirectAudioTracks.valueFor(output);
-    if (desc) {
-        ALOGV("Closing DirectTrack output %d", output);
-        desc->mActive = false;
-        desc->stream->common.standby(&desc->stream->common);
-        desc->hwDev->close_output_stream(desc->hwDev, desc->stream);
-        desc->trackRefPtr = NULL;
-        desc->stream = NULL;
-        mDirectAudioTracks.removeItem(output);
-        audioConfigChanged_l(AudioSystem::OUTPUT_CLOSED, output, NULL);
-        delete desc;
-        return NO_ERROR;
-    }
-#endif
-
     sp<PlaybackThread> thread;
     {
         Mutex::Autolock _l(mLock);
+#ifdef QCOM_DIRECTTRACK
+        AudioSessionDescriptor *desc = mDirectAudioTracks.valueFor(output);
+        if (desc) {
+            ALOGV("Closing DirectTrack output %d", output);
+            desc->mActive = false;
+            desc->stream->common.standby(&desc->stream->common);
+            desc->hwDev->close_output_stream(desc->hwDev, desc->stream);
+            desc->trackRefPtr = NULL;
+            desc->stream = NULL;
+            mDirectAudioTracks.removeItem(output);
+            audioConfigChanged_l(AudioSystem::OUTPUT_CLOSED, output, NULL);
+            delete desc;
+            return NO_ERROR;
+        }
+#endif
+
         thread = checkPlaybackThread_l(output);
         if (thread == NULL) {
             return BAD_VALUE;
@@ -2112,8 +2142,8 @@ audio_io_handle_t AudioFlinger::openInput(audio_module_handle_t module,
     status = inHwHal->open_input_stream(inHwHal, id, *pDevices, &config,
                                         &inStream);
 #else
-    status = inHwHal->open_input_stream(inHwHal, *pDevices,
-                                        (int *)&config.format,
+    status = inHwHal->open_input_stream(inHwHal, *pDevices, 
+                                        (int *)&config.format, 
                                         &config.channel_mask,
                                         &config.sample_rate, (audio_in_acoustics_t)0,
                                         &inStream);
@@ -2138,8 +2168,8 @@ audio_io_handle_t AudioFlinger::openInput(audio_module_handle_t module,
 #ifndef ICS_AUDIO_BLOB
         status = inHwHal->open_input_stream(inHwHal, id, *pDevices, &config, &inStream);
 #else
-        status = inHwHal->open_input_stream(inHwHal, *pDevices,
-                                        (int *)&config.format,
+        status = inHwHal->open_input_stream(inHwHal, *pDevices, 
+                                        (int *)&config.format, 
                                         &config.channel_mask,
                                         &config.sample_rate, (audio_in_acoustics_t)0,
                                         &inStream);
@@ -2276,12 +2306,9 @@ status_t AudioFlinger::setStreamOutput(audio_stream_type_t stream, audio_io_hand
         PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
 #ifdef QCOM_DIRECTTRACK
         // Do not invalidate voip stream which uses directoutput thread
-        if(!(thread->type() == ThreadBase::DIRECT && (thread->mOutputFlags & AUDIO_OUTPUT_FLAG_VOIP_RX))) {
-            thread->invalidateTracks(stream);
-        }
-#else
-        thread->invalidateTracks(stream);
+        if(!(thread->type() == ThreadBase::DIRECT && (thread->mOutputFlags & AUDIO_OUTPUT_FLAG_VOIP_RX)))
 #endif
+            thread->invalidateTracks(stream);
     }
 
     return NO_ERROR;

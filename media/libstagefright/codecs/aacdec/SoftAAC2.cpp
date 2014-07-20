@@ -362,11 +362,7 @@ void SoftAAC2::onQueueFilled(OMX_U32 portIndex) {
             inInfo->mOwnedByUs = false;
             notifyEmptyBufferDone(inHeader);
 
-#ifdef QCOM_HARDWARE
             if (mDecoderHasData || mInputBufferCount) {
-#else
-            if (mDecoderHasData) {
-#endif
                 // flush out the decoder's delayed data by calling DecodeFrame
                 // one more time, with the AACDEC_FLUSH flag set
 
@@ -593,6 +589,12 @@ void SoftAAC2::onPortFlushCompleted(OMX_U32 portIndex) {
         // depend on fragments from the last one decoded.
         // drain all existing data
         drainDecoder();
+        // force decoder loop to drop the first decoded buffer by resetting these state variables,
+        // but only if initialization has already happened.
+        if (mInputBufferCount != 0) {
+            mInputBufferCount = 1;
+            mStreamInfo->sampleRate = 0;
+        }
     }
 }
 

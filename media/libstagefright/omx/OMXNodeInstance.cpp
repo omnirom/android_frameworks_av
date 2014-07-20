@@ -54,17 +54,11 @@ struct BufferMeta {
         if (!mIsBackup) {
             return;
         }
-#ifdef TF101_OMX
+
         size_t bytesToCopy = header->nFlags & OMX_BUFFERFLAG_EXTRADATA ?
             header->nAllocLen - header->nOffset : header->nFilledLen;
-#endif
         memcpy((OMX_U8 *)mMem->pointer() + header->nOffset,
-#ifdef TF101_OMX
                header->pBuffer + header->nOffset, bytesToCopy);
-#else
-               header->pBuffer + header->nOffset,
-               header->nFilledLen);
-#endif
     }
 
     void CopyToOMX(const OMX_BUFFERHEADERTYPE *header) {
@@ -72,17 +66,10 @@ struct BufferMeta {
             return;
         }
 
-#ifdef TF101_OMX
         size_t bytesToCopy = header->nFlags & OMX_BUFFERFLAG_EXTRADATA ?
             header->nAllocLen - header->nOffset : header->nFilledLen;
-#endif
         memcpy(header->pBuffer + header->nOffset,
-#ifdef TF101_OMX
                (const OMX_U8 *)mMem->pointer() + header->nOffset, bytesToCopy);
-#else
-               (const OMX_U8 *)mMem->pointer() + header->nOffset,
-               header->nFilledLen);
-#endif
     }
 
     void setGraphicBuffer(const sp<GraphicBuffer> &graphicBuffer) {
@@ -174,6 +161,7 @@ status_t OMXNodeInstance::freeNode(OMXMaster *master) {
     OMX_STATETYPE state;
     CHECK_EQ(OMX_GetState(mHandle, &state), OMX_ErrorNone);
     switch (state) {
+        case OMX_StatePause:
         case OMX_StateExecuting:
         {
             ALOGV("forcing Executing->Idle");
@@ -509,36 +497,6 @@ status_t OMXNodeInstance::useBuffer(
     return OK;
 }
 
-#ifdef SEMC_ICS_CAMERA_BLOB
-status_t OMXNodeInstance::useBufferPmem(
-        OMX_U32 portIndex, OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pmem_info, OMX_U32 size, void *vaddr,
-        OMX::buffer_id *buffer) {
-    Mutex::Autolock autoLock(mLock);
-
-    OMX_BUFFERHEADERTYPE *header;
-
-    OMX_ERRORTYPE err = OMX_UseBuffer(
-            mHandle, &header, portIndex, pmem_info,
-            size, static_cast<OMX_U8 *>(vaddr));
-
-    if (err != OMX_ErrorNone) {
-        ALOGE("OMX_UseBuffer failed with error %d (0x%08x)", err, err);
-
-        *buffer = 0;
-
-        return UNKNOWN_ERROR;
-    }
-
-    header->pAppPrivate = NULL;
-
-    *buffer = header;
-
-    addActiveBuffer(portIndex, *buffer);
-
-    return OK;
-}
-#endif
-
 status_t OMXNodeInstance::useGraphicBuffer2_l(
         OMX_U32 portIndex, const sp<GraphicBuffer>& graphicBuffer,
         OMX::buffer_id *buffer) {
@@ -809,42 +767,20 @@ status_t OMXNodeInstance::freeBuffer(
         OMX_U32 portIndex, OMX::buffer_id buffer) {
     Mutex::Autolock autoLock(mLock);
 
-#ifndef QCOM_HARDWARE
-    removeActiveBuffer(portIndex, buffer);
-#endif
-
     OMX_BUFFERHEADERTYPE *header = (OMX_BUFFERHEADERTYPE *)buffer;
-    BufferMeta *buffer_meta;
-#ifdef SEMC_ICS_CAMERA_BLOB
-    if (header->pAppPrivate) {
-#endif
-        buffer_meta = static_cast<BufferMeta *>(header->pAppPrivate);
-#ifdef SEMC_ICS_CAMERA_BLOB
-    }
-#endif
+    BufferMeta *buffer_meta = static_cast<BufferMeta *>(header->pAppPrivate);
 
     OMX_ERRORTYPE err = OMX_FreeBuffer(mHandle, portIndex, header);
 
-#ifdef QCOM_HARDWARE
     if (err != OMX_ErrorNone) {
         ALOGW("OMX_FreeBuffer failed w/ err %x, do not remove from active buffer list", err);
     } else {
         ALOGI("OMX_FreeBuffer for buffer header %p successful", header);
         removeActiveBuffer(portIndex, buffer);
 
-#ifdef SEMC_ICS_CAMERA_BLOB
-        if (header->pAppPrivate) {
-#endif
-            delete buffer_meta;
-            buffer_meta = NULL;
-#ifdef SEMC_ICS_CAMERA_BLOB
-        }
-#endif
+        delete buffer_meta;
+        buffer_meta = NULL;
     }
-#else
-    delete buffer_meta;
-    buffer_meta = NULL;
-#endif
 
     return StatusFromOMXError(err);
 }
@@ -874,15 +810,9 @@ status_t OMXNodeInstance::emptyBuffer(
     header->nFlags = flags;
     header->nTimeStamp = timestamp;
 
-    BufferMeta *buffer_meta;
-#ifdef SEMC_ICS_CAMERA_BLOB
-    if (header->pAppPrivate) {
-#endif
-        buffer_meta = static_cast<BufferMeta *>(header->pAppPrivate);
-        buffer_meta->CopyToOMX(header);
-#ifdef SEMC_ICS_CAMERA_BLOB
-    }
-#endif
+    BufferMeta *buffer_meta =
+        static_cast<BufferMeta *>(header->pAppPrivate);
+    buffer_meta->CopyToOMX(header);
 
     OMX_ERRORTYPE err = OMX_EmptyThisBuffer(mHandle, header);
 
@@ -978,16 +908,10 @@ void OMXNodeInstance::onMessage(const omx_message &msg) {
             static_cast<OMX_BUFFERHEADERTYPE *>(
                     msg.u.extended_buffer_data.buffer);
 
+        BufferMeta *buffer_meta =
+            static_cast<BufferMeta *>(buffer->pAppPrivate);
 
-        BufferMeta *buffer_meta;
-#ifdef SEMC_ICS_CAMERA_BLOB
-        if (buffer->pAppPrivate) {
-#endif
-            buffer_meta = static_cast<BufferMeta *>(buffer->pAppPrivate);
-            buffer_meta->CopyFromOMX(buffer);
-#ifdef SEMC_ICS_CAMERA_BLOB
-        }
-#endif
+        buffer_meta->CopyFromOMX(buffer);
 
         if (bufferSource != NULL) {
             // fix up the buffer info (especially timestamp) if needed

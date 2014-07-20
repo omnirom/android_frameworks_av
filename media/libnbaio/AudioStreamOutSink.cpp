@@ -72,13 +72,17 @@ status_t AudioStreamOutSink::getNextWriteTimestamp(int64_t *timestamp) {
 
     if (NULL == mStream)
         return INVALID_OPERATION;
-
+#ifndef ICS_AUDIO_BLOB
     if (NULL == mStream->get_next_write_timestamp)
         return INVALID_OPERATION;
 
     return mStream->get_next_write_timestamp(mStream, timestamp);
+#else
+    return INVALID_OPERATION;
+#endif
 }
 
+#ifndef HAVE_PRE_KITKAT_AUDIO_BLOB
 status_t AudioStreamOutSink::getTimestamp(AudioTimestamp& timestamp)
 {
     if (mStream->get_presentation_position == NULL) {
@@ -93,5 +97,6 @@ status_t AudioStreamOutSink::getTimestamp(AudioTimestamp& timestamp)
     timestamp.mPosition = position64;
     return OK;
 }
+#endif
 
 }   // namespace android

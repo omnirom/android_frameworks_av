@@ -38,6 +38,7 @@ LOCAL_SHARED_LIBRARIES :=       \
     libstagefright_omx          \
     libstagefright_wfd          \
     libutils                    \
+    libdl                       \
     libvorbisidec               \
 
 LOCAL_STATIC_LIBRARIES :=       \
@@ -52,11 +53,13 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/native/include/media/openmax                  \
     $(TOP)/external/tremolo/Tremolo                                 \
 
-ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS), true)
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
     ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
-        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+    LOCAL_C_INCLUDES += \
+            $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
     else
-        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+    LOCAL_C_INCLUDES += \
+            $(TOP)/hardware/qcom/media/mm-core/inc
     endif
 endif
 
@@ -66,15 +69,13 @@ ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
     LOCAL_CFLAGS += -DENABLE_AV_ENHANCEMENTS
     LOCAL_C_INCLUDES += $(TOP)/frameworks/av/include/media
     ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
-        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+        LOCAL_C_INCLUDES += \
+            $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
     else
-        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+        LOCAL_C_INCLUDES += \
+            $(TOP)/hardware/qcom/media/mm-core/inc
     endif
 endif #TARGET_ENABLE_QC_AV_ENHANCEMENTS
-
-ifeq ($(TARGET_BOARD_PLATFORM),msm7x27a)
-    LOCAL_CFLAGS += -DUSE_SUBMIT_ONE_INPUT_BUFFER
-endif
 
 include $(BUILD_SHARED_LIBRARY)
 

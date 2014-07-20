@@ -1,4 +1,4 @@
-/*Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/*Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -41,11 +41,15 @@
 #include <media/stagefright/OMXCodec.h>
 #include <cutils/properties.h>
 #include <media/stagefright/MediaExtractor.h>
+#include <media/MediaProfiles.h>
 
 #include "include/ExtendedUtils.h"
 
 static const int64_t kDefaultAVSyncLateMargin =  40000;
 static const int64_t kMaxAVSyncLateMargin     = 250000;
+
+static const unsigned kDefaultRtpPortRangeStart = 15550;
+static const unsigned kDefaultRtpPortRangeEnd = 65535;
 
 #ifdef ENABLE_AV_ENHANCEMENTS
 
@@ -54,6 +58,12 @@ static const int64_t kMaxAVSyncLateMargin     = 250000;
 
 #include "include/ExtendedExtractor.h"
 #include "include/avc_utils.h"
+#include <fcntl.h>
+#include <linux/msm_ion.h>
+#define MEM_DEVICE "/dev/ion"
+#define MEM_HEAP_ID ION_CP_MM_HEAP_ID
+
+#include <media/stagefright/foundation/ALooper.h>
 
 namespace android {
 
@@ -70,80 +80,81 @@ void ExtendedUtils::HFR::setHFRIfEnabled(
         hfr = 0;
     }
 
-    meta->setInt32(kKeyHFR, hfr);
+#if 0
+    const char *hsr_str = params.get("video-hsr");
+
+    if(hsr_str && !strncmp(hsr_str,"on",2)) {
+         ALOGI("HSR [%d] ON",hfr);
+         meta->setInt32(kKeyHSR, hfr);
+    } else
+#endif
+         meta->setInt32(kKeyHFR, hfr);
 }
 
-status_t ExtendedUtils::HFR::reCalculateFileDuration(
+status_t ExtendedUtils::HFR::initializeHFR(
         sp<MetaData> &meta, sp<MetaData> &enc_meta,
-        int64_t &maxFileDurationUs, int32_t frameRate,
-        video_encoder videoEncoder) {
+        int64_t &maxFileDurationUs, video_encoder videoEncoder) {
     status_t retVal = OK;
-    int32_t hfr = 0;
 
+#if 0
+    //Check HSR first, if HSR is enable set HSR to kKeyFrameRate
+    int32_t hsr =0;
+    if (meta->findInt32(kKeyHSR, &hsr)) {
+        ALOGI("HSR found %d, set this to encoder frame rate",hsr);
+        enc_meta->setInt32(kKeyFrameRate, hsr);
+        return retVal;
+    }
+#endif
+
+    int32_t hfr = 0;
     if (!meta->findInt32(kKeyHFR, &hfr)) {
         ALOGW("hfr not found, default to 0");
     }
 
-    if (hfr && frameRate) {
-        maxFileDurationUs = maxFileDurationUs * (hfr/frameRate);
+    enc_meta->setInt32(kKeyHFR, hfr);
+
+    if (hfr == 0) {
+        return retVal;
     }
 
-    enc_meta->setInt32(kKeyHFR, hfr);
     int32_t width = 0, height = 0;
-
     CHECK(meta->findInt32(kKeyWidth, &width));
     CHECK(meta->findInt32(kKeyHeight, &height));
 
-    char mDeviceName[100];
-    property_get("ro.board.platform",mDeviceName,"0");
-    if (!strncmp(mDeviceName, "msm7627a", 8)) {
-        if (hfr && (width * height > 432*240)) {
-            ALOGE("HFR mode is supported only upto WQVGA resolution");
-            return INVALID_OPERATION;
-        }
-    } else if (!strncmp(mDeviceName, "msm8974", 7) ||
-               !strncmp(mDeviceName, "msm8610", 7)) {
-        if (hfr && (width * height > 1920*1088)) {
-            ALOGE("HFR mode is supported only upto 1080p resolution");
-            return INVALID_OPERATION;
-        }
-    } else {
-        if (hfr && ((videoEncoder != VIDEO_ENCODER_H264) || (width * height > 800*480))) {
-            ALOGE("HFR mode is supported only upto WVGA and H264 codec.");
-            return INVALID_OPERATION;
-        }
-    }
-    return retVal;
-}
-
-void ExtendedUtils::HFR::reCalculateTimeStamp(
-        sp<MetaData> &meta, int64_t &timestampUs) {
-    int32_t frameRate = 0, hfr = 0;
-    if (!(meta->findInt32(kKeyFrameRate, &frameRate))) {
-        return;
+    int maxW, maxH, MaxFrameRate, maxBitRate = 0;
+    if (getHFRCapabilities(videoEncoder,
+            maxW, maxH, MaxFrameRate, maxBitRate) < 0) {
+        ALOGE("Failed to query HFR target capabilities");
+        return ERROR_UNSUPPORTED;
     }
 
-    if (!(meta->findInt32(kKeyHFR, &hfr))) {
-        return;
+    if ((width * height * hfr) > (maxW * maxH * MaxFrameRate)) {
+        ALOGE("HFR request [%d x %d @%d fps] exceeds "
+                "[%d x %d @%d fps]",
+                width, height, hfr, maxW, maxH, MaxFrameRate);
+        return ERROR_UNSUPPORTED;
     }
 
-    if (hfr && frameRate) {
-        timestampUs = (hfr * timestampUs) / frameRate;
-    }
-}
+    int32_t frameRate = 0, bitRate = 0;
+    CHECK(meta->findInt32(kKeyFrameRate, &frameRate));
+    CHECK(enc_meta->findInt32(kKeyBitRate, &bitRate));
 
-void ExtendedUtils::HFR::reCalculateHFRParams(
-        const sp<MetaData> &meta, int32_t &frameRate,
-        int32_t &bitRate) {
-    int32_t hfr = 0;
-    if (!(meta->findInt32(kKeyHFR, &hfr))) {
-        return;
-    }
-
-    if (hfr && frameRate) {
+    if (frameRate) {
+        // scale the bitrate proportional to the hfr ratio
+        // to maintain quality, but cap it to max-supported.
         bitRate = (hfr * bitRate) / frameRate;
-        frameRate = hfr;
+        bitRate = bitRate > maxBitRate ? maxBitRate : bitRate;
+        enc_meta->setInt32(kKeyBitRate, bitRate);
+
+        int32_t hfrRatio = hfr / frameRate;
+        enc_meta->setInt32(kKeyFrameRate, hfr);
+        enc_meta->setInt32(kKeyHFR, hfrRatio);
+    } else {
+        ALOGE("HFR: Invalid framerate");
+        return BAD_VALUE;
     }
+
+    return retVal;
 }
 
 void ExtendedUtils::HFR::copyHFRParams(
@@ -156,11 +167,36 @@ void ExtendedUtils::HFR::copyHFRParams(
     outputFormat->setInt32(kKeyFrameRate, frameRate);
 }
 
-bool ExtendedUtils::ShellProp::isAudioDisabled() {
+int32_t ExtendedUtils::HFR::getHFRRatio(
+        const sp<MetaData> &meta) {
+    int32_t hfr = 0;
+    meta->findInt32(kKeyHFR, &hfr);
+    return hfr ? hfr : 1;
+}
+
+int32_t ExtendedUtils::HFR::getHFRCapabilities(
+        video_encoder codec,
+        int& maxHFRWidth, int& maxHFRHeight, int& maxHFRFps,
+        int& maxBitRate) {
+    maxHFRWidth = maxHFRHeight = maxHFRFps = maxBitRate = 0;
+    MediaProfiles *profiles = MediaProfiles::getInstance();
+    if (profiles) {
+        maxHFRWidth = profiles->getVideoEncoderParamByName("enc.vid.hfr.width.max", codec);
+        maxHFRHeight = profiles->getVideoEncoderParamByName("enc.vid.hfr.height.max", codec);
+        maxHFRFps = profiles->getVideoEncoderParamByName("enc.vid.hfr.mode.max", codec);
+        maxBitRate = profiles->getVideoEncoderParamByName("enc.vid.bps.max", codec);
+    }
+    return (maxHFRWidth > 0) && (maxHFRHeight > 0) &&
+            (maxHFRFps > 0) && (maxBitRate > 0) ? 1 : -1;
+}
+
+bool ExtendedUtils::ShellProp::isAudioDisabled(bool isEncoder) {
     bool retVal = false;
     char disableAudio[PROPERTY_VALUE_MAX];
     property_get("persist.debug.sf.noaudio", disableAudio, "0");
-    if (atoi(disableAudio) == 1) {
+    if (isEncoder && (atoi(disableAudio) & 0x02)) {
+        retVal = true;
+    } else if (atoi(disableAudio) & 0x01) {
         retVal = true;
     }
     return retVal;
@@ -225,6 +261,24 @@ int64_t ExtendedUtils::ShellProp::getMaxAVSyncLateMargin() {
 bool ExtendedUtils::ShellProp::isSmoothStreamingEnabled() {
     char prop[PROPERTY_VALUE_MAX] = {0};
     property_get("mm.enable.smoothstreaming", prop, "0");
+    if (!strncmp(prop, "true", 4) || atoi(prop)) {
+        return true;
+    }
+    return false;
+}
+
+bool ExtendedUtils::ShellProp::isCustomAVSyncEnabled() {
+    char prop[PROPERTY_VALUE_MAX] = {0};
+    property_get("mm.enable.customavsync", prop, "0");
+    if (!strncmp(prop, "true", 4) || atoi(prop)) {
+        return true;
+    }
+    return false;
+}
+
+bool ExtendedUtils::ShellProp::isMpeg4DPSupportedByHardware() {
+    char prop[PROPERTY_VALUE_MAX] = {0};
+    property_get("mm.mpeg4dp.hw.support", prop, "0");
     if (!strncmp(prop, "true", 4) || atoi(prop)) {
         return true;
     }
@@ -326,7 +380,7 @@ bool ExtendedUtils::UseQCHWAACEncoder(audio_encoder Encoder,int32_t Channel,int3
         }
 
         //return true only when 1. minBiteRate and maxBiteRate are updated(not -1) 2. minBiteRate <= SampleRate <= maxBiteRate
-        if (SampleRate >= minBiteRate && SampleRate <= maxBiteRate) {
+        if (BitRate >= minBiteRate && BitRate <= maxBiteRate) {
             ret = true;
         }
     }
@@ -465,10 +519,10 @@ void ExtendedUtils::helper_addMediaCodec(Vector<MediaCodecList::CodecInfo> &mCod
     info->mIsEncoder = encoder;
     info->mTypes=0;
     ssize_t index = mTypes.indexOfKey(type);
-    uint32_t bit;
+    uint64_t bit;
     if(index < 0) {
          bit = mTypes.size();
-         if (bit == 32) {
+         if (bit == 64) {
              ALOGW("Too many distinct type names in configuration.");
              return;
          }
@@ -525,36 +579,272 @@ bool ExtendedUtils::checkIsThumbNailMode(const uint32_t flags, char* componentNa
     return isInThumbnailMode;
 }
 
-void ExtendedUtils::setArbitraryModeIfInterlaced(
-        const uint8_t *ptr, const sp<MetaData> &meta) {
+void ExtendedUtils::helper_Mpeg4ExtractorCheckAC3EAC3(MediaBuffer *buffer,
+                                                        sp<MetaData> &format,
+                                                        size_t size) {
+    bool mMakeBigEndian = false;
+    const char *mime;
 
-    if (ptr == NULL) {
-        return;
+    if (format->findCString(kKeyMIMEType, &mime)
+            && (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AC3) ||
+            !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_EAC3))) {
+        mMakeBigEndian = true;
     }
-    uint16_t spsSize = (((uint16_t)ptr[6]) << 8) + (uint16_t)(ptr[7]);
-    int32_t width = 0, height = 0, isInterlaced = 0;
-    const uint8_t *spsStart = &ptr[8];
-
-    sp<ABuffer> seqParamSet = new ABuffer(spsSize);
-    memcpy(seqParamSet->data(), spsStart, spsSize);
-    FindAVCDimensions(seqParamSet, &width, &height, NULL, NULL, &isInterlaced);
-
-    ALOGV("height is %d, width is %d, isInterlaced is %d\n", height, width, isInterlaced);
-    if (isInterlaced) {
-        meta->setInt32(kKeyUseArbitraryMode, 1);
-        meta->setInt32(kKeyInterlace, 1);
+    if (mMakeBigEndian && *((uint8_t *)buffer->data())==0x0b &&
+            *((uint8_t *)buffer->data()+1)==0x77 ) {
+        size_t count = 0;
+        for(count=0;count<size;count+=2) { // size is always even bytes in ac3/ec3 read
+            uint8_t tmp = *((uint8_t *)buffer->data() + count);
+            *((uint8_t *)buffer->data() + count) = *((uint8_t *)buffer->data()+count+1);
+            *((uint8_t *)buffer->data() + count+1) = tmp;
+        }
     }
-    return;
 }
 
-int32_t ExtendedUtils::checkIsInterlace(sp<MetaData> &meta) {
-    int32_t isInterlaceFormat = 0;
+int32_t ExtendedUtils::getEncoderTypeFlags() {
+    int32_t flags = 0;
 
-    if(meta->findInt32(kKeyInterlace, &isInterlaceFormat)) {
-        ALOGI("interlace format detected");
+    char mDeviceName[PROPERTY_VALUE_MAX];
+    property_get("ro.board.platform",mDeviceName,"0");
+    if (!strncmp(mDeviceName, "msm8610", 7) ||
+        !strncmp(mDeviceName, "msm8226", 7)) {
+        flags |= OMXCodec::kHardwareCodecsOnly;
+    }
+    return flags;
+
+}
+
+void ExtendedUtils::prefetchSecurePool(const char *uri)
+{
+    if (!strncasecmp("widevine://", uri, 11)) {
+        ALOGV("Widevine streaming content\n");
+        createSecurePool();
+    }
+}
+
+void ExtendedUtils::prefetchSecurePool(int fd)
+{
+    char symName[40] = {0};
+    char fileName[256] = {0};
+    char* kSuffix;
+    size_t kSuffixLength = 0;
+    size_t fileNameLength;
+
+    snprintf(symName, sizeof(symName), "/proc/%d/fd/%d", getpid(), fd);
+
+    if (readlink( symName, fileName, (sizeof(fileName) - 1)) != -1 ) {
+        kSuffix = (char *)".wvm";
+        kSuffixLength = strlen(kSuffix);
+        fileNameLength = strlen(fileName);
+
+        if (!strcmp(&fileName[fileNameLength - kSuffixLength], kSuffix)) {
+            ALOGV("Widevine local content\n");
+            createSecurePool();
+        }
+    }
+}
+
+void ExtendedUtils::prefetchSecurePool()
+{
+    createSecurePool();
+}
+
+void ExtendedUtils::createSecurePool()
+{
+#ifdef ION_IOC_PREFETCH
+    struct ion_prefetch_data prefetch_data;
+    struct ion_custom_data d;
+    int ion_dev_flag = O_RDONLY;
+    int rc = 0;
+    int fd = open (MEM_DEVICE, ion_dev_flag);
+
+    if (fd < 0) {
+        ALOGE("opening ion device failed with fd = %d", fd);
+    } else {
+        prefetch_data.heap_id = ION_HEAP(MEM_HEAP_ID);
+        prefetch_data.len = 0x0;
+        d.cmd = ION_IOC_PREFETCH;
+        d.arg = (unsigned long int)&prefetch_data;
+        rc = ioctl(fd, ION_IOC_CUSTOM, &d);
+        if (rc != 0) {
+            ALOGE("creating secure pool failed, rc is %d, errno is %d", rc, errno);
+        }
+        close(fd);
+    }
+#endif
+}
+
+void ExtendedUtils::drainSecurePool()
+{
+#ifdef ION_IOC_DRAIN
+    struct ion_prefetch_data prefetch_data;
+    struct ion_custom_data d;
+    int ion_dev_flag = O_RDONLY;
+    int rc = 0;
+    int fd = open (MEM_DEVICE, ion_dev_flag);
+
+    if (fd < 0) {
+        ALOGE("opening ion device failed with fd = %d", fd);
+    } else {
+        prefetch_data.heap_id = ION_HEAP(MEM_HEAP_ID);
+        prefetch_data.len = 0x0;
+        d.cmd = ION_IOC_DRAIN;
+        d.arg = (unsigned long int)&prefetch_data;
+        rc = ioctl(fd, ION_IOC_CUSTOM, &d);
+        if (rc != 0) {
+            ALOGE("draining secure pool failed rc is %d, errno is %d", rc, errno);
+        }
+        close(fd);
+    }
+#endif
+}
+
+VSyncLocker::VSyncLocker()
+    : mExitVsyncEvent(true),
+      mLooper(NULL),
+      mSyncState(PROFILE_FPS),
+      mStartTime(-1),
+      mProfileCount(0) {
+}
+
+VSyncLocker::~VSyncLocker() {
+    if(!mExitVsyncEvent) {
+        mExitVsyncEvent = true;
+        void *dummy;
+        pthread_join(mThread, &dummy);
+    }
+}
+
+bool VSyncLocker::isSyncRenderEnabled() {
+    char value[PROPERTY_VALUE_MAX];
+    bool ret = true;
+    property_get("mm.enable.vsync.render", value, "0");
+    if (atoi(value) == 0) {
+        ret = false;
+    }
+    return ret;
+}
+
+void VSyncLocker::updateSyncState() {
+    if (mSyncState == PROFILE_FPS) {
+        mProfileCount++;
+        if (mProfileCount == 1) {
+            mStartTime = ALooper::GetNowUs();
+        } else if (mProfileCount == kMaxProfileCount) {
+            int fps = (kMaxProfileCount * 1000000) /
+                      (ALooper::GetNowUs() - mStartTime);
+            if (fps > 35) {
+                ALOGI("Synchronized rendering blocked at %d fps", fps);
+                mSyncState = BLOCK_SYNC;
+                mExitVsyncEvent = true;
+            } else {
+                ALOGI("Synchronized rendering enabled at %d fps", fps);
+                mSyncState = ENABLE_SYNC;
+            }
+        }
+    }
+}
+
+void VSyncLocker::waitOnVSync() {
+    Mutex::Autolock autoLock(mVsyncLock);
+    mVSyncCondition.wait(mVsyncLock);
+}
+
+void VSyncLocker::resetProfile() {
+    if (mSyncState == PROFILE_FPS) {
+        mProfileCount = 0;
+    }
+}
+
+void VSyncLocker::blockSync() {
+    if (mSyncState == ENABLE_SYNC) {
+        ALOGI("Synchronized rendering blocked");
+        mSyncState = BLOCK_SYNC;
+        mExitVsyncEvent = true;
+    }
+}
+
+void VSyncLocker::blockOnVSync() {
+        if (mSyncState == PROFILE_FPS) {
+            updateSyncState();
+        } else if(mSyncState == ENABLE_SYNC) {
+            waitOnVSync();
+        }
+}
+
+void VSyncLocker::start() {
+    mExitVsyncEvent = false;
+    mLooper = new Looper(false);
+    mLooper->addFd(mDisplayEventReceiver.getFd(), 0,
+                   ALOOPER_EVENT_INPUT, receiver, (void *)this);
+    mDisplayEventReceiver.setVsyncRate(1);
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+    pthread_create(&mThread, &attr, ThreadWrapper, (void *)this);
+    pthread_attr_destroy(&attr);
+}
+
+void VSyncLocker::VSyncEvent() {
+    do {
+        int ret = 0;
+        if (mLooper != NULL) {
+            ret = mLooper->pollOnce(-1);
+        }
+    } while (!mExitVsyncEvent);
+    mDisplayEventReceiver.setVsyncRate(0);
+    mLooper->removeFd(mDisplayEventReceiver.getFd());
+}
+
+void VSyncLocker::signalVSync() {
+   DisplayEventReceiver::Event buffer[1];
+   if(mDisplayEventReceiver.getEvents(buffer, 1)) {
+       if (buffer[0].header.type != DisplayEventReceiver::DISPLAY_EVENT_VSYNC) {
+           return;
+        }
+   }
+   mVsyncLock.lock();
+   mVSyncCondition.signal();
+   mVsyncLock.unlock();
+   ALOGV("Signalling VSync");
+}
+
+void *VSyncLocker::ThreadWrapper(void *context) {
+    VSyncLocker *renderer = (VSyncLocker *)context;
+    renderer->VSyncEvent();
+    return NULL;
+}
+
+int VSyncLocker::receiver(int fd, int events, void *context) {
+    VSyncLocker *locker = (VSyncLocker *)context;
+    locker->signalVSync();
+    return 1;
+}
+
+void ExtendedUtils::parseRtpPortRangeFromSystemProperty(unsigned *start, unsigned *end) {
+    char value[PROPERTY_VALUE_MAX];
+    if (!property_get("persist.sys.media.rtp-ports", value, NULL)) {
+        ALOGV("Cannot get property of persist.sys.media.rtp-ports");
+        *start = kDefaultRtpPortRangeStart;
+        *end = kDefaultRtpPortRangeEnd;
+        return;
     }
 
-    return isInterlaceFormat;
+    if (sscanf(value, "%u/%u", start, end) != 2) {
+        ALOGE("Failed to parse rtp port range from '%s'.", value);
+        *start = kDefaultRtpPortRangeStart;
+        *end = kDefaultRtpPortRangeEnd;
+        return;
+    }
+
+    if (*start > *end || *start <= 1024 || *end >= 65535) {
+        ALOGE("Illegal rtp port start/end specified, reverting to defaults.");
+        *start = kDefaultRtpPortRangeStart;
+        *end = kDefaultRtpPortRangeEnd;
+        return;
+    }
+
+    ALOGV("rtp port_start = %u, port_end = %u", *start, *end);
 }
 
 }
@@ -566,20 +856,10 @@ void ExtendedUtils::HFR::setHFRIfEnabled(
         const CameraParameters& params, sp<MetaData> &meta) {
 }
 
-status_t ExtendedUtils::HFR::reCalculateFileDuration(
+status_t ExtendedUtils::HFR::initializeHFR(
         sp<MetaData> &meta, sp<MetaData> &enc_meta,
-        int64_t &maxFileDurationUs, int32_t frameRate,
-        video_encoder videoEncoder) {
+        int64_t &maxFileDurationUs, video_encoder videoEncoder) {
     return OK;
-}
-
-void ExtendedUtils::HFR::reCalculateTimeStamp(
-        sp<MetaData> &meta, int64_t &timestampUs) {
-}
-
-void ExtendedUtils::HFR::reCalculateHFRParams(
-        const sp<MetaData> &meta, int32_t &frameRate,
-        int32_t &bitrate) {
 }
 
 void ExtendedUtils::HFR::copyHFRParams(
@@ -587,7 +867,20 @@ void ExtendedUtils::HFR::copyHFRParams(
         sp<MetaData> &outputFormat) {
 }
 
-bool ExtendedUtils::ShellProp::isAudioDisabled() {
+int32_t ExtendedUtils::HFR::getHFRRatio(
+        const sp<MetaData> &meta) {
+    return 1;
+}
+
+int32_t ExtendedUtils::HFR::getHFRCapabilities(
+        video_encoder codec,
+        int& maxHFRWidth, int& maxHFRHeight, int& maxHFRFps,
+        int& maxBitRate) {
+    maxHFRWidth = maxHFRHeight = maxHFRFps = maxBitRate = 0;
+    return -1;
+}
+
+bool ExtendedUtils::ShellProp::isAudioDisabled(bool isEncoder) {
     return false;
 }
 
@@ -600,6 +893,14 @@ int64_t ExtendedUtils::ShellProp::getMaxAVSyncLateMargin() {
 }
 
 bool ExtendedUtils::ShellProp::isSmoothStreamingEnabled() {
+    return false;
+}
+
+bool ExtendedUtils::ShellProp::isCustomAVSyncEnabled() {
+    return false;
+}
+
+bool ExtendedUtils::ShellProp::isMpeg4DPSupportedByHardware() {
     return false;
 }
 
@@ -622,7 +923,7 @@ bool ExtendedUtils::UseQCHWAACEncoder(audio_encoder Encoder,int32_t Channel,
 sp<MediaExtractor> ExtendedUtils::MediaExtractor_CreateIfNeeded(sp<MediaExtractor> defaultExt,
                                                             const sp<DataSource> &source,
                                                             const char *mime) {
-                   return defaultExt;
+    return defaultExt;
 }
 
 void ExtendedUtils::helper_addMediaCodec(Vector<MediaCodecList::CodecInfo> &mCodecInfos,
@@ -648,12 +949,60 @@ bool ExtendedUtils::checkIsThumbNailMode(const uint32_t flags, char* componentNa
     return false;
 }
 
-void ExtendedUtils::setArbitraryModeIfInterlaced(
-        const uint8_t *ptr, const sp<MetaData> &meta) {
+void ExtendedUtils::helper_Mpeg4ExtractorCheckAC3EAC3(MediaBuffer *buffer,
+                                                        sp<MetaData> &format,
+                                                        size_t size) {
 }
 
-int32_t ExtendedUtils::checkIsInterlace(sp<MetaData> &meta) {
+int32_t ExtendedUtils::getEncoderTypeFlags() {
+    return 0;
+}
+
+void ExtendedUtils::prefetchSecurePool(int fd) {}
+
+void ExtendedUtils::prefetchSecurePool(const char *uri) {}
+
+void ExtendedUtils::prefetchSecurePool() {}
+
+void ExtendedUtils::createSecurePool() {}
+
+void ExtendedUtils::drainSecurePool() {}
+
+VSyncLocker::VSyncLocker() {}
+
+VSyncLocker::~VSyncLocker() {}
+
+bool VSyncLocker::isSyncRenderEnabled() {
     return false;
+}
+
+void *VSyncLocker::ThreadWrapper(void *context) {
+    return NULL;
+}
+
+int VSyncLocker::receiver(int fd, int events, void *context) {
+    return 0;
+}
+
+void VSyncLocker::updateSyncState() {}
+
+void VSyncLocker::waitOnVSync() {}
+
+void VSyncLocker::resetProfile() {}
+
+void VSyncLocker::blockSync() {}
+
+void VSyncLocker::blockOnVSync() {}
+
+void VSyncLocker::start() {}
+
+void VSyncLocker::VSyncEvent() {}
+
+void VSyncLocker::signalVSync() {}
+
+void ExtendedUtils::parseRtpPortRangeFromSystemProperty(unsigned *start, unsigned *end) {
+    *start = kDefaultRtpPortRangeStart;
+    *end = kDefaultRtpPortRangeEnd;
 }
 
 }

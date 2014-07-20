@@ -99,7 +99,6 @@ static uint32_t getInputChannelCount(uint32_t channels) {
     return popcount(channels);
 #endif
 }
-
 class AudioFlinger :
     public BinderService<AudioFlinger>,
     public BnAudioFlinger
@@ -178,7 +177,7 @@ public:
 
     virtual     void        registerClient(const sp<IAudioFlingerClient>& client);
 #ifdef QCOM_DIRECTTRACK
-    virtual    status_t     deregisterClient(const sp<IAudioFlingerClient>& client);
+    virtual     status_t    deregisterClient(const sp<IAudioFlingerClient>& client);
 #endif
     virtual     size_t      getInputBufferSize(uint32_t sampleRate, audio_format_t format,
                                                audio_channel_mask_t channelMask) const;
@@ -561,7 +560,7 @@ private:
         void allocateBufPool();
         void deallocateBufPool();
 
-        //******Effects**************
+        //******Effects*************
         static void *EffectsThreadWrapper(void *me);
         void EffectsThreadEntry();
         // make sure the Effects thread also exited

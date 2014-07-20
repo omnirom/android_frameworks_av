@@ -929,7 +929,7 @@ status_t MediaPlayerService::Client::getDuration(int *msec)
 }
 
 status_t MediaPlayerService::Client::setNextPlayer(const sp<IMediaPlayer>& player) {
-    ALOGV("setNextPlayer");
+    ALOGD("gapless:setNextPlayer");
     Mutex::Autolock l(mLock);
     sp<Client> c = static_cast<Client*>(player.get());
     mNextClient = c;
@@ -1099,8 +1099,17 @@ void MediaPlayerService::Client::notify(
         if (msg == MEDIA_PLAYBACK_COMPLETE && client->mNextClient != NULL) {
             if (client->mAudioOutput != NULL)
                 client->mAudioOutput->switchToNextOutput();
-            client->mNextClient->start();
-            client->mNextClient->mClient->notify(MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            ALOGD("gapless:current track played back");
+            ALOGD("gapless:try to do a gapless switch to next track");
+            status_t ret;
+            ret = client->mNextClient->start();
+            if (ret == NO_ERROR) {
+                client->mNextClient->mClient->notify(MEDIA_INFO,
+                        MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            } else {
+                client->mClient->notify(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN , 0, obj);
+                ALOGW("gapless:start playback for next track failed");
+            }
         }
     }
 
@@ -1145,6 +1154,22 @@ void MediaPlayerService::Client::addNewMetadataUpdate(media::Metadata::Type meta
     if (mMetadataUpdated.indexOf(metadata_type) < 0) {
         mMetadataUpdated.add(metadata_type);
     }
+}
+
+status_t MediaPlayerService::Client::suspend()
+{
+    ALOGV("[%d] suspend", mConnId);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == NULL) return NO_INIT;
+    return p->suspend();
+}
+
+status_t MediaPlayerService::Client::resume()
+{
+    ALOGV("[%d] resume", mConnId);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == NULL) return NO_INIT;
+    return p->resume();
 }
 
 #if CALLBACK_ANTAGONIZER
@@ -1512,7 +1537,6 @@ status_t MediaPlayerService::AudioOutput::open(
         return NO_ERROR;
     }
 #endif
-
     // Check argument "bufferCount" against the mininum buffer count
     if (bufferCount < mMinBufferCount) {
         ALOGD("bufferCount (%d) is too small and increased to %d", bufferCount, mMinBufferCount);
@@ -1571,16 +1595,18 @@ status_t MediaPlayerService::AudioOutput::open(
         if ((mCallbackData == NULL && mCallback != NULL) ||
                 (mCallbackData != NULL && mCallback == NULL)) {
             // recycled track uses callbacks but the caller wants to use writes, or vice versa
-            ALOGV("can't chain callback and write");
+            ALOGD("gapless:can't chain callback and write, track can't be reused");
             reuse = false;
         } else if ((mRecycledTrack->getSampleRate() != sampleRate) ||
                 (mRecycledTrack->channelCount() != (uint32_t)channelCount) ) {
-            ALOGV("samplerate, channelcount differ: %u/%u Hz, %u/%d ch",
+            ALOGD("gapless:samplerate, channelcount differ: %u/%u Hz, %u/%d ch",
                   mRecycledTrack->getSampleRate(), sampleRate,
                   mRecycledTrack->channelCount(), channelCount);
+            ALOGD("gapless:track can't be reused");
             reuse = false;
         } else if (flags != mFlags) {
-            ALOGV("output flags differ %08x/%08x", flags, mFlags);
+            ALOGD("gapless:output flags differ %08x/%08x, track can't be reused",
+                flags, mFlags);
             reuse = false;
         } else if (mRecycledTrack->format() != format) {
             reuse = false;
@@ -1594,7 +1620,7 @@ status_t MediaPlayerService::AudioOutput::open(
     // If we can't recycle and both tracks are offloaded
     // we must close the previous output before opening a new one
     if (bothOffloaded && !reuse) {
-        ALOGV("both offloaded and not recycling");
+        ALOGD("copl:gapless:both offloaded and not reusing/recycling the track");
         deleteRecycledTrack();
     }
 
@@ -1661,7 +1687,7 @@ status_t MediaPlayerService::AudioOutput::open(
         }
 
         if (reuse) {
-            ALOGV("chaining to next output and recycling track");
+            ALOGD("copl:gapless:chaining to next output and reuse/recycling track");
             close();
             mTrack = mRecycledTrack;
             mRecycledTrack.clear();
@@ -1726,7 +1752,7 @@ void MediaPlayerService::AudioOutput::setNextOutput(const sp<AudioOutput>& nextO
 
 
 void MediaPlayerService::AudioOutput::switchToNextOutput() {
-    ALOGV("switchToNextOutput");
+    ALOGD("gapless:switchToNextOutput");
     if (mNextOutput != NULL) {
         if (mCallbackData != NULL) {
             mCallbackData->beginTrackSwitch();
@@ -1826,10 +1852,10 @@ status_t MediaPlayerService::AudioOutput::attachAuxEffect(int effectId)
 }
 
 // static
+#ifdef QCOM_DIRECTTRACK
 void MediaPlayerService::AudioOutput::CallbackWrapper(
         int event, void *cookie, void *info) {
     //ALOGV("callbackwrapper");
-#ifdef QCOM_DIRECTTRACK
     if (event == AudioTrack::EVENT_UNDERRUN) {
         ALOGW("Event underrun");
         CallbackData *data = (CallbackData*)cookie;
@@ -1869,7 +1895,6 @@ void MediaPlayerService::AudioOutput::CallbackWrapper(
         return;
     }
     if (event == AudioTrack::EVENT_MORE_DATA) {
-#endif
         CallbackData *data = (CallbackData*)cookie;
         data->lock();
         AudioOutput *me = data->getOutput();
@@ -1919,12 +1944,64 @@ void MediaPlayerService::AudioOutput::CallbackWrapper(
         }
 
         data->unlock();
-#ifdef QCOM_DIRECTTRACK
     }
-#endif
-
     return;
 }
+#else
+void MediaPlayerService::AudioOutput::CallbackWrapper(
+        int event, void *cookie, void *info) {
+    //ALOGV("callbackwrapper");
+    CallbackData *data = (CallbackData*)cookie;
+    data->lock();
+    AudioOutput *me = data->getOutput();
+    AudioTrack::Buffer *buffer = (AudioTrack::Buffer *)info;
+    if (me == NULL) {
+        // no output set, likely because the track was scheduled to be reused
+        // by another player, but the format turned out to be incompatible.
+        data->unlock();
+        if (buffer != NULL) {
+            buffer->size = 0;
+        }
+        return;
+    }
+
+    switch(event) {
+    case AudioTrack::EVENT_MORE_DATA: {
+        size_t actualSize = (*me->mCallback)(
+                me, buffer->raw, buffer->size, me->mCallbackCookie,
+                CB_EVENT_FILL_BUFFER);
+
+        if (actualSize == 0 && buffer->size > 0 && me->mNextOutput == NULL &&
+            (me->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) {
+            // We've reached EOS but the audio track is not stopped yet,
+            // keep playing silence.
+
+            memset(buffer->raw, 0, buffer->size);
+            actualSize = buffer->size;
+        }
+
+        buffer->size = actualSize;
+        } break;
+
+    case AudioTrack::EVENT_STREAM_END:
+        ALOGV("callbackwrapper: deliver EVENT_STREAM_END");
+        (*me->mCallback)(me, NULL /* buffer */, 0 /* size */,
+                me->mCallbackCookie, CB_EVENT_STREAM_END);
+        break;
+
+    case AudioTrack::EVENT_NEW_IAUDIOTRACK :
+        ALOGV("callbackwrapper: deliver EVENT_TEAR_DOWN");
+        (*me->mCallback)(me,  NULL /* buffer */, 0 /* size */,
+                me->mCallbackCookie, CB_EVENT_TEAR_DOWN);
+        break;
+
+    default:
+        ALOGE("received unknown event type: %d inside CallbackWrapper !", event);
+    }
+
+    data->unlock();
+}
+#endif
 
 int MediaPlayerService::AudioOutput::getSessionId() const
 {

@@ -331,7 +331,7 @@ void MtpDataPacket::putString(const char* s) {
 
 void MtpDataPacket::putString(const uint16_t* string) {
     int count = 0;
-    for (int i = 0; i < 256; i++) {
+    for (int i = 0; i <= MTP_STRING_MAX_CHARACTER_NUMBER; i++) {
         if (string[i])
             count++;
         else
@@ -363,7 +363,7 @@ int MtpDataPacket::write(int fd) {
 }
 
 int MtpDataPacket::writeData(int fd, void* data, uint32_t length) {
-    allocate(length);
+    allocate(length + MTP_CONTAINER_HEADER_SIZE);
     memcpy(mBuffer + MTP_CONTAINER_HEADER_SIZE, data, length);
     length += MTP_CONTAINER_HEADER_SIZE;
     MtpPacket::putUInt32(MTP_CONTAINER_LENGTH_OFFSET, length);

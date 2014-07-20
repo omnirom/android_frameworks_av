@@ -1,5 +1,7 @@
 /*
  * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Not a Contribution.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,15 +33,11 @@
 #include <QCMediaDefs.h>
 #endif
 #include <system/audio.h>
-#ifdef QCOM_HARDWARE
+
 #define DEFAULT_TUNNEL_BUFFER_COUNT 4
-#endif
 
 namespace android {
 
-#ifdef QCOM_HARDWARE
-const static int64_t WaitLockEventTimeOutNs = 1000000000LL;
-#endif
 static void AudioRecordCallbackFunction(int event, void *user, void *info) {
     AudioSource *source = (AudioSource *) user;
     switch (event) {
@@ -67,6 +65,7 @@ AudioSource::AudioSource(
 #endif
       mSampleRate(sampleRate),
       mPrevSampleTimeUs(0),
+      mRecPaused(false),
       mNumFramesReceived(0),
 #ifdef QCOM_HARDWARE
       mNumClientOwnedBuffers(0),
@@ -121,17 +120,8 @@ AudioSource::AudioSource(
                     this,
                     frameCount);
         mInitCheck = mRecord->initCheck();
-#ifdef QCOM_HARDWARE //FIXME - should this be ifdefed?
         mAutoRampStartUs = kAutoRampStartUs;
-        uint32_t playbackLatencyMs = 0;
-        if (AudioSystem::getOutputLatency(&playbackLatencyMs,
-                                          AUDIO_STREAM_DEFAULT) == OK) {
-            if (2*playbackLatencyMs*1000LL > kAutoRampStartUs) {
-                mAutoRampStartUs = 2*playbackLatencyMs*1000LL;
-            }
-        }
         ALOGD("Start autoramp from %lld", mAutoRampStartUs);
-#endif
     } else {
         mInitCheck = status;
     }
@@ -144,7 +134,9 @@ AudioSource::AudioSource( audio_source_t inputSource, const sp<MetaData>& meta )
       mNumFramesReceived(0),
       mNumClientOwnedBuffers(0),
       mFormat(AUDIO_FORMAT_PCM_16_BIT),
-      mMime(MEDIA_MIMETYPE_AUDIO_RAW) {
+      mMime(MEDIA_MIMETYPE_AUDIO_RAW),
+      mRecPaused(false) {
+
     const char * mime;
     ALOGE("SK: in AudioSource : inputSource: %d", inputSource);
     CHECK( meta->findCString( kKeyMIMEType, &mime ) );
@@ -186,6 +178,7 @@ AudioSource::AudioSource( audio_source_t inputSource, const sp<MetaData>& meta )
     }
     mAutoRampStartUs = 0;
     CHECK(channels == 1 || channels == 2);
+
     mRecord = new AudioRecord(
                 inputSource, sampleRate, mFormat,
                 channels > 1? AUDIO_CHANNEL_IN_STEREO:
@@ -193,13 +186,14 @@ AudioSource::AudioSource( audio_source_t inputSource, const sp<MetaData>& meta )
 #ifdef QCOM_DIRECTTRACK
                 4*mMaxBufferSize/channels/frameSize,
 #else
-                4*mMaxBufferSize,
+                4*mMaxBufferSize/channels,
 #endif
                 AudioRecordCallbackFunction,
                 this);
     mInitCheck = mRecord->initCheck();
 }
 #endif
+
 AudioSource::~AudioSource() {
     if (mStarted) {
         reset();
@@ -212,6 +206,12 @@ status_t AudioSource::initCheck() const {
 
 status_t AudioSource::start(MetaData *params) {
     Mutex::Autolock autoLock(mLock);
+
+    if (mRecPaused) {
+        mRecPaused = false;
+        return OK;
+    }
+
     if (mStarted) {
         return UNKNOWN_ERROR;
     }
@@ -238,6 +238,11 @@ status_t AudioSource::start(MetaData *params) {
 
     return err;
 }
+status_t AudioSource::pause() {
+    ALOGV("AudioSource::Pause");
+    mRecPaused = true;
+    return OK;
+}
 
 void AudioSource::releaseQueuedFrames_l() {
     ALOGV("releaseQueuedFrames_l");
@@ -258,6 +263,7 @@ void AudioSource::waitOutstandingEncodingFrames_l() {
 
 status_t AudioSource::reset() {
     Mutex::Autolock autoLock(mLock);
+
     if (!mStarted) {
         return UNKNOWN_ERROR;
     }
@@ -340,13 +346,7 @@ status_t AudioSource::read(
     }
 
     while (mStarted && mBuffersReceived.empty()) {
-#ifdef QCOM_HARDWARE
-       status_t err = mFrameAvailableCondition.waitRelative(mLock,WaitLockEventTimeOutNs);
-       if(err == -ETIMEDOUT)
-           return (status_t)err;
-#else
-       mFrameAvailableCondition.wait(mLock);
-#endif
+        mFrameAvailableCondition.wait(mLock);
     }
     if (!mStarted) {
         return OK;
@@ -363,29 +363,23 @@ status_t AudioSource::read(
     int64_t elapsedTimeUs = timeUs - mStartTimeUs;
 #ifdef QCOM_HARDWARE
     if ( mFormat == AUDIO_FORMAT_PCM_16_BIT ) {
+#endif
         if (elapsedTimeUs < mAutoRampStartUs) {
-#else
-    if (elapsedTimeUs < kAutoRampStartUs) {
-#endif
-        memset((uint8_t *) buffer->data(), 0, buffer->range_length());
-#ifdef QCOM_HARDWARE
+            memset((uint8_t *) buffer->data(), 0, buffer->range_length());
         } else if (elapsedTimeUs < mAutoRampStartUs + kAutoRampDurationUs) {
-#else
-    } else if (elapsedTimeUs < kAutoRampStartUs + kAutoRampDurationUs) {
-#endif
-        int32_t autoRampDurationFrames =
-                    ((int64_t)kAutoRampDurationUs * mSampleRate + 500000LL) / 1000000LL; //Need type casting
+            int32_t autoRampDurationFrames =
+                    ((int64_t)kAutoRampDurationUs * mSampleRate + 500000LL) / 1000000LL;
 
-        int32_t autoRampStartFrames =
-                    ((int64_t)kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL; //Need type casting
+            int32_t autoRampStartFrames =
+                    ((int64_t)kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL;
 
-        int32_t nFrames = mNumFramesReceived - autoRampStartFrames;
-        rampVolume(nFrames, autoRampDurationFrames,
+            int32_t nFrames = mNumFramesReceived - autoRampStartFrames;
+            rampVolume(nFrames, autoRampDurationFrames,
                 (uint8_t *) buffer->data(), buffer->range_length());
-#ifdef QCOM_HARDWARE
         }
-#endif
+#ifdef QCOM_HARDWARE
     }
+#endif
 
     // Track the max recording signal amplitude.
 #ifdef QCOM_HARDWARE
@@ -452,7 +446,7 @@ status_t AudioSource::dataCallback(const AudioRecord::Buffer& audioBuffer) {
 #ifdef QCOM_HARDWARE
     if ( mFormat == AUDIO_FORMAT_PCM_16_BIT )
 #endif
-    CHECK_EQ(audioBuffer.size & 1, 0u);
+        CHECK_EQ(audioBuffer.size & 1, 0u);
     if (numLostBytes > 0) {
         // Loss of audio frames should happen rarely; thus the LOGW should
         // not cause a logging spam
@@ -488,6 +482,14 @@ status_t AudioSource::dataCallback(const AudioRecord::Buffer& audioBuffer) {
 }
 
 void AudioSource::queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs) {
+    if (mRecPaused) {
+        if (!mBuffersReceived.empty())
+            releaseQueuedFrames_l();
+
+        buffer->release();
+        return;
+    }
+
     const size_t bufferSize = buffer->range_length();
     const size_t frameSize = mRecord->frameSize();
 #ifdef QCOM_HARDWARE
@@ -496,12 +498,12 @@ void AudioSource::queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs) {
     if ( mFormat == AUDIO_FORMAT_PCM_16_BIT && mSampleRate){
         recordDurationUs = ((1000000LL * (bufferSize / (2 * mRecord->channelCount()))) +
                         (mSampleRate >> 1)) / mSampleRate;
-    } else {
-       recordDurationUs = bufferDurationUs(bufferSize);
+    } else if ( mFormat == AUDIO_FORMAT_AMR_WB) {
+       recordDurationUs = (bufferSize/AMR_WB_FRAMESIZE)*20;//20ms
     }
     timestampUs += recordDurationUs;
 #else
-   const int64_t timestampUs =
+    const int64_t timestampUs =
                 mPrevSampleTimeUs +
                     ((1000000LL * (bufferSize / frameSize)) +
                         (mSampleRate >> 1)) / mSampleRate;
@@ -515,7 +517,7 @@ void AudioSource::queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs) {
 #ifdef QCOM_HARDWARE
     if (mFormat == AUDIO_FORMAT_PCM_16_BIT) {
 #endif
-    buffer->meta_data()->setInt64(kKeyDriftTime, timeUs - mInitialReadTimeUs);
+        buffer->meta_data()->setInt64(kKeyDriftTime, timeUs - mInitialReadTimeUs);
 #ifdef QCOM_HARDWARE
     } else {
         int64_t wallClockTimeUs = timeUs - mInitialReadTimeUs;
@@ -525,7 +527,10 @@ void AudioSource::queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs) {
 #endif
     mPrevSampleTimeUs = timestampUs;
 #ifdef QCOM_HARDWARE
-    mNumFramesReceived += buffer->range_length() / sizeof(int16_t);
+    if (mFormat == AUDIO_FORMAT_AMR_WB)
+        mNumFramesReceived += buffer->range_length() / AMR_WB_FRAMESIZE;
+    else
+        mNumFramesReceived += buffer->range_length() / sizeof(int16_t);
 #else
     mNumFramesReceived += bufferSize / frameSize;
 #endif
@@ -556,24 +561,4 @@ int16_t AudioSource::getMaxAmplitude() {
     return value;
 }
 
-#ifdef QCOM_HARDWARE
-int64_t AudioSource::bufferDurationUs( ssize_t n ) {
-    int64_t dataDurationMs = 0;
-    if (mFormat == AUDIO_FORMAT_AMR_NB) {
-        dataDurationMs = (n/AMR_FRAMESIZE) * 20; //ms
-    }
-    else if (mFormat == AUDIO_FORMAT_EVRC) {
-       dataDurationMs = (n/EVRC_FRAMESIZE) * 20; //ms
-    }
-    else if (mFormat == AUDIO_FORMAT_QCELP) {
-        dataDurationMs = (n/QCELP_FRAMESIZE) * 20; //ms
-    }
-    else if (mFormat == AUDIO_FORMAT_AMR_WB) {
-        dataDurationMs = (n/AMR_WB_FRAMESIZE) * 20; //ms
-    }
-    else
-        CHECK(0);
-    return dataDurationMs*1000LL;
-}
-#endif
 }  // namespace android

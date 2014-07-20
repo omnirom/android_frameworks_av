@@ -241,8 +241,23 @@ void NuPlayer::Renderer::notifyIfMediaRenderingStarted() {
 
 bool NuPlayer::Renderer::onDrainAudioQueue() {
     uint32_t numFramesPlayed;
-    if (mAudioSink->getPosition(&numFramesPlayed) != OK) {
-        return false;
+    status_t positionStatus = mAudioSink->getPosition(&numFramesPlayed);
+    if (positionStatus == NO_INIT) {
+        // The AudioSink track may not have been created yet, which returns NO_INIT.
+        // Check if EOS has been reached and call notifyEOS, so that this message
+        // is not lost before this funtion returns false below.
+        if (!mAudioQueue.empty()) {
+            QueueEntry *firstEntry = &*mAudioQueue.begin();
+            if (firstEntry->mBuffer == NULL) {
+                // EOS is reached
+                notifyEOS(true /*audio */, firstEntry->mFinalResult);
+                mAudioQueue.erase(mAudioQueue.begin());
+            }
+            firstEntry = NULL;
+         }
+         return false;
+    } else if (positionStatus != OK) {
+               return false;
     }
 
     ssize_t numFramesAvailableToWrite =
@@ -397,10 +412,10 @@ void NuPlayer::Renderer::onDrainVideoQueue() {
     }
 
     int64_t realTimeUs;
+    int64_t mediaTimeUs;
     if (mFlags & FLAG_REAL_TIME) {
         CHECK(entry->mBuffer->meta()->findInt64("timeUs", &realTimeUs));
     } else {
-        int64_t mediaTimeUs;
         CHECK(entry->mBuffer->meta()->findInt64("timeUs", &mediaTimeUs));
 
         realTimeUs = mediaTimeUs - mAnchorTimeMediaUs + mAnchorTimeRealUs;
@@ -412,6 +427,8 @@ void NuPlayer::Renderer::onDrainVideoQueue() {
     if (tooLate) {
         ALOGV("video late by %lld us (%.2f secs)",
              mVideoLateByUs, mVideoLateByUs / 1E6);
+    } else if (mFlags & FLAG_REAL_TIME) {
+        ALOGV("rendering video at real time %.2f secs", realTimeUs / 1E6);
     } else {
         ALOGV("rendering video at media time %.2f secs", mediaTimeUs / 1E6);
     }
@@ -691,6 +708,9 @@ void NuPlayer::Renderer::onPause() {
     if (mHasAudio) {
         mAudioSink->pause();
     }
+    //for video only stream, reset mAnchorTimeMediaUs on stream's pause scenario
+    if (mHasVideo && !mHasAudio)
+        mAnchorTimeMediaUs = -1;
 
     ALOGV("now paused audio queue has %d entries, video has %d entries",
           mAudioQueue.size(), mVideoQueue.size());

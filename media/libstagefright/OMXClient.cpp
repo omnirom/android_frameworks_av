@@ -83,12 +83,6 @@ struct MuxOMX : public IOMX {
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
             buffer_id *buffer);
 
-#ifdef SEMC_ICS_CAMERA_BLOB
-    virtual status_t useBufferPmem(
-            node_id node, OMX_U32 portIndex, OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pmem_info, OMX_U32 size, void *vaddr,
-            buffer_id *buffer);
-#endif
-
     virtual status_t useGraphicBuffer(
             node_id node, OMX_U32 port_index,
             const sp<GraphicBuffer> &graphicBuffer, buffer_id *buffer);
@@ -171,7 +165,7 @@ bool MuxOMX::isLocalNode_l(node_id node) const {
 
 // static
 bool MuxOMX::IsSoftwareComponent(const char *name) {
-    return !strncasecmp(name, "OMX.google.", 11);
+    return !strncasecmp(name, "OMX.google.", 11) || !strncasecmp(name, "OMX.ffmpeg.", 11);
 }
 
 const sp<IOMX> &MuxOMX::getOMX(node_id node) const {
@@ -300,14 +294,6 @@ status_t MuxOMX::useBuffer(
         buffer_id *buffer) {
     return getOMX(node)->useBuffer(node, port_index, params, buffer);
 }
-
-#ifdef SEMC_ICS_CAMERA_BLOB
-status_t MuxOMX::useBufferPmem(
-        node_id node, OMX_U32 portIndex, OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pmem_info, OMX_U32 size, void *vaddr,
-        buffer_id *buffer) {
-    return getOMX(node)->useBufferPmem(node, portIndex, pmem_info, size, vaddr, buffer);
-}
-#endif
 
 status_t MuxOMX::useGraphicBuffer(
         node_id node, OMX_U32 port_index,

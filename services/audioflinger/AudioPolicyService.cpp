@@ -96,6 +96,9 @@ AudioPolicyService::AudioPolicyService()
     if (rc)
         return;
 
+    rc = hw_get_module(POWER_HARDWARE_MODULE_ID, (const hw_module_t **)&mPowerModule);
+    ALOGW_IF(rc, "couldn't get power module (%s)", strerror(-rc));
+
     ALOGI("Loaded audio policy from %s (%s)", module->name, module->id);
 
     // load audio pre processing modules
@@ -246,6 +249,7 @@ status_t AudioPolicyService::startOutput(audio_io_handle_t output,
     }
     ALOGV("startOutput()");
     Mutex::Autolock _l(mLock);
+    setPowerHint(true);
     return mpAudioPolicy->start_output(mpAudioPolicy, output, stream, session);
 }
 
@@ -267,7 +271,9 @@ status_t  AudioPolicyService::doStopOutput(audio_io_handle_t output,
 {
     ALOGV("doStopOutput from tid %d", gettid());
     Mutex::Autolock _l(mLock);
-    return mpAudioPolicy->stop_output(mpAudioPolicy, output, stream, session);
+    status_t ret = mpAudioPolicy->stop_output(mpAudioPolicy, output, stream, session);
+    setPowerHint(false);
+    return ret;
 }
 
 void AudioPolicyService::releaseOutput(audio_io_handle_t output)
@@ -354,7 +360,7 @@ status_t AudioPolicyService::startInput(audio_io_handle_t input)
         return NO_INIT;
     }
     Mutex::Autolock _l(mLock);
-
+    setPowerHint(true);
     return mpAudioPolicy->start_input(mpAudioPolicy, input);
 }
 
@@ -365,7 +371,9 @@ status_t AudioPolicyService::stopInput(audio_io_handle_t input)
     }
     Mutex::Autolock _l(mLock);
 
-    return mpAudioPolicy->stop_input(mpAudioPolicy, input);
+    status_t ret = mpAudioPolicy->stop_input(mpAudioPolicy, input);
+    setPowerHint(false);
+    return ret;
 }
 
 void AudioPolicyService::releaseInput(audio_io_handle_t input)
@@ -424,7 +432,7 @@ status_t AudioPolicyService::setStreamVolumeIndex(audio_stream_type_t stream,
                                                                 stream,
                                                                 index,
                                                                 device);
-    } else
+    } else 
 #endif
     {
         return mpAudioPolicy->set_stream_volume_index(mpAudioPolicy, stream, index);
@@ -448,7 +456,7 @@ status_t AudioPolicyService::getStreamVolumeIndex(audio_stream_type_t stream,
                                                                 stream,
                                                                 index,
                                                                 device);
-    } else
+    } else 
 #endif
     {
         return mpAudioPolicy->get_stream_volume_index(mpAudioPolicy, stream, index);
@@ -521,15 +529,19 @@ bool AudioPolicyService::isStreamActive(audio_stream_type_t stream, uint32_t inP
 
 bool AudioPolicyService::isStreamActiveRemotely(audio_stream_type_t stream, uint32_t inPastMs) const
 {
+#if !defined(ICS_AUDIO_BLOB) && !defined(MR1_AUDIO_BLOB)
     if (mpAudioPolicy == NULL) {
         return 0;
     }
     Mutex::Autolock _l(mLock);
     return mpAudioPolicy->is_stream_active_remotely(mpAudioPolicy, stream, inPastMs);
+#endif
+    return 0;
 }
 
 bool AudioPolicyService::isSourceActive(audio_source_t source) const
 {
+#ifndef ICS_AUDIO_BLOB
     if (mpAudioPolicy == NULL) {
         return false;
     }
@@ -538,6 +550,9 @@ bool AudioPolicyService::isSourceActive(audio_source_t source) const
     }
     Mutex::Autolock _l(mLock);
     return mpAudioPolicy->is_source_active(mpAudioPolicy, source);
+#else
+    return false;
+#endif
 }
 
 status_t AudioPolicyService::queryDefaultPreProcessing(int audioSession,
@@ -575,6 +590,13 @@ status_t AudioPolicyService::queryDefaultPreProcessing(int audioSession,
     }
     *count = effects.size();
     return status;
+}
+
+void AudioPolicyService::setPowerHint(bool active) {
+    if (mPowerModule && mPowerModule->powerHint) {
+        mPowerModule->powerHint(mPowerModule, POWER_HINT_AUDIO,
+                active ? (void *)"state=1" : (void *)"state=0");
+    }
 }
 
 void AudioPolicyService::binderDied(const wp<IBinder>& who) {
@@ -681,8 +703,9 @@ AudioPolicyService::AudioCommandThread::AudioCommandThread(String8 name,
 
 AudioPolicyService::AudioCommandThread::~AudioCommandThread()
 {
-    if (!mAudioCommands.isEmpty()) {
-        release_wake_lock(mName.string());
+    for (size_t k=0; k < mAudioCommands.size(); k++) {
+        delete mAudioCommands[k]->mParam;
+        delete mAudioCommands[k];
     }
     mAudioCommands.clear();
     delete mpToneGenerator;
@@ -801,10 +824,6 @@ bool AudioPolicyService::AudioCommandThread::threadLoop()
                 break;
             }
         }
-        // release delayed commands wake lock
-        if (mAudioCommands.isEmpty()) {
-            release_wake_lock(mName.string());
-        }
         ALOGV("AudioCommandThread() going to sleep");
         mWaitWorkCV.waitRelative(mLock, waitTime);
         ALOGV("AudioCommandThread() waking up");
@@ -855,7 +874,7 @@ void AudioPolicyService::AudioCommandThread::startToneCommand(ToneGenerator::ton
     ToneData *data = new ToneData();
     data->mType = type;
     data->mStream = stream;
-    command->mParam = (void *)data;
+    command->mParam = data;
     Mutex::Autolock _l(mLock);
     insertCommand_l(command);
     ALOGV("AudioCommandThread() adding tone start type %d, stream %d", type, stream);
@@ -956,7 +975,7 @@ void AudioPolicyService::AudioCommandThread::stopOutputCommand(audio_io_handle_t
     data->mIO = output;
     data->mStream = stream;
     data->mSession = session;
-    command->mParam = (void *)data;
+    command->mParam = data;
     Mutex::Autolock _l(mLock);
     insertCommand_l(command);
     ALOGV("AudioCommandThread() adding stop output %d", output);
@@ -969,7 +988,7 @@ void AudioPolicyService::AudioCommandThread::releaseOutputCommand(audio_io_handl
     command->mCommand = RELEASE_OUTPUT;
     ReleaseOutputData *data = new ReleaseOutputData();
     data->mIO = output;
-    command->mParam = (void *)data;
+    command->mParam = data;
     Mutex::Autolock _l(mLock);
     insertCommand_l(command);
     ALOGV("AudioCommandThread() adding release output %d", output);
@@ -983,10 +1002,6 @@ void AudioPolicyService::AudioCommandThread::insertCommand_l(AudioCommand *comma
     Vector <AudioCommand *> removedCommands;
     command->mTime = systemTime() + milliseconds(delayMs);
 
-    // acquire wake lock to make sure delayed commands are processed
-    if (mAudioCommands.isEmpty()) {
-        acquire_wake_lock(PARTIAL_WAKE_LOCK, mName.string());
-    }
 
     // check same pending commands with later time stamps and eliminate them
     for (i = mAudioCommands.size()-1; i >= 0; i--) {
@@ -1060,6 +1075,10 @@ void AudioPolicyService::AudioCommandThread::insertCommand_l(AudioCommand *comma
         for (size_t k = i + 1; k < mAudioCommands.size(); k++) {
             if (mAudioCommands[k] == removedCommands[j]) {
                 ALOGV("suppressing command: %d", mAudioCommands[k]->mCommand);
+                // for commands that are not filtered,
+                // command->mParam is deleted in threadLoop
+                delete mAudioCommands[k]->mParam;
+                delete mAudioCommands[k];
                 mAudioCommands.removeAt(k);
                 break;
             }
@@ -1148,7 +1167,6 @@ bool AudioPolicyService::isOffloadSupported(const audio_offload_info_t& info)
 #ifdef HAVE_PRE_KITKAT_AUDIO_BLOB
     return false;
 #endif
-
     if (mpAudioPolicy == NULL) {
         ALOGV("mpAudioPolicy == NULL");
         return false;

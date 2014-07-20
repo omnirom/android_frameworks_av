@@ -34,8 +34,17 @@
 #include "MediaLogService.h"
 #include "MediaPlayerService.h"
 #include "AudioPolicyService.h"
+#ifdef AUDIO_LISTEN_ENABLED
+#include "ListenService.h"
+#endif
 
 using namespace android;
+
+#ifdef SECTVOUT
+namespace android { namespace SecTVOutService {
+void instantiate(void);
+} }
+#endif
 
 int main(int argc, char** argv)
 {
@@ -124,9 +133,16 @@ int main(int argc, char** argv)
         sp<ProcessState> proc(ProcessState::self());
         sp<IServiceManager> sm = defaultServiceManager();
         ALOGI("ServiceManager: %p", sm.get());
+#ifdef SECTVOUT
+        SecTVOutService::instantiate();
+#endif
         AudioFlinger::instantiate();
         MediaPlayerService::instantiate();
         CameraService::instantiate();
+#ifdef AUDIO_LISTEN_ENABLED
+        ALOGI("ListenService instantiated");
+        ListenService::instantiate();
+#endif
         AudioPolicyService::instantiate();
         registerExtensions();
         ProcessState::self()->startThreadPool();
