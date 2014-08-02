@@ -582,7 +582,6 @@ static CameraHeapMemory* lastCameraHeapMemory;
                                          void *user __attribute__((unused)))
 #endif
     {
-#endif
 #ifdef SEMC_ICS_CAMERA_BLOB
         ALOGE("%s: fd %d, numbufs %d", __FUNCTION__,
                      fd, num_bufs);
