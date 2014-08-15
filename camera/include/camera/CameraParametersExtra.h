@@ -16,10 +16,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #ifndef ANDROID_HARDWARE_CAMERA_PARAMETERS_EXTRA_H
 #define ANDROID_HARDWARE_CAMERA_PARAMETERS_EXTRA_H
-
 /*
 #define CAMERA_PARAMETERS_EXTRA_C \
 const char CameraParameters::KEY_SUPPORTED_BURST_NUM[] = "supported-burst-num"; \
@@ -37,5 +35,4 @@ const char CameraParameters::HDR_MODE_HDR[] = "hdr-mode-hdr";
     static const char HDR_MODE_OFF[]; \
     static const char HDR_MODE_HDR[];
 */
-
 #endif
