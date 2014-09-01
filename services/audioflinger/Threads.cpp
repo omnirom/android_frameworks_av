@@ -1645,7 +1645,7 @@ void AudioFlinger::PlaybackThread::resetWriteBlocked(uint32_t sequence)
     // reject out of sequence requests
     if ((mWriteAckSequence & 1) && (sequence == mWriteAckSequence)) {
         mWriteAckSequence &= ~1;
-        ALOGD("copl(%d): write_ready, signal offload thread", mId);
+        ALOGV("copl(%d): write_ready, signal offload thread", mId);
         mWaitWorkCV.signal();
     } else ALOGD("copl(%d):reject out of sequence requests(write_ready) (%x %x)",
          mId, mWriteAckSequence, sequence);
@@ -1673,11 +1673,11 @@ int AudioFlinger::PlaybackThread::asyncCallback(stream_callback_event_t event,
 
     switch (event) {
     case STREAM_CBK_EVENT_WRITE_READY:
-        ALOGD("copl:STREAM_CBK_EVENT_WRITE_READY received from hal");
+        ALOGV("copl:STREAM_CBK_EVENT_WRITE_READY received from hal");
         me->writeCallback();
         break;
     case STREAM_CBK_EVENT_DRAIN_READY:
-        ALOGD("copl:STREAM_CBK_EVENT_DRAIN_READY received from hal");
+        ALOGV("copl:STREAM_CBK_EVENT_DRAIN_READY received from hal");
         me->drainCallback();
         break;
     default:
@@ -1999,7 +1999,7 @@ ssize_t AudioFlinger::PlaybackThread::threadLoop_write()
             ALOG_ASSERT(mCallbackThread != 0);
             mCallbackThread->setWriteBlocked(mWriteAckSequence);
         }
-        else ALOGD("copl(%d):not a full write, wait for write_ready callback (%d)",
+        else ALOGV("copl(%d):not a full write, wait for write_ready callback (%d)",
             mId, bytesWritten);
     }
 
