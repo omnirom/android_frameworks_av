@@ -648,7 +648,6 @@ protected:
 
                 void        pause();    // suspend thread from execution at next loop boundary
                 void        resume();   // allow thread to execute, if not requested to exit
-                void        pauseSync();
 
     private:
                 void        pauseInternal(nsecs_t ns = 0LL);
@@ -664,8 +663,6 @@ protected:
         bool                mPausedInt; // whether thread internally requests pause
         nsecs_t             mPausedNs;  // if mPausedInt then associated timeout, otherwise ignored
         bool                mIgnoreNextPausedInt;   // whether to ignore next mPausedInt request
-        bool                mCmdAckPending;
-        Condition           mCmdAck;
     };
 
             // body of AudioTrackThread::threadLoop()

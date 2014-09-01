@@ -228,6 +228,7 @@ AudioTrack::~AudioTrack()
             mAudioTrack.clear();
             AudioSystem::releaseAudioSessionId(mSessionId);
         }
+
         if (mDirectTrack != 0) {
             mDirectTrack.clear();
         }
@@ -519,6 +520,7 @@ status_t AudioTrack::set(
     }
     else {
 #endif
+
     if (cbf != NULL) {
         mAudioTrackThread = new AudioTrackThread(*this, threadCanCallJava);
         mAudioTrackThread->run("AudioTrack", ANDROID_PRIORITY_AUDIO, 0 /*stack*/);
@@ -580,6 +582,7 @@ status_t AudioTrack::set(
 }
 
 // -------------------------------------------------------------------------
+
 #ifdef QCOM_DIRECTTRACK
 uint32_t AudioTrack::latency() const
 {
@@ -782,18 +785,8 @@ void AudioTrack::pause()
         mDirectTrack->pause();
     } else {
 #endif
-        mProxy->interrupt();
-        mAudioTrack->pause();
-
-        if (isOffloaded()) {
-            if (mOutput != 0) {
-                uint32_t halFrames;
-                // OffloadThread sends HAL pause in its threadLoop.. time saved
-                // here can be slightly off
-                AudioSystem::getRenderPosition(mOutput, &halFrames, &mPausedPosition);
-                ALOGV("AudioTrack::pause for offload, cache current position %u", mPausedPosition);
-            }
-        }
+    mProxy->interrupt();
+    mAudioTrack->pause();
 #ifdef QCOM_DIRECTTRACK
     }
 #endif
@@ -801,8 +794,10 @@ void AudioTrack::pause()
     if (isOffloaded()) {
         if (mOutput != 0) {
             uint32_t halFrames;
+            // OffloadThread sends HAL pause in its threadLoop.. time saved
+            // here can be slightly off
             AudioSystem::getRenderPosition(mOutput, &halFrames, &mPausedPosition);
-            ALOGV("AudioTrack::pause for offload, cache current position");
+            ALOGV("AudioTrack::pause for offload, cache current position %u", mPausedPosition);
         }
     }
 }
@@ -2193,7 +2188,7 @@ void AudioTrack::DirectClient::notify(int msg) {
 
 AudioTrack::AudioTrackThread::AudioTrackThread(AudioTrack& receiver, bool bCanCallJava)
     : Thread(bCanCallJava), mReceiver(receiver), mPaused(true), mPausedInt(false), mPausedNs(0LL),
-      mIgnoreNextPausedInt(false), mCmdAckPending(false)
+      mIgnoreNextPausedInt(false)
 {
 }
 
@@ -2206,10 +2201,6 @@ bool AudioTrack::AudioTrackThread::threadLoop()
     {
         AutoMutex _l(mMyLock);
         if (mPaused) {
-            if (mCmdAckPending) {
-                mCmdAckPending = false;
-                mCmdAck.signal();
-            }
             mMyCond.wait(mMyLock);
             // caller will check for exitPending()
             return true;
@@ -2219,10 +2210,6 @@ bool AudioTrack::AudioTrackThread::threadLoop()
             mPausedInt = false;
         }
         if (mPausedInt) {
-            if (mCmdAckPending) {
-                mCmdAckPending = false;
-                mCmdAck.signal();
-            }
             if (mPausedNs > 0) {
                 (void) mMyCond.waitRelative(mMyLock, mPausedNs);
             } else {
@@ -2265,24 +2252,10 @@ void AudioTrack::AudioTrackThread::pause()
     mPaused = true;
 }
 
-void AudioTrack::AudioTrackThread::pauseSync()
-{
-    AutoMutex _l(mMyLock);
-    if (mPaused || mPausedInt)
-        return;
-
-    mPaused = true;
-    mCmdAckPending = true;
-    while (!mCmdAckPending) {
-        mCmdAck.wait(mMyLock);
-    }
-}
-
 void AudioTrack::AudioTrackThread::resume()
 {
     AutoMutex _l(mMyLock);
     mIgnoreNextPausedInt = true;
-    mCmdAckPending = false;
     if (mPaused || mPausedInt) {
         mPaused = false;
         mPausedInt = false;

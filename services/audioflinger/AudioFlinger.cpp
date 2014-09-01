@@ -1112,8 +1112,6 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
                }
            }
         }
-#else
-        String8 value;
 #endif
 
         // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
