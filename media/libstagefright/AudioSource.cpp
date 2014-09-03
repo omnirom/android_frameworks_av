@@ -1,5 +1,7 @@
 /*
  * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Not a Contribution.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,9 +33,8 @@
 #include <QCMediaDefs.h>
 #endif
 #include <system/audio.h>
-#ifdef QCOM_HARDWARE
+
 #define DEFAULT_TUNNEL_BUFFER_COUNT 4
-#endif
 
 namespace android {
 
@@ -186,6 +187,7 @@ AudioSource::AudioSource( audio_source_t inputSource, const sp<MetaData>& meta )
     }
     mAutoRampStartUs = 0;
     CHECK(channels == 1 || channels == 2);
+
     mRecord = new AudioRecord(
                 inputSource, sampleRate, mFormat,
                 channels > 1? AUDIO_CHANNEL_IN_STEREO:
@@ -378,7 +380,6 @@ status_t AudioSource::read(
 
         int32_t autoRampStartFrames =
                     ((int64_t)kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL; //Need type casting
-
         int32_t nFrames = mNumFramesReceived - autoRampStartFrames;
         rampVolume(nFrames, autoRampDurationFrames,
                 (uint8_t *) buffer->data(), buffer->range_length());
@@ -452,7 +453,7 @@ status_t AudioSource::dataCallback(const AudioRecord::Buffer& audioBuffer) {
 #ifdef QCOM_HARDWARE
     if ( mFormat == AUDIO_FORMAT_PCM_16_BIT )
 #endif
-    CHECK_EQ(audioBuffer.size & 1, 0u);
+        CHECK_EQ(audioBuffer.size & 1, 0u);
     if (numLostBytes > 0) {
         // Loss of audio frames should happen rarely; thus the LOGW should
         // not cause a logging spam
@@ -496,8 +497,8 @@ void AudioSource::queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs) {
     if ( mFormat == AUDIO_FORMAT_PCM_16_BIT && mSampleRate){
         recordDurationUs = ((1000000LL * (bufferSize / (2 * mRecord->channelCount()))) +
                         (mSampleRate >> 1)) / mSampleRate;
-    } else {
-       recordDurationUs = bufferDurationUs(bufferSize);
+    } else if ( mFormat == AUDIO_FORMAT_AMR_WB) {
+       recordDurationUs = (bufferSize/AMR_WB_FRAMESIZE)*20;//20ms
     }
     timestampUs += recordDurationUs;
 #else
@@ -515,7 +516,7 @@ void AudioSource::queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs) {
 #ifdef QCOM_HARDWARE
     if (mFormat == AUDIO_FORMAT_PCM_16_BIT) {
 #endif
-    buffer->meta_data()->setInt64(kKeyDriftTime, timeUs - mInitialReadTimeUs);
+        buffer->meta_data()->setInt64(kKeyDriftTime, timeUs - mInitialReadTimeUs);
 #ifdef QCOM_HARDWARE
     } else {
         int64_t wallClockTimeUs = timeUs - mInitialReadTimeUs;
@@ -525,7 +526,10 @@ void AudioSource::queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs) {
 #endif
     mPrevSampleTimeUs = timestampUs;
 #ifdef QCOM_HARDWARE
-    mNumFramesReceived += buffer->range_length() / sizeof(int16_t);
+    if (mFormat == AUDIO_FORMAT_AMR_WB)
+        mNumFramesReceived += buffer->range_length() / AMR_WB_FRAMESIZE;
+    else
+        mNumFramesReceived += buffer->range_length() / sizeof(int16_t);
 #else
     mNumFramesReceived += bufferSize / frameSize;
 #endif

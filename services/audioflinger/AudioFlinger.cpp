@@ -2,6 +2,8 @@
 ** Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
 ** Not a Contribution.
 ** Copyright 2007, The Android Open Source Project
+** Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+** Not a Contribution.
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -1080,10 +1082,26 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
         }
 
         AudioParameter param = AudioParameter(keyValuePairs);
-#ifdef QCOM_DIRECTTRACK
         String8 value, key;
         int i = 0;
 
+#ifdef QCOM_HARDWARE
+        key = String8(AudioParameter::keySoundCardStatus);
+        if (param.get(key, value) == NO_ERROR) {
+            ALOGV("Set keySoundCardStatus:%s", value.string());
+            if ((value.find("OFFLINE", 0) != -1) ) {
+                ALOGV("OFFLINE detected - call InvalidateTracks()");
+                for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+                    PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+                    thread->onFatalError();
+                }
+           } else if ((value.find("OFFLINE", 0) != -1) ) {
+                ALOGV("ONLINE detected - what should I do?");
+           }
+        }
+#endif
+
+#ifdef QCOM_DIRECTTRACK
         key = String8(AudioParameter::keyADSPStatus);
         if (param.get(key, value) == NO_ERROR) {
             ALOGV("Set keyADSPStatus:%s", value.string());
@@ -1096,8 +1114,6 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
                }
            }
         }
-#else
-        String8 value;
 #endif
 
         // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
@@ -1871,7 +1887,7 @@ audio_io_handle_t AudioFlinger::openOutput(audio_module_handle_t module,
         AudioStreamOut *output = new AudioStreamOut(outHwDev, outStream, flags);
         if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
             thread = new OffloadThread(this, output, id, *pDevices);
-            ALOGV("openOutput() created offload output: ID %d thread %p", id, thread);
+            ALOGD("copl:openOutput() created offload output: ID %d thread %p", id, thread);
 #ifdef QCOM_DIRECTTRACK
         }
         if (flags & AUDIO_OUTPUT_FLAG_LPA || flags & AUDIO_OUTPUT_FLAG_TUNNEL ) {
