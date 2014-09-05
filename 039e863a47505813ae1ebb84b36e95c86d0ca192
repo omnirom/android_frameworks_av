@@ -1,0 +1,61 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "0b49054d_26c98eae",
+        "filename": "include/media/AudioParameter.h",
+        "patchSetId": 1
+      },
+      "lineNbr": 64,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2014-09-05T20:52:40Z",
+      "side": 1,
+      "message": "#ifdef QCOM_HARDWARE ?",
+      "revId": "039e863a47505813ae1ebb84b36e95c86d0ca192",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "0b49054d_e6cea6b7",
+        "filename": "media/libmedia/AudioParameter.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 49,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2014-09-05T20:52:40Z",
+      "side": 1,
+      "message": "#ifdef QCOM_HARDWARE ?",
+      "range": {
+        "startLine": 49,
+        "startChar": 0,
+        "endLine": 49,
+        "endChar": 5
+      },
+      "revId": "039e863a47505813ae1ebb84b36e95c86d0ca192",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "0b49054d_06d48a48",
+        "filename": "services/audioflinger/AudioFlinger.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 1088,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2014-09-05T20:52:40Z",
+      "side": 1,
+      "message": "#ifdef QCOM_HARDWARE ?",
+      "revId": "039e863a47505813ae1ebb84b36e95c86d0ca192",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
