@@ -1,9 +1,7 @@
 /*
 ** Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
 ** Not a Contribution.
-** Copyright 2007, The Android Open Source Project
-** Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
-** Not a Contribution.
+** Copyright 2007, The Android Open Source Project.
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -1085,6 +1083,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
         String8 value, key;
         int i = 0;
 
+#ifdef QCOM_HARDWARE
         key = String8(AudioParameter::keySoundCardStatus);
         if (param.get(key, value) == NO_ERROR) {
             ALOGV("Set keySoundCardStatus:%s", value.string());
@@ -1098,6 +1097,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
                 ALOGV("ONLINE detected - what should I do?");
            }
         }
+#endif
 
 #ifdef QCOM_DIRECTTRACK
         key = String8(AudioParameter::keyADSPStatus);
