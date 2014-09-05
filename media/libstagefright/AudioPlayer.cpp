@@ -73,6 +73,7 @@ AudioPlayer::AudioPlayer(
 #ifdef QCOM_HARDWARE
       ,mPauseRequired(false)
 #endif
+{
 }
 
 AudioPlayer::~AudioPlayer() {
