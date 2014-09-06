@@ -1664,8 +1664,9 @@ status_t StagefrightRecorder::setupVideoEncoder(
     if (mCaptureTimeLapse) {
         encoder_flags |= OMXCodec::kOnlySubmitOneInputBufferAtOneTime;
     }
+#ifdef QCOM_HARDWARE
     encoder_flags |= ExtendedUtils::getEncoderTypeFlags();
-
+#endif
     sp<MediaSource> encoder = OMXCodec::Create(
             client.interface(), enc_meta,
             true /* createEncoder */, cameraSource,

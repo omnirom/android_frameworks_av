@@ -1772,7 +1772,9 @@ status_t MPEG4Writer::Track::start(MetaData *params) {
     pthread_create(&mThread, &attr, ThreadWrapper, this);
     pthread_attr_destroy(&attr);
 
+#ifdef QCOM_HARDWARE
     mHFRRatio = ExtendedUtils::HFR::getHFRRatio(mMeta);
+#endif
 
     return OK;
 }
