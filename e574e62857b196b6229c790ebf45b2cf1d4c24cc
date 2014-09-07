@@ -33,6 +33,24 @@
       "revId": "e574e62857b196b6229c790ebf45b2cf1d4c24cc",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "0b49054d_86787a26",
+        "filename": "media/libstagefright/MPEG4Writer.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 1775,
+      "author": {
+        "id": 1000032
+      },
+      "writtenOn": "2014-09-07T14:07:31Z",
+      "side": 1,
+      "message": "If you ifdef just this, then wouldn\u0027t mHFRRatio never get initialized and then render the calculations done below to be invalid?",
+      "parentUuid": "0b49054d_a68c9e3a",
+      "revId": "e574e62857b196b6229c790ebf45b2cf1d4c24cc",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
