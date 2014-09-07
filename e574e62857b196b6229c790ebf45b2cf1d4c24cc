@@ -1,0 +1,38 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "0b49054d_c691a255",
+        "filename": "media/libmediaplayerservice/StagefrightRecorder.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 1667,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2014-09-07T02:33:38Z",
+      "side": 1,
+      "message": "#ifdef QCOM_HARDWARE",
+      "revId": "e574e62857b196b6229c790ebf45b2cf1d4c24cc",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "0b49054d_a68c9e3a",
+        "filename": "media/libstagefright/MPEG4Writer.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 1775,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2014-09-07T02:33:38Z",
+      "side": 1,
+      "message": "#ifdef QCOM_HARDWARE",
+      "revId": "e574e62857b196b6229c790ebf45b2cf1d4c24cc",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
