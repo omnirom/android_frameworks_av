@@ -51,6 +51,24 @@
       "revId": "e574e62857b196b6229c790ebf45b2cf1d4c24cc",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "0b49054d_46c93254",
+        "filename": "media/libstagefright/MPEG4Writer.cpp",
+        "patchSetId": 1
+      },
+      "lineNbr": 1775,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2014-09-07T20:15:06Z",
+      "side": 1,
+      "message": "Ir is inited with 1 so the calc below is not influenced",
+      "parentUuid": "0b49054d_86787a26",
+      "revId": "e574e62857b196b6229c790ebf45b2cf1d4c24cc",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
