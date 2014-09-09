@@ -103,12 +103,11 @@ const static int64_t kBufferFilledEventTimeOutNs = 3000000000LL;
 // component in question is buggy or not.
 const static uint32_t kMaxColorFormatSupported = 1000;
 
-#ifdef QCOM_HARDWARE
 #define FACTORY_CREATE(name) \
 static sp<MediaSource> Make##name(const sp<MediaSource> &source) { \
     return new name(source); \
 }
-#endif
+
 #define FACTORY_CREATE_ENCODER(name) \
 static sp<MediaSource> Make##name(const sp<MediaSource> &source, const sp<MetaData> &meta) { \
     return new name(source, meta); \
@@ -116,7 +115,7 @@ static sp<MediaSource> Make##name(const sp<MediaSource> &source, const sp<MetaDa
 
 #define FACTORY_REF(name) { #name, Make##name },
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 FACTORY_CREATE(MP3Decoder)
 #endif
 FACTORY_CREATE_ENCODER(AACEncoder)
@@ -142,7 +141,7 @@ static sp<MediaSource> InstantiateSoftwareEncoder(
     return NULL;
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOM_DIRECTTRACK
 static sp<MediaSource> InstantiateSoftwareDecoder(
         const char *name, const sp<MediaSource> &source) {
     struct FactoryInfo {
@@ -163,9 +162,6 @@ static sp<MediaSource> InstantiateSoftwareDecoder(
 #endif
 #undef FACTORY_CREATE_ENCODER
 #undef FACTORY_REF
-#ifdef QCOM_HARDWARE
-#undef FACTORY_CREATE
-#endif
 
 #define CODEC_LOGI(x, ...) ALOGI("[%s] "x, mComponentName, ##__VA_ARGS__)
 #define CODEC_LOGV(x, ...) ALOGV("[%s] "x, mComponentName, ##__VA_ARGS__)
@@ -479,33 +475,20 @@ sp<MediaSource> OMXCodec::Create(
             componentName = tmp.c_str();
         }
 
-#ifdef QCOM_HARDWARE
-        sp<MediaSource> softwareCodec;
-        if (createEncoder) {
-            softwareCodec = InstantiateSoftwareEncoder(componentName, source, meta);
-        } else {
-            softwareCodec = InstantiateSoftwareDecoder(componentName, source);
-        }
-            if (softwareCodec != NULL) {
-                ALOGV("Successfully allocated software codec '%s'", componentName);
-
-                return softwareCodec;
-            }
-
-        const char* ext_componentName = ExtendedCodec::overrideComponentName(quirks, meta);
-        if(ext_componentName != NULL) {
-          componentName = ext_componentName;
-        }
-#else
         if (createEncoder) {
             sp<MediaSource> softwareCodec =
                 InstantiateSoftwareEncoder(componentName, source, meta);
-
             if (softwareCodec != NULL) {
                 ALOGV("Successfully allocated software codec '%s'", componentName);
 
                 return softwareCodec;
             }
+        }
+
+#ifdef QCOM_HARDWARE
+        const char* ext_componentName = ExtendedCodec::overrideComponentName(quirks, meta);
+        if(ext_componentName != NULL) {
+          componentName = ext_componentName;
         }
 #endif
 
@@ -1766,8 +1749,8 @@ OMXCodec::OMXCodec(
 #endif
       mInSmoothStreamingMode(false),
       mOutputCropChanged(false) {
-    mPortStatus[kPortIndexInput] = ENABLED;
-    mPortStatus[kPortIndexOutput] = ENABLED;
+    mPortStatus[kPortIndexInput] = ENABLING;
+    mPortStatus[kPortIndexOutput] = ENABLING;
 
     setComponentRole();
 }
