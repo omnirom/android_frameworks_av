@@ -1,4 +1,7 @@
 /*
+ * Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+ * Not a Contribution.
+ *
  * Copyright (C) 2009 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -184,6 +187,7 @@ private:
         size_t mSize;
         void *mData;
         MediaBuffer *mMediaBuffer;
+        bool mOutputCropChanged;
     };
 
     struct CodecSpecificData {
@@ -370,6 +374,10 @@ private:
     status_t applyRotation();
     status_t waitForBufferFilled_l();
 
+#ifdef QCOM_HARDWARE
+    status_t resumeLocked(bool drainInputBuf);
+#endif
+
     int64_t getDecodingTimeUs();
 
     status_t parseAVCCodecSpecificData(
@@ -377,14 +385,17 @@ private:
             unsigned *profile, unsigned *level);
 
     status_t stopOmxComponent_l();
+    status_t flushBuffersOnError();
+    status_t releaseMediaBuffersOn(OMX_U32 portIndex);
 
     OMXCodec(const OMXCodec &);
     OMXCodec &operator=(const OMXCodec &);
 
 #ifdef QCOM_HARDWARE
     int32_t mNumBFrames;
-    bool mInSmoothStreamingMode;
 #endif
+    bool mInSmoothStreamingMode;
+    bool mOutputCropChanged;
 };
 
 struct CodecCapabilities {

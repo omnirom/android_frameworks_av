@@ -122,6 +122,9 @@ ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
        LOCAL_SRC_FILES         += WAVEWriter.cpp
 ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),caf-bfam)
+    LOCAL_CFLAGS += -DLEGACY_MEDIA
+endif
 else
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 endif
