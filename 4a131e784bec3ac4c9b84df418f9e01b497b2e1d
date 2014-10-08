@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "cb528df8_4a34d7db",
+        "filename": "media/libstagefright/Android.mk",
+        "patchSetId": 2
+      },
+      "lineNbr": 64,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2014-10-08T12:35:55Z",
+      "side": 0,
+      "message": "was this include always obsolete?",
+      "range": {
+        "startLine": 64,
+        "startChar": 55,
+        "endLine": 64,
+        "endChar": 56
+      },
+      "revId": "4a131e784bec3ac4c9b84df418f9e01b497b2e1d",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
