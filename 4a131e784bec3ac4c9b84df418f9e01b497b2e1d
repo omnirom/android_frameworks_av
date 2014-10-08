@@ -22,6 +22,30 @@
       "revId": "4a131e784bec3ac4c9b84df418f9e01b497b2e1d",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "cb528df8_6a5fdb12",
+        "filename": "media/libstagefright/Android.mk",
+        "patchSetId": 2
+      },
+      "lineNbr": 64,
+      "author": {
+        "id": 1000649
+      },
+      "writtenOn": "2014-10-08T17:30:31Z",
+      "side": 0,
+      "message": "If you look down lower, it seems this commit was already partially included (see the TI_CUSTOM_DOMX_PATH ifneq), so it\u0027s being added down there for devices not setting TI_CUSTOM_DOMX_PATH. The custom TI DOMX needs to overwrite the openmax include though, hence the if below this.",
+      "parentUuid": "cb528df8_4a34d7db",
+      "range": {
+        "startLine": 64,
+        "startChar": 55,
+        "endLine": 64,
+        "endChar": 56
+      },
+      "revId": "4a131e784bec3ac4c9b84df418f9e01b497b2e1d",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
