@@ -603,7 +603,7 @@ void ExtendedUtils::HFR::copyHFRParams(
 
 int32_t ExtendedUtils::HFR::getHFRRatio(
         const sp<MetaData> &meta) {
-        return 0;
+        return 1;
 }
 
 bool ExtendedUtils::ShellProp::isAudioDisabled() {
