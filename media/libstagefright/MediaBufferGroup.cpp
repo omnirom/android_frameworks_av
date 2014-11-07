@@ -56,6 +56,10 @@ void MediaBufferGroup::add_buffer(MediaBuffer *buffer) {
 }
 
 status_t MediaBufferGroup::acquire_buffer(
+	MediaBuffer **out) {
+    return this->acquire_buffer(out, false); }
+
+status_t MediaBufferGroup::acquire_buffer(
         MediaBuffer **out, bool nonBlocking) {
     Mutex::Autolock autoLock(mLock);
 
