@@ -55,6 +55,11 @@ void MediaBufferGroup::add_buffer(MediaBuffer *buffer) {
     mLastBuffer = buffer;
 }
 
+
+//extern "C" status_t _ZN7android16MediaBufferGroup14acquire_bufferEPPNS_11MediaBufferE(MediaBuffer **out)
+
+status_t MediaBufferGroup::acquire_buffer( MediaBuffer **out) { return this->acquire_buffer(out, false); }
+
 status_t MediaBufferGroup::acquire_buffer(
         MediaBuffer **out, bool nonBlocking) {
     Mutex::Autolock autoLock(mLock);
