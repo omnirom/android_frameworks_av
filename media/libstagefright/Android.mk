@@ -103,6 +103,10 @@ ifeq ($(TARGET_BOARD_PLATFORM),omap4)
 LOCAL_CFLAGS := -DBOARD_CANT_REALLOCATE_OMX_BUFFERS
 endif
 
+ifeq ($(BOARD_USES_LEGACY_ACQUIRE_WVM),true)
+LOCAL_CFLAGS := -DUSES_LEGACY_ACQUIRE_WVM
+endif
+
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_color_conversion \
         libstagefright_aacenc \
