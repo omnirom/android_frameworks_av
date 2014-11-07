@@ -34,12 +34,13 @@ public:
 
     void add_buffer(MediaBuffer *buffer);
 
+    status_t acquire_buffer( MediaBuffer **out);
     // If nonBlocking is false, it blocks until a buffer is available and
     // passes it to the caller in *buffer, while returning OK.
     // The returned buffer will have a reference count of 1.
     // If nonBlocking is true and a buffer is not immediately available,
     // buffer is set to NULL and it returns WOULD_BLOCK.
-    status_t acquire_buffer(MediaBuffer **buffer, bool nonBlocking = false);
+    status_t acquire_buffer(MediaBuffer **buffer, bool nonBlocking);
 
 protected:
     virtual void signalBufferReturned(MediaBuffer *buffer);
