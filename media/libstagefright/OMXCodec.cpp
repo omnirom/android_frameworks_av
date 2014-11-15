@@ -1667,6 +1667,11 @@ status_t OMXCodec::setVideoOutputFormat(
     }
 
     ////////////////////////////////////////////////////////////////////////////
+    int32_t frameRate;
+    if (meta->findInt32(kKeyFrameRate, &frameRate)) {
+            PLAYER_STATS(setFrameRate, frameRate);
+    }
+    ////////////////////////////////////////////////////////////////////////////
 
     InitOMXParams(&def);
     def.nPortIndex = kPortIndexOutput;
