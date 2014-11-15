@@ -1110,7 +1110,9 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
     }
 
 #ifdef QCOM_HARDWARE
-    format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    if (mRecorderExtendedStats != NULL) {
+        format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    }
 #endif /* QCOM_HARDWARE */
     sp<MediaSource> audioEncoder =
             MediaCodecSource::Create(mLooper, format, audioSource);
@@ -1788,7 +1790,9 @@ status_t StagefrightRecorder::setupVideoEncoder(
     }
 
 #ifdef QCOM_HARDWARE
-    format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    if (mRecorderExtendedStats != NULL) {
+        format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    }
 #endif /* QCOM_HARDWARE */
     sp<MediaCodecSource> encoder =
             MediaCodecSource::Create(mLooper, format, cameraSource, flags);

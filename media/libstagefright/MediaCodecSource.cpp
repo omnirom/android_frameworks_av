@@ -476,7 +476,9 @@ status_t MediaCodecSource::initEncoder() {
     ALOGV("output format is '%s'", mOutputFormat->debugString(0).c_str());
 
 #ifdef QCOM_HARDWARE
-    mOutputFormat->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    if (mRecorderExtendedStats != NULL) {
+        mOutputFormat->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    }
 #endif /* QCOM_HARDWARE */
     status_t err = mEncoder->configure(
                 mOutputFormat,

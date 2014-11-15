@@ -158,7 +158,9 @@ void NuPlayer::Decoder::onConfigure(const sp<AMessage> &format) {
         ALOGW_IF(err != OK, "failed to disconnect from surface: %d", err);
     }
 #ifdef QCOM_HARDWARE
-    format->setObject(MEDIA_EXTENDED_STATS, mPlayerExtendedStats);
+    if (mPlayerExtendedStats != NULL) {
+        format->setObject(MEDIA_EXTENDED_STATS, mPlayerExtendedStats);
+    }
 #endif /* QCOM_HARDWARE */
     err = mCodec->configure(
             format, surface, NULL /* crypto */, 0 /* flags */);

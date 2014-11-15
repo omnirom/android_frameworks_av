@@ -679,7 +679,9 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             ++mRendererGeneration;
             notify->setInt32("generation", mRendererGeneration);
 #ifdef QCOM_HARDWARE
-            notify->setObject(MEDIA_EXTENDED_STATS, mPlayerExtendedStats);
+            if (mPlayerExtendedStats != NULL) {
+                notify->setObject(MEDIA_EXTENDED_STATS, mPlayerExtendedStats);
+            }
 #endif /* QCOM_HARDWARE */
             mRenderer = new Renderer(mAudioSink, notify, flags);
 
@@ -1261,7 +1263,9 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<Decoder> *decoder) {
     }
 #ifdef QCOM_HARDWARE
 
-    format->setObject(MEDIA_EXTENDED_STATS, mPlayerExtendedStats);
+    if (mPlayerExtendedStats != NULL) {
+        format->setObject(MEDIA_EXTENDED_STATS, mPlayerExtendedStats);
+    }
 
 #endif /* QCOM_HARDWARE */
     (*decoder)->init();
