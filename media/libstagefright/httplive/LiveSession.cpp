@@ -1000,7 +1000,7 @@ size_t LiveSession::getBandwidthIndex() {
             long maxBw = strtoul(value, &end, 10);
             if (end > value && *end == '\0') {
                 if (maxBw > 0 && bandwidthBps > maxBw) {
-                    ALOGV("bandwidth capped to %ld bps", maxBw);
+                    ALOGI("bandwidth capped to %ld bps", maxBw);
                     bandwidthBps = maxBw;
                 }
             }

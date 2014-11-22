@@ -87,7 +87,9 @@ NuPlayer::Renderer::Renderer(
       mCurrentOffloadInfo(AUDIO_INFO_INITIALIZER),
       mTotalBuffersQueued(0),
       mLastAudioBufferDrained(0) {
+
     readProperties();
+    notify->findObject(MEDIA_EXTENDED_STATS, (sp<RefBase>*)&mPlayerExtendedStats);
 }
 
 NuPlayer::Renderer::~Renderer() {
@@ -823,10 +825,10 @@ void NuPlayer::Renderer::onDrainVideoQueue() {
 
     int64_t nowUs = -1;
     int64_t realTimeUs;
+    int64_t mediaTimeUs;
     if (mFlags & FLAG_REAL_TIME) {
         CHECK(entry->mBuffer->meta()->findInt64("timeUs", &realTimeUs));
     } else {
-        int64_t mediaTimeUs;
         CHECK(entry->mBuffer->meta()->findInt64("timeUs", &mediaTimeUs));
 
         nowUs = ALooper::GetNowUs();
@@ -873,6 +875,12 @@ void NuPlayer::Renderer::onDrainVideoQueue() {
             notifyVideoRenderingStart();
         }
         notifyIfMediaRenderingStarted();
+    }
+
+    if (tooLate) { //dropped!
+        PLAYER_STATS(logFrameDropped);
+    } else {
+        PLAYER_STATS(logFrameRendered);
     }
 }
 
@@ -1171,6 +1179,8 @@ void NuPlayer::Renderer::onPause() {
 
     ALOGV("now paused audio queue has %d entries, video has %d entries",
           mAudioQueue.size(), mVideoQueue.size());
+
+    PLAYER_STATS(notifyPause, (ALooper::GetNowUs() - mAnchorTimeRealUs) + mAnchorTimeMediaUs);
 }
 
 void NuPlayer::Renderer::onResume() {
