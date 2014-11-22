@@ -1866,12 +1866,21 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
         return err;
     }
 
+    err = native_window_set_buffers_dimensions(
+	    mNativeWindow.get(),
+	    def.format.video.nFrameWidth,
+	    def.format.video.nFrameHeight);
+
+    if (err != 0) {
+        ALOGE("native_window_set_buffers_dimensions failed: %s (%d)",
+                strerror(-err), -err);
+        return err;
+    }
+
 #ifndef USE_SAMSUNG_COLORFORMAT
-    err = native_window_set_buffers_geometry(
-            mNativeWindow.get(),
-            def.format.video.nFrameWidth,
-            def.format.video.nFrameHeight,
-            def.format.video.eColorFormat);
+    err = native_window_set_buffers_format(
+	    mNativeWindow.get(),
+	    def.format.video.eColorFormat);
 #else
     OMX_COLOR_FORMATTYPE eColorFormat;
 
@@ -1887,16 +1896,13 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
         eColorFormat = (OMX_COLOR_FORMATTYPE)HAL_PIXEL_FORMAT_YCbCr_420_P;
         break;
     }
-
-    err = native_window_set_buffers_geometry(
-            mNativeWindow.get(),
-            def.format.video.nFrameWidth,
-            def.format.video.nFrameHeight,
-            eColorFormat);
+    err = native_window_set_buffers_format(
+	    mNativeWindow.get(),
+	    eColorFormat);
 #endif
 
     if (err != 0) {
-        ALOGE("native_window_set_buffers_geometry failed: %s (%d)",
+        ALOGE("native_window_set_buffers_format failed: %s (%d)",
                 strerror(-err), -err);
         return err;
     }
@@ -2142,10 +2148,16 @@ status_t OMXCodec::pushBlankBuffersToNativeWindow() {
         return err;
     }
 
-    err = native_window_set_buffers_geometry(mNativeWindow.get(), 1, 1,
-            HAL_PIXEL_FORMAT_RGBX_8888);
+    err = native_window_set_buffers_dimensions(mNativeWindow.get(), 1, 1);
     if (err != NO_ERROR) {
-        ALOGE("error pushing blank frames: set_buffers_geometry failed: %s (%d)",
+        ALOGE("error pushing blank frames: set_buffers_dimensions failed: %s (%d)",
+                strerror(-err), -err);
+        goto error;
+    }
+
+    err = native_window_set_buffers_format(mNativeWindow.get(), HAL_PIXEL_FORMAT_RGBX_8888);
+    if (err != NO_ERROR) {
+        ALOGE("error pushing blank frames: set_buffers_format failed: %s (%d)",
                 strerror(-err), -err);
         goto error;
     }
