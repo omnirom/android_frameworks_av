@@ -99,6 +99,10 @@ LOCAL_SHARED_LIBRARIES := \
         libz \
         libpowermanager
 
+ifeq ($(TARGET_BOARD_PLATFORM),omap4)
+LOCAL_CFLAGS := -DBOARD_CANT_REALLOCATE_OMX_BUFFERS
+endif
+
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_color_conversion \
         libstagefright_aacenc \
