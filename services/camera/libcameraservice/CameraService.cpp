@@ -362,6 +362,30 @@ status_t CameraService::validateConnect(int cameraId,
         return -EACCES;
     }
 
+    // Check if Camera is disabled in Settings -> Security
+    // 0 = none disabled
+    // 1 = only front facing disabled
+    // 2 = only back facing disabled
+    // 3 = all disabled
+    char propDisableCamera[PROPERTY_VALUE_MAX];
+    property_get("persist.sys.disable_cameras", propDisableCamera, "0");
+    if (strcmp(propDisableCamera, "0") != 0) {
+        bool isDisabled = false;
+        struct camera_info info;
+        mModule->get_camera_info(cameraId, &info);
+        if (strcmp(propDisableCamera, "3") == 0) {
+            isDisabled = true;
+        } else if (strcmp(propDisableCamera, "1") == 0 && info.facing == CAMERA_FACING_FRONT) {
+            isDisabled = true;
+        } else if (strcmp(propDisableCamera, "2") == 0 && info.facing == CAMERA_FACING_BACK) {
+            isDisabled = true;
+        }
+        if (isDisabled == true) {
+            ALOGI("Camera is disabled. connect X (pid %d) rejected", callingPid);
+            return -EACCES;
+        }
+    }
+
     ICameraServiceListener::Status currentStatus = getStatus(cameraId);
     if (currentStatus == ICameraServiceListener::STATUS_NOT_PRESENT) {
         ALOGI("Camera is not plugged in,"
