@@ -133,8 +133,10 @@ void NuPlayer::RTSPSource::pause() {
 
         // Check if EOS or ERROR is received
         if (source != NULL && source->isFinished(mediaDurationUs)) {
+#ifdef QCOM_HARDWARE
             ALOGI("Nearing EOS...No Pause is issued");
             mHandler->setAUTimeoutCheck(false);
+#endif /* QCOM_HARDWARE */
             return;
         }
     }
@@ -322,6 +324,7 @@ void NuPlayer::RTSPSource::performSeek(int64_t seekTimeUs) {
 
     mState = SEEKING;
     mHandler->seek(seekTimeUs);
+#ifdef QCOM_HARDWARE
 
     // After seek, the previous packets in the source are obsolete, so clear them
     for (size_t index = 0; index < mTracks.size(); index++) {
@@ -339,6 +342,7 @@ int64_t NuPlayer::RTSPSource::getServerTimeoutUs() {
     } else {
         return 0;
     }
+#endif /* QCOM_HARDWARE */
 }
 
 void NuPlayer::RTSPSource::onMessageReceived(const sp<AMessage> &msg) {
@@ -405,11 +409,13 @@ void NuPlayer::RTSPSource::onMessageReceived(const sp<AMessage> &msg) {
 
         case MyHandler::kWhatAccessUnit:
         {
+#ifdef QCOM_HARDWARE
             // While seeking, stop queueing the units which are already obsolete to the source
             if (mState == SEEKING) {
                 break;
             }
 
+#endif /* QCOM_HARDWARE */
             size_t trackIndex;
             CHECK(msg->findSize("trackIndex", &trackIndex));
 

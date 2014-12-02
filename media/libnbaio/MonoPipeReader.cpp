@@ -39,7 +39,11 @@ ssize_t MonoPipeReader::availableToRead()
         return NEGOTIATE;
     }
     ssize_t ret = android_atomic_acquire_load(&mPipe->mRear) - mPipe->mFront;
+#ifndef QCOM_HARDWARE
+    ALOG_ASSERT((0 <= ret) && (ret <= mMaxFrames));
+#else /* QCOM_HARDWARE */
     ALOG_ASSERT((0 <= ret) && (ret <= mPipe->mMaxFrames));
+#endif /* QCOM_HARDWARE */
     return ret;
 }
 

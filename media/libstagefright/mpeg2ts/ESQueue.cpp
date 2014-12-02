@@ -632,7 +632,9 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAAC() {
             mFormat = MakeAACCodecSpecificData(
                     profile, sampling_freq_index, channel_configuration);
 
+#ifdef QCOM_HARDWARE
             mFormat->setInt32(kKeyMaxInputSize, (8192 * 4)); // setting max aac input size
+#endif /* QCOM_HARDWARE */
             mFormat->setInt32(kKeyIsADTS, true);
 
             int32_t sampleRate;
@@ -701,9 +703,13 @@ int64_t ElementaryStreamQueue::fetchTimestamp(size_t size) {
 
         if (first) {
             timeUs = info->mTimestampUs;
+#ifndef QCOM_HARDWARE
+            first = false;
+#else /* QCOM_HARDWARE */
             if(mMode != AAC) {
                first = false;
             }
+#endif /* QCOM_HARDWARE */
         }
 
         if (info->mLength > size) {
@@ -868,9 +874,11 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
 
             if (mFormat == NULL) {
                 mFormat = MakeAVCCodecSpecificData(accessUnit);
+#ifdef QCOM_HARDWARE
                 if (mFormat != NULL) {
                     mFormat->setInt32(kKeyMaxInputSize, (8192 * 10));
                 }
+#endif /* QCOM_HARDWARE */
             }
 
             return accessUnit;

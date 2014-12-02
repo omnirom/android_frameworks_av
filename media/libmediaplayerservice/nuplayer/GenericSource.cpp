@@ -37,9 +37,11 @@
 #include "../../libstagefright/include/NuCachedSource2.h"
 #include "../../libstagefright/include/WVMExtractor.h"
 #include "../../libstagefright/include/HTTPBase.h"
+#ifdef QCOM_HARDWARE
 #ifdef QTI_FLAC_DECODER
 #include "../../libstagefright/include/FLACDecoder.h"
 #endif
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -188,11 +190,13 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
                 mAudioTrack.mPackets =
                     new AnotherPacketSource(mAudioTrack.mSource->getFormat());
 
+#ifdef QCOM_HARDWARE
 #ifdef QTI_FLAC_DECODER
                 if (!strncasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC, 10)) {
                      mAudioTrack.mSource = new FLACDecoder(track);
                 }
 #endif
+#endif /* QCOM_HARDWARE */
                 if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_VORBIS)) {
                     mAudioIsVorbis = true;
                 } else {
@@ -1255,13 +1259,21 @@ void NuPlayer::GenericSource::readBuffer(
     switch (trackType) {
         case MEDIA_TRACK_TYPE_VIDEO:
             track = &mVideoTrack;
+#ifndef QCOM_HARDWARE
+            if (mIsWidevine) {
+#else /* QCOM_HARDWARE */
             if (mIsWidevine || (mHttpSource != NULL)) {
+#endif /* QCOM_HARDWARE */
                 maxBuffers = 2;
             }
             break;
         case MEDIA_TRACK_TYPE_AUDIO:
             track = &mAudioTrack;
+#ifndef QCOM_HARDWARE
+            if (mIsWidevine) {
+#else /* QCOM_HARDWARE */
             if (mIsWidevine || (mHttpSource != NULL)) {
+#endif /* QCOM_HARDWARE */
                 maxBuffers = 8;
             } else {
                 maxBuffers = 64;

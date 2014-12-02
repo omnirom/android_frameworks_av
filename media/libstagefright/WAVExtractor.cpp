@@ -27,15 +27,19 @@
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/Utils.h>
+#endif /* QCOM_HARDWARE */
 #include <utils/String8.h>
 #include <cutils/bitops.h>
 
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
 #include "QCMediaDefs.h"
 #include "QCMetaData.h"
 #endif
 
+#endif /* QCOM_HARDWARE */
 #define CHANNEL_MASK_USE_CHANNEL_ORDER 0
 
 namespace android {
@@ -89,7 +93,9 @@ private:
     off64_t mOffset;
     size_t mSize;
     bool mStarted;
+#ifdef QCOM_HARDWARE
     int32_t mOutputFormat;
+#endif /* QCOM_HARDWARE */
     MediaBufferGroup *mGroup;
     off64_t mCurrentPos;
 
@@ -291,11 +297,13 @@ status_t WAVExtractor::init() {
                     case WAVE_FORMAT_PCM:
                         mTrackMeta->setCString(
                                 kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_RAW);
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
 #ifdef PCM_OFFLOAD_ENABLED_24
                         mTrackMeta->setInt32(kKeySampleBits, mBitsPerSample);
 #endif
 #endif
+#endif /* QCOM_HARDWARE */
                         break;
                     case WAVE_FORMAT_ALAW:
                         mTrackMeta->setCString(
@@ -357,7 +365,9 @@ WAVSource::WAVSource(
       mOffset(offset),
       mSize(size),
       mStarted(false),
+#ifdef QCOM_HARDWARE
       mOutputFormat(AUDIO_FORMAT_PCM_16_BIT),
+#endif /* QCOM_HARDWARE */
       mGroup(NULL) {
     CHECK(mMeta->findInt32(kKeySampleRate, &mSampleRate));
     CHECK(mMeta->findInt32(kKeyChannelCount, &mNumChannels));
@@ -371,11 +381,16 @@ WAVSource::~WAVSource() {
     }
 }
 
+#ifndef QCOM_HARDWARE
+status_t WAVSource::start(MetaData * /* params */) {
+#else /* QCOM_HARDWARE */
 status_t WAVSource::start(MetaData *params) {
+#endif /* QCOM_HARDWARE */
     ALOGV("WAVSource::start");
 
     CHECK(!mStarted);
 
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
 #ifdef PCM_OFFLOAD_ENABLED_24
     if (params != NULL) {
@@ -390,11 +405,17 @@ status_t WAVSource::start(MetaData *params) {
 #endif
 #endif
 
+#endif /* QCOM_HARDWARE */
     mGroup = new MediaBufferGroup;
     mGroup->add_buffer(new MediaBuffer(kMaxFrameSize));
 
+#ifndef QCOM_HARDWARE
+    if (mBitsPerSample == 8) {
+        // As a temporary buffer for 8->16 bit conversion.
+#else /* QCOM_HARDWARE */
     if (mBitsPerSample == 8 || mBitsPerSample == 24) {
         // As a temporary buffer for {8->16, 24->32} bit conversion.
+#endif /* QCOM_HARDWARE */
         mGroup->add_buffer(new MediaBuffer(kMaxFrameSize));
     }
 
@@ -454,6 +475,11 @@ status_t WAVSource::read(
     }
 
     // make sure that maxBytesToRead is multiple of 3, in 24-bit case
+#ifndef QCOM_HARDWARE
+    size_t maxBytesToRead =
+        mBitsPerSample == 8 ? kMaxFrameSize / 2 : 
+        (mBitsPerSample == 24 ? 3*(kMaxFrameSize/3): kMaxFrameSize);
+#else /* QCOM_HARDWARE */
     size_t maxBytesToRead;
     if(8 == mBitsPerSample)
         maxBytesToRead = kMaxFrameSize / 2;
@@ -466,6 +492,7 @@ status_t WAVSource::read(
         maxBytesToRead = kMaxFrameSize;
     ALOGV("%s mOutputFormat %x, mBitsPerSample %d, kMaxFrameSize %d, ",
           __func__, mOutputFormat, mBitsPerSample, kMaxFrameSize);
+#endif /* QCOM_HARDWARE */
 
     size_t maxBytesAvailable =
         (mCurrentPos - mOffset >= (off64_t)mSize)
@@ -524,9 +551,27 @@ status_t WAVSource::read(
             buffer->release();
             buffer = tmp;
         } else if (mBitsPerSample == 24) {
+#ifndef QCOM_HARDWARE
+            // Convert 24-bit signed samples to 16-bit signed.
+
+            const uint8_t *src =
+                (const uint8_t *)buffer->data() + buffer->range_offset();
+            int16_t *dst = (int16_t *)src;
+#else /* QCOM_HARDWARE */
             if (AUDIO_FORMAT_PCM_16_BIT == mOutputFormat) {
                 // Convert 24-bit signed samples to 16-bit signed.
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+            size_t numSamples = buffer->range_length() / 3;
+            for (size_t i = 0; i < numSamples; ++i) {
+                int32_t x = (int32_t)(src[0] | src[1] << 8 | src[2] << 16);
+                x = (x << 8) >> 8;  // sign extension
+
+                x = x >> 8;
+                *dst++ = (int16_t)x;
+                src += 3;
+#else /* QCOM_HARDWARE */
                 const uint8_t *src =
                     (const uint8_t *)buffer->data() + buffer->range_offset();
                 int16_t *dst = (int16_t *)src;
@@ -560,7 +605,12 @@ status_t WAVSource::read(
                 buffer->release();
                 buffer = tmp;
                 ALOGV("length = %d", buffer->range_length());
+#endif /* QCOM_HARDWARE */
             }
+#ifndef QCOM_HARDWARE
+
+            buffer->set_range(buffer->range_offset(), 2 * numSamples);
+#endif /* ! QCOM_HARDWARE */
         }
     }
 

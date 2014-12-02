@@ -51,12 +51,14 @@ status_t AudioRecord::getMinFrameCount(
         return status;
     }
 
+#ifdef QCOM_HARDWARE
     // handle non-linear-pcm formats and update frameCount
     if (!audio_is_linear_pcm(format)) {
         *frameCount = (size * 2) / sizeof(uint8_t);
         return NO_ERROR;
     }
 
+#endif /* QCOM_HARDWARE */
     // We double the size of input buffer for ping pong use of record buffer.
     // Assumes audio_is_linear_pcm(format)
     if ((*frameCount = (size * 2) / (audio_channel_count_from_in_mask(channelMask) *
@@ -192,10 +194,15 @@ status_t AudioRecord::set(
         ALOGE("Invalid format %#x", format);
         return BAD_VALUE;
     }
+#ifndef QCOM_HARDWARE
+    // Temporary restriction: AudioFlinger currently supports 16-bit PCM only
+    if (format != AUDIO_FORMAT_PCM_16_BIT) {
+#else /* QCOM_HARDWARE */
     // Temporary restriction: AudioFlinger currently supports 16-bit PCM and compress formats only
     if (format != AUDIO_FORMAT_PCM_16_BIT &&
            !audio_is_compress_voip_format(format) &&
            !audio_is_compress_capture_format(format)) {
+#endif /* QCOM_HARDWARE */
         ALOGE("Format %#x is not supported", format);
         return BAD_VALUE;
     }

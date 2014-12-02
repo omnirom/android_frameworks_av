@@ -1000,7 +1000,11 @@ size_t LiveSession::getBandwidthIndex() {
             long maxBw = strtoul(value, &end, 10);
             if (end > value && *end == '\0') {
                 if (maxBw > 0 && bandwidthBps > maxBw) {
+#ifndef QCOM_HARDWARE
+                    ALOGV("bandwidth capped to %ld bps", maxBw);
+#else /* QCOM_HARDWARE */
                     ALOGI("bandwidth capped to %ld bps", maxBw);
+#endif /* QCOM_HARDWARE */
                     bandwidthBps = maxBw;
                 }
             }

@@ -16,6 +16,9 @@
 
 <Included>
     <Decoders>
+#ifndef QCOM_HARDWARE
+        <MediaCodec name="OMX.google.mpeg4.decoder" type="video/mp4v-es">
+#else /* QCOM_HARDWARE */
         <MediaCodec name="OMX.google.mpeg4.decoder">
             <Type name="video/mp4v-es" />
             <!--
@@ -24,6 +27,7 @@
                 mimetypes, so non-DP mpeg4 usecases will not be affected by this.
             -->
             <Type name="video/mp4v-esdp" />
+#endif /* QCOM_HARDWARE */
             <!-- profiles and levels:  ProfileSimple : Level3 -->
             <Limit name="size" min="2x2" max="352x288" />
             <Limit name="alignment" value="2x2" />

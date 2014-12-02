@@ -75,8 +75,13 @@ struct BundledEffectContext{
     bool                            bVirtualizerTempDisabled; /* Flag for effect to be re-enabled */
     audio_devices_t                 nOutputDevice;            /* Output device for the effect */
     audio_devices_t                 nVirtualizerForcedDevice; /* Forced device virtualization mode*/
+#ifndef QCOM_HARDWARE
+    int                             NumberEffectsEnabled;     /* Effects in this session */
+#endif /* ! QCOM_HARDWARE */
     int                             NumberEffectsCalled;      /* Effects called so far */
+#ifdef QCOM_HARDWARE
     uint32_t                        EffectsBitMap;            /* Effects enable bit mask */
+#endif /* QCOM_HARDWARE */
     bool                            firstVolume;              /* No smoothing on first Vol change */
     // Saved parameters for each effect */
     // Bass Boost
