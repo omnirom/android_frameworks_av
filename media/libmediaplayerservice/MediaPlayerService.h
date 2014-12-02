@@ -387,9 +387,11 @@ private:
 
                 int             getAudioSessionId() { return mAudioSessionId; }
 
+#ifdef QCOM_HARDWARE
         virtual status_t        suspend();
         virtual status_t        resume();
 
+#endif /* QCOM_HARDWARE */
     private:
         friend class MediaPlayerService;
                                 Client( const sp<MediaPlayerService>& service,

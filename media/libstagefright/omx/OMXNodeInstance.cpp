@@ -55,10 +55,17 @@ struct BufferMeta {
             return;
         }
 
+#ifdef QCOM_HARDWARE
         size_t bytesToCopy = header->nFlags & OMX_BUFFERFLAG_EXTRADATA ?
             header->nAllocLen - header->nOffset : header->nFilledLen;
+#endif /* QCOM_HARDWARE */
         memcpy((OMX_U8 *)mMem->pointer() + header->nOffset,
+#ifndef QCOM_HARDWARE
+               header->pBuffer + header->nOffset,
+               header->nFilledLen);
+#else /* QCOM_HARDWARE */
                header->pBuffer + header->nOffset, bytesToCopy);
+#endif /* QCOM_HARDWARE */
     }
 
     void CopyToOMX(const OMX_BUFFERHEADERTYPE *header) {
@@ -66,10 +73,17 @@ struct BufferMeta {
             return;
         }
 
+#ifdef QCOM_HARDWARE
         size_t bytesToCopy = header->nFlags & OMX_BUFFERFLAG_EXTRADATA ?
             header->nAllocLen - header->nOffset : header->nFilledLen;
+#endif /* QCOM_HARDWARE */
         memcpy(header->pBuffer + header->nOffset,
+#ifndef QCOM_HARDWARE
+               (const OMX_U8 *)mMem->pointer() + header->nOffset,
+               header->nFilledLen);
+#else /* QCOM_HARDWARE */
                (const OMX_U8 *)mMem->pointer() + header->nOffset, bytesToCopy);
+#endif /* QCOM_HARDWARE */
     }
 
     void setGraphicBuffer(const sp<GraphicBuffer> &graphicBuffer) {
@@ -170,7 +184,9 @@ status_t OMXNodeInstance::freeNode(OMXMaster *master) {
     OMX_STATETYPE state;
     CHECK_EQ(OMX_GetState(mHandle, &state), OMX_ErrorNone);
     switch (state) {
+#ifdef QCOM_HARDWARE
         case OMX_StatePause:
+#endif /* QCOM_HARDWARE */
         case OMX_StateExecuting:
         {
             ALOGV("forcing Executing->Idle");

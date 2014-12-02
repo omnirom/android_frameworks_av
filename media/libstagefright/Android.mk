@@ -44,7 +44,9 @@ LOCAL_SRC_FILES:=                         \
         NuMediaExtractor.cpp              \
         OMXClient.cpp                     \
         OMXCodec.cpp                      \
+#ifdef QCOM_HARDWARE
         ExtendedCodec.cpp                 \
+#endif /* QCOM_HARDWARE */
         OggExtractor.cpp                  \
         SampleIterator.cpp                \
         SampleTable.cpp                   \
@@ -58,13 +60,17 @@ LOCAL_SRC_FILES:=                         \
         Utils.cpp                         \
         VBRISeeker.cpp                    \
         WAVExtractor.cpp                  \
+#ifdef QCOM_HARDWARE
         WAVEWriter.cpp                    \
+#endif /* QCOM_HARDWARE */
         WVMExtractor.cpp                  \
         XINGSeeker.cpp                    \
         avc_utils.cpp                     \
+#ifdef QCOM_HARDWARE
         ExtendedExtractor.cpp             \
         ExtendedUtils.cpp                 \
         ExtendedStats.cpp                 \
+#endif /* QCOM_HARDWARE */
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/ \
@@ -104,6 +110,7 @@ LOCAL_SHARED_LIBRARIES := \
         libz \
         libpowermanager
 
+#ifdef QCOM_HARDWARE
 #QTI FLAC Decoder
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
@@ -114,6 +121,7 @@ LOCAL_CFLAGS := -DQTI_FLAC_DECODER
 endif
 endif
 
+#endif /* QCOM_HARDWARE */
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_color_conversion \
         libstagefright_aacenc \
@@ -126,6 +134,7 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_id3 \
         libFLAC \
         libmedia_helper
+#ifdef QCOM_HARDWARE
 
 ifeq ($(TARGET_USES_QCOM_BSP), true)
 ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
@@ -165,6 +174,7 @@ ifeq ($(strip $(AUDIO_FEATURE_ENABLED_FLAC_OFFLOAD)),true)
        LOCAL_CFLAGS     += -DFLAC_OFFLOAD_ENABLED
 endif
 endif
+#endif /* QCOM_HARDWARE */
 
 LOCAL_SHARED_LIBRARIES += \
         libstagefright_enc_common \

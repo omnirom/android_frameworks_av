@@ -101,11 +101,13 @@ protected:
     void flushAck();
     bool isResumePending();
     void resumeAck();
+#ifdef QCOM_HARDWARE
     void signalError();
 
     bool isOutputTrack() const {
         return (mStreamType == AUDIO_STREAM_CNT);
     }
+#endif /* QCOM_HARDWARE */
 
     sp<IMemory> sharedBuffer() const { return mSharedBuffer; }
 

@@ -206,7 +206,11 @@ status_t VendorTagDescriptor::createFromParcel(const Parcel* parcel,
         return res;
     }
 
+#ifndef QCOM_HARDWARE
+    size_t sectionCount;
+#else /* QCOM_HARDWARE */
     size_t sectionCount = 0;
+#endif /* QCOM_HARDWARE */
     if (tagCount > 0) {
         if ((res = parcel->readInt32(reinterpret_cast<int32_t*>(&sectionCount))) != OK) {
             ALOGE("%s: could not read section count for.", __FUNCTION__);

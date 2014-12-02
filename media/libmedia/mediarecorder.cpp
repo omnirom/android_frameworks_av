@@ -489,7 +489,11 @@ status_t MediaRecorder::start()
         ALOGE("media recorder is not initialized yet");
         return INVALID_OPERATION;
     }
+#ifndef QCOM_HARDWARE
+    if (!(mCurrentState & MEDIA_RECORDER_PREPARED)) {
+#else /* QCOM_HARDWARE */
     if (!(mCurrentState & (MEDIA_RECORDER_PREPARED | MEDIA_RECORDER_PAUSED))) {
+#endif /* QCOM_HARDWARE */
         ALOGE("start called in an invalid state: %d", mCurrentState);
         return INVALID_OPERATION;
     }
@@ -504,6 +508,7 @@ status_t MediaRecorder::start()
     return ret;
 }
 
+#ifdef QCOM_HARDWARE
 status_t MediaRecorder::pause()
 {
     ALOGV("pause");
@@ -527,6 +532,7 @@ status_t MediaRecorder::pause()
     return ret;
 }
 
+#endif /* QCOM_HARDWARE */
 status_t MediaRecorder::stop()
 {
     ALOGV("stop");
@@ -534,7 +540,11 @@ status_t MediaRecorder::stop()
         ALOGE("media recorder is not initialized yet");
         return INVALID_OPERATION;
     }
+#ifndef QCOM_HARDWARE
+    if (!(mCurrentState & MEDIA_RECORDER_RECORDING)) {
+#else /* QCOM_HARDWARE */
     if (!(mCurrentState & (MEDIA_RECORDER_RECORDING | MEDIA_RECORDER_PAUSED))) {
+#endif /* QCOM_HARDWARE */
         ALOGE("stop called in an invalid state: %d", mCurrentState);
         return INVALID_OPERATION;
     }
@@ -570,7 +580,9 @@ status_t MediaRecorder::reset()
             ret = OK;
             break;
 
+#ifdef QCOM_HARDWARE
         case MEDIA_RECORDER_PAUSED:
+#endif /* QCOM_HARDWARE */
         case MEDIA_RECORDER_RECORDING:
         case MEDIA_RECORDER_DATASOURCE_CONFIGURED:
         case MEDIA_RECORDER_PREPARED:

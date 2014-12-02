@@ -11,6 +11,7 @@ include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 
+#ifdef QCOM_HARDWARE
 LOCAL_SRC_FILES:= AudioParameter.cpp
 LOCAL_MODULE:= libaudioparameter
 LOCAL_MODULE_TAGS := optional
@@ -20,6 +21,7 @@ include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
 
+#endif /* QCOM_HARDWARE */
 LOCAL_SRC_FILES:= \
     AudioTrack.cpp \
     AudioTrackShared.cpp \
@@ -72,6 +74,7 @@ LOCAL_SRC_FILES:= \
 
 LOCAL_SRC_FILES += ../libnbaio/roundup.c
 
+#ifdef QCOM_HARDWARE
 
 #QTI Resampler
 ifeq ($(call is-vendor-board-platform,QCOM),true)
@@ -81,10 +84,15 @@ endif
 endif
 #QTI Resampler
 
+#endif /* QCOM_HARDWARE */
 LOCAL_SHARED_LIBRARIES := \
 	libui liblog libcutils libutils libbinder libsonivox libicuuc libicui18n libexpat \
         libcamera_client libstagefright_foundation \
+#ifndef QCOM_HARDWARE
+        libgui libdl libaudioutils libnbaio
+#else /* QCOM_HARDWARE */
         libgui libdl libaudioutils libnbaio libaudioparameter
+#endif /* QCOM_HARDWARE */
 
 LOCAL_STATIC_LIBRARIES += libinstantssq
 

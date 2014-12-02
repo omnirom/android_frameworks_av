@@ -51,7 +51,9 @@ enum player_type {
     // The shared library with the test player is passed passed as an
     // argument to the 'test:' url in the setDataSource call.
     TEST_PLAYER = 5,
+#ifdef QCOM_HARDWARE
     DASH_PLAYER = 6,
+#endif /* QCOM_HARDWARE */
 };
 
 
@@ -214,6 +216,7 @@ public:
     }
 
     virtual status_t dump(int fd, const Vector<String16> &args) const {
+#ifdef QCOM_HARDWARE
         return INVALID_OPERATION;
     }
 
@@ -222,6 +225,7 @@ public:
     }
 
     virtual status_t resume() {
+#endif /* QCOM_HARDWARE */
         return INVALID_OPERATION;
     }
 

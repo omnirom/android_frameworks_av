@@ -45,9 +45,11 @@ public:
         DYN_LOW_QUALITY=5,
         DYN_MED_QUALITY=6,
         DYN_HIGH_QUALITY=7,
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
         QTI_QUALITY=8,
 #endif
+#endif /* QCOM_HARDWARE */
     };
 
     static const float UNITY_GAIN_FLOAT = 1.0f;
