@@ -22,7 +22,6 @@ LOCAL_C_INCLUDES := \
 	$(TOP)/frameworks/av/media/libmediaplayerservice              \
 	$(TOP)/frameworks/native/include/media/openmax
 
-#ifdef QCOM_HARDWARE
 #QTI FLAC Decoder
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
@@ -32,7 +31,6 @@ LOCAL_CFLAGS := -DQTI_FLAC_DECODER
 endif
 endif
 
-#endif /* QCOM_HARDWARE */
 LOCAL_MODULE:= libstagefright_nuplayer
 
 LOCAL_MODULE_TAGS := eng

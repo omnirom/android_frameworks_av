@@ -40,14 +40,12 @@ LOCAL_C_INCLUDES := \
     $(call include-path-for, audio-utils) \
     frameworks/av/services/soundtrigger
 
-#ifdef QCOM_HARDWARE
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_LISTEN)),true)
   LOCAL_SHARED_LIBRARIES += liblisten
   LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio/audio-listen
   LOCAL_CFLAGS += -DAUDIO_LISTEN_ENABLED
 endif
 
-#endif /* QCOM_HARDWARE */
 LOCAL_MODULE:= mediaserver
 LOCAL_32_BIT_ONLY := true
 

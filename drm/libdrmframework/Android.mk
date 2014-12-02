@@ -31,11 +31,7 @@ LOCAL_SHARED_LIBRARIES := \
     libbinder \
     libdl
 
-#ifndef QCOM_HARDWARE
-LOCAL_STATIC_LIBRARIES := \
-#else /* QCOM_HARDWARE */
 LOCAL_WHOLE_STATIC_LIBRARIES := \
-#endif /* QCOM_HARDWARE */
     libdrmframeworkcommon
 
 LOCAL_C_INCLUDES += \

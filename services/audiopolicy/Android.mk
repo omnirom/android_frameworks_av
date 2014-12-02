@@ -64,7 +64,6 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_STATIC_LIBRARIES := \
     libmedia_helper
 
-#ifdef QCOM_HARDWARE
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_COMPRESS_VOIP)),true)
 LOCAL_CFLAGS += -DAUDIO_EXTN_COMPRESS_VOIP_ENABLED
 endif
@@ -121,7 +120,6 @@ ifeq ($(strip $(DOLBY_DAP)),true)
     endif
 endif #DOLBY_END
 
-#endif /* QCOM_HARDWARE */
 LOCAL_MODULE:= libaudiopolicymanagerdefault
 
 include $(BUILD_SHARED_LIBRARY)
