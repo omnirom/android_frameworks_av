@@ -59,7 +59,6 @@ LOCAL_MODULE:= libmediaplayerservice
 
 LOCAL_32_BIT_ONLY := true
 
-#ifdef QCOM_HARDWARE
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
     LOCAL_CFLAGS += -DENABLE_AV_ENHANCEMENTS
     LOCAL_C_INCLUDES += $(TOP)/frameworks/av/include/media
@@ -70,7 +69,6 @@ else
 endif
 endif
 
-#endif /* QCOM_HARDWARE */
 include $(BUILD_SHARED_LIBRARY)
 
 include $(call all-makefiles-under,$(LOCAL_PATH))
