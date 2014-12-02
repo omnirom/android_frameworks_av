@@ -100,6 +100,7 @@ public:
     virtual status_t        getMetadata(bool update_only,
                                         bool apply_filter,
                                         Parcel *metadata) = 0;
+#ifdef QCOM_HARDWARE
 
     // Suspend the video player
     // In other words, just release the audio decoder and the video decoder
@@ -110,6 +111,7 @@ public:
     // Init the audio decoder and the video decoder
     // @return OK if the video player was resumed successfully
     virtual status_t        resume() = 0;
+#endif /* QCOM_HARDWARE */
 };
 
 // ----------------------------------------------------------------------------

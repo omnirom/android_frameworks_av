@@ -102,8 +102,10 @@ private:
     void flushPendingRequests();
     void postReceiveReponseEvent();
 
+#ifdef QCOM_HARDWARE
     bool createSocketAndConnect(void *res, unsigned int, const sp<AMessage> &reply);
 
+#endif /* QCOM_HARDWARE */
     // Return false iff something went unrecoverably wrong.
     bool receiveRTSPReponse();
     status_t receive(void *data, size_t size);

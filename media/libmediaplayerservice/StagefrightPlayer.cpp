@@ -219,6 +219,7 @@ status_t StagefrightPlayer::dump(int fd, const Vector<String16> &args) const {
     return mPlayer->dump(fd, args);
 }
 
+#ifdef QCOM_HARDWARE
 status_t StagefrightPlayer::suspend() {
     ALOGV("suspend");
     return mPlayer->suspend();
@@ -229,4 +230,5 @@ status_t StagefrightPlayer::resume() {
     return mPlayer->resume();
 }
 
+#endif /* QCOM_HARDWARE */
 }  // namespace android
