@@ -89,6 +89,7 @@ public:
         }
     }
 
+#ifdef QCOM_HARDWARE
     status_t filterOpenErrorCode(status_t err) {
         switch(err) {
             case NO_ERROR:
@@ -103,6 +104,7 @@ public:
     }
 
 
+#endif /* QCOM_HARDWARE */
     status_t initialize(hw_module_t *module)
     {
         ALOGI("Opening camera %s", mName.string());
@@ -119,7 +121,11 @@ public:
                                                CAMERA_DEVICE_API_VERSION_1_0,
                                                (hw_device_t **)&mDevice);
         } else {
+#ifndef QCOM_HARDWARE
+            rc = CameraService::filterOpenErrorCode(module->methods->open(
+#else /* QCOM_HARDWARE */
             rc = filterOpenErrorCode(module->methods->open(
+#endif /* QCOM_HARDWARE */
                 module, mName.string(), (hw_device_t **)&mDevice));
         }
         if (rc != OK) {

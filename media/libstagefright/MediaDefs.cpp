@@ -25,7 +25,9 @@ const char *MEDIA_MIMETYPE_VIDEO_VP9 = "video/x-vnd.on2.vp9";
 const char *MEDIA_MIMETYPE_VIDEO_AVC = "video/avc";
 const char *MEDIA_MIMETYPE_VIDEO_HEVC = "video/hevc";
 const char *MEDIA_MIMETYPE_VIDEO_MPEG4 = "video/mp4v-es";
+#ifdef QCOM_HARDWARE
 const char *MEDIA_MIMETYPE_VIDEO_MPEG4_DP = "video/mp4v-esdp";
+#endif /* QCOM_HARDWARE */
 const char *MEDIA_MIMETYPE_VIDEO_H263 = "video/3gpp";
 const char *MEDIA_MIMETYPE_VIDEO_MPEG2 = "video/mpeg2";
 const char *MEDIA_MIMETYPE_VIDEO_RAW = "video/raw";

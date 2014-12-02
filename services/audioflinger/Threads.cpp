@@ -919,7 +919,11 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
 
     // Reject any effect on mixer or duplicating multichannel sinks.
     // TODO: fix both format and multichannel issues with effects.
+#ifndef QCOM_HARDWARE
+    if ((mType == MIXER || mType == DUPLICATING) && mChannelCount != FCC_2) {
+#else /* QCOM_HARDWARE */
     if ((mType == MIXER || mType == DUPLICATING) && mChannelCount > FCC_2) {
+#endif /* QCOM_HARDWARE */
         ALOGW("createEffect_l() Cannot add effect %s for multichannel(%d) %s threads",
                 desc->name, mChannelCount, mType == MIXER ? "MIXER" : "DUPLICATING");
         lStatus = BAD_VALUE;
@@ -1442,9 +1446,13 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
     switch (mType) {
 
     case DIRECT:
+#ifndef QCOM_HARDWARE
+        if (audio_is_linear_pcm(format)) {
+#else /* QCOM_HARDWARE */
         if (audio_is_linear_pcm(format) ||
             audio_is_compress_voip_format(format) ||
             audio_is_compress_capture_format(format)) {
+#endif /* QCOM_HARDWARE */
             if (sampleRate != mSampleRate || format != mFormat || channelMask != mChannelMask) {
                 ALOGE("createTrack_l() Bad parameter: sampleRate %u format %#x, channelMask 0x%08x "
                         "for output %p with format %#x",
@@ -2210,8 +2218,18 @@ void AudioFlinger::PlaybackThread::cacheParameters_l()
     idleSleepTime = idleSleepTimeUs();
 }
 
+#ifndef QCOM_HARDWARE
+void AudioFlinger::PlaybackThread::invalidateTracks(audio_stream_type_t streamType)
+#else /* QCOM_HARDWARE */
 void AudioFlinger::PlaybackThread::invalidateTracks_l(audio_stream_type_t streamType)
+#endif /* QCOM_HARDWARE */
 {
+#ifndef QCOM_HARDWARE
+    ALOGV("MixerThread::invalidateTracks() mixer %p, streamType %d, mTracks.size %d",
+            this,  streamType, mTracks.size());
+    Mutex::Autolock _l(mLock);
+
+#endif /* ! QCOM_HARDWARE */
     size_t size = mTracks.size();
     for (size_t i = 0; i < size; i++) {
         sp<Track> t = mTracks[i];
@@ -2221,6 +2239,7 @@ void AudioFlinger::PlaybackThread::invalidateTracks_l(audio_stream_type_t stream
     }
 }
 
+#ifdef QCOM_HARDWARE
 void AudioFlinger::PlaybackThread::invalidateTracks(audio_stream_type_t streamType)
 {
     Mutex::Autolock _l(mLock);
@@ -2235,6 +2254,7 @@ void AudioFlinger::PlaybackThread::onFatalError()
 }
 
 
+#endif /* QCOM_HARDWARE */
 status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& chain)
 {
     int session = chain->sessionId();
@@ -3519,6 +3539,9 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                 name,
                 AudioMixer::TRACK,
                 AudioMixer::MIXER_CHANNEL_MASK, (void *)(uintptr_t)mChannelMask);
+#ifndef QCOM_HARDWARE
+            // limit track sample rate to 2 x output sample rate, which changes at re-configuration
+#endif /* ! QCOM_HARDWARE */
             uint32_t maxSampleRate = mSampleRate * AUDIO_RESAMPLER_DOWN_RATIO_MAX;
             uint32_t reqSampleRate = track->mAudioTrackServerProxy->getSampleRate();
             if (reqSampleRate == 0) {
@@ -4131,9 +4154,13 @@ void AudioFlinger::DirectOutputThread::threadLoop_sleepTime()
         } else {
             sleepTime = idleSleepTime;
         }
+#ifndef QCOM_HARDWARE
+    } else if (mBytesWritten != 0 && audio_is_linear_pcm(mFormat)) {
+#else /* QCOM_HARDWARE */
     } else if (mBytesWritten != 0 && (audio_is_linear_pcm(mFormat) ||
             audio_is_compress_voip_format(mFormat) ||
             audio_is_compress_capture_format(mFormat))) {
+#endif /* QCOM_HARDWARE */
         memset(mSinkBuffer, 0, mFrameCount * mFrameSize);
         sleepTime = 0;
     }
@@ -4649,6 +4676,7 @@ void AudioFlinger::OffloadThread::onAddNewTrack_l()
     PlaybackThread::onAddNewTrack_l();
 }
 
+#ifdef QCOM_HARDWARE
 void AudioFlinger::OffloadThread::onFatalError()
 {
     Mutex::Autolock _l(mLock);
@@ -4657,6 +4685,7 @@ void AudioFlinger::OffloadThread::onFatalError()
    invalidateTracks_l(AUDIO_STREAM_MUSIC);
 }
 
+#endif /* QCOM_HARDWARE */
 // ----------------------------------------------------------------------------
 
 AudioFlinger::DuplicatingThread::DuplicatingThread(const sp<AudioFlinger>& audioFlinger,
@@ -5231,11 +5260,15 @@ reacquire_wakelock:
         // If destination is non-contiguous, first read past the nominal end of buffer, then
         // copy to the right place.  Permitted because mRsmpInBuffer was over-allocated.
 
+#ifndef QCOM_HARDWARE
+        int32_t rear = mRsmpInRear & (mRsmpInFramesP2 - 1);
+#else /* QCOM_HARDWARE */
         // Use modulo operator instead of and operator.
         // x &= (y-1) returns the remainder if y is even
         // Use modulo operator to generalize it for all values.
         // This is needed for compress offload voip and encode usecases.
         int32_t rear = mRsmpInRear % mRsmpInFramesP2;
+#endif /* QCOM_HARDWARE */
         ssize_t framesRead;
 
         // If an NBAIO source is present, use it to read the normal capture's data
@@ -5337,19 +5370,27 @@ reacquire_wakelock:
                     }
                     int8_t *dst = activeTrack->mSink.i8;
                     while (framesIn > 0) {
+#ifndef QCOM_HARDWARE
+                        front &= mRsmpInFramesP2 - 1;
+#else /* QCOM_HARDWARE */
                         // Use modulo operator instead of and operator.
                         // x &= (y-1) returns the remainder if y is even
                         // Use modulo operator to generalize it for all values.
                         // This is needed for compress offload voip and encode usecases.
                         front %= mRsmpInFramesP2;
+#endif /* QCOM_HARDWARE */
                         size_t part1 = mRsmpInFramesP2 - front;
                         if (part1 > framesIn) {
                             part1 = framesIn;
                         }
                         int8_t *src = (int8_t *)mRsmpInBuffer + (front * mFrameSize);
+#ifndef QCOM_HARDWARE
+                        if (mChannelCount == activeTrack->mChannelCount) {
+#else /* QCOM_HARDWARE */
                         if (mChannelCount == activeTrack->mChannelCount ||
                                 audio_is_compress_capture_format(mFormat) ||
                                 audio_is_compress_voip_format(mFormat)) {
+#endif /* QCOM_HARDWARE */
                             memcpy(dst, src, part1 * mFrameSize);
                         } else if (mChannelCount == 1) {
                             upmix_to_stereo_i16_from_mono_i16((int16_t *)dst, (const int16_t *)src,
@@ -6140,10 +6181,15 @@ void AudioFlinger::RecordThread::readInputParameters_l()
     mChannelCount = audio_channel_count_from_in_mask(mChannelMask);
     mHALFormat = mInput->stream->common.get_format(&mInput->stream->common);
     mFormat = mHALFormat;
+#ifndef QCOM_HARDWARE
+    if (mFormat != AUDIO_FORMAT_PCM_16_BIT) {
+        ALOGE("HAL format %#x not supported; must be AUDIO_FORMAT_PCM_16_BIT", mFormat);
+#else /* QCOM_HARDWARE */
     if (mFormat != AUDIO_FORMAT_PCM_16_BIT &&
             !audio_is_compress_voip_format(mFormat) &&
             !audio_is_compress_capture_format(mFormat)) {
         ALOGE("HAL format %#x not supported;", mFormat);
+#endif /* QCOM_HARDWARE */
     }
     mFrameSize = audio_stream_in_frame_size(mInput->stream);
     mBufferSize = mInput->stream->common.get_buffer_size(&mInput->stream->common);
@@ -6154,6 +6200,10 @@ void AudioFlinger::RecordThread::readInputParameters_l()
     // The value is somewhat arbitrary, and could probably be even larger.
     // A larger value should allow more old data to be read after a track calls start(),
     // without increasing latency.
+#ifndef QCOM_HARDWARE
+    mRsmpInFrames = mFrameCount * 7;
+    mRsmpInFramesP2 = roundup(mRsmpInFrames);
+#else /* QCOM_HARDWARE */
     if (audio_is_compress_voip_format(mFormat) ||
         audio_is_compress_capture_format(mFormat)) {
         mRsmpInFrames = mFrameCount;
@@ -6162,6 +6212,7 @@ void AudioFlinger::RecordThread::readInputParameters_l()
         mRsmpInFrames = mFrameCount * 7;
         mRsmpInFramesP2 = roundup(mRsmpInFrames);
     }
+#endif /* QCOM_HARDWARE */
     delete[] mRsmpInBuffer;
 
     // TODO optimize audio capture buffer sizes ...

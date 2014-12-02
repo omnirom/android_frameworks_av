@@ -313,9 +313,11 @@ status_t MediaPlayer::start()
                 ALOGV("playback completed immediately following start()");
             }
         }
+#ifdef QCOM_HARDWARE
     } else if ( (mPlayer != 0) && (mCurrentState & MEDIA_PLAYER_SUSPENDED) ) {
         ALOGV("start while suspended, so ignore this start");
         ret = NO_ERROR;
+#endif /* QCOM_HARDWARE */
     } else {
         ALOGE("start called in state %d", mCurrentState);
         ret = INVALID_OPERATION;
@@ -417,7 +419,11 @@ status_t MediaPlayer::getCurrentPosition(int *msec)
 status_t MediaPlayer::getDuration_l(int *msec)
 {
     ALOGV("getDuration_l");
+#ifndef QCOM_HARDWARE
+    bool isValidState = (mCurrentState & (MEDIA_PLAYER_PREPARED | MEDIA_PLAYER_STARTED | MEDIA_PLAYER_PAUSED | MEDIA_PLAYER_STOPPED | MEDIA_PLAYER_PLAYBACK_COMPLETE));
+#else /* QCOM_HARDWARE */
     bool isValidState = (mCurrentState & (MEDIA_PLAYER_PREPARED | MEDIA_PLAYER_STARTED | MEDIA_PLAYER_PAUSED | MEDIA_PLAYER_STOPPED | MEDIA_PLAYER_PLAYBACK_COMPLETE | MEDIA_PLAYER_SUSPENDED));
+#endif /* QCOM_HARDWARE */
     if (mPlayer != 0 && isValidState) {
         int durationMs;
         status_t ret = mPlayer->getDuration(&durationMs);
@@ -446,7 +452,11 @@ status_t MediaPlayer::getDuration(int *msec)
 status_t MediaPlayer::seekTo_l(int msec)
 {
     ALOGV("seekTo %d", msec);
+#ifndef QCOM_HARDWARE
+    if ((mPlayer != 0) && ( mCurrentState & ( MEDIA_PLAYER_STARTED | MEDIA_PLAYER_PREPARED | MEDIA_PLAYER_PAUSED |  MEDIA_PLAYER_PLAYBACK_COMPLETE) ) ) {
+#else /* QCOM_HARDWARE */
     if ((mPlayer != 0) && ( mCurrentState & ( MEDIA_PLAYER_STARTED | MEDIA_PLAYER_PREPARED | MEDIA_PLAYER_PAUSED |  MEDIA_PLAYER_PLAYBACK_COMPLETE | MEDIA_PLAYER_SUSPENDED) ) ) {
+#endif /* QCOM_HARDWARE */
         if ( msec < 0 ) {
             ALOGW("Attempt to seek to invalid position: %d", msec);
             msec = 0;
@@ -745,7 +755,11 @@ void MediaPlayer::notify(int msg, int ext1, int ext2, const Parcel *obj)
     }
 
     // Allows calls from JNI in idle state to notify errors
+#ifndef QCOM_HARDWARE
+    if (!(msg == MEDIA_ERROR && mCurrentState == MEDIA_PLAYER_IDLE) && mPlayer == 0) {
+#else /* QCOM_HARDWARE */
     if (!((msg == MEDIA_ERROR || msg == MEDIA_QOE) && mCurrentState == MEDIA_PLAYER_IDLE) && mPlayer == 0) {
+#endif /* QCOM_HARDWARE */
         ALOGV("notify(%d, %d, %d) callback on disconnected mediaplayer", msg, ext1, ext2);
         if (locked) mLock.unlock();   // release the lock when done.
         return;
@@ -820,8 +834,10 @@ void MediaPlayer::notify(int msg, int ext1, int ext2, const Parcel *obj)
         break;
     case MEDIA_SUBTITLE_DATA:
         ALOGV("Received subtitle data message");
+#ifdef QCOM_HARDWARE
     case MEDIA_QOE:
         ALOGV("Received QOE Message for event : %d",ext2);
+#endif /* QCOM_HARDWARE */
         break;
     default:
         ALOGV("unrecognized message: (%d, %d, %d)", msg, ext1, ext2);
@@ -901,6 +917,7 @@ status_t MediaPlayer::setNextMediaPlayer(const sp<MediaPlayer>& next) {
     return mPlayer->setNextPlayer(next == NULL ? NULL : next->mPlayer);
 }
 
+#ifdef QCOM_HARDWARE
 status_t MediaPlayer::suspend() {
     ALOGV("MediaPlayer::suspend()");
     Mutex::Autolock _l(mLock);
@@ -950,5 +967,6 @@ status_t MediaPlayer::resume() {
     mCurrentState = MEDIA_PLAYER_PREPARED;
     return OK;
 }
+#endif /* QCOM_HARDWARE */
 
 }; // namespace android

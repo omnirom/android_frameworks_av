@@ -127,7 +127,9 @@ private:
 
     static const int64_t kMinPositionUpdateDelayUs;
 
+#ifdef QCOM_HARDWARE
     sp<PlayerExtendedStats> mPlayerExtendedStats;
+#endif /* QCOM_HARDWARE */
     sp<MediaPlayerBase::AudioSink> mAudioSink;
     sp<AMessage> mNotify;
     Mutex mLock;

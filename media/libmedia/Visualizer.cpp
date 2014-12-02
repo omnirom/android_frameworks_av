@@ -52,6 +52,7 @@ Visualizer::Visualizer (int32_t priority,
 
 Visualizer::~Visualizer()
 {
+#ifdef QCOM_HARDWARE
     ALOGV("Visualizer::~Visualizer()");
     if (mCaptureThread != NULL) {
         mCaptureThread->requestExitAndWait();
@@ -59,6 +60,7 @@ Visualizer::~Visualizer()
     }
     mCaptureCallBack = NULL;
     mCaptureFlags = 0;
+#endif /* QCOM_HARDWARE */
 }
 
 status_t Visualizer::setEnabled(bool enabled)

@@ -31,13 +31,17 @@
 #include <media/stagefright/foundation/hexdump.h>
 
 #include <arpa/inet.h>
+#ifdef QCOM_HARDWARE
 #include <fcntl.h>
 #include <netdb.h>
 
+#endif /* QCOM_HARDWARE */
 #include <sys/socket.h>
 
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
 
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 static const size_t kMaxUDPSize = 1500;
@@ -75,8 +79,12 @@ struct ARTPConnection::StreamInfo {
 ARTPConnection::ARTPConnection(uint32_t flags)
     : mFlags(flags),
       mPollEventPending(false),
+#ifndef QCOM_HARDWARE
+      mLastReceiverReportTimeUs(-1) {
+#else /* QCOM_HARDWARE */
       mLastReceiverReportTimeUs(-1),
       mIPVersion(IPV4) {
+#endif /* QCOM_HARDWARE */
 }
 
 ARTPConnection::~ARTPConnection() {
@@ -88,7 +96,9 @@ void ARTPConnection::addStream(
         size_t index,
         const sp<AMessage> &notify,
         bool injected) {
+#ifdef QCOM_HARDWARE
         ALOGV("addStream() rtpSocket:%d rtcpSocket:%d index:%zu injected:%d", rtpSocket, rtcpSocket, index, (int)injected);
+#endif /* QCOM_HARDWARE */
     sp<AMessage> msg = new AMessage(kWhatAddStream, id());
     msg->setInt32("rtp-socket", rtpSocket);
     msg->setInt32("rtcp-socket", rtcpSocket);
@@ -100,7 +110,9 @@ void ARTPConnection::addStream(
 }
 
 void ARTPConnection::removeStream(int rtpSocket, int rtcpSocket) {
+#ifdef QCOM_HARDWARE
     ALOGV("removeStream() rtpSocket:%d rtcpSocket:%d ", rtpSocket, rtcpSocket);
+#endif /* QCOM_HARDWARE */
     sp<AMessage> msg = new AMessage(kWhatRemoveStream, id());
     msg->setInt32("rtp-socket", rtpSocket);
     msg->setInt32("rtcp-socket", rtcpSocket);
@@ -112,12 +124,16 @@ static void bumpSocketBufferSize(int s) {
     CHECK_EQ(setsockopt(s, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)), 0);
 }
 
+#ifndef QCOM_HARDWARE
+// static
+#else /* QCOM_HARDWARE */
 void ARTPConnection::setIPVersion(int ipVersion) {
     mIPVersion = ipVersion;
     ALOGI("IP Version:%d", mIPVersion);
 }
 
 //static
+#endif /* QCOM_HARDWARE */
 void ARTPConnection::MakePortPair(
         int *rtpSocket, int *rtcpSocket, unsigned *rtpPort) {
     *rtpSocket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -130,6 +146,10 @@ void ARTPConnection::MakePortPair(
 
     bumpSocketBufferSize(*rtcpSocket);
 
+#ifndef QCOM_HARDWARE
+    /* rand() * 1000 may overflow int type, use long long */
+    unsigned start = (unsigned)((rand()* 1000ll)/RAND_MAX) + 15550;
+#else /* QCOM_HARDWARE */
     unsigned portRangeStart = 0;
     unsigned portRangeEnd = 0;
     ExtendedUtils::ShellProp::getRtpPortRange(&portRangeStart, &portRangeEnd);
@@ -137,13 +157,20 @@ void ARTPConnection::MakePortPair(
     // choose a random start port from range of [portRangeStart, portRangeEnd)
     unsigned start = (unsigned)((random() % (portRangeEnd - portRangeStart))
             + portRangeStart);
+#endif /* QCOM_HARDWARE */
     start &= ~1;
+#ifdef QCOM_HARDWARE
     if (start < portRangeStart) {
         start += 2;
     }
     ALOGV("Test rtp port in range [%u, %u]", start, portRangeEnd);
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+    for (unsigned port = start; port < 65536; port += 2) {
+#else /* QCOM_HARDWARE */
     for (unsigned port = start; port <= portRangeEnd; port += 2) {
+#endif /* QCOM_HARDWARE */
         struct sockaddr_in addr;
         memset(addr.sin_zero, 0, sizeof(addr.sin_zero));
         addr.sin_family = AF_INET;
@@ -159,7 +186,9 @@ void ARTPConnection::MakePortPair(
 
         if (bind(*rtcpSocket,
                  (const struct sockaddr *)&addr, sizeof(addr)) == 0) {
+#ifdef QCOM_HARDWARE
             ALOGV("RTCP port: %u", port + 1);
+#endif /* QCOM_HARDWARE */
             *rtpPort = port;
             return;
         }
@@ -363,8 +392,18 @@ void ARTPConnection::onPollStreams() {
             if (buffer->size() > 0) {
                 ALOGV("Sending RR...");
 
+#ifndef QCOM_HARDWARE
+                ssize_t n;
+#else /* QCOM_HARDWARE */
                 ssize_t n = 0;
+#endif /* QCOM_HARDWARE */
                 do {
+#ifndef QCOM_HARDWARE
+                    n = sendto(
+                        s->mRTCPSocket, buffer->data(), buffer->size(), 0,
+                        (const struct sockaddr *)&s->mRemoteRTCPAddr,
+                        sizeof(s->mRemoteRTCPAddr));
+#else /* QCOM_HARDWARE */
                     if(mIPVersion == IPV4) {
                         n = sendto(
                             s->mRTCPSocket, buffer->data(), buffer->size(), 0,
@@ -378,6 +417,7 @@ void ARTPConnection::onPollStreams() {
                     } else {
                         TRESPASS();
                     }
+#endif /* QCOM_HARDWARE */
                 } while (n < 0 && errno == EINTR);
 
                 if (n <= 0) {

@@ -243,6 +243,7 @@ status_t MediaRecorderClient::start()
 
 }
 
+#ifdef QCOM_HARDWARE
 status_t MediaRecorderClient::pause()
 {
     ALOGV("pause");
@@ -254,6 +255,7 @@ status_t MediaRecorderClient::pause()
     return mRecorder->pause();
 }
 
+#endif /* QCOM_HARDWARE */
 status_t MediaRecorderClient::stop()
 {
     ALOGV("stop");

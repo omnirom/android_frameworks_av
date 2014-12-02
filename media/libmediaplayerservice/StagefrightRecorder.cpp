@@ -22,7 +22,9 @@
 #include "WebmWriter.h"
 #include "StagefrightRecorder.h"
 
+#ifdef QCOM_HARDWARE
 #include <binder/AppOpsManager.h>
+#endif /* QCOM_HARDWARE */
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
 
@@ -53,10 +55,13 @@
 #include <ctype.h>
 #include <unistd.h>
 
+#ifdef QCOM_HARDWARE
 #include "ExtendedUtils.h"
 
+#endif /* QCOM_HARDWARE */
 #include <system/audio.h>
 
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
 #include <ExtendedUtils.h>
 #include <media/stagefright/ExtendedWriter.h>
@@ -65,8 +70,11 @@
 #include <QCMediaDefs.h>
 #endif
 
+#endif /* QCOM_HARDWARE */
 #include "ARTPWriter.h"
+#ifdef QCOM_HARDWARE
 #include <cutils/properties.h>
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -87,14 +95,20 @@ StagefrightRecorder::StagefrightRecorder()
       mAudioSource(AUDIO_SOURCE_CNT),
       mVideoSource(VIDEO_SOURCE_LIST_END),
       mCaptureTimeLapse(false),
+#ifndef QCOM_HARDWARE
+      mStarted(false) {
+#else /* QCOM_HARDWARE */
       mStarted(false),
       mRecPaused(false) {
+#endif /* QCOM_HARDWARE */
 
     ALOGV("Constructor");
     reset();
+#ifdef QCOM_HARDWARE
 
     mRecorderExtendedStats = (RecorderExtendedStats *)ExtendedStats::Create(
             ExtendedStats::RECORDER, "StagefrightRecorder", gettid());
+#endif /* QCOM_HARDWARE */
 }
 
 StagefrightRecorder::~StagefrightRecorder() {
@@ -132,10 +146,12 @@ status_t StagefrightRecorder::setAudioSource(audio_source_t as) {
         return BAD_VALUE;
     }
 
+#ifdef QCOM_HARDWARE
     if (ExtendedUtils::ShellProp::isAudioDisabled(true)) {
         return OK;
     }
 
+#endif /* QCOM_HARDWARE */
     if (as == AUDIO_SOURCE_DEFAULT) {
         mAudioSource = AUDIO_SOURCE_MIC;
     } else {
@@ -187,16 +203,19 @@ status_t StagefrightRecorder::setAudioEncoder(audio_encoder ae) {
         return BAD_VALUE;
     }
 
+#ifdef QCOM_HARDWARE
     if (ExtendedUtils::ShellProp::isAudioDisabled(true)) {
         return OK;
     }
 
+#endif /* QCOM_HARDWARE */
     if (ae == AUDIO_ENCODER_DEFAULT) {
         mAudioEncoder = AUDIO_ENCODER_AMR_NB;
     } else {
         mAudioEncoder = ae;
     }
 
+#ifdef QCOM_HARDWARE
     // Use default values if appropriate setparam's weren't called.
     if(mAudioEncoder == AUDIO_ENCODER_AAC) {
         mSampleRate = mSampleRate ? mSampleRate : 48000;
@@ -223,6 +242,7 @@ status_t StagefrightRecorder::setAudioEncoder(audio_encoder ae) {
         mAudioChannels = mAudioChannels ? mAudioChannels : 1;
         mAudioBitRate = mAudioBitRate ? mAudioBitRate : 12200;
     }
+#endif /* QCOM_HARDWARE */
     return OK;
 }
 
@@ -387,7 +407,11 @@ status_t StagefrightRecorder::setParamAudioSamplingRate(int32_t sampleRate) {
 
 status_t StagefrightRecorder::setParamAudioNumberOfChannels(int32_t channels) {
     ALOGV("setParamAudioNumberOfChannels: %d", channels);
+#ifndef QCOM_HARDWARE
+    if (channels <= 0 || channels >= 3) {
+#else /* QCOM_HARDWARE */
     if (channels != 1 && channels != 2 && channels != 6) {
+#endif /* QCOM_HARDWARE */
         ALOGE("Invalid number of audio channels: %d", channels);
         return BAD_VALUE;
     }
@@ -808,11 +832,13 @@ status_t StagefrightRecorder::prepareInternal() {
 
     status_t status = OK;
 
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
     if(AUDIO_SOURCE_FM_RX_A2DP == mAudioSource)
         return setupFMA2DPWriter();
 #endif
 
+#endif /* QCOM_HARDWARE */
     switch (mOutputFormat) {
         case OUTPUT_FORMAT_DEFAULT:
         case OUTPUT_FORMAT_THREE_GPP:
@@ -839,6 +865,7 @@ status_t StagefrightRecorder::prepareInternal() {
             status = setupMPEG2TSRecording();
             break;
 
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
         case OUTPUT_FORMAT_QCP:
             status = setupExtendedRecording();
@@ -849,6 +876,7 @@ status_t StagefrightRecorder::prepareInternal() {
             break;
 #endif
 
+#endif /* QCOM_HARDWARE */
         default:
             ALOGE("Unsupported output file format: %d", mOutputFormat);
             status = UNKNOWN_ERROR;
@@ -867,13 +895,16 @@ status_t StagefrightRecorder::prepare() {
 
 status_t StagefrightRecorder::start() {
     ALOGV("start");
+#ifdef QCOM_HARDWARE
     ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_START_LATENCY, mRecorderExtendedStats);
 
+#endif /* QCOM_HARDWARE */
     if (mOutputFd < 0) {
         ALOGE("Output file descriptor is invalid");
         return INVALID_OPERATION;
     }
 
+#ifdef QCOM_HARDWARE
     if (mRecPaused == true) {
         status_t err = mWriter->start();
         if (err != OK) {
@@ -890,6 +921,7 @@ status_t StagefrightRecorder::start() {
         mRecPaused = false;
         return OK;
     }
+#endif /* QCOM_HARDWARE */
     status_t status = OK;
 
     if (mVideoSource != VIDEO_SOURCE_SURFACE) {
@@ -899,6 +931,7 @@ status_t StagefrightRecorder::start() {
         }
     }
 
+#ifdef QCOM_HARDWARE
     if (mAudioSource != AUDIO_SOURCE_CNT) {
         //check permissions
         if (mAppOpsManager.noteOp(AppOpsManager::OP_RECORD_AUDIO, mClientUid,
@@ -908,6 +941,7 @@ status_t StagefrightRecorder::start() {
         }
     }
 
+#endif /* QCOM_HARDWARE */
     if (mWriter == NULL) {
         ALOGE("File writer is not avaialble");
         return UNKNOWN_ERROR;
@@ -925,8 +959,10 @@ status_t StagefrightRecorder::start() {
             }
             sp<MetaData> meta = new MetaData;
             setupMPEG4orWEBMMetaData(&meta);
+#ifdef QCOM_HARDWARE
 
             meta->setPointer(ExtendedStats::MEDIA_STATS_FLAG, mRecorderExtendedStats.get());
+#endif /* QCOM_HARDWARE */
             status = mWriter->start(meta.get());
             break;
         }
@@ -937,10 +973,12 @@ status_t StagefrightRecorder::start() {
         case OUTPUT_FORMAT_AAC_ADTS:
         case OUTPUT_FORMAT_RTP_AVP:
         case OUTPUT_FORMAT_MPEG2TS:
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
         case OUTPUT_FORMAT_QCP:
         case OUTPUT_FORMAT_WAVE:
 #endif
+#endif /* QCOM_HARDWARE */
         {
             status = mWriter->start();
             break;
@@ -977,6 +1015,7 @@ status_t StagefrightRecorder::start() {
 }
 
 sp<MediaSource> StagefrightRecorder::createAudioSource() {
+#ifdef QCOM_HARDWARE
     bool compressSource = false;
     const char *compressMime;
 
@@ -1003,6 +1042,7 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
         audioSource = new AudioSource(mAudioSource, meta);
         return audioSource->initCheck() == OK ? audioSource : NULL;
     }
+#endif /* QCOM_HARDWARE */
     sp<AudioSource> audioSource =
         new AudioSource(
                 mAudioSource,
@@ -1038,6 +1078,7 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
             format->setString("mime", MEDIA_MIMETYPE_AUDIO_AAC);
             format->setInt32("aac-profile", OMX_AUDIO_AACObjectELD);
             break;
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
         case AUDIO_ENCODER_LPCM:
             format->setString("mime", MEDIA_MIMETYPE_AUDIO_RAW);
@@ -1049,6 +1090,7 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
             format->setString("mime", MEDIA_MIMETYPE_AUDIO_QCELP);
             break;
 #endif
+#endif /* QCOM_HARDWARE */
 
         default:
             ALOGE("Unknown audio encoder: %d", mAudioEncoder);
@@ -1067,9 +1109,12 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
         format->setInt32("time-scale", mAudioTimeScale);
     }
 
+#ifdef QCOM_HARDWARE
     format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+#endif /* QCOM_HARDWARE */
     sp<MediaSource> audioEncoder =
             MediaCodecSource::Create(mLooper, format, audioSource);
+#ifdef QCOM_HARDWARE
     // If encoder could not be created (as in LPCM), then
     // use the AudioSource directly as the MediaSource.
     if (audioEncoder == NULL) {
@@ -1079,13 +1124,16 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
     if (mAudioSourceNode != NULL) {
         mAudioSourceNode.clear();
     }
+#endif /* QCOM_HARDWARE */
     mAudioSourceNode = audioSource;
 
     if (audioEncoder == NULL) {
         ALOGE("Failed to create audio encoder");
     }
 
+#ifdef QCOM_HARDWARE
     mAudioEncoderOMX = audioEncoder;
+#endif /* QCOM_HARDWARE */
     return audioEncoder;
 }
 
@@ -1114,17 +1162,20 @@ status_t StagefrightRecorder::setupAMRRecording() {
                     mAudioEncoder);
             return BAD_VALUE;
         }
+#ifdef QCOM_HARDWARE
         if (mSampleRate != 8000) {
             ALOGE("Invalid sampling rate %d used for AMRNB recording",
                     mSampleRate);
             return BAD_VALUE;
         }
+#endif /* QCOM_HARDWARE */
     } else {  // mOutputFormat must be OUTPUT_FORMAT_AMR_WB
         if (mAudioEncoder != AUDIO_ENCODER_AMR_WB) {
             ALOGE("Invlaid encoder %d used for AMRWB recording",
                     mAudioEncoder);
             return BAD_VALUE;
         }
+#ifdef QCOM_HARDWARE
         if (mSampleRate != 16000) {
             ALOGE("Invalid sample rate %d used for AMRWB recording",
                     mSampleRate);
@@ -1136,6 +1187,7 @@ status_t StagefrightRecorder::setupAMRRecording() {
         ALOGE("Invalid number of audio channels %d used for amr recording",
                 mAudioChannels);
         return BAD_VALUE;
+#endif /* QCOM_HARDWARE */
     }
 
     mWriter = new AMRWriter(mOutputFd);
@@ -1330,17 +1382,25 @@ status_t StagefrightRecorder::checkVideoEncoderCapabilities(
     Vector<CodecCapabilities> codecs;
     OMXClient client;
     CHECK_EQ(client.connect(), (status_t)OK);
+#ifdef QCOM_HARDWARE
     ExtendedStats::AutoProfile autoProfile(
             STATS_PROFILE_ALLOCATE_NODE(true /* isVideo */), mRecorderExtendedStats);
+#endif /* QCOM_HARDWARE */
     QueryCodecs(
             client.interface(),
             (mVideoEncoder == VIDEO_ENCODER_H263 ? MEDIA_MIMETYPE_VIDEO_H263 :
              mVideoEncoder == VIDEO_ENCODER_MPEG_4_SP ? MEDIA_MIMETYPE_VIDEO_MPEG4 :
              mVideoEncoder == VIDEO_ENCODER_VP8 ? MEDIA_MIMETYPE_VIDEO_VP8 :
+#ifndef QCOM_HARDWARE
+             mVideoEncoder == VIDEO_ENCODER_H264 ? MEDIA_MIMETYPE_VIDEO_AVC : ""),
+#else /* QCOM_HARDWARE */
              mVideoEncoder == VIDEO_ENCODER_H264 ? MEDIA_MIMETYPE_VIDEO_AVC :
              mVideoEncoder == VIDEO_ENCODER_H265 ? MEDIA_MIMETYPE_VIDEO_HEVC : ""),
+#endif /* QCOM_HARDWARE */
             false /* decoder */, true /* hwCodec */, &codecs);
+#ifdef QCOM_HARDWARE
 
+#endif /* QCOM_HARDWARE */
     *supportsCameraSourceMetaDataMode = codecs.size() > 0;
     ALOGV("encoder %s camera source meta-data mode",
             *supportsCameraSourceMetaDataMode ? "supports" : "DOES NOT SUPPORT");
@@ -1551,9 +1611,11 @@ status_t StagefrightRecorder::setupMediaSource(
 
 status_t StagefrightRecorder::setupCameraSource(
         sp<CameraSource> *cameraSource) {
+#ifdef QCOM_HARDWARE
     ExtendedStats::AutoProfile autoProfile(
             STATS_PROFILE_SET_CAMERA_SOURCE, mRecorderExtendedStats);
 
+#endif /* QCOM_HARDWARE */
     status_t err = OK;
     bool encoderSupportsCameraSourceMetaDataMode;
     if ((err = checkVideoEncoderCapabilities(
@@ -1616,9 +1678,11 @@ status_t StagefrightRecorder::setupCameraSource(
 status_t StagefrightRecorder::setupVideoEncoder(
         sp<MediaSource> cameraSource,
         sp<MediaSource> *source) {
+#ifdef QCOM_HARDWARE
     ExtendedStats::AutoProfile autoProfile(
             STATS_PROFILE_SET_ENCODER(true /* isVideo */), mRecorderExtendedStats);
 
+#endif /* QCOM_HARDWARE */
     source->clear();
 
     sp<AMessage> format = new AMessage();
@@ -1640,10 +1704,12 @@ status_t StagefrightRecorder::setupVideoEncoder(
             format->setString("mime", MEDIA_MIMETYPE_VIDEO_VP8);
             break;
 
+#ifdef QCOM_HARDWARE
         case VIDEO_ENCODER_H265:
             format->setString("mime", MEDIA_MIMETYPE_VIDEO_HEVC);
             break;
 
+#endif /* QCOM_HARDWARE */
         default:
             CHECK(!"Should not be here, unsupported video encoding.");
             break;
@@ -1690,6 +1756,7 @@ status_t StagefrightRecorder::setupVideoEncoder(
     if (mVideoTimeScale > 0) {
         format->setInt32("time-scale", mVideoTimeScale);
     }
+#ifdef QCOM_HARDWARE
 
     if (cameraSource != NULL) {
         sp<MetaData> meta = cameraSource->getFormat();
@@ -1703,6 +1770,7 @@ status_t StagefrightRecorder::setupVideoEncoder(
     ExtendedUtils::ShellProp::setEncoderProfile(mVideoEncoder,
             mVideoEncoderProfile, mVideoEncoderLevel);
 
+#endif /* QCOM_HARDWARE */
     if (mVideoEncoderProfile != -1) {
         format->setInt32("profile", mVideoEncoderProfile);
     }
@@ -1719,7 +1787,9 @@ status_t StagefrightRecorder::setupVideoEncoder(
         flags |= MediaCodecSource::FLAG_USE_SURFACE_INPUT;
     }
 
+#ifdef QCOM_HARDWARE
     format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+#endif /* QCOM_HARDWARE */
     sp<MediaCodecSource> encoder =
             MediaCodecSource::Create(mLooper, format, cameraSource, flags);
     if (encoder == NULL) {
@@ -1737,16 +1807,20 @@ status_t StagefrightRecorder::setupVideoEncoder(
         mGraphicBufferProducer = encoder->getGraphicBufferProducer();
     }
 
+#ifdef QCOM_HARDWARE
     mVideoSourceNode = cameraSource;
     mVideoEncoderOMX = encoder;
+#endif /* QCOM_HARDWARE */
     *source = encoder;
 
     return OK;
 }
 
 status_t StagefrightRecorder::setupAudioEncoder(const sp<MediaWriter>& writer) {
+#ifdef QCOM_HARDWARE
     ExtendedStats::AutoProfile autoProfile(
             STATS_PROFILE_SET_ENCODER(false /* isVideo */), mRecorderExtendedStats);
+#endif /* QCOM_HARDWARE */
     status_t status = BAD_VALUE;
     if (OK != (status = checkAudioEncoderCapabilities())) {
         return status;
@@ -1758,11 +1832,13 @@ status_t StagefrightRecorder::setupAudioEncoder(const sp<MediaWriter>& writer) {
         case AUDIO_ENCODER_AAC:
         case AUDIO_ENCODER_HE_AAC:
         case AUDIO_ENCODER_AAC_ELD:
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
         case AUDIO_ENCODER_EVRC:
         case AUDIO_ENCODER_QCELP:
 #endif
         case AUDIO_ENCODER_LPCM:
+#endif /* QCOM_HARDWARE */
             break;
 
         default:
@@ -1872,12 +1948,19 @@ void StagefrightRecorder::setupMPEG4orWEBMMetaData(sp<MetaData> *meta) {
 }
 
 status_t StagefrightRecorder::pause() {
+#ifdef QCOM_HARDWARE
     ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_PAUSE, mRecorderExtendedStats);
+#endif /* QCOM_HARDWARE */
     ALOGV("pause");
+#ifdef QCOM_HARDWARE
     status_t err = OK;
+#endif /* QCOM_HARDWARE */
     if (mWriter == NULL) {
         return UNKNOWN_ERROR;
     }
+#ifndef QCOM_HARDWARE
+    mWriter->pause();
+#else /* QCOM_HARDWARE */
     err = setSourcePause(true);
     if (err != OK) {
         ALOGE("StagefrightRecorder pause failed");
@@ -1891,6 +1974,7 @@ status_t StagefrightRecorder::pause() {
     }
 
     mRecPaused = true;
+#endif /* QCOM_HARDWARE */
 
     if (mStarted) {
         mStarted = false;
@@ -1914,15 +1998,18 @@ status_t StagefrightRecorder::stop() {
     ALOGV("stop");
     status_t err = OK;
 
+#ifdef QCOM_HARDWARE
     // only profile if we'd started before
     bool recorderStarted = mStarted;
     RECORDER_STATS(profileStart, STATS_PROFILE_STOP, recorderStarted);
 
+#endif /* QCOM_HARDWARE */
     if (mCaptureTimeLapse && mCameraSourceTimeLapse != NULL) {
         mCameraSourceTimeLapse->startQuickReadReturns();
         mCameraSourceTimeLapse = NULL;
     }
 
+#ifdef QCOM_HARDWARE
     if (mRecPaused) {
         status_t err = setSourcePause(false);
         if (err != OK) {
@@ -1933,6 +2020,7 @@ status_t StagefrightRecorder::stop() {
         mRecPaused = false;
     }
 
+#endif /* QCOM_HARDWARE */
     if (mWriter != NULL) {
         err = mWriter->stop();
         mWriter.clear();
@@ -1944,10 +2032,12 @@ status_t StagefrightRecorder::stop() {
         ::close(mOutputFd);
         mOutputFd = -1;
     }
+#ifdef QCOM_HARDWARE
     if (mAudioSourceNode != NULL) {
         mAudioSourceNode.clear();
         mAudioSourceNode = NULL;
     }
+#endif /* QCOM_HARDWARE */
 
     if (mStarted) {
         mStarted = false;
@@ -1963,18 +2053,23 @@ status_t StagefrightRecorder::stop() {
         addBatteryData(params);
     }
 
+#ifdef QCOM_HARDWARE
     if (recorderStarted) {
         RECORDER_STATS(profileStop, STATS_PROFILE_STOP);
         RECORDER_STATS(dump);
         RECORDER_STATS(reset);
     }
 
+#endif /* QCOM_HARDWARE */
     return err;
 }
 
 status_t StagefrightRecorder::close() {
     ALOGV("close");
     stop();
+#ifndef QCOM_HARDWARE
+
+#endif /* ! QCOM_HARDWARE */
     return OK;
 }
 
@@ -1994,9 +2089,15 @@ status_t StagefrightRecorder::reset() {
     mVideoHeight   = 144;
     mFrameRate     = -1;
     mVideoBitRate  = 192000;
+#ifndef QCOM_HARDWARE
+    mSampleRate    = 8000;
+    mAudioChannels = 1;
+    mAudioBitRate  = 12200;
+#else /* QCOM_HARDWARE */
     mSampleRate    = 0;
     mAudioChannels = 0;
     mAudioBitRate  = 0;
+#endif /* QCOM_HARDWARE */
     mInterleaveDurationUs = 0;
     mIFramesIntervalSec = 1;
     mAudioSourceNode = 0;
@@ -2110,6 +2211,7 @@ status_t StagefrightRecorder::dump(
     return OK;
 }
 
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
 
 status_t StagefrightRecorder::setupFMA2DPWriter() {
@@ -2225,4 +2327,5 @@ status_t StagefrightRecorder::setSourcePause(bool pause) {
     }
     return err;
 }
+#endif /* QCOM_HARDWARE */
 }  // namespace android

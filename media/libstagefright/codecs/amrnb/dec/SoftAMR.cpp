@@ -352,6 +352,9 @@ void SoftAMR::onQueueFilled(OMX_U32 /* portIndex */) {
             }
 
             size_t frameSize = getFrameSize(mode);
+#ifndef QCOM_HARDWARE
+            CHECK_GE(inHeader->nFilledLen, frameSize);
+#else /* QCOM_HARDWARE */
             if (inHeader->nFilledLen < frameSize) {
                 ALOGE("Filled length vs frameSize %u vs %lu. Corrupt clip?",
                    inHeader->nFilledLen, frameSize);
@@ -360,6 +363,7 @@ void SoftAMR::onQueueFilled(OMX_U32 /* portIndex */) {
                 mSignalledError = true;
                 return;
             }
+#endif /* QCOM_HARDWARE */
 
             int16_t *outPtr = (int16_t *)outHeader->pBuffer;
 

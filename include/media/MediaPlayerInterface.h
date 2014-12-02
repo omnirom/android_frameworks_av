@@ -51,7 +51,9 @@ enum player_type {
     // The shared library with the test player is passed passed as an
     // argument to the 'test:' url in the setDataSource call.
     TEST_PLAYER = 5,
+#ifdef QCOM_HARDWARE
     DASH_PLAYER = 6,
+#endif /* QCOM_HARDWARE */
 };
 
 
@@ -217,6 +219,7 @@ public:
         return INVALID_OPERATION;
     }
 
+#ifdef QCOM_HARDWARE
     virtual status_t suspend() {
         return INVALID_OPERATION;
     }
@@ -224,6 +227,7 @@ public:
     virtual status_t resume() {
         return INVALID_OPERATION;
     }
+#endif /* QCOM_HARDWARE */
 
 private:
     friend class MediaPlayerService;

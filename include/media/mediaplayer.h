@@ -50,7 +50,9 @@ enum media_event_type {
     MEDIA_ERROR             = 100,
     MEDIA_INFO              = 200,
     MEDIA_SUBTITLE_DATA     = 201,
+#ifdef QCOM_HARDWARE
     MEDIA_QOE               = 300,
+#endif /* QCOM_HARDWARE */
 };
 
 // Generic error codes for the media player framework.  Errors are fatal, the
@@ -144,8 +146,12 @@ enum media_player_states {
     MEDIA_PLAYER_STARTED            = 1 << 4,
     MEDIA_PLAYER_PAUSED             = 1 << 5,
     MEDIA_PLAYER_STOPPED            = 1 << 6,
+#ifndef QCOM_HARDWARE
+    MEDIA_PLAYER_PLAYBACK_COMPLETE  = 1 << 7
+#else /* QCOM_HARDWARE */
     MEDIA_PLAYER_PLAYBACK_COMPLETE  = 1 << 7,
     MEDIA_PLAYER_SUSPENDED          = 1 << 8
+#endif /* QCOM_HARDWARE */
 };
 
 // Keep KEY_PARAMETER_* in sync with MediaPlayer.java.
@@ -256,8 +262,10 @@ public:
             status_t        getParameter(int key, Parcel* reply);
             status_t        setRetransmitEndpoint(const char* addrString, uint16_t port);
             status_t        setNextMediaPlayer(const sp<MediaPlayer>& player);
+#ifdef QCOM_HARDWARE
             status_t        suspend();
             status_t        resume();
+#endif /* QCOM_HARDWARE */
 
 private:
             void            clear_l();

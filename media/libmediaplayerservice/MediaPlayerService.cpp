@@ -1198,6 +1198,10 @@ void MediaPlayerService::Client::notify(
         if (msg == MEDIA_PLAYBACK_COMPLETE && client->mNextClient != NULL) {
             if (client->mAudioOutput != NULL)
                 client->mAudioOutput->switchToNextOutput();
+#ifndef QCOM_HARDWARE
+            client->mNextClient->start();
+            client->mNextClient->mClient->notify(MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+#else /* QCOM_HARDWARE */
             ALOGD("gapless:current track played back");
             ALOGD("gapless:try to do a gapless switch to next track");
             status_t ret;
@@ -1209,6 +1213,7 @@ void MediaPlayerService::Client::notify(
                 client->mClient->notify(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN , 0, obj);
                 ALOGW("gapless:start playback for next track failed");
             }
+#endif /* QCOM_HARDWARE */
         }
     }
 
@@ -1255,6 +1260,7 @@ void MediaPlayerService::Client::addNewMetadataUpdate(media::Metadata::Type meta
     }
 }
 
+#ifdef QCOM_HARDWARE
 status_t MediaPlayerService::Client::suspend()
 {
     ALOGV("[%d] suspend", mConnId);
@@ -1271,6 +1277,7 @@ status_t MediaPlayerService::Client::resume()
     return p->resume();
 }
 
+#endif /* QCOM_HARDWARE */
 #if CALLBACK_ANTAGONIZER
 const int Antagonizer::interval = 10000; // 10 msecs
 
@@ -1778,7 +1785,11 @@ status_t MediaPlayerService::AudioOutput::open(
     mTrack = t;
 
     status_t res = NO_ERROR;
+#ifndef QCOM_HARDWARE
+    if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) {
+#else /* QCOM_HARDWARE */
     if ((t->getFlags() & (AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_DIRECT)) == 0) {
+#endif /* QCOM_HARDWARE */
         res = t->setSampleRate(mPlaybackRatePermille * mSampleRateHz / 1000);
         if (res == NO_ERROR) {
             t->setAuxEffectSendLevel(mSendLevel);

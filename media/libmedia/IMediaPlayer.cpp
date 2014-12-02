@@ -58,8 +58,10 @@ enum {
     SET_RETRANSMIT_ENDPOINT,
     GET_RETRANSMIT_ENDPOINT,
     SET_NEXT_PLAYER,
+#ifdef QCOM_HARDWARE
     SUSPEND,
     RESUME,
+#endif /* QCOM_HARDWARE */
 };
 
 class BpMediaPlayer: public BpInterface<IMediaPlayer>
@@ -347,6 +349,7 @@ public:
 
         return err;
     }
+#ifdef QCOM_HARDWARE
 
     status_t suspend()
     {
@@ -363,6 +366,7 @@ public:
         remote()->transact(RESUME, data, &reply);
         return reply.readInt32();
      }
+#endif /* QCOM_HARDWARE */
 };
 
 IMPLEMENT_META_INTERFACE(MediaPlayer, "android.media.IMediaPlayer");
@@ -568,6 +572,7 @@ status_t BnMediaPlayer::onTransact(
             CHECK_INTERFACE(IMediaPlayer, data, reply);
             reply->writeInt32(setNextPlayer(interface_cast<IMediaPlayer>(data.readStrongBinder())));
 
+#ifdef QCOM_HARDWARE
             return NO_ERROR;
         } break;
         case SUSPEND: {
@@ -580,6 +585,7 @@ status_t BnMediaPlayer::onTransact(
             CHECK_INTERFACE(IMediaPlayer, data, reply);
             status_t ret = resume();
             reply->writeInt32(ret);
+#endif /* QCOM_HARDWARE */
             return NO_ERROR;
         } break;
         default:
