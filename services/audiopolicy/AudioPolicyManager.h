@@ -42,7 +42,7 @@ namespace android {
 #define SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY 5000
 // Time in milliseconds during witch some streams are muted while the audio path
 // is switched
-#define MUTE_TIME_MS 2000
+#define MUTE_TIME_MS 500
 
 #define NUM_TEST_OUTPUTS 5
 
@@ -52,7 +52,7 @@ namespace android {
 // Can be overridden by the audio.offload.min.duration.secs property
 #define OFFLOAD_DEFAULT_MIN_DURATION_SECS 60
 
-#define MAX_MIXER_SAMPLING_RATE 48000
+#define MAX_MIXER_SAMPLING_RATE 192000
 #define MAX_MIXER_CHANNEL_COUNT 8
 
 // ----------------------------------------------------------------------------
@@ -821,6 +821,12 @@ protected:
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
 
+        // returns true if given output is direct output
+        bool isDirectOutput(audio_io_handle_t output);
+        //parameter indicates of HDMI speakers disabled
+        bool mHdmiAudioDisabled;
+        //parameter indicates if HDMI plug in/out detected
+        bool mHdmiAudioEvent;
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
@@ -851,6 +857,15 @@ private:
                 const audio_offload_info_t *offloadInfo);
         // internal function to derive a stream type value from audio attributes
         audio_stream_type_t streamTypefromAttributesInt(const audio_attributes_t *attr);
+
+        // Used for voip + voice concurrency usecase
+        int mPrevPhoneState;
+        int mvoice_call_state;
+#ifdef RECORD_PLAY_CONCURRENCY
+        // Used for record + playback concurrency
+        bool mIsInputRequestOnProgress;
+#endif
+
 };
 
 };

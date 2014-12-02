@@ -632,6 +632,7 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAAC() {
             mFormat = MakeAACCodecSpecificData(
                     profile, sampling_freq_index, channel_configuration);
 
+            mFormat->setInt32(kKeyMaxInputSize, (8192 * 4)); // setting max aac input size
             mFormat->setInt32(kKeyIsADTS, true);
 
             int32_t sampleRate;
@@ -700,7 +701,9 @@ int64_t ElementaryStreamQueue::fetchTimestamp(size_t size) {
 
         if (first) {
             timeUs = info->mTimestampUs;
-            first = false;
+            if(mMode != AAC) {
+               first = false;
+            }
         }
 
         if (info->mLength > size) {
@@ -865,6 +868,9 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
 
             if (mFormat == NULL) {
                 mFormat = MakeAVCCodecSpecificData(accessUnit);
+                if (mFormat != NULL) {
+                    mFormat->setInt32(kKeyMaxInputSize, (8192 * 10));
+                }
             }
 
             return accessUnit;

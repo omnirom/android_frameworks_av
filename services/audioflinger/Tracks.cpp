@@ -113,7 +113,7 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
 
     // ALOGD("Creating track with %d buffers @ %d bytes", bufferCount, bufferSize);
     size_t size = sizeof(audio_track_cblk_t);
-    size_t bufferSize = (buffer == NULL ? roundup(frameCount) : frameCount) * mFrameSize;
+    size_t bufferSize = (((buffer == NULL) && audio_is_linear_pcm(format)) ? roundup(frameCount) : frameCount) * mFrameSize;
     if (buffer == NULL && alloc == ALLOC_CBLK) {
         size += bufferSize;
     }
@@ -630,7 +630,7 @@ size_t AudioFlinger::PlaybackThread::Track::framesReleased() const
 
 // Don't call for fast tracks; the framesReady() could result in priority inversion
 bool AudioFlinger::PlaybackThread::Track::isReady() const {
-    if (mFillingUpStatus != FS_FILLING || isStopped() || isPausing()) {
+    if (mFillingUpStatus != FS_FILLING || isStopped() || isPausing() || isStopping()) {
         return true;
     }
 
@@ -844,6 +844,20 @@ void AudioFlinger::PlaybackThread::Track::flushAck()
         return;
 
     mFlushHwPending = false;
+}
+
+void AudioFlinger::PlaybackThread::Track::signalError()
+{
+    // TBD, is this needed for pcm too?
+    if (!isOffloaded())
+        return;
+
+    // FIXME should use proxy, and needs work
+    audio_track_cblk_t* cblk = mCblk;
+    android_atomic_or(CBLK_STREAM_FATAL_ERROR, &cblk->mFlags);
+    android_atomic_release_store(0x40000000, &cblk->mFutex);
+    // client is not in server, so FUTEX_WAKE is needed instead of FUTEX_WAKE_PRIVATE
+    (void) syscall(__NR_futex, &cblk->mFutex, FUTEX_WAKE, INT_MAX);
 }
 
 void AudioFlinger::PlaybackThread::Track::reset()
