@@ -51,6 +51,7 @@ enum player_type {
     // The shared library with the test player is passed passed as an
     // argument to the 'test:' url in the setDataSource call.
     TEST_PLAYER = 5,
+    DASH_PLAYER = 6,
 };
 
 
@@ -213,6 +214,14 @@ public:
     }
 
     virtual status_t dump(int fd, const Vector<String16> &args) const {
+        return INVALID_OPERATION;
+    }
+
+    virtual status_t suspend() {
+        return INVALID_OPERATION;
+    }
+
+    virtual status_t resume() {
         return INVALID_OPERATION;
     }
 

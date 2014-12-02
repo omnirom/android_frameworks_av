@@ -1001,9 +1001,28 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             }
             mHardwareStatus = AUDIO_HW_IDLE;
         }
-        // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
+
+        // invalidate all tracks of type MUSIC. This is handled in the player as a teardown
+        // event and can be used for fallback and retry.
         AudioParameter param = AudioParameter(keyValuePairs);
-        String8 value;
+        String8 value, key;
+        int i = 0;
+
+        key = String8("SND_CARD_STATUS");
+        if (param.get(key, value) == NO_ERROR) {
+            ALOGV("Set keySoundCardStatus:%s", value.string());
+            if ((value.find("OFFLINE", 0) != -1) ) {
+                ALOGV("OFFLINE detected - call InvalidateTracks()");
+                for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+                    PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+                    thread->onFatalError();
+                }
+           } else if ((value.find("OFFLINE", 0) != -1) ) {
+                ALOGV("ONLINE detected - what should I do?");
+           }
+        }
+
+        // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
         if (param.get(String8(AUDIO_PARAMETER_KEY_BT_NREC), value) == NO_ERROR) {
             bool btNrecIsOff = (value == AUDIO_PARAMETER_VALUE_OFF);
             if (mBtNrecIsOff != btNrecIsOff) {
@@ -1385,9 +1404,10 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         goto Exit;
     }
 
-    // we don't yet support anything other than 16-bit PCM
-    if (!(audio_is_valid_format(format) &&
-            audio_is_linear_pcm(format) && format == AUDIO_FORMAT_PCM_16_BIT)) {
+    // we don't yet support anything other than 16-bit PCM and compress formats
+    if (format != AUDIO_FORMAT_PCM_16_BIT &&
+            !audio_is_compress_voip_format(format) &&
+            !audio_is_compress_capture_format(format)) {
         ALOGE("openRecord() invalid format %#x", format);
         lStatus = BAD_VALUE;
         goto Exit;
@@ -2582,12 +2602,13 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
         return INVALID_OPERATION;
     }
 
-    // Check whether the destination thread has a channel count of FCC_2, which is
-    // currently required for (most) effects. Prevent moving the effect chain here rather
-    // than disabling the addEffect_l() call in dstThread below.
-    if (dstThread->mChannelCount != FCC_2) {
+    // Check whether the destination thread has a channel count more than FCC_2, which is
+    // currently required for (most) effects in deep buffer path. Prevent moving the effect
+    // chain here rather than disabling the addEffect_l() call in dstThread below.
+    if ((dstThread->mType == ThreadBase::MIXER || dstThread->mType == ThreadBase::DUPLICATING)
+            && (dstThread->mChannelCount > FCC_2)) {
         ALOGW("moveEffectChain_l() effect chain failed because"
-                " destination thread %p channel count(%u) != %u",
+                " destination thread %p channel count(%u) > %u",
                 dstThread, dstThread->mChannelCount, FCC_2);
         return INVALID_OPERATION;
     }
