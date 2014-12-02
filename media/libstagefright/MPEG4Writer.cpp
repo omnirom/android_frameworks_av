@@ -40,7 +40,9 @@
 #include <cutils/properties.h>
 
 #include "include/ESDS.h"
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 
 #define WARN_UNLESS(condition, message, ...) \
 ( (CONDITION(condition)) ? false : ({ \
@@ -76,7 +78,9 @@ public:
     bool isAvc() const { return mIsAvc; }
     bool isAudio() const { return mIsAudio; }
     bool isMPEG4() const { return mIsMPEG4; }
+#ifdef QCOM_HARDWARE
     bool isHEVC() const { return mIsHEVC; }
+#endif /* QCOM_HARDWARE */
     void addChunkOffset(off64_t offset);
     int32_t getTrackId() const { return mTrackId; }
     status_t dump(int fd, const Vector<String16>& args) const;
@@ -219,7 +223,9 @@ private:
     bool mIsAvc;
     bool mIsAudio;
     bool mIsMPEG4;
+#ifdef QCOM_HARDWARE
     bool mIsHEVC;
+#endif /* QCOM_HARDWARE */
     int32_t mTrackId;
     int64_t mTrackDurationUs;
     int64_t mMaxChunkDurationUs;
@@ -302,7 +308,9 @@ private:
     // Simple validation on the codec specific data
     status_t checkCodecSpecificData() const;
     int32_t mRotation;
+#ifdef QCOM_HARDWARE
     int32_t mHFRRatio;
+#endif /* QCOM_HARDWARE */
 
     void updateTrackSizeEstimate();
     void addOneStscTableEntry(size_t chunkId, size_t sampleId);
@@ -361,10 +369,14 @@ MPEG4Writer::MPEG4Writer(const char *filename)
       mLatitudex10000(0),
       mLongitudex10000(0),
       mAreGeoTagsAvailable(false),
+#ifndef QCOM_HARDWARE
+      mStartTimeOffsetMs(-1) {
+#else /* QCOM_HARDWARE */
       mStartTimeOffsetMs(-1),
       mHFRRatio(1),
       mIsVideoHEVC(false),
       mIsAudioAMR(false) {
+#endif /* QCOM_HARDWARE */
 
     mFd = open(filename, O_CREAT | O_LARGEFILE | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
     if (mFd >= 0) {
@@ -389,10 +401,14 @@ MPEG4Writer::MPEG4Writer(int fd)
       mLatitudex10000(0),
       mLongitudex10000(0),
       mAreGeoTagsAvailable(false),
+#ifndef QCOM_HARDWARE
+      mStartTimeOffsetMs(-1) {
+#else /* QCOM_HARDWARE */
       mStartTimeOffsetMs(-1),
       mHFRRatio(1),
       mIsVideoHEVC(false),
       mIsAudioAMR(false) {
+#endif /* QCOM_HARDWARE */
 }
 
 MPEG4Writer::~MPEG4Writer() {
@@ -459,10 +475,15 @@ status_t MPEG4Writer::addSource(const sp<MediaSource> &source) {
 
     // A track of type other than video or audio is not supported.
     const char *mime;
+#ifndef QCOM_HARDWARE
+    source->getFormat()->findCString(kKeyMIMEType, &mime);
+#else /* QCOM_HARDWARE */
     sp<MetaData> meta = source->getFormat();
     CHECK(meta->findCString(kKeyMIMEType, &mime));
+#endif /* QCOM_HARDWARE */
     bool isAudio = !strncasecmp(mime, "audio/", 6);
     bool isVideo = !strncasecmp(mime, "video/", 6);
+#ifdef QCOM_HARDWARE
 
     if (isVideo) {
         mIsVideoHEVC = ExtendedUtils::HEVCMuxer::isVideoHEVC(mime);
@@ -472,18 +493,21 @@ status_t MPEG4Writer::addSource(const sp<MediaSource> &source) {
         mIsAudioAMR = ExtendedUtils::isAudioAMR(mime);
     }
 
+#endif /* QCOM_HARDWARE */
     if (!isAudio && !isVideo) {
         ALOGE("Track (%s) other than video or audio is not supported",
             mime);
         return ERROR_UNSUPPORTED;
     }
 
+#ifdef QCOM_HARDWARE
     // Check that muxing is supported for the given video type
     if (isVideo && !ExtendedUtils::isVideoMuxFormatSupported(mime)) {
         ALOGE("Muxing is not supported for %s", mime);
         return ERROR_UNSUPPORTED;
     }
 
+#endif /* QCOM_HARDWARE */
     // At this point, we know the track to be added is either
     // video or audio. Thus, we only need to check whether it
     // is an audio track or not (if it is not, then it must be
@@ -503,8 +527,10 @@ status_t MPEG4Writer::addSource(const sp<MediaSource> &source) {
     Track *track = new Track(this, source, 1 + mTracks.size());
     mTracks.push_back(track);
 
+#ifdef QCOM_HARDWARE
     mHFRRatio = ExtendedUtils::HFR::getHFRRatio(meta);
 
+#endif /* QCOM_HARDWARE */
     return OK;
 }
 
@@ -545,7 +571,11 @@ int64_t MPEG4Writer::estimateMoovBoxSize(int32_t bitRate) {
 
     // If the estimation is wrong, we will pay the price of wasting
     // some reserved space. This should not happen so often statistically.
+#ifndef QCOM_HARDWARE
+    static const int32_t factor = mUse32BitOffset? 1: 2;
+#else /* QCOM_HARDWARE */
     int32_t factor = mUse32BitOffset? 1: 2;
+#endif /* QCOM_HARDWARE */
     static const int64_t MIN_MOOV_BOX_SIZE = 3 * 1024;  // 3 KB
     static const int64_t MAX_MOOV_BOX_SIZE = (180 * 3000000 * 6LL / 8000);
     int64_t size = MIN_MOOV_BOX_SIZE;
@@ -639,6 +669,10 @@ status_t MPEG4Writer::start(MetaData *param) {
         mIsRealTimeRecording = isRealTimeRecording;
     }
 
+#ifndef QCOM_HARDWARE
+    mStartTimestampUs = -1;
+
+#endif /* ! QCOM_HARDWARE */
     if (mStarted) {
         if (mPaused) {
             mPaused = false;
@@ -647,8 +681,10 @@ status_t MPEG4Writer::start(MetaData *param) {
         return OK;
     }
 
+#ifdef QCOM_HARDWARE
     mStartTimestampUs = -1;
 
+#endif /* QCOM_HARDWARE */
     if (!param ||
         !param->findInt32(kKeyTimeScale, &mTimeScale)) {
         mTimeScale = 1000;
@@ -969,7 +1005,11 @@ void MPEG4Writer::writeMvhdBox(int64_t durationUs) {
     writeInt32(0);             // version=0, flags=0
     writeInt32(now);           // creation time
     writeInt32(now);           // modification time
+#ifndef QCOM_HARDWARE
+    writeInt32(mTimeScale);    // mvhd timescale
+#else /* QCOM_HARDWARE */
     writeInt32(mTimeScale / mHFRRatio);    // mvhd timescale
+#endif /* QCOM_HARDWARE */
     int32_t duration = (durationUs * mTimeScale + 5E5) / 1E6;
     writeInt32(duration);
     writeInt32(0x10000);       // rate: 1.0
@@ -1006,11 +1046,16 @@ void MPEG4Writer::writeFtypBox(MetaData *param) {
     beginBox("ftyp");
 
     int32_t fileType;
+#ifndef QCOM_HARDWARE
+    if (param && param->findInt32(kKeyFileType, &fileType) &&
+        fileType != OUTPUT_FORMAT_MPEG_4) {
+#else /* QCOM_HARDWARE */
     if (mIsVideoHEVC) {
         ExtendedUtils::HEVCMuxer::writeHEVCFtypBox(this);
     } else if ((param && param->findInt32(kKeyFileType, &fileType) &&
             fileType != OUTPUT_FORMAT_MPEG_4) || mIsAudioAMR) {
         // 'damr' is only supported by the 3gp4 standard, not mp42
+#endif /* QCOM_HARDWARE */
         writeFourcc("3gp4");
         writeInt32(0);
         writeFourcc("isom");
@@ -1397,20 +1442,30 @@ MPEG4Writer::Track::Track(
       mCodecSpecificDataSize(0),
       mGotAllCodecSpecificData(false),
       mReachedEOS(false),
+#ifndef QCOM_HARDWARE
+      mRotation(0) {
+#else /* QCOM_HARDWARE */
       mRotation(0),
       mHFRRatio(1) {
+#endif /* QCOM_HARDWARE */
     getCodecSpecificDataFromInputFormatIfPossible();
 
     const char *mime;
     mMeta->findCString(kKeyMIMEType, &mime);
+#ifdef QCOM_HARDWARE
 
+#endif /* QCOM_HARDWARE */
     mIsAvc = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC);
     mIsAudio = !strncasecmp(mime, "audio/", 6);
     mIsMPEG4 = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_MPEG4) ||
                !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AAC);
+#ifdef QCOM_HARDWARE
     mIsHEVC = ExtendedUtils::HEVCMuxer::isVideoHEVC(mime);
+#endif /* QCOM_HARDWARE */
 
+#ifdef QCOM_HARDWARE
     getCodecSpecificDataFromInputFormatIfPossible();
+#endif /* QCOM_HARDWARE */
     setTimeScale();
 }
 
@@ -1526,6 +1581,7 @@ void MPEG4Writer::Track::getCodecSpecificDataFromInputFormatIfPossible() {
                 mGotAllCodecSpecificData = true;
             }
         }
+#ifdef QCOM_HARDWARE
     } else if (mIsHEVC) {
         uint32_t type;
         const void *data;
@@ -1540,8 +1596,11 @@ void MPEG4Writer::Track::getCodecSpecificDataFromInputFormatIfPossible() {
         } else {
             ALOGW("getHEVCCodecConfigData:: failed to find kKeyHvcc");
         }
+#endif /* QCOM_HARDWARE */
     }
+#ifdef QCOM_HARDWARE
 
+#endif /* QCOM_HARDWARE */
 }
 
 MPEG4Writer::Track::~Track() {
@@ -1618,7 +1677,11 @@ void MPEG4Writer::writeChunkToFile(Chunk* chunk) {
     while (!chunk->mSamples.empty()) {
         List<MediaBuffer *>::iterator it = chunk->mSamples.begin();
 
+#ifndef QCOM_HARDWARE
+        off64_t offset = chunk->mTrack->isAvc()
+#else /* QCOM_HARDWARE */
         off64_t offset = (chunk->mTrack->isAvc() | chunk->mTrack->isHEVC())
+#endif /* QCOM_HARDWARE */
                                 ? addLengthPrefixedSample_l(*it)
                                 : addSample_l(*it);
 
@@ -1792,12 +1855,14 @@ status_t MPEG4Writer::Track::start(MetaData *params) {
 
     meta->setInt64(kKeyTime, startTimeUs);
 
+#ifdef QCOM_HARDWARE
     if (params) {
         RecorderExtendedStats* rStats = NULL;
         params->findPointer(ExtendedStats::MEDIA_STATS_FLAG, (void**)&rStats);
         meta->setPointer(ExtendedStats::MEDIA_STATS_FLAG, rStats);
     }
 
+#endif /* QCOM_HARDWARE */
     status_t err = mSource->start(meta.get());
     if (err != OK) {
         mDone = mReachedEOS = true;
@@ -1819,8 +1884,10 @@ status_t MPEG4Writer::Track::start(MetaData *params) {
     pthread_create(&mThread, &attr, ThreadWrapper, this);
     pthread_attr_destroy(&attr);
 
+#ifdef QCOM_HARDWARE
     mHFRRatio = ExtendedUtils::HFR::getHFRRatio(mMeta);
 
+#endif /* QCOM_HARDWARE */
     return OK;
 }
 
@@ -1841,10 +1908,19 @@ status_t MPEG4Writer::Track::stop() {
     }
     mDone = true;
 
+#ifndef QCOM_HARDWARE
+    ALOGD("%s track source stopping", mIsAudio? "Audio": "Video");
+    mSource->stop();
+    ALOGD("%s track source stopped", mIsAudio? "Audio": "Video");
+
+#endif /* ! QCOM_HARDWARE */
     void *dummy;
     pthread_join(mThread, &dummy);
     status_t err = static_cast<status_t>(reinterpret_cast<uintptr_t>(dummy));
 
+#ifndef QCOM_HARDWARE
+    ALOGD("%s track stopped", mIsAudio? "Audio": "Video");
+#else /* QCOM_HARDWARE */
     ALOGD("%s track source stopping", mIsAudio? "Audio": "Video");
     err = mSource->stop();
     ALOGD("%s track stopped status:%d", mIsAudio? "Audio": "Video", err);
@@ -1852,6 +1928,7 @@ status_t MPEG4Writer::Track::stop() {
         ALOGE(" Filesize limit exceeded and zero samples written ");
         return ERROR_END_OF_STREAM;
     }
+#endif /* QCOM_HARDWARE */
     return err;
 }
 
@@ -2202,6 +2279,7 @@ status_t MPEG4Writer::Track::threadEntry() {
                         (const uint8_t *)buffer->data()
                             + buffer->range_offset(),
                        buffer->range_length());
+#ifdef QCOM_HARDWARE
             } else if (mIsHEVC) {
                 status_t err = ExtendedUtils::HEVCMuxer::makeHEVCCodecSpecificData(
                         (const uint8_t *)buffer->data() + buffer->range_offset(),
@@ -2210,6 +2288,7 @@ status_t MPEG4Writer::Track::threadEntry() {
                     ALOGE("hevc codec config creation failed, bailing out");
                     return err;
                 }
+#endif /* QCOM_HARDWARE */
             }
 
             buffer->release();
@@ -2219,6 +2298,17 @@ status_t MPEG4Writer::Track::threadEntry() {
             continue;
         }
 
+#ifndef QCOM_HARDWARE
+        // Make a deep copy of the MediaBuffer and Metadata and release
+        // the original as soon as we can
+        MediaBuffer *copy = new MediaBuffer(buffer->range_length());
+        memcpy(copy->data(), (uint8_t *)buffer->data() + buffer->range_offset(),
+                buffer->range_length());
+        copy->set_range(0, buffer->range_length());
+        meta_data = new MetaData(*buffer->meta_data().get());
+        buffer->release();
+        buffer = NULL;
+#else /* QCOM_HARDWARE */
         MediaBuffer *copy = NULL;
         int32_t deferRelease = false;
         // Check if the upstream source hints it is OK to hold on to the
@@ -2238,13 +2328,22 @@ status_t MPEG4Writer::Track::threadEntry() {
             buffer->release();
             buffer = NULL;
         }
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        if (mIsAvc) StripStartcode(copy);
+#else /* QCOM_HARDWARE */
         if (mIsAvc || mIsHEVC) {
             StripStartcode(copy);
         }
+#endif /* QCOM_HARDWARE */
 
         size_t sampleSize = copy->range_length();
+#ifndef QCOM_HARDWARE
+        if (mIsAvc) {
+#else /* QCOM_HARDWARE */
         if (mIsAvc || mIsHEVC) {
+#endif /* QCOM_HARDWARE */
             if (mOwner->useNalLengthFour()) {
                 sampleSize += 4;
             } else {
@@ -2279,6 +2378,21 @@ status_t MPEG4Writer::Track::threadEntry() {
         }
 
         if (mResumed) {
+#ifndef QCOM_HARDWARE
+            int64_t durExcludingEarlierPausesUs = timestampUs - previousPausedDurationUs;
+            if (WARN_UNLESS(durExcludingEarlierPausesUs >= 0ll, "for %s track", trackName)) {
+                copy->release();
+                return ERROR_MALFORMED;
+            }
+
+            int64_t pausedDurationUs = durExcludingEarlierPausesUs - mTrackDurationUs;
+            if (WARN_UNLESS(pausedDurationUs >= lastDurationUs, "for %s track", trackName)) {
+                copy->release();
+                return ERROR_MALFORMED;
+            }
+
+            previousPausedDurationUs += pausedDurationUs - lastDurationUs;
+#endif /* ! QCOM_HARDWARE */
             mResumed = false;
         }
 
@@ -2298,8 +2412,13 @@ status_t MPEG4Writer::Track::threadEntry() {
             CHECK(meta_data->findInt64(kKeyDecodingTime, &decodingTimeUs));
             decodingTimeUs -= previousPausedDurationUs;
             cttsOffsetTimeUs =
+#ifndef QCOM_HARDWARE
+                    timestampUs + kMaxCttsOffsetTimeUs - decodingTimeUs;
+            if (WARN_UNLESS(cttsOffsetTimeUs >= 0ll, "for %s track", trackName)) {
+#else /* QCOM_HARDWARE */
                     timestampUs - decodingTimeUs;
             if (WARN_UNLESS(kMaxCttsOffsetTimeUs >= decodingTimeUs - timestampUs, "for %s track", trackName)) {
+#endif /* QCOM_HARDWARE */
                 copy->release();
                 return ERROR_MALFORMED;
             }
@@ -2431,7 +2550,11 @@ status_t MPEG4Writer::Track::threadEntry() {
             trackProgressStatus(timestampUs);
         }
         if (!hasMultipleTracks) {
+#ifndef QCOM_HARDWARE
+            off64_t offset = mIsAvc? mOwner->addLengthPrefixedSample_l(copy)
+#else /* QCOM_HARDWARE */
             off64_t offset = (mIsAvc | mIsHEVC) ? mOwner->addLengthPrefixedSample_l(copy)
+#endif /* QCOM_HARDWARE */
                                  : mOwner->addSample_l(copy);
 
             uint32_t count = (mOwner->use32BitFileOffset()
@@ -2683,8 +2806,12 @@ status_t MPEG4Writer::Track::checkCodecSpecificData() const {
     CHECK(mMeta->findCString(kKeyMIMEType, &mime));
     if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_AAC, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG4, mime) ||
+#ifndef QCOM_HARDWARE
+        !strcasecmp(MEDIA_MIMETYPE_VIDEO_AVC, mime)) {
+#else /* QCOM_HARDWARE */
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_AVC, mime) ||
         mIsHEVC) {
+#endif /* QCOM_HARDWARE */
         if (!mCodecSpecificData ||
             mCodecSpecificDataSize <= 0) {
             ALOGE("Missing codec specific data");
@@ -2705,11 +2832,13 @@ void MPEG4Writer::Track::writeTrackHeader(bool use32BitOffset) {
     ALOGV("%s track time scale: %d",
         mIsAudio? "Audio": "Video", mTimeScale);
 
+#ifdef QCOM_HARDWARE
     if (mMdatSizeBytes == 0) {
       ALOGV("Track data is not available.");
       return;
     }
 
+#endif /* QCOM_HARDWARE */
     uint32_t now = getMpeg4Time();
     mOwner->beginBox("trak");
         writeTkhdBox(now);
@@ -2761,8 +2890,10 @@ void MPEG4Writer::Track::writeVideoFourCCBox() {
         mOwner->beginBox("s263");
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_AVC, mime)) {
         mOwner->beginBox("avc1");
+#ifdef QCOM_HARDWARE
     } else if (mIsHEVC) {
         ExtendedUtils::HEVCMuxer::beginHEVCBox(mOwner);
+#endif /* QCOM_HARDWARE */
     } else {
         ALOGE("Unknown mime type '%s'.", mime);
         CHECK(!"should not be here, unknown mime type.");
@@ -2801,6 +2932,7 @@ void MPEG4Writer::Track::writeVideoFourCCBox() {
         writeD263Box();
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_AVC, mime)) {
         writeAvccBox();
+#ifdef QCOM_HARDWARE
     } else if (mIsHEVC) {
         ExtendedUtils::HEVCMuxer::writeHvccBox(mOwner, mCodecSpecificData,
                                                mCodecSpecificDataSize,
@@ -2809,8 +2941,12 @@ void MPEG4Writer::Track::writeVideoFourCCBox() {
 
     if (!mIsHEVC) {
         writePaspBox();
+#endif /* QCOM_HARDWARE */
     }
 
+#ifndef QCOM_HARDWARE
+    writePaspBox();
+#endif /* ! QCOM_HARDWARE */
     mOwner->endBox();  // mp4v, s263 or avc1
 }
 
@@ -3008,9 +3144,13 @@ void MPEG4Writer::Track::writeMdhdBox(uint32_t now) {
     mOwner->writeInt32(0);             // version=0, flags=0
     mOwner->writeInt32(now);           // creation time
     mOwner->writeInt32(now);           // modification time
+#ifndef QCOM_HARDWARE
+    mOwner->writeInt32(mTimeScale);    // media timescale
+#else /* QCOM_HARDWARE */
 
     int32_t timeScale = mTimeScale / mHFRRatio;
     mOwner->writeInt32(timeScale);    // media timescale
+#endif /* QCOM_HARDWARE */
     int32_t mdhdDuration = (trakDurationUs * mTimeScale + 5E5) / 1E6;
     mOwner->writeInt32(mdhdDuration);  // use media timescale
     // Language follows the three letter standard ISO-639-2/T
@@ -3089,7 +3229,11 @@ void MPEG4Writer::Track::writePaspBox() {
 int32_t MPEG4Writer::Track::getStartTimeOffsetScaledTime() const {
     int64_t trackStartTimeOffsetUs = 0;
     int64_t moovStartTimeUs = mOwner->getStartTimestampUs();
+#ifndef QCOM_HARDWARE
+    if (mStartTimestampUs != moovStartTimeUs) {
+#else /* QCOM_HARDWARE */
     if (mStartTimestampUs != moovStartTimeUs && mStszTableEntries->count() != 0) {
+#endif /* QCOM_HARDWARE */
         CHECK_GT(mStartTimestampUs, moovStartTimeUs);
         trackStartTimeOffsetUs = mStartTimestampUs - moovStartTimeUs;
     }

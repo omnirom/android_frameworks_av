@@ -23,6 +23,7 @@
 #include <utils/String8.h>
 
 #include <system/audio.h>
+#ifdef QCOM_HARDWARE
 #include <binder/AppOpsManager.h>
 
 #include <media/stagefright/ExtendedStats.h>
@@ -33,6 +34,7 @@
             mRecorderExtendedStats->func(__VA_ARGS__);} \
     } \
     while(0)
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -68,7 +70,9 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual status_t setParameters(const String8& params);
     virtual status_t setListener(const sp<IMediaRecorderClient>& listener);
     virtual status_t setClientName(const String16& clientName);
+#ifdef QCOM_HARDWARE
     virtual status_t setSourcePause(bool pause);
+#endif /* QCOM_HARDWARE */
     virtual status_t prepare();
     virtual status_t start();
     virtual status_t pause();
@@ -81,7 +85,9 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() const;
 
 private:
+#ifdef QCOM_HARDWARE
     AppOpsManager mAppOpsManager;
+#endif /* QCOM_HARDWARE */
     sp<ICamera> mCamera;
     sp<ICameraRecordingProxy> mCameraProxy;
     sp<IGraphicBufferProducer> mPreviewSurface;
@@ -89,9 +95,11 @@ private:
     String16 mClientName;
     uid_t mClientUid;
     sp<MediaWriter> mWriter;
+#ifdef QCOM_HARDWARE
     sp<MediaSource> mVideoEncoderOMX;
     sp<MediaSource> mAudioEncoderOMX;
     sp<MediaSource> mVideoSourceNode;
+#endif /* QCOM_HARDWARE */
     int mOutputFd;
     sp<AudioSource> mAudioSourceNode;
 
@@ -135,7 +143,9 @@ private:
     MediaProfiles *mEncoderProfiles;
 
     bool mStarted;
+#ifdef QCOM_HARDWARE
     bool mRecPaused;
+#endif /* QCOM_HARDWARE */
     // Needed when GLFrames are encoded.
     // An <IGraphicBufferProducer> pointer
     // will be sent to the client side using which the
@@ -143,8 +153,10 @@ private:
     sp<IGraphicBufferProducer> mGraphicBufferProducer;
     sp<ALooper> mLooper;
 
+#ifdef QCOM_HARDWARE
     sp<RecorderExtendedStats> mRecorderExtendedStats;
 
+#endif /* QCOM_HARDWARE */
     status_t prepareInternal();
     status_t setupMPEG4orWEBMRecording();
     void setupMPEG4orWEBMMetaData(sp<MetaData> *meta);
@@ -201,6 +213,7 @@ private:
 
     StagefrightRecorder(const StagefrightRecorder &);
     StagefrightRecorder &operator=(const StagefrightRecorder &);
+#ifdef QCOM_HARDWARE
 
     /* extension */
 #ifdef ENABLE_AV_ENHANCEMENTS
@@ -208,6 +221,7 @@ private:
     status_t setupWAVERecording();
     status_t setupExtendedRecording();
 #endif
+#endif /* QCOM_HARDWARE */
 };
 
 }  // namespace android
