@@ -94,6 +94,7 @@ private:
 
     int64_t mPositionTimeMediaUs;
     int64_t mPositionTimeRealUs;
+    int64_t mDurationUs;
 
     bool mSeeking;
     bool mReachedEOS;
@@ -101,6 +102,7 @@ private:
     int64_t mSeekTimeUs;
 
     bool mStarted;
+    bool mSourcePaused;
 
     bool mIsFirstBuffer;
     status_t mFirstBufferResult;
@@ -113,6 +115,7 @@ private:
     bool mPlaying;
     int64_t mStartPosUs;
     const uint32_t mCreateFlags;
+    bool mPauseRequired;
 
     static void AudioCallback(int event, void *user, void *info);
     void AudioCallback(int event, void *info);

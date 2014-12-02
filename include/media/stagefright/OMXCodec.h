@@ -26,6 +26,15 @@
 
 #include <OMX_Audio.h>
 
+#include <media/stagefright/ExtendedStats.h>
+
+#define PLAYER_STATS(func, ...) \
+    do { \
+        if(mPlayerExtendedStats != NULL) { \
+            mPlayerExtendedStats->func(__VA_ARGS__);} \
+    } \
+    while(0)
+
 namespace android {
 
 struct MediaCodecInfo;
@@ -100,6 +109,8 @@ struct OMXCodec : public MediaSource,
         kSupportsMultipleFramesPerInputBuffer = 1024,
         kRequiresLargerEncoderOutputBuffer    = 2048,
         kOutputBuffersAreUnreadable           = 4096,
+        kRequiresGlobalFlush                  = 0x20000000, // 2^29
+        kRequiresWMAProComponent              = 0x40000000, //2^30
     };
 
     struct CodecNameAndQuirks {
@@ -119,10 +130,18 @@ struct OMXCodec : public MediaSource,
 
     static bool findCodecQuirks(const char *componentName, uint32_t *quirks);
 
+    // If profile/level is set in the meta data, its value in the meta
+    // data will be used; otherwise, the default value will be used.
+    status_t getVideoProfileLevel(const sp<MetaData>& meta,
+            const CodecProfileLevel& defaultProfileLevel,
+            CodecProfileLevel& profileLevel);
+
 protected:
     virtual ~OMXCodec();
 
 private:
+
+    sp<PlayerExtendedStats> mPlayerExtendedStats;
 
     // Make sure mLock is accessible to OMXCodecObserver
     friend class OMXCodecObserver;
@@ -139,10 +158,14 @@ private:
         EXECUTING_TO_IDLE,
         IDLE_TO_LOADED,
         RECONFIGURING,
+        PAUSING,
+        FLUSHING,
+        PAUSED,
         ERROR
     };
 
     enum {
+        kPortIndexBoth   = -1,
         kPortIndexInput  = 0,
         kPortIndexOutput = 1
     };
@@ -169,6 +192,7 @@ private:
         size_t mSize;
         void *mData;
         MediaBuffer *mMediaBuffer;
+        bool mOutputCropChanged;
     };
 
     struct CodecSpecificData {
@@ -271,12 +295,6 @@ private:
     status_t isColorFormatSupported(
             OMX_COLOR_FORMATTYPE colorFormat, int portIndex);
 
-    // If profile/level is set in the meta data, its value in the meta
-    // data will be used; otherwise, the default value will be used.
-    status_t getVideoProfileLevel(const sp<MetaData>& meta,
-            const CodecProfileLevel& defaultProfileLevel,
-            CodecProfileLevel& profileLevel);
-
     status_t setVideoOutputFormat(
             const char *mime, const sp<MetaData>& meta);
 
@@ -350,6 +368,7 @@ private:
     status_t applyRotation();
     status_t waitForBufferFilled_l();
 
+    status_t resumeLocked(bool drainInputBuf);
     int64_t getDecodingTimeUs();
 
     status_t parseHEVCCodecSpecificData(
@@ -363,6 +382,10 @@ private:
 
     OMXCodec(const OMXCodec &);
     OMXCodec &operator=(const OMXCodec &);
+
+    int32_t mNumBFrames;
+    bool mInSmoothStreamingMode;
+    bool mOutputCropChanged;
 };
 
 struct CodecCapabilities {
