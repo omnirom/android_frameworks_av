@@ -94,7 +94,9 @@ private:
 
     int64_t mPositionTimeMediaUs;
     int64_t mPositionTimeRealUs;
+#ifdef QCOM_HARDWARE
     int64_t mDurationUs;
+#endif /* QCOM_HARDWARE */
 
     bool mSeeking;
     bool mReachedEOS;
@@ -102,7 +104,9 @@ private:
     int64_t mSeekTimeUs;
 
     bool mStarted;
+#ifdef QCOM_HARDWARE
     bool mSourcePaused;
+#endif /* QCOM_HARDWARE */
 
     bool mIsFirstBuffer;
     status_t mFirstBufferResult;
@@ -115,7 +119,9 @@ private:
     bool mPlaying;
     int64_t mStartPosUs;
     const uint32_t mCreateFlags;
+#ifdef QCOM_HARDWARE
     bool mPauseRequired;
+#endif /* QCOM_HARDWARE */
 
     static void AudioCallback(int event, void *user, void *info);
     void AudioCallback(int event, void *info);

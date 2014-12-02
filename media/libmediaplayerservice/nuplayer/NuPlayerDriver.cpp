@@ -529,10 +529,12 @@ status_t NuPlayerDriver::getMetadata(
 
     Metadata meta(records);
 
+#ifdef QCOM_HARDWARE
     meta.appendInt32(
             Metadata::kServerTimeout,
             (int32_t)(mPlayer->getServerTimeoutUs() / 1000));
 
+#endif /* QCOM_HARDWARE */
     meta.appendBool(
             Metadata::kPauseAvailable,
             mPlayerFlags & NuPlayer::Source::FLAG_CAN_PAUSE);

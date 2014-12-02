@@ -23,7 +23,9 @@
 #include <media/IOMX.h>
 #include <media/stagefright/foundation/AHierarchicalStateMachine.h>
 #include <media/stagefright/CodecBase.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedStats.h>
+#endif /* QCOM_HARDWARE */
 #include <media/stagefright/SkipCutBuffer.h>
 #include <OMX_Audio.h>
 
@@ -132,8 +134,10 @@ private:
     enum {
         kFlagIsSecure                                 = 1,
         kFlagPushBlankBuffersToNativeWindowOnShutdown = 2,
+#ifdef QCOM_HARDWARE
         // protection against screen capture of non-secure drm content
         kFlagIsContentDrmProtected                    = 3,
+#endif /* QCOM_HARDWARE */
     };
 
     struct BufferInfo {
@@ -174,7 +178,9 @@ private:
     sp<IdleToLoadedState> mIdleToLoadedState;
     sp<FlushingState> mFlushingState;
     sp<SkipCutBuffer> mSkipCutBuffer;
+#ifdef QCOM_HARDWARE
     sp<MediaExtendedStats> mMediaExtendedStats;
+#endif /* QCOM_HARDWARE */
 
     AString mComponentName;
     uint32_t mFlags;

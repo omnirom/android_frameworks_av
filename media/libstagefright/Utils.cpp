@@ -34,6 +34,7 @@
 #include <hardware/audio.h>
 #include <media/stagefright/Utils.h>
 #include <media/AudioParameter.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedCodec.h>
 
 #include "include/ExtendedUtils.h"
@@ -44,6 +45,7 @@
 #include "audio_defs.h"
 #endif
 #endif
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -125,6 +127,7 @@ status_t convertMetaDataToMessage(
             msg->setInt32("color-format", colorFormat);
         }
 
+#ifdef QCOM_HARDWARE
         int32_t stride;
         if (meta->findInt32(kKeyStride, &stride)) {
             msg->setInt32("stride", stride);
@@ -135,6 +138,7 @@ status_t convertMetaDataToMessage(
             msg->setInt32("slice-height", sliceHeight);
         }
 
+#endif /* QCOM_HARDWARE */
         int32_t cropLeft, cropTop, cropRight, cropBottom;
         if (meta->findRect(kKeyCropRect,
                            &cropLeft,
@@ -366,7 +370,9 @@ status_t convertMetaDataToMessage(
         msg->setBuffer("csd-0", buffer);
     }
 
+#ifdef QCOM_HARDWARE
     ExtendedCodec::convertMetaDataToMessage(meta, &msg);
+#endif /* QCOM_HARDWARE */
     *format = msg;
 
     return OK;
@@ -483,9 +489,11 @@ static void reassembleESDS(const sp<ABuffer> &csd0, char *esds) {
 
 void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
     AString mime;
+#ifdef QCOM_HARDWARE
     if(msg == NULL)
         return;
 
+#endif /* QCOM_HARDWARE */
     if (msg->findString("mime", &mime)) {
         meta->setCString(kKeyMIMEType, mime.c_str());
     } else {
@@ -575,6 +583,9 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
     if (msg->findBuffer("csd-0", &csd0)) {
         if (mime.startsWith("video/")) { // do we need to be stricter than this?
             sp<ABuffer> csd1;
+#ifndef QCOM_HARDWARE
+            if (msg->findBuffer("csd-1", &csd1)) {
+#else /* QCOM_HARDWARE */
 
             if (mime.startsWith(MEDIA_MIMETYPE_VIDEO_HEVC)) {
                 ALOGV("writing HVCC key value pair");
@@ -592,14 +603,17 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
                     ALOGE("Failed to reassemble HVCC data");
                 }
             } else if (msg->findBuffer("csd-1", &csd1)) {
+#endif /* QCOM_HARDWARE */
                 char avcc[1024]; // that oughta be enough, right?
                 size_t outsize = reassembleAVCC(csd0, csd1, avcc);
                 meta->setData(kKeyAVCC, kKeyAVCC, avcc, outsize);
+#ifdef QCOM_HARDWARE
             } else {
                 int csd0size = csd0->size();
                 char esds[csd0size + 31];
                 reassembleESDS(csd0, esds);
                 meta->setData(kKeyESDS, kKeyESDS, esds, sizeof(esds));
+#endif /* QCOM_HARDWARE */
             }
         } else if (mime.startsWith("audio/")) {
             int csd0size = csd0->size();
@@ -664,6 +678,7 @@ status_t sendMetaDataToHal(sp<MediaPlayerBase::AudioSink>& sink,
     if (meta->findInt32(kKeyEncoderPadding, &paddingSamples)) {
         param.addInt(String8(AUDIO_OFFLOAD_CODEC_PADDING_SAMPLES), paddingSamples);
     }
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
 #ifdef FLAC_OFFLOAD_ENABLED
     int32_t minBlkSize, maxBlkSize, minFrmSize, maxFrmSize; //FLAC params
@@ -681,6 +696,7 @@ status_t sendMetaDataToHal(sp<MediaPlayerBase::AudioSink>& sink,
     }
 #endif
 #endif
+#endif /* QCOM_HARDWARE */
 
     ALOGV("sendMetaDataToHal: bitRate %d, sampleRate %d, chanMask %d,"
           "delaySample %d, paddingSample %d", bitRate, sampleRate,
@@ -703,6 +719,7 @@ static const struct mime_conv_t mimeLookup[] = {
     { MEDIA_MIMETYPE_AUDIO_AAC,         AUDIO_FORMAT_AAC },
     { MEDIA_MIMETYPE_AUDIO_VORBIS,      AUDIO_FORMAT_VORBIS },
     { MEDIA_MIMETYPE_AUDIO_OPUS,        AUDIO_FORMAT_OPUS},
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
     { MEDIA_MIMETYPE_AUDIO_AC3,         AUDIO_FORMAT_AC3 },
     { MEDIA_MIMETYPE_AUDIO_AMR_WB_PLUS, AUDIO_FORMAT_AMR_WB_PLUS },
@@ -714,6 +731,7 @@ static const struct mime_conv_t mimeLookup[] = {
     { MEDIA_MIMETYPE_AUDIO_FLAC,        AUDIO_FORMAT_FLAC },
     { MEDIA_MIMETYPE_CONTAINER_QTIFLAC, AUDIO_FORMAT_FLAC },
 #endif
+#endif /* QCOM_HARDWARE */
     { 0, AUDIO_FORMAT_INVALID }
 };
 
@@ -764,7 +782,11 @@ const struct aac_format_conv_t* p = &profileLookup[0];
     return;
 }
 
+#ifndef QCOM_HARDWARE
+bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
+#else /* QCOM_HARDWARE */
 bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData>& vMeta,
+#endif /* QCOM_HARDWARE */
                       bool isStreaming, audio_stream_type_t streamType)
 {
     const char *mime;
@@ -773,6 +795,7 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData
     }
     CHECK(meta->findCString(kKeyMIMEType, &mime));
 
+#ifdef QCOM_HARDWARE
     if (hasVideo) {
         const char *vMime;
         CHECK(vMeta->findCString(kKeyMIMEType, &vMime));
@@ -784,9 +807,11 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData
 #endif
     }
 
+#endif /* QCOM_HARDWARE */
     audio_offload_info_t info = AUDIO_INFO_INITIALIZER;
 
     info.format = AUDIO_FORMAT_INVALID;
+#ifdef QCOM_HARDWARE
     int32_t bitWidth = 16;
 #ifdef ENABLE_AV_ENHANCEMENTS
 #ifdef PCM_OFFLOAD_ENABLED_24
@@ -796,10 +821,12 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData
         ALOGW("%s No Sample Bit info in meta data", __func__);
 #endif
 #endif
+#endif /* QCOM_HARDWARE */
     if (mapMimeToAudioFormat(info.format, mime) != OK) {
         ALOGE(" Couldn't map mime type \"%s\" to a valid AudioSystem::audio_format !", mime);
         return false;
     } else {
+#ifdef QCOM_HARDWARE
         // Override audio format for PCM offload
         if (info.format == AUDIO_FORMAT_PCM_16_BIT) {
             if (16 == bitWidth)
@@ -807,6 +834,7 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData
             else if (24 == bitWidth)
                 info.format = AUDIO_FORMAT_PCM_24_BIT_OFFLOAD;
         }
+#endif /* QCOM_HARDWARE */
         ALOGV("Mime type \"%s\" mapped to audio_format %d", mime, info.format);
     }
 
@@ -830,7 +858,11 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData
     info.sample_rate = srate;
 
     int32_t cmask = 0;
+#ifndef QCOM_HARDWARE
+    if (!meta->findInt32(kKeyChannelMask, &cmask)) {
+#else /* QCOM_HARDWARE */
     if (!meta->findInt32(kKeyChannelMask, &cmask) || (cmask == 0)) {
+#endif /* QCOM_HARDWARE */
         ALOGV("track of type '%s' does not publish channel mask", mime);
 
         // Try a channel count instead
@@ -855,7 +887,11 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData
      }
     info.bit_rate = brate;
 
+#ifndef QCOM_HARDWARE
+
+#else /* QCOM_HARDWARE */
     info.bit_width = bitWidth;
+#endif /* QCOM_HARDWARE */
     info.stream_type = streamType;
     info.has_video = hasVideo;
     info.is_streaming = isStreaming;
@@ -898,6 +934,7 @@ AString uriDebugString(const AString &uri, bool incognito) {
         return scheme;
     }
     return AString("<no-scheme URI suppressed>");
+#ifdef QCOM_HARDWARE
 }
 
 void printFileName(int fd)
@@ -911,6 +948,7 @@ void printFileName(int fd)
             ALOGD("printFileName fd(%d) -> %s", fd, fileName);
         }
     }
+#endif /* QCOM_HARDWARE */
 }
 
 }  // namespace android

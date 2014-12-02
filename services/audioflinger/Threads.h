@@ -581,8 +581,12 @@ public:
                 virtual bool     isValidSyncEvent(const sp<SyncEvent>& event) const;
 
                 // called with AudioFlinger lock held
+#ifndef QCOM_HARDWARE
+                        void     invalidateTracks(audio_stream_type_t streamType);
+#else /* QCOM_HARDWARE */
        void     invalidateTracks(audio_stream_type_t streamType);
        virtual  void onFatalError();
+#endif /* QCOM_HARDWARE */
 
     virtual     size_t      frameCount() const { return mNormalFrameCount; }
 
@@ -721,7 +725,9 @@ private:
     bool        destroyTrack_l(const sp<Track>& track);
     void        removeTrack_l(const sp<Track>& track);
     void        broadcast_l();
+#ifdef QCOM_HARDWARE
     void        invalidateTracks_l(audio_stream_type_t streamType);
+#endif /* QCOM_HARDWARE */
 
     void        readOutputParameters_l();
 
@@ -946,7 +952,9 @@ protected:
     virtual     bool        waitingAsyncCallback_l();
     virtual     bool        shouldStandby_l();
     virtual     void        onAddNewTrack_l();
+#ifdef QCOM_HARDWARE
     virtual     void        onFatalError();
+#endif /* QCOM_HARDWARE */
 
 private:
     bool        mHwPaused;
