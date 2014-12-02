@@ -28,6 +28,7 @@
 #include <media/stagefright/MetaData.h>
 #include <utils/threads.h>
 #include <drm/DrmManagerClient.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedStats.h>
 
 #define PLAYER_STATS(func, ...) \
@@ -36,10 +37,14 @@
             mPlayerExtendedStats->func(__VA_ARGS__);} \
     } \
     while(0)
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
 struct AudioPlayer;
+#ifndef QCOM_HARDWARE
+struct ClockEstimator;
+#endif /* ! QCOM_HARDWARE */
 struct DataSource;
 struct MediaBuffer;
 struct MediaExtractor;
@@ -113,15 +118,19 @@ struct AwesomePlayer {
     void postAudioTearDown();
     status_t dump(int fd, const Vector<String16> &args) const;
 
+#ifdef QCOM_HARDWARE
     status_t suspend();
     status_t resume();
 
+#endif /* QCOM_HARDWARE */
 private:
     friend struct AwesomeEvent;
     friend struct PreviewPlayer;
 
+#ifdef QCOM_HARDWARE
     sp<PlayerExtendedStats> mPlayerExtendedStats;
 
+#endif /* QCOM_HARDWARE */
     enum {
         PLAYING             = 0x01,
         LOOPING             = 0x02,
@@ -186,7 +195,9 @@ private:
     bool mVideoRendererIsPreview;
     int32_t mMediaRenderingStartGeneration;
     int32_t mStartGeneration;
+#ifdef QCOM_HARDWARE
     ssize_t mActiveVideoTrackIndex;
+#endif /* QCOM_HARDWARE */
 
     ssize_t mActiveAudioTrackIndex;
     sp<MediaSource> mAudioTrack;
@@ -205,7 +216,9 @@ private:
 
     int64_t mTimeSourceDeltaUs;
     int64_t mVideoTimeUs;
+#ifdef QCOM_HARDWARE
     int64_t mVideoFrameDeltaUs;
+#endif /* QCOM_HARDWARE */
 
     enum SeekType {
         NO_SEEK,
@@ -222,8 +235,10 @@ private:
     bool mWatchForAudioSeekComplete;
     bool mWatchForAudioEOS;
 
+#ifdef QCOM_HARDWARE
     bool mIsFirstFrameAfterResume;
 
+#endif /* QCOM_HARDWARE */
     sp<TimedEventQueue::Event> mVideoEvent;
     bool mVideoEventPending;
     sp<TimedEventQueue::Event> mStreamDoneEvent;
@@ -250,10 +265,15 @@ private:
     void postAudioTearDownEvent(int64_t delayUs);
 
     status_t play_l();
+#ifdef QCOM_HARDWARE
     status_t fallbackToSWDecoder();
+#endif /* QCOM_HARDWARE */
 
     MediaBuffer *mVideoBuffer;
 
+#ifndef QCOM_HARDWARE
+    sp<ClockEstimator> mClockEstimator;
+#endif /* ! QCOM_HARDWARE */
     sp<HTTPBase> mConnectingDataSource;
     sp<NuCachedSource2> mCachedSource;
 
@@ -262,7 +282,9 @@ private:
 
     int64_t mLastVideoTimeUs;
     TimedTextDriver *mTextDriver;
+#ifdef QCOM_HARDWARE
     ssize_t mActiveTextTrackIndex;
+#endif /* QCOM_HARDWARE */
 
     sp<WVMExtractor> mWVMExtractor;
     sp<MediaExtractor> mExtractor;
@@ -315,6 +337,9 @@ private:
 
     bool getBitrate(int64_t *bitrate);
 
+#ifndef QCOM_HARDWARE
+    int64_t estimateRealTimeUs(TimeSource *ts, int64_t systemTimeUs);
+#endif /* ! QCOM_HARDWARE */
     void finishSeekIfNecessary(int64_t videoTimeUs);
     void ensureCacheIsFetching_l();
 
@@ -335,6 +360,7 @@ private:
         ASSIGN
     };
     void modifyFlags(unsigned value, FlagMode mode);
+#ifdef QCOM_HARDWARE
     void logFirstFrame();
     void logCatchUp(int64_t ts, int64_t clock, int64_t delta);
     void logLate(int64_t ts, int64_t clock, int64_t delta);
@@ -342,6 +368,7 @@ private:
     void printStats();
     int64_t getTimeOfDayUs();
     bool mStatistics;
+#endif /* QCOM_HARDWARE */
 
     struct TrackStat {
         String8 mMIME;
@@ -367,6 +394,7 @@ private:
         int32_t mVideoHeight;
         uint32_t mFlags;
         Vector<TrackStat> mTracks;
+#ifdef QCOM_HARDWARE
 
         int64_t mConsecutiveFramesDropped;
         uint32_t mCatchupTimeStart;
@@ -384,6 +412,7 @@ private:
         int64_t mLastSeekToTimeMs;
         int64_t mResumeDelayStartUs;
         int64_t mSeekDelayStartUs;
+#endif /* QCOM_HARDWARE */
     } mStats;
 
     bool    mOffloadAudio;
@@ -402,7 +431,9 @@ private:
     status_t selectTrack(size_t trackIndex, bool select);
 
     size_t countTracks() const;
+#ifdef QCOM_HARDWARE
     bool isWidevineContent() const;
+#endif /* QCOM_HARDWARE */
 
     AwesomePlayer(const AwesomePlayer &);
     AwesomePlayer &operator=(const AwesomePlayer &);

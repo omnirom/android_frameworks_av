@@ -113,7 +113,11 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
 
     // ALOGD("Creating track with %d buffers @ %d bytes", bufferCount, bufferSize);
     size_t size = sizeof(audio_track_cblk_t);
+#ifndef QCOM_HARDWARE
+    size_t bufferSize = (buffer == NULL ? roundup(frameCount) : frameCount) * mFrameSize;
+#else /* QCOM_HARDWARE */
     size_t bufferSize = (((buffer == NULL) && audio_is_linear_pcm(format)) ? roundup(frameCount) : frameCount) * mFrameSize;
+#endif /* QCOM_HARDWARE */
     if (buffer == NULL && alloc == ALLOC_CBLK) {
         size += bufferSize;
     }
@@ -630,7 +634,11 @@ size_t AudioFlinger::PlaybackThread::Track::framesReleased() const
 
 // Don't call for fast tracks; the framesReady() could result in priority inversion
 bool AudioFlinger::PlaybackThread::Track::isReady() const {
+#ifndef QCOM_HARDWARE
+    if (mFillingUpStatus != FS_FILLING || isStopped() || isPausing()) {
+#else /* QCOM_HARDWARE */
     if (mFillingUpStatus != FS_FILLING || isStopped() || isPausing() || isStopping()) {
+#endif /* QCOM_HARDWARE */
         return true;
     }
 
@@ -846,6 +854,7 @@ void AudioFlinger::PlaybackThread::Track::flushAck()
     mFlushHwPending = false;
 }
 
+#ifdef QCOM_HARDWARE
 void AudioFlinger::PlaybackThread::Track::signalError()
 {
     // TBD, is this needed for pcm too?
@@ -859,6 +868,7 @@ void AudioFlinger::PlaybackThread::Track::signalError()
     // client is not in server, so FUTEX_WAKE is needed instead of FUTEX_WAKE_PRIVATE
     (void) syscall(__NR_futex, &cblk->mFutex, FUTEX_WAKE, INT_MAX);
 }
+#endif /* QCOM_HARDWARE */
 
 void AudioFlinger::PlaybackThread::Track::reset()
 {

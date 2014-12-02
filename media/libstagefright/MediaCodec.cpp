@@ -37,7 +37,9 @@
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedCodec.h>
+#endif /* QCOM_HARDWARE */
 #include <media/stagefright/NativeWindowWrapper.h>
 #include <private/android_filesystem_config.h>
 #include <utils/Log.h>
@@ -712,9 +714,11 @@ bool MediaCodec::handleDequeueOutputBuffer(uint32_t replyID, bool newRequest) {
         if (omxFlags & OMX_BUFFERFLAG_EOS) {
             flags |= BUFFER_FLAG_EOS;
         }
+#ifdef QCOM_HARDWARE
         if (omxFlags & OMX_BUFFERFLAG_EXTRADATA) {
             flags |= BUFFER_FLAG_EXTRADATA;
         }
+#endif /* QCOM_HARDWARE */
 
         response->setInt32("flags", flags);
     }
@@ -1560,7 +1564,11 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             uint32_t replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
+#ifndef QCOM_HARDWARE
+            if (!isExecuting() || (mFlags & kFlagIsAsync)) {
+#else /* QCOM_HARDWARE */
             if (!isExecuting()) {
+#endif /* QCOM_HARDWARE */
                 PostReplyWithError(replyID, INVALID_OPERATION);
                 break;
             } else if (mFlags & kFlagStickyError) {
@@ -1701,6 +1709,7 @@ void MediaCodec::extractCSD(const sp<AMessage> &format) {
         ++i;
     }
 
+#ifdef QCOM_HARDWARE
     sp<ABuffer> extendedCSD = ExtendedCodec::getRawCodecSpecificData(format);
     if (extendedCSD != NULL) {
         ALOGV("pushing extended CSD of size %d", extendedCSD->size());
@@ -1712,6 +1721,7 @@ void MediaCodec::extractCSD(const sp<AMessage> &format) {
         ALOGV("pushing AAC CSD of size %d", aacCSD->size());
         mCSD.push_back(aacCSD);
     }
+#endif /* QCOM_HARDWARE */
 
     ALOGV("Found %zu pieces of codec specific data.", mCSD.size());
 }

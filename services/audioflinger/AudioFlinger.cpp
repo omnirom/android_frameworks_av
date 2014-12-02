@@ -1001,10 +1001,17 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             }
             mHardwareStatus = AUDIO_HW_IDLE;
         }
+#ifndef QCOM_HARDWARE
+        // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
+#else /* QCOM_HARDWARE */
 
         // invalidate all tracks of type MUSIC. This is handled in the player as a teardown
         // event and can be used for fallback and retry.
+#endif /* QCOM_HARDWARE */
         AudioParameter param = AudioParameter(keyValuePairs);
+#ifndef QCOM_HARDWARE
+        String8 value;
+#else /* QCOM_HARDWARE */
         String8 value, key;
         int i = 0;
 
@@ -1023,6 +1030,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
         }
 
         // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
+#endif /* QCOM_HARDWARE */
         if (param.get(String8(AUDIO_PARAMETER_KEY_BT_NREC), value) == NO_ERROR) {
             bool btNrecIsOff = (value == AUDIO_PARAMETER_VALUE_OFF);
             if (mBtNrecIsOff != btNrecIsOff) {
@@ -1404,10 +1412,16 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         goto Exit;
     }
 
+#ifndef QCOM_HARDWARE
+    // we don't yet support anything other than 16-bit PCM
+    if (!(audio_is_valid_format(format) &&
+            audio_is_linear_pcm(format) && format == AUDIO_FORMAT_PCM_16_BIT)) {
+#else /* QCOM_HARDWARE */
     // we don't yet support anything other than 16-bit PCM and compress formats
     if (format != AUDIO_FORMAT_PCM_16_BIT &&
             !audio_is_compress_voip_format(format) &&
             !audio_is_compress_capture_format(format)) {
+#endif /* QCOM_HARDWARE */
         ALOGE("openRecord() invalid format %#x", format);
         lStatus = BAD_VALUE;
         goto Exit;
@@ -2602,13 +2616,24 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
         return INVALID_OPERATION;
     }
 
+#ifndef QCOM_HARDWARE
+    // Check whether the destination thread has a channel count of FCC_2, which is
+    // currently required for (most) effects. Prevent moving the effect chain here rather
+    // than disabling the addEffect_l() call in dstThread below.
+    if (dstThread->mChannelCount != FCC_2) {
+#else /* QCOM_HARDWARE */
     // Check whether the destination thread has a channel count more than FCC_2, which is
     // currently required for (most) effects in deep buffer path. Prevent moving the effect
     // chain here rather than disabling the addEffect_l() call in dstThread below.
     if ((dstThread->mType == ThreadBase::MIXER || dstThread->mType == ThreadBase::DUPLICATING)
             && (dstThread->mChannelCount > FCC_2)) {
+#endif /* QCOM_HARDWARE */
         ALOGW("moveEffectChain_l() effect chain failed because"
+#ifndef QCOM_HARDWARE
+                " destination thread %p channel count(%u) != %u",
+#else /* QCOM_HARDWARE */
                 " destination thread %p channel count(%u) > %u",
+#endif /* QCOM_HARDWARE */
                 dstThread, dstThread->mChannelCount, FCC_2);
         return INVALID_OPERATION;
     }

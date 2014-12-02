@@ -381,7 +381,11 @@ sp<MetaData> MakeAVCCodecSpecificData(const sp<ABuffer> &accessUnit) {
     meta->setInt32(kKeyWidth, width);
     meta->setInt32(kKeyHeight, height);
 
+#ifndef QCOM_HARDWARE
+    if (sarWidth > 1 || sarHeight > 1) {
+#else /* QCOM_HARDWARE */
     if (sarWidth > 1 && sarHeight > 1) {
+#endif /* QCOM_HARDWARE */
         // We treat 0:0 (unspecified) as 1:1.
 
         meta->setInt32(kKeySARWidth, sarWidth);

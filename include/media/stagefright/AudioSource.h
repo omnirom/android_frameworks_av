@@ -23,7 +23,9 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MediaBuffer.h>
 #include <utils/List.h>
+#ifdef QCOM_HARDWARE
 #include <utils/String8.h>
+#endif /* QCOM_HARDWARE */
 
 #include <system/audio.h>
 
@@ -44,7 +46,9 @@ struct AudioSource : public MediaSource, public MediaBufferObserver {
     virtual status_t start(MetaData *params = NULL);
     virtual status_t stop() { return reset(); }
     virtual sp<MetaData> getFormat();
+#ifdef QCOM_HARDWARE
     status_t pause();
+#endif /* QCOM_HARDWARE */
 
     // Returns the maximum amplitude since last call.
     int16_t getMaxAmplitude();
@@ -53,7 +57,9 @@ struct AudioSource : public MediaSource, public MediaBufferObserver {
             MediaBuffer **buffer, const ReadOptions *options = NULL);
 
     status_t dataCallback(const AudioRecord::Buffer& buffer);
+#ifdef QCOM_HARDWARE
     virtual void onEvent(int event, void* info);
+#endif /* QCOM_HARDWARE */
     virtual void signalBufferReturned(MediaBuffer *buffer);
 
 protected:
@@ -61,9 +67,13 @@ protected:
 
 private:
     enum {
+#ifndef QCOM_HARDWARE
+        kMaxBufferSize = 2048,
+#else /* QCOM_HARDWARE */
         //This max buffer size is derived from aggregation of audio
         //buffers for max duration 80 msec with 48K sampling rate.
         kMaxBufferSize = 30720,
+#endif /* QCOM_HARDWARE */
 
         // After the initial mute, we raise the volume linearly
         // over kAutoRampDurationUs.
@@ -71,22 +81,30 @@ private:
 
         // This is the initial mute duration to suppress
         // the video recording signal tone
+#ifndef QCOM_HARDWARE
+        kAutoRampStartUs = 0,
+#else /* QCOM_HARDWARE */
         kAutoRampStartUs = 500000,
+#endif /* QCOM_HARDWARE */
     };
 
     Mutex mLock;
     Condition mFrameAvailableCondition;
     Condition mFrameEncodingCompletionCondition;
 
+#ifdef QCOM_HARDWARE
     AudioRecord::Buffer mTempBuf;
     uint32_t mPrevPosition;
     uint32_t mAllocBytes;
     int32_t mAudioSessionId;
     AudioRecord::transfer_type mTransferMode;
+#endif /* QCOM_HARDWARE */
     sp<AudioRecord> mRecord;
     status_t mInitCheck;
     bool mStarted;
+#ifdef QCOM_HARDWARE
     bool mRecPaused;
+#endif /* QCOM_HARDWARE */
     int32_t mSampleRate;
 
     bool mTrackMaxAmplitude;
@@ -96,9 +114,12 @@ private:
     int64_t mInitialReadTimeUs;
     int64_t mNumFramesReceived;
     int64_t mNumClientOwnedBuffers;
+#ifdef QCOM_HARDWARE
     int64_t mAutoRampStartUs;
+#endif /* QCOM_HARDWARE */
 
     List<MediaBuffer * > mBuffersReceived;
+
     void trackMaxAmplitude(int16_t *data, int nSamples);
 
     // This is used to raise the volume from mute to the
@@ -114,6 +135,7 @@ private:
 
     AudioSource(const AudioSource &);
     AudioSource &operator=(const AudioSource &);
+#ifdef QCOM_HARDWARE
 
     //additions for compress capture source
 public:
@@ -124,6 +146,7 @@ private:
     audio_format_t mFormat;
     String8 mMime;
     int32_t mMaxBufferSize;
+#endif /* QCOM_HARDWARE */
 };
 
 }  // namespace android

@@ -610,12 +610,16 @@ void PlaylistFetcher::onMonitorQueue() {
     int32_t targetDurationSecs;
     int64_t targetDurationUs = kMinBufferedDurationUs;
     if (mPlaylist != NULL) {
+#ifndef QCOM_HARDWARE
+        CHECK(mPlaylist->meta()->findInt32("target-duration", &targetDurationSecs));
+#else /* QCOM_HARDWARE */
         if (mPlaylist->meta() == NULL || !mPlaylist->meta()->findInt32(
                 "target-duration", &targetDurationSecs)) {
             ALOGE("Playlist is missing required EXT-X-TARGETDURATION tag");
             notifyError(ERROR_MALFORMED);
             return;
         }
+#endif /* QCOM_HARDWARE */
         targetDurationUs = targetDurationSecs * 1000000ll;
     }
 
@@ -864,7 +868,11 @@ void PlaylistFetcher::onDownloadNext() {
     ALOGV("fetching segment %d from (%d .. %d)",
           mSeqNumber, firstSeqNumberInPlaylist, lastSeqNumberInPlaylist);
 
+#ifndef QCOM_HARDWARE
+    ALOGV("fetching '%s'", uri.c_str());
+#else /* QCOM_HARDWARE */
     ALOGI("fetching '%s'", uri.c_str());
+#endif /* QCOM_HARDWARE */
 
     sp<DataSource> source;
     sp<ABuffer> buffer, tsBuffer;
