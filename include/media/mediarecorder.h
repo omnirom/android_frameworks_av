@@ -1,7 +1,5 @@
 /*
-#ifdef QCOM_HARDWARE
  **
-#endif /* QCOM_HARDWARE */
  ** Copyright (C) 2008 The Android Open Source Project
  **
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -73,11 +71,7 @@ enum output_format {
     /* H.264/AAC data encapsulated in MPEG2/TS */
     OUTPUT_FORMAT_MPEG2TS = 8,
 
-#ifndef QCOM_HARDWARE
     /* VP8/VORBIS data in a WEBM container */
-#else /* QCOM_HARDWARE */
-   /* VP8/VORBIS data in a WEBM container */
-#endif /* QCOM_HARDWARE */
     OUTPUT_FORMAT_WEBM = 9,
 
 #ifdef QCOM_HARDWARE
@@ -112,9 +106,7 @@ enum video_encoder {
     VIDEO_ENCODER_H264 = 2,
     VIDEO_ENCODER_MPEG_4_SP = 3,
     VIDEO_ENCODER_VP8 = 4,
-#ifndef QCOM_HARDWARE
-
-#else /* QCOM_HARDWARE */
+#ifdef QCOM_HARDWARE
     VIDEO_ENCODER_H265 = 5,
 #endif /* QCOM_HARDWARE */
     VIDEO_ENCODER_LIST_END // must be the last - used to validate the video encoder type
