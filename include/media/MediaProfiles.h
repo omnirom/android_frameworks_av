@@ -80,9 +80,7 @@ enum camcorder_quality {
     CAMCORDER_QUALITY_HIGH_SPEED_2160P = 2005,
     CAMCORDER_QUALITY_HIGH_SPEED_LIST_END = 2005,
 };
-#ifndef QCOM_HARDWARE
 
-#endif /* ! QCOM_HARDWARE */
 /**
  * Set CIF as default maximum import and export resolution of video editor.
  * The maximum import and export resolutions are platform specific,
@@ -169,11 +167,9 @@ public:
      * enc.vid.bps.max - max bit rate in bits per second
      * enc.vid.fps.min - min frame rate in frames per second
      * enc.vid.fps.max - max frame rate in frames per second
-#ifdef QCOM_HARDWARE
      * enc.vid.hfr.width.max - max hfr video frame width
      * enc.vid.hfr.height.max - max hfr video frame height
      * enc.vid.hfr.mode.max - max hfr mode
-#endif /* QCOM_HARDWARE */
      */
     int getVideoEncoderParamByName(const char *name, video_encoder codec) const;
 
