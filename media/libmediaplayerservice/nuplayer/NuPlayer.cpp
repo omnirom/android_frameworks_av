@@ -652,21 +652,21 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             if (audioMeta != NULL) {
                 audioMeta->findCString(kKeyMIMEType, &mime);
             }
-            mOffloadAudio =
-                        canOffloadStream(audioMeta, (videoFormat != NULL), vMeta,
-                                mIsStreaming /* is_streaming */, streamType);
-            if (!mOffloadAudio) {
-                sp<MetaData> audioSourceMeta = mSource->getFormatMeta(true/* audio */);
-                sp<MetaData> audioPCMMeta =
+            if(mime && !ExtendedUtils::pcmOffloadException(mime)) {
+                mOffloadAudio =
+                    canOffloadStream(audioMeta, (videoFormat != NULL), vMeta,
+                                     mIsStreaming /* is_streaming */, streamType);
+                if(!mOffloadAudio) {
+                    sp<MetaData> audioSourceMeta = mSource->getFormatMeta(true/* audio */);
+                    sp<MetaData> audioPCMMeta =
                         ExtendedUtils::createPCMMetaFromSource(audioSourceMeta);
 
-                mOffloadAudio =
-                        ((mime && !ExtendedUtils::pcmOffloadException(mime)) &&
+                    mOffloadAudio =
                         canOffloadStream(audioPCMMeta, (videoFormat != NULL), vMeta,
-                                mIsStreaming /* is_streaming */, streamType));
-                mOffloadDecodedPCM = mOffloadAudio;
-                ALOGI("Could not offload audio decode, pcm offload decided :%d",
-                        mOffloadDecodedPCM);
+                                         mIsStreaming /* is_streaming */, streamType);
+                    mOffloadDecodedPCM = mOffloadAudio;
+                    ALOGI("Could not offload audio decode, pcm offload decided :%d", mOffloadDecodedPCM);
+                }
             }
 
             if (mOffloadAudio) {
