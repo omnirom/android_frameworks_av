@@ -1,0 +1,67 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "6b22818b_68ec3bb7",
+        "filename": "media/libstagefright/Android.mk",
+        "patchSetId": 6
+      },
+      "lineNbr": 128,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2015-02-05T19:26:57Z",
+      "side": 1,
+      "message": "not sure about this feature.",
+      "range": {
+        "startLine": 128,
+        "startChar": 0,
+        "endLine": 128,
+        "endChar": 15
+      },
+      "revId": "3a7f39cfe49d78598caeaea5d4d1c3c56017b812",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_882df7fb",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 6
+      },
+      "lineNbr": 1363,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2015-02-05T19:26:57Z",
+      "side": 1,
+      "message": "is it really required?",
+      "range": {
+        "startLine": 1363,
+        "startChar": 4,
+        "endLine": 1363,
+        "endChar": 5
+      },
+      "revId": "3a7f39cfe49d78598caeaea5d4d1c3c56017b812",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_a832b35a",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 6
+      },
+      "lineNbr": 1963,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2015-02-05T19:26:57Z",
+      "side": 1,
+      "message": "empty changes can break future merges.",
+      "revId": "3a7f39cfe49d78598caeaea5d4d1c3c56017b812",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
