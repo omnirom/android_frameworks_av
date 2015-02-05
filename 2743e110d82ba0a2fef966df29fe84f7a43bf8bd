@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "6b22818b_e8982b6f",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 5
+      },
+      "lineNbr": 57,
+      "author": {
+        "id": 1000515
+      },
+      "writtenOn": "2015-02-05T13:34:46Z",
+      "side": 1,
+      "message": "is Exynos4 using this flag (ENABLE_AV_ENHANCEMENTS)?",
+      "range": {
+        "startLine": 57,
+        "startChar": 7,
+        "endLine": 57,
+        "endChar": 29
+      },
+      "revId": "2743e110d82ba0a2fef966df29fe84f7a43bf8bd",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
