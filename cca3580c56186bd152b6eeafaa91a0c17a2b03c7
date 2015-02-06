@@ -19,6 +19,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_0be02126",
+        "filename": "include/media/stagefright/MediaBufferGroup.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 38,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-02-06T11:17:12Z",
+      "side": 1,
+      "message": "Remove it :)",
+      "parentUuid": "6b22818b_4b5f7912",
+      "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_2b623dd7",
         "filename": "include/media/stagefright/MediaBufferGroup.h",
         "patchSetId": 3
@@ -54,6 +72,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_ebfae5d8",
+        "filename": "include/media/stagefright/MediaBufferGroup.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 43,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-02-06T11:17:12Z",
+      "side": 1,
+      "message": "Must be spaces not tabs - just follow the style of the rest",
+      "parentUuid": "6b22818b_6bb99528",
+      "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_0b6581de",
         "filename": "media/libstagefright/MediaBufferGroup.cpp",
         "patchSetId": 3
@@ -65,6 +101,24 @@
       "writtenOn": "2015-02-06T01:38:18Z",
       "side": 1,
       "message": "tab",
+      "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_2bdddd72",
+        "filename": "media/libstagefright/MediaBufferGroup.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 60,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-02-06T11:17:12Z",
+      "side": 1,
+      "message": "Must be spaces",
+      "parentUuid": "6b22818b_0b6581de",
       "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
@@ -100,6 +154,24 @@
       "side": 1,
       "message": "Still learning here :) We need a newline  ?",
       "parentUuid": "6b22818b_6b5c351d",
+      "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_4bea1906",
+        "filename": "media/libstagefright/MediaBufferGroup.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 61,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-02-06T11:17:12Z",
+      "side": 1,
+      "message": "Closing function or method braces should be in a new line",
+      "parentUuid": "6b22818b_ab8b8d70",
       "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
