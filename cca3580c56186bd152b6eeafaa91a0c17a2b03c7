@@ -36,6 +36,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_6bb99528",
+        "filename": "include/media/stagefright/MediaBufferGroup.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 43,
+      "author": {
+        "id": 1000979
+      },
+      "writtenOn": "2015-02-06T01:48:20Z",
+      "side": 1,
+      "message": "You do not want these to be tabs ?",
+      "parentUuid": "6b22818b_2b623dd7",
+      "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_0b6581de",
         "filename": "media/libstagefright/MediaBufferGroup.cpp",
         "patchSetId": 3
@@ -64,6 +82,24 @@
       "writtenOn": "2015-02-06T01:38:18Z",
       "side": 1,
       "message": "a newline doesnt look bad :)",
+      "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_ab8b8d70",
+        "filename": "media/libstagefright/MediaBufferGroup.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 61,
+      "author": {
+        "id": 1000979
+      },
+      "writtenOn": "2015-02-06T01:48:20Z",
+      "side": 1,
+      "message": "Still learning here :) We need a newline  ?",
+      "parentUuid": "6b22818b_6b5c351d",
       "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
