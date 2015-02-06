@@ -175,6 +175,24 @@
       "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_8bd4114e",
+        "filename": "media/libstagefright/MediaBufferGroup.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 61,
+      "author": {
+        "id": 1000049
+      },
+      "writtenOn": "2015-02-06T13:19:44Z",
+      "side": 1,
+      "message": "Putting closing brackets on a new line, makes it easier to read the code. Personally i like it better when opening brackets are also on a new line, but hey :) Tabs vs spaces... I should not matter that much, but: a space is a space and the definition of a tab is not the same everywhere ;)",
+      "parentUuid": "6b22818b_4bea1906",
+      "revId": "cca3580c56186bd152b6eeafaa91a0c17a2b03c7",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
