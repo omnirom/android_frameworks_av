@@ -1,0 +1,157 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "6b22818b_9d152e44",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 131,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "May be redundant due to QTI_FLAC_DECODER",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_7d18727a",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 521,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "Maybe unnecessary",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_bd22eaa1",
+        "filename": "media/libstagefright/SurfaceMediaSource.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 37,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "May be redundant due to QCOM_BSP",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_dd27a6b0",
+        "filename": "media/libstagefright/SurfaceMediaSource.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 66,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "Can maybe rework these due to QCOM_BSP",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_fd1c626b",
+        "filename": "media/libstagefright/Utils.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 681,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "Likely redundant due to FLAC_OFFLOAD_ENABLED",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_1d221ea1",
+        "filename": "media/libstagefright/httplive/LiveSession.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 1003,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "Probably unnecessary",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_3d37dae2",
+        "filename": "media/libstagefright/httplive/PlaylistFetcher.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 871,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "Probably unnecessary",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_5d3496db",
+        "filename": "services/audioflinger/AudioMixer.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 934,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "May be redundant",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_7d3152ea",
+        "filename": "services/audioflinger/AudioResampler.h",
+        "patchSetId": 4
+      },
+      "lineNbr": 48,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-02T23:44:46Z",
+      "side": 1,
+      "message": "May be redundant",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
