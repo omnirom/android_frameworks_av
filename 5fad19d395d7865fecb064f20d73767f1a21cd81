@@ -19,6 +19,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_bdeaea70",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 131,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-03-04T01:39:32Z",
+      "side": 1,
+      "message": "whate devices use that QTI stuff?",
+      "parentUuid": "6b22818b_9d152e44",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_7d18727a",
         "filename": "media/libstagefright/OMXCodec.cpp",
         "patchSetId": 4
@@ -87,6 +105,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_ddefa67f",
+        "filename": "media/libstagefright/Utils.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 681,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-03-04T01:39:32Z",
+      "side": 1,
+      "message": "already because of  ENABLE_AV_ENHANCEMENTS\nallthough its is never made directly dependent on QCOM_BSP or QCOM_HARDWARE but IMHO it doesnt make sense without",
+      "parentUuid": "6b22818b_fd1c626b",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_1d221ea1",
         "filename": "media/libstagefright/httplive/LiveSession.cpp",
         "patchSetId": 4
@@ -98,6 +134,24 @@
       "writtenOn": "2015-03-02T23:44:46Z",
       "side": 1,
       "message": "Probably unnecessary",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_3dffda31",
+        "filename": "media/libstagefright/httplive/LiveSession.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 1003,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-03-04T01:39:32Z",
+      "side": 1,
+      "message": "same as the other one - kill the ALOGI",
+      "parentUuid": "6b22818b_1d221ea1",
       "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
@@ -121,6 +175,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_fde462a6",
+        "filename": "media/libstagefright/httplive/PlaylistFetcher.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 871,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-03-04T01:39:32Z",
+      "side": 1,
+      "message": "Kill the ALOGI and use ALOGV :)",
+      "parentUuid": "6b22818b_3d37dae2",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_5d3496db",
         "filename": "services/audioflinger/AudioMixer.cpp",
         "patchSetId": 4
@@ -132,6 +204,24 @@
       "writtenOn": "2015-03-02T23:44:46Z",
       "side": 1,
       "message": "May be redundant",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_1dea1e70",
+        "filename": "services/audioflinger/AudioMixer.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 934,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2015-03-04T01:39:32Z",
+      "side": 1,
+      "message": "it is inside an ifeq ($(call is-vendor-board-platform,QCOM),true)",
+      "parentUuid": "6b22818b_5d3496db",
       "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
