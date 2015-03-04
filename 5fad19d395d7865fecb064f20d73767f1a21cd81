@@ -37,6 +37,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_bd33ca10",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 131,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-04T13:21:08Z",
+      "side": 1,
+      "message": "I believe it can be turned on as an extra feature in boardconfig.  Who knows, might work on find7",
+      "parentUuid": "6b22818b_bdeaea70",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_7d18727a",
         "filename": "media/libstagefright/OMXCodec.cpp",
         "patchSetId": 4
@@ -123,6 +141,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_dd3886ed",
+        "filename": "media/libstagefright/Utils.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 681,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-04T13:21:08Z",
+      "side": 1,
+      "message": "Yeah.",
+      "parentUuid": "6b22818b_ddefa67f",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_1d221ea1",
         "filename": "media/libstagefright/httplive/LiveSession.cpp",
         "patchSetId": 4
@@ -152,6 +188,24 @@
       "side": 1,
       "message": "same as the other one - kill the ALOGI",
       "parentUuid": "6b22818b_1d221ea1",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_fd3d42da",
+        "filename": "media/libstagefright/httplive/LiveSession.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 1003,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-04T13:21:08Z",
+      "side": 1,
+      "message": "Will do tonight",
+      "parentUuid": "6b22818b_3dffda31",
       "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
@@ -193,6 +247,24 @@
     },
     {
       "key": {
+        "uuid": "6b22818b_1d43fe69",
+        "filename": "media/libstagefright/httplive/PlaylistFetcher.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 871,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-04T13:21:08Z",
+      "side": 1,
+      "message": "Will do tonight",
+      "parentUuid": "6b22818b_fde462a6",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "6b22818b_5d3496db",
         "filename": "services/audioflinger/AudioMixer.cpp",
         "patchSetId": 4
@@ -222,6 +294,24 @@
       "side": 1,
       "message": "it is inside an ifeq ($(call is-vendor-board-platform,QCOM),true)",
       "parentUuid": "6b22818b_5d3496db",
+      "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_3d28ba95",
+        "filename": "services/audioflinger/AudioMixer.cpp",
+        "patchSetId": 4
+      },
+      "lineNbr": 934,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-03-04T13:21:08Z",
+      "side": 1,
+      "message": "is-vendor-board-platform QCOM will return true on non-CAF qcoms like nexus devices.\n\nHowever it also won\u0027t be turned on without someone explicitly turning it on in a boardconfig.",
+      "parentUuid": "6b22818b_1dea1e70",
       "revId": "5fad19d395d7865fecb064f20d73767f1a21cd81",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
