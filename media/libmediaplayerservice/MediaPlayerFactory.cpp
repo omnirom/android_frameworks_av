@@ -182,6 +182,27 @@ class StagefrightPlayerFactory :
                                int64_t offset,
                                int64_t /*length*/,
                                float /*curScore*/) {
+
+#ifdef QTI_FLAC_DECODER
+        // Flac playback forced to Awesomeplayer
+        if (fd) {
+            char symName[40] = {0};
+            char fileName[256] = {0};
+            snprintf(symName, sizeof(symName), "/proc/%d/fd/%d", getpid(), fd);
+
+            if (readlink(symName, fileName, (sizeof(fileName) - 1)) != -1 ) {
+                static const char* extn = ".flac";
+                uint32_t lenExtn = strlen(extn);
+                uint32_t lenFileName = strlen(fileName);
+                uint32_t start = lenFileName - lenExtn;
+                if (start > 0) {
+                    if (!strncasecmp(fileName + start, extn, lenExtn)) {
+                        return 1.0;
+                    }
+                }
+            }
+        }
+#endif
         if (getDefaultPlayerType()
                 == STAGEFRIGHT_PLAYER) {
             char buf[20];
@@ -233,6 +254,11 @@ class NuPlayerFactory : public MediaPlayerFactory::IFactory {
         }
 
         if (!strncasecmp("rtsp://", url, 7)) {
+            return kOurScore;
+        }
+
+        if (!strncasecmp("http://", url, 7)
+                || !strncasecmp("https://", url, 8)) {
             return kOurScore;
         }
 

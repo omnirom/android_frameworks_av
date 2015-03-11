@@ -1350,7 +1350,7 @@ status_t MediaPlayerService::decode(
     if (cache->wait() != NO_ERROR) goto Exit;
 
     ALOGV("start");
-    player->start();
+    if (player->start() != NO_ERROR) goto Exit;
 
     ALOGV("wait for playback complete");
     cache->wait();
@@ -1405,7 +1405,7 @@ status_t MediaPlayerService::decode(int fd, int64_t offset, int64_t length,
     if (cache->wait() != NO_ERROR) goto Exit;
 
     ALOGV("start");
-    player->start();
+    if (player->start() != NO_ERROR) goto Exit;
 
     ALOGV("wait for playback complete");
     cache->wait();
@@ -2094,6 +2094,7 @@ status_t MediaPlayerService::AudioCache::open(
 {
     ALOGV("open(%u, %d, 0x%x, %d, %d)", sampleRate, channelCount, channelMask, format, bufferCount);
     if (mHeap->getHeapID() < 0) {
+        ALOGE("Invalid heap Id");
         return NO_INIT;
     }
 
@@ -2103,7 +2104,12 @@ status_t MediaPlayerService::AudioCache::open(
     mMsecsPerFrame = 1.e3 / (float) sampleRate;
     mFrameSize =  audio_is_linear_pcm(mFormat)
             ? mChannelCount * audio_bytes_per_sample(mFormat) : 1;
-    mFrameCount = mHeap->getSize() / mFrameSize;
+
+    if (cb == NULL) {
+        // Use buffer of size equal to that of the heap if AudioCache used by NuPlayer.
+        // Otherwise use default buffersize.
+        mFrameCount = mHeap->getSize() / mFrameSize;
+    }
 
     if (cb != NULL) {
         mCallbackThread = new CallbackThread(this, cb, cookie);

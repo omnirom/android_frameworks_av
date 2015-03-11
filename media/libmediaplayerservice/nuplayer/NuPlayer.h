@@ -143,6 +143,7 @@ private:
     sp<Decoder> mVideoDecoder;
     bool mVideoIsAVC;
     bool mOffloadAudio;
+    bool mOffloadDecodedPCM;
     bool mIsStreaming;
     sp<Decoder> mAudioDecoder;
     sp<CCDecoder> mCCDecoder;
@@ -196,6 +197,8 @@ private:
     int32_t mVideoScalingMode;
 
     bool mStarted;
+    bool mBuffering;
+    bool mPlaying;
 
     inline const sp<Decoder> &getDecoder(bool audio) {
         return audio ? mAudioDecoder : mVideoDecoder;

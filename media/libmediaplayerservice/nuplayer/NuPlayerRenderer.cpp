@@ -33,6 +33,7 @@
 #include <VideoFrameScheduler.h>
 
 #include <inttypes.h>
+#include <ExtendedUtils.h>
 
 namespace android {
 
@@ -358,7 +359,11 @@ void NuPlayer::Renderer::onMessageReceived(const sp<AMessage> &msg) {
                 // kWhatDrainAudioQueue is used for non-offloading mode,
                 // and mLock is used only for offloading mode. Therefore,
                 // no need to acquire mLock here.
-                postDrainAudioQueue_l(delayUs / 2);
+                if(mAudioSink->frameCount() == numFramesPendingPlayout) {
+                    postDrainAudioQueue_l(delayUs / 8);
+                } else {
+                    postDrainAudioQueue_l(delayUs / 2);
+                }
             }
             break;
         }
@@ -636,9 +641,16 @@ bool NuPlayer::Renderer::onDrainAudioQueue() {
 
         if (entry->mOffset == 0) {
             int64_t mediaTimeUs;
+            int32_t eos = 0;
+            int32_t bufferSize = 0;
             CHECK(entry->mBuffer->meta()->findInt64("timeUs", &mediaTimeUs));
-            ALOGV("rendering audio at media time %.2f secs", mediaTimeUs / 1E6);
-            onNewAudioMediaTime(mediaTimeUs);
+            entry->mBuffer->meta()->findInt32("eos", &eos);
+            bufferSize = entry->mBuffer->size();
+            // Do not update mediaTime if the buffer is empty and EOS buffer
+            if (!eos || bufferSize) {
+                ALOGV("rendering audio at media time %.2f secs", mediaTimeUs / 1E6);
+                onNewAudioMediaTime(mediaTimeUs);
+            }
         }
 
         size_t copy = entry->mBuffer->size() - entry->mOffset;
@@ -1351,6 +1363,17 @@ bool NuPlayer::Renderer::onOpenAudioSink(
                     "audio_format", mime.c_str());
             onDisableOffloadAudio();
         } else {
+            int32_t bitWidth = 16;
+            if (AUDIO_FORMAT_PCM_16_BIT == audioFormat) {
+                if ((ExtendedUtils::getPcmSampleBits(format) == 24) &&
+                    ExtendedUtils::is24bitPCMOffloadEnabled()) {
+                    bitWidth = 24;
+                    audioFormat = AUDIO_FORMAT_PCM_24_BIT_OFFLOAD;
+                } else if (ExtendedUtils::is16bitPCMOffloadEnabled()) {
+                    bitWidth = 16;
+                    audioFormat = AUDIO_FORMAT_PCM_16_BIT_OFFLOAD;
+                }
+            }
             ALOGV("Mime \"%s\" mapped to audio_format 0x%x",
                     mime.c_str(), audioFormat);
 
@@ -1377,6 +1400,9 @@ bool NuPlayer::Renderer::onOpenAudioSink(
             offloadInfo.bit_rate = avgBitRate;
             offloadInfo.has_video = hasVideo;
             offloadInfo.is_streaming = true;
+            offloadInfo.use_small_bufs =
+                (audioFormat == AUDIO_FORMAT_PCM_16_BIT_OFFLOAD);
+            offloadInfo.bit_width = bitWidth;
 
             if (memcmp(&mCurrentOffloadInfo, &offloadInfo, sizeof(offloadInfo)) == 0) {
                 ALOGV("openAudioSink: no change in offload mode");

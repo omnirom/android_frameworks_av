@@ -52,6 +52,10 @@
 #define STATS_PROFILE_SET_CAMERA_SOURCE "Set camera source"
 #define STATS_PROFILE_SET_ENCODER(isVideo) (isVideo != 0 ? "Set video encoder" : "Set audio encoder")
 #define STATS_PROFILE_STOP "Stop"
+#define STATS_BITRATE "Video Bitrate"
+#define STATS_PROFILE_SF_RECORDER_START_LATENCY "\tStagefrightRecorder start latency"
+#define STATS_PROFILE_CAMERA_SOURCE_START_LATENCY "\tCamera source start latency"
+#define STATS_PROFILE_RECONFIGURE "\tReconfigure latency"
 
 namespace android {
 
@@ -79,6 +83,7 @@ public:
         virtual ~LogEntry() { mData = 0;}
         virtual void insert(statsDataType) { }
         virtual void dump(const char* label) const;
+        virtual void reset() {mData = 0;}
         inline statsDataType data() const { return mData; }
     protected:
         statsDataType mData;
@@ -92,14 +97,9 @@ public:
 
     // Supported evaluations (and hence possible variants of 'LogEntry's)
     enum LogType {
-
-        TOTAL = 1 << 0,
-        AVERAGE = 1 << 1,
+        AVERAGE = 1 << 0,
+        MOVING_AVERAGE = 1 << 1,
         PROFILE = 1 << 2,
-        ARCHIVE = 1 << 3,
-        MAX = 1 << 4,
-        MIN = 1 << 5,
-
     };
 
     enum {
@@ -109,89 +109,7 @@ public:
     };
 
     static const size_t kMaxStringLength = 1024;
-
-    struct StatsFrameInfo {
-        StatsFrameInfo();
-
-        int64_t size;
-        int64_t timestamp;
-    };
-
-    /* struct used to wrap a StatsFrameInfo* for use with
-     * a SortedVector
-     */
-    struct StatsFrameInfoWrapper {
-
-        StatsFrameInfoWrapper(StatsFrameInfo* oInfoPtr);
-        StatsFrameInfoWrapper(const StatsFrameInfoWrapper& copy);
-
-        StatsFrameInfo* infoPtr;
-
-        inline bool operator < (const StatsFrameInfoWrapper& rhs) const {
-            if (!infoPtr || !rhs.infoPtr)
-                return false;
-            return infoPtr->timestamp < (rhs.infoPtr)->timestamp;
-        }
-
-        explicit StatsFrameInfoWrapper() : infoPtr(NULL) {}
-    };
-
-    /* used to keep a "pool" of allocated StatsFrameInfo*
-     * to reduce number of allocations
-     */
-    struct StatsFrameInfoPool {
-
-        //retrieve from pool; will dynamically create new obj if empty
-        StatsFrameInfo* get();
-
-        //add back into pool
-        void add(StatsFrameInfo* info);
-
-        //frees everything in the pool
-        void clear();
-
-        ~StatsFrameInfoPool();
-
-        private:
-            Vector<StatsFrameInfo*> pool;
-            uint32_t numAllocated;
-    };
-
-    /* Stores StatsFrameInfoWrapper objects such that
-     * all frames are bounded by timestamps between MAX_TIME_US and
-     * MIN_TIME_US. As more frames are added, frames with
-     * older timestamps are put back into the pool.
-     * Also keeps track of the max bitrate encountered
-     * and the average bitrate throughout.
-     */
-    struct TimeBoundVector {
-        explicit TimeBoundVector(StatsFrameInfoPool& infoPool);
-
-        static const int64_t MAX_TIME_US = 120000;
-        static const int64_t MIN_TIME_US = 100000;
-
-        void clear();
-        void add(StatsFrameInfoWrapper item);
-
-        //keeps track of the current bounded sum in the vector
-        int64_t mCurrBoundedSum;
-
-        //max time-bounded avg
-        int64_t mMaxBoundedAvg;
-
-        //running total num of buffers seen, used for avg bitrate
-        int64_t mTotalNumBuffers;
-
-        //running total of buffer sizes, used for avg bitrate
-        int64_t mTotalSizeSum;
-
-        ~TimeBoundVector();
-
-        private:
-            SortedVector<StatsFrameInfoWrapper> mList;
-            StatsFrameInfoPool& mFrameInfoPool;
-            Mutex mLock;
-    };
+    static const int32_t kMaxWindowSize = 120;
 
     struct AutoProfile {
         AutoProfile(const char* eventName, sp<MediaExtendedStats> mediaExtendedStats = NULL,
@@ -207,8 +125,9 @@ public:
 
     ~ExtendedStats();
     void log(LogType type, const char* key, statsDataType value, bool condition = true);
-    sp<LogEntry> getLogEntry(const char *key, LogType type);
-    virtual void dump(const char* key = NULL) const;
+    virtual void dump(const char* key = NULL);
+    virtual void reset(const char* key);
+    virtual void clear();
 
     static int64_t getSystemTime() {
         struct timeval tv;
@@ -216,7 +135,7 @@ public:
         return (int64_t)tv.tv_sec * 1E6 + tv.tv_usec;
     }
 
-    static sp<LogEntry> createLogEntry(LogType type);
+    static sp<LogEntry> createLogEntry(LogType type, int32_t windowSize);
 
     //only profile once, as opposed to up to kMaxOccurrences
     inline void profileStartOnce(const char* name, bool condition = true) {
@@ -235,15 +154,23 @@ public:
 
     static MediaExtendedStats* Create(enum StatsType statsType, const char* name, pid_t tid);
 
+    //wrapper function to set window size.
+    inline void setWindowSize(int32_t windowSize) {
+        mWindowSize = windowSize;
+    }
+
+private:
+    sp<LogEntry> getLogEntry(const char *key, LogType type);
 
 protected:
     KeyedVector<AString, sp<LogEntry> > mLogEntry;
+    Mutex mLock;
 
     ExtendedStats(const ExtendedStats&) {}
     AString mName;
     pid_t mTid;
 
-    Mutex mLock;
+    int32_t mWindowSize;
 };
 
 inline ExtendedStats::LogType operator| (ExtendedStats::LogType a, ExtendedStats::LogType b) {
@@ -256,12 +183,9 @@ class MediaExtendedStats : public RefBase {
 public:
     explicit MediaExtendedStats(const char* name, pid_t tid);
 
-    //log up to this many video width/height changes
-    static const int32_t MAX_NUM_DIMENSION_CHANGES = 8;
-
     void logFrameDropped();
     void logDimensions(int32_t width, int32_t height);
-    void logBitRate(int64_t size, int64_t timestamp);
+    void logBitRate(int64_t frameSize, int64_t timestamp);
 
     //only profile once, as opposed to up to kMaxOccurrences
     inline void profileStartOnce(const char* name, bool condition = true) {
@@ -286,6 +210,11 @@ public:
     virtual void notifyPause(int64_t pauseTimeUs) = 0;
     virtual void dump() = 0;
 
+    int32_t setFrameRate(int32_t frameRate) {
+        mFrameRate = frameRate;
+        mProfileTimes->setWindowSize(mFrameRate);
+    }
+
 protected:
     AString mName;
     pid_t mTid;
@@ -300,10 +229,9 @@ protected:
     Vector<int32_t> mWidthDimensions;
     Vector<int32_t> mHeightDimensions;
 
-    ExtendedStats::StatsFrameInfoPool mFrameInfoPool;
-    ExtendedStats::TimeBoundVector mBitRateVector;
-
     sp<ExtendedStats> mProfileTimes;
+    int32_t mFrameRate;
+    Mutex mLock;
 
     /* helper functions */
     void resetConsecutiveFramesDropped();

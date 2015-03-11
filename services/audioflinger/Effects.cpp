@@ -13,6 +13,25 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by Dolby Laboratories, Inc. The portions of the
+** code that are surrounded by "DOLBY..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2011-2014 Dolby Laboratories, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+**
 */
 
 
@@ -70,6 +89,9 @@ AudioFlinger::EffectModule::EffectModule(ThreadBase *thread,
       // mDisableWaitCnt is set by process() and updateState() and not used before then
       mSuspended(false),
       mAudioFlinger(thread->mAudioFlinger)
+#ifdef HW_ACC_EFFECTS
+      , mHwAccModeEnabled(false)
+#endif
 {
     ALOGV("Constructor %p", this);
     int lStatus;
@@ -276,11 +298,26 @@ void AudioFlinger::EffectModule::process()
                                         mConfig.inputCfg.buffer.frameCount/2);
         }
 
+#ifdef HW_ACC_EFFECTS
+       int ret = 0;
+       if (mHwAccModeEnabled) {
+            int frameBytes = audio_channel_count_from_out_mask(mConfig.outputCfg.channels) *
+                            ((mConfig.outputCfg.format==AUDIO_FORMAT_PCM_24_BIT_PACKED) ?
+                             3 : ((mConfig.outputCfg.format==AUDIO_FORMAT_PCM_16_BIT) ?
+                             sizeof(uint16_t) : sizeof(uint8_t)));
+            memcpy(mConfig.outputCfg.buffer.raw, mConfig.inputCfg.buffer.raw,
+                   mConfig.outputCfg.buffer.frameCount*frameBytes);
+       } else {
+            ret = (*mEffectInterface)->process(mEffectInterface,
+                                               &mConfig.inputCfg.buffer,
+                                               &mConfig.outputCfg.buffer);
+       }
+#else
         // do the actual processing in the effect engine
         int ret = (*mEffectInterface)->process(mEffectInterface,
                                                &mConfig.inputCfg.buffer,
                                                &mConfig.outputCfg.buffer);
-
+#endif
         // force transition to IDLE state when engine is ready
         if (mState == STOPPED && ret == -ENODATA) {
             mDisableWaitCnt = 1;
@@ -314,6 +351,22 @@ void AudioFlinger::EffectModule::reset_l()
     }
     (*mEffectInterface)->command(mEffectInterface, EFFECT_CMD_RESET, 0, NULL, 0, NULL);
 }
+
+#ifdef HW_ACC_EFFECTS
+void AudioFlinger::EffectModule::setHwAccEffect(int id)
+{
+    int cmdStatus;
+    uint32_t replySize = sizeof(int);
+    ALOGV("setHwAccEffect");
+    Mutex::Autolock _l(mLock);
+    if (mStatus != NO_ERROR || mEffectInterface == NULL) {
+        return;
+    }
+    mHwAccModeEnabled = id ? true : false;
+    (*mEffectInterface)->command(mEffectInterface, EFFECT_CMD_HW_ACC,
+                                 sizeof(id), &id, &replySize, &cmdStatus);
+}
+#endif
 
 status_t AudioFlinger::EffectModule::configure()
 {
@@ -762,6 +815,9 @@ status_t AudioFlinger::EffectModule::setAudioSource(audio_source_t source)
 
 void AudioFlinger::EffectModule::setSuspended(bool suspended)
 {
+#ifdef DOLBY_DAP
+    EffectDapController::instance()->effectSuspended(this, suspended);
+#endif // DOLBY_END
     Mutex::Autolock _l(mLock);
     mSuspended = suspended;
 }
@@ -1110,7 +1166,24 @@ status_t AudioFlinger::EffectHandle::enable()
                 Mutex::Autolock _l(t->mLock);
                 t->broadcast_l();
             }
-            if (!mEffect->isOffloadable()) {
+            bool invalidate = false;
+#ifdef HDMI_PASSTHROUGH_ENABLED
+            ALOGV("thread->type() %d", thread->type());
+            if (thread->type() == ThreadBase::OFFLOAD) {
+                PlaybackThread *t = (PlaybackThread *)thread.get();
+                ALOGV("flags from output 0x%x, passthrough flag 0x%x",
+                       t->getOutput()->flags,
+                       AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH);
+                if (t->getOutput()->flags & AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH) {
+                    invalidate = true;
+                } else {
+                    invalidate = false;
+                }
+            }
+#endif
+
+            if (!mEffect->isOffloadable() || invalidate) {
+                ALOGV("invalidate");
                 if (thread->type() == ThreadBase::OFFLOAD) {
                     PlaybackThread *t = (PlaybackThread *)thread.get();
                     t->invalidateTracks(AUDIO_STREAM_MUSIC);
@@ -1396,6 +1469,19 @@ sp<AudioFlinger::EffectModule> AudioFlinger::EffectChain::getEffectFromType_l(
     return 0;
 }
 
+#ifdef HW_ACC_EFFECTS
+void AudioFlinger::EffectChain::setHwAccForSessionId_l(int sessionId, int id)
+{
+    size_t size = mEffects.size();
+    ALOGV("setHwAccForSessionId_l");
+    for (size_t i = 0; i < size; i++)
+        if (mEffects[i]->sessionId() == sessionId)
+            mEffects[i]->setHwAccEffect(id);
+
+    return;
+}
+#endif
+
 void AudioFlinger::EffectChain::clearInputBuffer()
 {
     Mutex::Autolock _l(mLock);
@@ -1575,8 +1661,12 @@ status_t AudioFlinger::EffectChain::addEffect_l(const sp<EffectModule>& effect)
         ALOGV("addEffect_l() effect %p, added in chain %p at rank %d", effect.get(), this,
                 idx_insert);
     }
+#ifdef DOLBY_DAP
+    return effect->configure();
+#else // DOLBY_END
     effect->configure();
     return NO_ERROR;
+#endif
 }
 
 // removeEffect_l() must be called with PlaybackThread::mLock held

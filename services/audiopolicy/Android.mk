@@ -55,6 +55,12 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES:= \
     AudioPolicyManager.cpp
 
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_DTS_EAGLE)),true)
+  LOCAL_CFLAGS += -DDTS_EAGLE
+  LOCAL_C_INCLUDES += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
+  LOCAL_SRC_FILES += AudioUtil.c
+endif
+
 LOCAL_SHARED_LIBRARIES := \
     libcutils \
     libutils \
@@ -89,7 +95,11 @@ LOCAL_CFLAGS += -DMULTIPLE_OFFLOAD_ENABLED
 endif
 
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD)),true)
-    LOCAL_CFLAGS += -DPCM_OFFLOAD_ENABLED
+    LOCAL_CFLAGS += -DPCM_OFFLOAD_ENABLED_16
+endif
+
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD_24)),true)
+    LOCAL_CFLAGS += -DPCM_OFFLOAD_ENABLED_24
 endif
 
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PROXY_DEVICE)),true)
@@ -119,6 +129,10 @@ ifeq ($(strip $(DOLBY_DAP)),true)
         LOCAL_CFLAGS += -DDOLBY_DAP_OPENSLES
     endif
 endif #DOLBY_END
+
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_HDMI_PASSTHROUGH)),true)
+    LOCAL_CFLAGS += -DHDMI_PASSTHROUGH_ENABLED
+endif
 
 LOCAL_MODULE:= libaudiopolicymanagerdefault
 

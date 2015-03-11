@@ -12,6 +12,42 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2014 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * This file was modified by DTS, Inc. The portions of the
+ * code modified by DTS, Inc are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2014 DTS, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #define LOG_TAG "AudioPolicyManager"
@@ -50,6 +86,13 @@
 #include <soundtrigger/SoundTrigger.h>
 #include "AudioPolicyManager.h"
 #include "audio_policy_conf.h"
+#if defined(DOLBY_UDC) || defined(DOLBY_DAP_MOVE_EFFECT)
+#include "DolbyAudioPolicy_impl.h"
+#endif // DOLBY_END
+
+extern "C" {
+#include "AudioUtil.h"
+}
 
 namespace android {
 
@@ -140,6 +183,9 @@ const StringToEnum sOutputFlagNameToEnumTable[] = {
 #ifdef AUDIO_EXTN_COMPRESS_VOIP_ENABLED
     STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_VOIP_RX),
 #endif
+#ifdef HDMI_PASSTHROUGH_ENABLED
+    STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH),
+#endif
 };
 
 const StringToEnum sInputFlagNameToEnumTable[] = {
@@ -190,6 +236,7 @@ const StringToEnum sFormatNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_FORMAT_FLAC),
     STRING_TO_ENUM(AUDIO_FORMAT_PCM_16_BIT_OFFLOAD),
     STRING_TO_ENUM(AUDIO_FORMAT_PCM_24_BIT_OFFLOAD),
+    STRING_TO_ENUM(AUDIO_FORMAT_E_AC3_JOC),
 #endif
 };
 
@@ -413,7 +460,18 @@ status_t AudioPolicyManager::setDeviceConnectionState(audio_devices_t device,
         }
 
         updateDevicesAndOutputs();
+#ifdef DTS_EAGLE
+        audio_devices_t ndev = getDeviceForStrategy(STRATEGY_MEDIA, true);
+        audio_devices_t availableOutputDevices = availablePrimaryOutputDevices();
+        ALOGV("setDeviceConnectionState: device 0x%x all_devices 0x%x", ndev, availableOutputDevices);
+        notify_route_node(ndev, availableOutputDevices);
+#endif
         audio_devices_t newDevice = getNewOutputDevice(mPrimaryOutput, false /*fromCache*/);
+#ifdef DOLBY_UDC
+        // Before closing the opened outputs, update endpoint property with device capabilities
+        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AUDIO_STREAM_MUSIC), true);
+        mDolbyAudioPolicy.setEndpointSystemProperty(audioOutputDevice, mHwModules);
+#endif // DOLBY_END
         if (mPhoneState == AUDIO_MODE_IN_CALL) {
             updateCallRouting(newDevice);
         }
@@ -438,6 +496,11 @@ status_t AudioPolicyManager::setDeviceConnectionState(audio_devices_t device,
             if ((mPhoneState != AUDIO_MODE_IN_CALL) || (output != mPrimaryOutput)) {
                 audio_devices_t newDevice = getNewOutputDevice(mOutputs.keyAt(i),
                                                                true /*fromCache*/);
+
+#ifdef HDMI_PASSTHROUGH_ENABLED
+                // Change the device to speaker for ringtone/touch tone/alarm etc.
+                newDevice = handleHDMIPassthrough(newDevice, mOutputs.keyAt(i));
+#endif
                 // do not force device change on duplicated output because if device is 0, it will
                 // also force a device 0 for the two outputs it is duplicated to which may override
                 // a valid device selection on those outputs.
@@ -960,6 +1023,11 @@ void AudioPolicyManager::setPhoneState(audio_mode_t state)
         audio_io_handle_t output = mOutputs.keyAt(i);
         if (output != mPrimaryOutput) {
             newDevice = getNewOutputDevice(output, false /*fromCache*/);
+#ifdef HDMI_PASSTHROUGH_ENABLED
+        {
+            newDevice = handleHDMIPassthrough(newDevice, output);
+        }
+#endif
             setOutputDevice(output, newDevice, (newDevice != AUDIO_DEVICE_NONE));
         }
     }
@@ -1062,6 +1130,9 @@ void AudioPolicyManager::setForceUse(audio_policy_force_use_t usage,
     for (size_t i = 0; i < mOutputs.size(); i++) {
         audio_io_handle_t output = mOutputs.keyAt(i);
         audio_devices_t newDevice = getNewOutputDevice(output, true /*fromCache*/);
+#ifdef HDMI_PASSTHROUGH_ENABLED
+        newDevice = handleHDMIPassthrough(newDevice, output);
+#endif
         if ((mPhoneState != AUDIO_MODE_IN_CALL) || (output != mPrimaryOutput)) {
             setOutputDevice(output, newDevice, (newDevice != AUDIO_DEVICE_NONE));
         }
@@ -1105,7 +1176,7 @@ sp<AudioPolicyManager::IOProfile> AudioPolicyManager::getProfileForDirectOutput(
             bool found = profile->isCompatibleProfile(device, samplingRate,
                     NULL /*updatedSamplingRate*/, format, channelMask,
                     flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD ?
-                        AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD : (audio_output_flags_t) (AUDIO_OUTPUT_FLAG_DIRECT | flags));
+                        flags : (audio_output_flags_t) (AUDIO_OUTPUT_FLAG_DIRECT | flags));
             if (found && (mAvailableOutputDevices.types() & profile->mSupportedDevices.types())) {
                 return profile;
             }
@@ -1128,6 +1199,17 @@ audio_io_handle_t AudioPolicyManager::getOutput(audio_stream_type_t stream,
     ALOGV("getOutput() device %d, stream %d, samplingRate %d, format %x, channelMask %x, flags %x",
           device, stream, samplingRate, format, channelMask, flags);
 
+#ifdef HDMI_PASSTHROUGH_ENABLED
+    if (device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
+        if (((flags & AUDIO_OUTPUT_FLAG_FAST) &&
+            (stream == AUDIO_STREAM_SYSTEM)) ||
+            (strategy == STRATEGY_SONIFICATION_RESPECTFUL))
+            // Change device to speaker in case of system tone & message tone
+            device = AUDIO_DEVICE_OUT_SPEAKER;
+    ALOGV("getOutput() after device change device %d, stream %d, samplingRate %d, format %x, channelMask %x, flags %x",
+          device, stream, samplingRate, format, channelMask, flags);
+    }
+#endif
     return getOutputForDevice(device, stream, samplingRate,format, channelMask, flags,
             offloadInfo);
 }
@@ -1157,7 +1239,20 @@ audio_io_handle_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t 
     ALOGV("getOutputForAttr() device %d, samplingRate %d, format %x, channelMask %x, flags %x",
           device, samplingRate, format, channelMask, flags);
 
+
     audio_stream_type_t stream = streamTypefromAttributesInt(attr);
+
+#ifdef HDMI_PASSTHROUGH_ENABLED
+    if (device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
+        if (((flags & AUDIO_OUTPUT_FLAG_FAST) &&
+            (stream == AUDIO_STREAM_SYSTEM)) ||
+            (strategy == STRATEGY_SONIFICATION_RESPECTFUL))
+            // Change device to speaker in case of system tone & message tone
+            device = AUDIO_DEVICE_OUT_SPEAKER;
+            ALOGV("getOutputForAttr() after device change device %d, samplingRate %d, format %x, channelMask %x, flags %x",
+          device, samplingRate, format, channelMask, flags);
+    }
+#endif
     return getOutputForDevice(device, stream, samplingRate, format, channelMask, flags,
                 offloadInfo);
 }
@@ -1174,6 +1269,7 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
     audio_io_handle_t output = AUDIO_IO_HANDLE_NONE;
     uint32_t latency = 0;
     status_t status;
+
 
 #ifdef AUDIO_POLICY_TEST
     if (mCurOutput != 0) {
@@ -1215,6 +1311,13 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         return mTestOutputs[mCurOutput];
     }
 #endif //AUDIO_POLICY_TEST
+
+    if (((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) &&
+            (stream != AUDIO_STREAM_MUSIC)) {
+        // compress should not be used for non-music streams
+        ALOGE("Offloading only allowed with music stream");
+        return 0;
+    }
 
 #ifdef VOICE_CONCURRENCY
     char propValue[PROPERTY_VALUE_MAX];
@@ -1259,6 +1362,37 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
                // flags = (AudioSystem::output_flags)AUDIO_OUTPUT_FLAG_FAST;
                return 0;
             }
+        }
+     }
+#endif
+
+#ifdef HDMI_PASSTHROUGH_ENABLED
+    output = getPassthroughOutput(stream, samplingRate, format, channelMask,
+                                  flags, offloadInfo, device);
+    if (output < 0) {
+        // Error returned if client requests for passthrough and output not available
+        ALOGE("getPassthroughOutput() returns error %d", output);
+        return 0;
+    } else if (output != 0) {
+        ALOGE("getPassthroughOutput() returns new direct output %d", output);
+        return output;
+    } else {
+        ALOGE("getPassthroughOutput:No passthrough o/p returned,try other o/p");
+    }
+
+    if (device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
+        // Invalidate and close the passthrough output if there is an incoming
+        // non passthrough music streams.
+        // Condition is ignores for for system  streams and message tone as they
+        // will be played out on speaker.
+        if ((stream == AUDIO_STREAM_SYSTEM) ||
+            (stream == AUDIO_STREAM_RING) ||
+             (stream == AUDIO_STREAM_ALARM)
+            /*(strategy == STRATEGY_SONIFICATION_RESPECTFUL)*/) {
+            ALOGV("Do not update and close output system tones/sonification");
+        } else {
+            ALOGV("check and invalidate");
+            updateAndCloseOutputs();
         }
     }
 #endif
@@ -1360,7 +1494,18 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
 
     if (profile != 0) {
         sp<AudioOutputDescriptor> outputDesc = NULL;
-
+#ifdef MULTIPLE_OFFLOAD_ENABLED
+        bool multiOffloadEnabled = false;
+        char value[PROPERTY_VALUE_MAX] = {0};
+        property_get("audio.offload.multiple.enabled", value, NULL);
+        if (atoi(value) || !strncmp("true", value, 4))
+            multiOffloadEnabled = true;
+        // if multiple concurrent offload decode is supported
+        // do no check for reuse and also don't close previous output if its offload
+        // previous output will be closed during track destruction
+        if (multiOffloadEnabled && ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0))
+            goto get_output__new_output_desc;
+#endif
         for (size_t i = 0; i < mOutputs.size(); i++) {
             sp<AudioOutputDescriptor> desc = mOutputs.valueAt(i);
             if (!desc->isDuplicated() && (profile == desc->mProfile)) {
@@ -1379,6 +1524,7 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         if (outputDesc != NULL) {
             closeOutput(outputDesc->mIoHandle);
         }
+get_output__new_output_desc:
         outputDesc = new AudioOutputDescriptor(profile);
         outputDesc->mDevice = device;
         outputDesc->mLatency = 0;
@@ -1423,7 +1569,23 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         addOutput(output, outputDesc);
         audio_io_handle_t dstOutput = getOutputForEffect();
         if (dstOutput == output) {
+#ifdef DOLBY_DAP
+            status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, srcOutput, dstOutput);
+            if (status == NO_ERROR) {
+                for (size_t i = 0; i < mEffects.size(); i++) {
+                    sp<EffectDescriptor> desc = mEffects.valueAt(i);
+                    if (desc->mSession == AUDIO_SESSION_OUTPUT_MIX) {
+                        // update the mIo member of EffectDescriptor for the global effect
+                        ALOGV("%s updating mIo", __FUNCTION__);
+                        desc->mIo = dstOutput;
+                    }
+                }
+            } else {
+                ALOGW("%s moveEffects from %d to %d failed", __FUNCTION__, srcOutput, dstOutput);
+            }
+#else // DOLBY_END
             mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, srcOutput, dstOutput);
+#endif // LINE_ADDED_BY_DOLBY
         }
         mPreviousOutputs = mOutputs;
         ALOGV("getOutput() returns new direct output %d", output);
@@ -1536,6 +1698,9 @@ status_t AudioPolicyManager::startOutput(audio_io_handle_t output,
         routing_strategy strategy = getStrategy(stream);
         bool shouldWait = (strategy == STRATEGY_SONIFICATION) ||
                             (strategy == STRATEGY_SONIFICATION_RESPECTFUL);
+#ifdef HDMI_PASSTHROUGH_ENABLED
+        newDevice = handleHDMIPassthrough(newDevice, output, stream, strategy);
+#endif
         uint32_t waitMs = 0;
         bool force = false;
         for (size_t i = 0; i < mOutputs.size(); i++) {
@@ -1577,6 +1742,35 @@ status_t AudioPolicyManager::startOutput(audio_io_handle_t output,
             usleep((waitMs - muteWaitMs) * 2 * 1000);
         }
     }
+#ifdef DOLBY_UDC
+    // It is observed that in some use-cases where multiple outputs are present eg. bluetooth and headphone,
+    // the output for particular stream type is decided in this routine. Hence we must call
+    // getDeviceForStrategy in order to get the current active output for this stream type and update
+    // the dolby system property.
+    if (stream == AUDIO_STREAM_MUSIC)
+    {
+        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AUDIO_STREAM_MUSIC), true);
+        mDolbyAudioPolicy.setEndpointSystemProperty(audioOutputDevice, mHwModules);
+    }
+#endif // DOLBY_UDC
+#ifdef DOLBY_DAP_MOVE_EFFECT
+    // Note: The global effect can't be taken away from the deep-buffered output (source output) if there're still
+    //       music playing on the deep-buffered output.
+    sp<AudioOutputDescriptor> srcOutputDesc = mOutputs.valueFor(mDolbyAudioPolicy.output());
+    if ((stream == AUDIO_STREAM_MUSIC) && mDolbyAudioPolicy.shouldMoveToOutput(output, outputDesc->mFlags) && srcOutputDesc != NULL &&
+        ((srcOutputDesc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) == 0 || srcOutputDesc->mRefCount[AUDIO_STREAM_MUSIC] == 0)) {
+        status_t status = mpClientInterface->moveEffects(DOLBY_MOVE_EFFECT_SIGNAL, mDolbyAudioPolicy.output(), output);
+        if (status == NO_ERROR) {
+            mDolbyAudioPolicy.movedToOutput(output);
+        }
+    }
+#endif //DOLBY_END
+#ifdef DTS_EAGLE
+    audio_devices_t ndev = getDeviceForStrategy(STRATEGY_MEDIA, true);
+    audio_devices_t availableOutputDevices = availablePrimaryOutputDevices();
+    ALOGV("startOutput: device 0x%x all_devices 0x%x", ndev, availableOutputDevices);
+    notify_route_node(ndev, availableOutputDevices);
+#endif
     return NO_ERROR;
 }
 
@@ -1606,6 +1800,13 @@ status_t AudioPolicyManager::stopOutput(audio_io_handle_t output,
         if (outputDesc->mRefCount[stream] == 0) {
             outputDesc->mStopTime[stream] = systemTime();
             audio_devices_t newDevice = getNewOutputDevice(output, false /*fromCache*/);
+#ifdef HDMI_PASSTHROUGH_ENABLED
+            // Use the stream ref count to check if ringtone/ notification
+            // needs to be on speaker. Input stream type should be used only
+            // when a particular stream is started. On stop if stream type is
+            // used, the device is changed to speaker even when ringtone ends.
+            newDevice = handleHDMIPassthrough(newDevice, output);
+#endif
             // delay the device switch by twice the latency because stopOutput() is executed when
             // the track stop() command is received and at that time the audio track buffer can
             // still contain data that needs to be drained. The latency only covers the audio HAL
@@ -1613,6 +1814,11 @@ status_t AudioPolicyManager::stopOutput(audio_io_handle_t output,
             // audio path (audio DSP, CODEC ...)
             setOutputDevice(output, newDevice, false, outputDesc->mLatency*2);
 
+#ifdef HDMI_PASSTHROUGH_ENABLED
+            if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH) {
+                checkAndRestoreOutputs();
+            }
+#endif
             // force restoring the device selection on other active outputs if it differs from the
             // one being selected for this output
             for (size_t i = 0; i < mOutputs.size(); i++) {
@@ -1622,8 +1828,12 @@ status_t AudioPolicyManager::stopOutput(audio_io_handle_t output,
                         desc->isActive() &&
                         outputDesc->sharesHwModuleWith(desc) &&
                         (newDevice != desc->device())) {
+                        audio_devices_t dev = getNewOutputDevice(curOutput, false /*fromCache*/);
+#ifdef HDMI_PASSTHROUGH_ENABLED
+                        dev = handleHDMIPassthrough(dev, curOutput);
+#endif
                     setOutputDevice(curOutput,
-                                    getNewOutputDevice(curOutput, false /*fromCache*/),
+                                    dev,
                                     true,
                                     outputDesc->mLatency*2);
                 }
@@ -1673,7 +1883,23 @@ void AudioPolicyManager::releaseOutput(audio_io_handle_t output)
             // output by default: move them back to the appropriate output.
             audio_io_handle_t dstOutput = getOutputForEffect();
             if (dstOutput != mPrimaryOutput) {
+#ifdef DOLBY_DAP
+                status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, mPrimaryOutput, dstOutput);
+                if (status == NO_ERROR) {
+                    for (size_t i = 0; i < mEffects.size(); i++) {
+                        sp<EffectDescriptor> desc = mEffects.valueAt(i);
+                        if (desc->mSession == AUDIO_SESSION_OUTPUT_MIX) {
+                            // update the mIo member of EffectDescriptor for the global effect
+                            ALOGV("%s updating mIo", __FUNCTION__);
+                            desc->mIo = dstOutput;
+                        }
+                    }
+                } else {
+                    ALOGW("%s moveEffects from %d to %d failed", __FUNCTION__, mPrimaryOutput, dstOutput);
+                }
+#else // DOLBY_END
                 mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, mPrimaryOutput, dstOutput);
+#endif // LINE_ADDED_BY_DOLBY
             }
             mpClientInterface->onAudioPortListUpdate();
         }
@@ -2193,7 +2419,11 @@ audio_io_handle_t AudioPolicyManager::selectOutputForEffects(
     for (size_t i = 0; i < outputs.size(); i++) {
         sp<AudioOutputDescriptor> desc = mOutputs.valueFor(outputs[i]);
         ALOGV("selectOutputForEffects outputs[%zu] flags %x", i, desc->mFlags);
-        if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
+        if (((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0)
+#ifdef HDMI_PASSTHROUGH_ENABLED
+            && ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH) == 0)
+#endif
+            ) {
             outputOffloaded = outputs[i];
         }
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
@@ -2262,6 +2492,9 @@ status_t AudioPolicyManager::registerEffect(const effect_descriptor_t *desc,
 
     mEffects.add(id, effectDesc);
 
+#ifdef DOLBY_DAP_MOVE_EFFECT
+    mDolbyAudioPolicy.effectRegistered(effectDesc);
+#endif // DOLBY_END
     return NO_ERROR;
 }
 
@@ -2287,6 +2520,9 @@ status_t AudioPolicyManager::unregisterEffect(int id)
             effectDesc->mDesc.name, id, effectDesc->mDesc.memoryUsage, mTotalEffectsMemory);
 
     mEffects.removeItem(id);
+#ifdef DOLBY_DAP_MOVE_EFFECT
+    mDolbyAudioPolicy.effectRemoved(effectDesc);
+#endif // DOLBY_END
 
     return NO_ERROR;
 }
@@ -2530,21 +2766,32 @@ bool AudioPolicyManager::isOffloadSupported(const audio_offload_info_t& offloadI
 
     char propValue[PROPERTY_VALUE_MAX];
     bool pcmOffload = false;
-#ifdef PCM_OFFLOAD_ENABLED
     if (audio_is_offload_pcm(offloadInfo.format)) {
-        if(property_get("audio.offload.pcm.enable", propValue, NULL)) {
-            bool prop_enabled = atoi(propValue) || !strncmp("true", propValue, 4);
-            if (prop_enabled) {
-                ALOGW("PCM offload property is enabled");
-                pcmOffload = true;
-            }
+        bool prop_enabled = false;
+#ifdef PCM_OFFLOAD_ENABLED_16
+        if ((AUDIO_FORMAT_PCM_16_BIT_OFFLOAD == offloadInfo.format) &&
+               property_get("audio.offload.pcm.16bit.enable", propValue, NULL)) {
+            prop_enabled = atoi(propValue) || !strncmp("true", propValue, 4);
         }
+#endif
+
+#ifdef PCM_OFFLOAD_ENABLED_24
+        if ((AUDIO_FORMAT_PCM_24_BIT_OFFLOAD == offloadInfo.format) &&
+               property_get("audio.offload.pcm.24bit.enable", propValue, NULL)) {
+            prop_enabled = atoi(propValue) || !strncmp("true", propValue, 4);
+        }
+#endif
+
+        if (prop_enabled) {
+            ALOGI("PCM offload property is enabled");
+            pcmOffload = true;
+        }
+
         if (!pcmOffload) {
-            ALOGD("PCM offload disabled by property audio.offload.pcm.enable");
+            ALOGD("system property not enabled for PCM offload format[%x]",offloadInfo.format);
             return false;
         }
     }
-#endif
 
     if (!pcmOffload) {
         // Check if offload has been disabled
@@ -3074,7 +3321,8 @@ status_t AudioPolicyManager::releaseAudioPatch(audio_patch_handle_t handle,
             ALOGV("releaseAudioPatch() output not found for id %d", patch->sources[0].id);
             return BAD_VALUE;
         }
-
+        //TODO: Audio patch  - do we need to change the device to speaker during passthrough
+        //Decision to be taken based on patch code
         setOutputDevice(outputDesc->mIoHandle,
                         getNewOutputDevice(outputDesc->mIoHandle, true /*fromCache*/),
                        true,
@@ -3297,8 +3545,9 @@ AudioPolicyManager::AudioPolicyManager(AudioPolicyClientInterface *clientInterfa
     mA2dpSuspended(false),
     mSpeakerDrcEnabled(false), mNextUniqueId(1),
     mHdmiAudioDisabled(false), mHdmiAudioEvent(false),
-    mPrevPhoneState(0),
-    mAudioPortGeneration(1)
+    mPrevPhoneState(0), mAudioPortGeneration(1),
+    mPrimarySuspended (0), mFastSuspended(0),
+   mMultiChannelSuspended(0)
 {
     mUidCached = getuid();
     mpClientInterface = clientInterface;
@@ -3518,6 +3767,9 @@ AudioPolicyManager::AudioPolicyManager(AudioPolicyClientInterface *clientInterfa
         run(buffer, ANDROID_PRIORITY_AUDIO);
     }
 #endif //AUDIO_POLICY_TEST
+#ifdef DTS_EAGLE
+    create_route_node();
+#endif
 }
 
 AudioPolicyManager::~AudioPolicyManager()
@@ -3536,6 +3788,9 @@ AudioPolicyManager::~AudioPolicyManager()
    mOutputs.clear();
    mInputs.clear();
    mHwModules.clear();
+#ifdef DTS_EAGLE
+    remove_route_node();
+#endif
 }
 
 status_t AudioPolicyManager::initCheck()
@@ -4167,7 +4422,7 @@ status_t AudioPolicyManager::checkInputsForDevice(audio_devices_t device,
         // check if one opened input is not needed any more after disconnecting one device
         for (size_t input_index = 0; input_index < mInputs.size(); input_index++) {
             desc = mInputs.valueAt(input_index);
-            if (!(desc->mProfile->mSupportedDevices.types() & mAvailableInputDevices.types())) {
+            if (!(desc->mProfile->mSupportedDevices.types() & (mAvailableInputDevices.types() & ~AUDIO_DEVICE_BIT_IN))) {
                 ALOGV("checkInputsForDevice(): disconnecting adding input %d",
                       mInputs.keyAt(input_index));
                 inputs.add(mInputs.keyAt(input_index));
@@ -4182,7 +4437,7 @@ status_t AudioPolicyManager::checkInputsForDevice(audio_devices_t device,
                  profile_index < mHwModules[module_index]->mInputProfiles.size();
                  profile_index++) {
                 sp<IOProfile> profile = mHwModules[module_index]->mInputProfiles[profile_index];
-                if (profile->mSupportedDevices.types() & device) {
+                if (profile->mSupportedDevices.types() & (device & ~AUDIO_DEVICE_BIT_IN)) {
                     ALOGV("checkInputsForDevice(): clearing direct input profile %zu on module %zu",
                           profile_index, module_index);
                     if (profile->mSamplingRates[0] == 0) {
@@ -4253,6 +4508,13 @@ void AudioPolicyManager::closeOutput(audio_io_handle_t output)
         mAudioPatches.removeItemsAt(index);
         mpClientInterface->onAudioPatchListUpdate();
     }
+
+#ifdef HDMI_PASSTHROUGH_ENABLED
+    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH) {
+        ALOGV("check and restore output");
+        checkAndRestoreOutputs();
+    }
+#endif
 
     AudioParameter param;
     param.add(String8("closing"), String8("true"));
@@ -4348,8 +4610,17 @@ void AudioPolicyManager::checkOutputForStrategy(routing_strategy strategy)
                     if (moved.indexOf(effectDesc->mIo) < 0) {
                         ALOGV("checkOutputForStrategy() moving effect %d to output %d",
                               mEffects.keyAt(i), fxOutput);
+#ifdef DOLBY_DAP
+                        status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, effectDesc->mIo,
+                                                       fxOutput);
+                        if (status != NO_ERROR) {
+                            ALOGW("%s moveEffects from %d to %d failed", __FUNCTION__, effectDesc->mIo, fxOutput);
+                            continue;
+                        }
+#else // DOLBY_END
                         mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, effectDesc->mIo,
                                                        fxOutput);
+#endif // LINE_ADDED_BY_DOLBY
                         moved.add(effectDesc->mIo);
                     }
                     effectDesc->mIo = fxOutput;
@@ -4480,8 +4751,7 @@ audio_devices_t AudioPolicyManager::getNewOutputDevice(audio_io_handle_t output,
                 && (!primaryOutputDesc->isStrategyActive(STRATEGY_MEDIA)))) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_SONIFICATION_RESPECTFUL) ||
-                (primaryOutputDesc->isStrategyActive(STRATEGY_SONIFICATION_RESPECTFUL)
-                && (!primaryOutputDesc->isStrategyActive(STRATEGY_MEDIA)))) {
+               primaryOutputDesc->isStrategyActive(STRATEGY_SONIFICATION_RESPECTFUL)) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION_RESPECTFUL, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_MEDIA)) {
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
@@ -4752,7 +5022,7 @@ audio_devices_t AudioPolicyManager::getDeviceForStrategy(routing_strategy strate
                 device = availableOutputDeviceTypes & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER;
                 if (device) break;
             }
-            if (mPhoneState != AUDIO_MODE_IN_CALL) {
+            if (mPhoneState != AUDIO_MODE_IN_CALL && mPhoneState != AUDIO_MODE_IN_COMMUNICATION) {
                 device = availableOutputDeviceTypes & AUDIO_DEVICE_OUT_USB_ACCESSORY;
                 if (device) break;
                 device = availableOutputDeviceTypes & AUDIO_DEVICE_OUT_USB_DEVICE;
@@ -4865,7 +5135,11 @@ audio_devices_t AudioPolicyManager::getDeviceForStrategy(routing_strategy strate
             device2 = availableOutputDeviceTypes & AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET;
         }
         if ((strategy != STRATEGY_SONIFICATION) && (device == AUDIO_DEVICE_NONE)
-             && (device2 == AUDIO_DEVICE_NONE)) {
+             && (device2 == AUDIO_DEVICE_NONE)
+#ifdef HDMI_PASSTHROUGH_ENABLED
+             && (strategy != STRATEGY_ENFORCED_AUDIBLE)
+#endif
+        ) {
             // no sonification on aux digital (e.g. HDMI)
             device2 = availableOutputDeviceTypes & AUDIO_DEVICE_OUT_AUX_DIGITAL;
         }
@@ -5048,24 +5322,21 @@ uint32_t AudioPolicyManager::setOutputDevice(audio_io_handle_t output,
 
     ALOGV("setOutputDevice() prevDevice %04x", prevDevice);
 
-    // Device Routing has not been triggered in the following scenario:
-    // Start playback on HDMI/USB hs, pause it, unplug and plug HDMI
-    //cable/usb hs, resume playback, music starts on speaker. To avoid
-    //this, update mDevice even if device is 0 which triggers routing when
-    // HDMI cable/usb hs is reconnected
-    if (device != AUDIO_DEVICE_NONE ||
-        prevDevice == AUDIO_DEVICE_OUT_AUX_DIGITAL ||
-        prevDevice == AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET) {
+    if (device != AUDIO_DEVICE_NONE) {
         outputDesc->mDevice = device;
     }
     muteWaitMs = checkDeviceMuteStrategies(outputDesc, prevDevice, delayMs);
 
     // Do not change the routing if:
-    //  - the requested device is AUDIO_DEVICE_NONE
-    //  - the requested device is the same as current device and force is not specified.
+    //      the requested device is AUDIO_DEVICE_NONE
+    //      OR the requested device is the same as current device
+    //  AND force is not specified
+    //  AND the output is connected by a valid audio patch.
     // Doing this check here allows the caller to call setOutputDevice() without conditions
-    if ((device == AUDIO_DEVICE_NONE || device == prevDevice) && !force) {
-        ALOGV("setOutputDevice() setting same device %04x or null device for output %d", device, output);
+    if ((device == AUDIO_DEVICE_NONE || device == prevDevice) && !force &&
+            outputDesc->mPatchHandle != 0) {
+        ALOGV("setOutputDevice() setting same device %04x or null device for output %d",
+              device, output);
         return muteWaitMs;
     }
 
@@ -5303,6 +5574,9 @@ audio_devices_t AudioPolicyManager::getDeviceForInputSource(audio_source_t input
     case AUDIO_SOURCE_MIC:
     if (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_A2DP) {
         device = AUDIO_DEVICE_IN_BLUETOOTH_A2DP;
+    } else if ((mForceUse[AUDIO_POLICY_FORCE_FOR_RECORD] == AUDIO_POLICY_FORCE_BT_SCO) &&
+        (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET)) {
+        device = AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET;
     } else if (availableDeviceTypes & AUDIO_DEVICE_IN_WIRED_HEADSET) {
         device = AUDIO_DEVICE_IN_WIRED_HEADSET;
     } else if (availableDeviceTypes & AUDIO_DEVICE_IN_USB_DEVICE) {
@@ -5859,7 +6133,7 @@ status_t AudioPolicyManager::checkAndSetVolume(audio_stream_type_t stream,
         }
 
         if (voiceVolume != mLastVoiceVolume && ((output == mPrimaryOutput) ||
-            isDirectOutput(output))) {
+            isDirectOutput(output) || device & AUDIO_DEVICE_OUT_ALL_USB)) {
             mpClientInterface->setVoiceVolume(voiceVolume, delayMs);
             mLastVoiceVolume = voiceVolume;
         }
@@ -7370,6 +7644,7 @@ bool AudioPolicyManager::IOProfile::isCompatibleProfile(audio_devices_t device,
 {
     const bool isPlaybackThread = mType == AUDIO_PORT_TYPE_MIX && mRole == AUDIO_PORT_ROLE_SOURCE;
     const bool isRecordThread = mType == AUDIO_PORT_TYPE_MIX && mRole == AUDIO_PORT_ROLE_SINK;
+    ALOGV("isPlaybackThread %d,isRecordThread %d", isPlaybackThread, isRecordThread);
     ALOG_ASSERT(isPlaybackThread != isRecordThread);
 
     if ((mSupportedDevices.types() & device) != device) {
@@ -7401,8 +7676,23 @@ bool AudioPolicyManager::IOProfile::isCompatibleProfile(audio_devices_t device,
         return false;
     }
 
-    if (isPlaybackThread && (mFlags & flags) != flags) {
-        return false;
+    if (isPlaybackThread) {
+        if ((mFlags & flags) != flags) {
+            return false;
+#ifdef HDMI_PASSTHROUGH_ENABLED
+        } else {
+            // Work around to check for passthrough output support.
+            // We are using same flags as compress offload with addition
+            // of passthrough flag. So we need to have an additional check
+            // if the input flags has passthrough
+            if (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH) {
+                if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH) == 0) {
+                    ALOGE("isCompatibleProfile:flags not equal, Not passthrough");
+                    return false;
+                }
+            }
+#endif
+      }
     }
     // The only input flag that is allowed to be different is the fast flag.
     // An existing fast stream is compatible with a normal track request.
@@ -8029,4 +8319,441 @@ audio_stream_type_t AudioPolicyManager::streamTypefromAttributesInt(const audio_
         return AUDIO_STREAM_MUSIC;
     }
 }
+
+#ifdef HDMI_PASSTHROUGH_ENABLED
+
+void AudioPolicyManager::checkAndSuspendOutputs() {
+
+    sp<AudioOutputDescriptor> desc;
+
+    if (!isHDMIPassthroughEnabled()) {
+        ALOGV("checkAndSuspendOutputs: passthrough not enabled");
+        return;
+    }
+
+    for (size_t i = 0; i < mOutputs.size(); i++) {
+        desc = mOutputs.valueAt(i);
+        ALOGV("checkAndSuspendOutputs:device 0x%x, flag %x, music refcount %d",
+             desc->mDevice, desc->mFlags, desc->mRefCount[AUDIO_STREAM_MUSIC]);
+        if (desc->mDevice & AUDIO_DEVICE_OUT_AUX_DIGITAL ||
+            desc->mDevice == AUDIO_DEVICE_NONE) {
+            // check if  fast/deep buffer/multichannel outputs are already
+            // suspended before suspending the output
+            if (((desc->mFlags &
+                        AUDIO_OUTPUT_FLAG_FAST) &&
+                        !mFastSuspended) ||
+                ((desc->mFlags &
+                        AUDIO_OUTPUT_FLAG_DEEP_BUFFER) &&
+                        !mPrimarySuspended) ||
+                ((desc->mFlags &
+                        AUDIO_OUTPUT_FLAG_PRIMARY) &&
+                        !mPrimarySuspended) ||
+                ((desc->mFlags & AUDIO_OUTPUT_FLAG_DIRECT) &&
+                        !(desc->mFlags &  AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
+                        !mMultiChannelSuspended)) {
+                /*TODO : is other streams needed here. */
+                ALOGD("suspend Ouput");
+                mpClientInterface->suspendOutput(mOutputs.keyAt(i));
+                // Update the reference count of fast/deep buffer/multichannel
+                // after suspend.
+                if (desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_DEEP_BUFFER ||
+                    desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_PRIMARY) {
+                    mPrimarySuspended++;
+                } else if (desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_FAST) {
+                    mFastSuspended++;
+                } else if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DIRECT) &&
+                    !(desc->mFlags &  AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)) {
+                    mMultiChannelSuspended++;
+                }
+            } else {
+                continue;
+                ALOGD("Ignore  suspend");
+            }
+        }
+    }
+    ALOGV("Suspend count: primary %d, fast %d, multichannel %d",
+           mPrimarySuspended, mFastSuspended, mMultiChannelSuspended);
+}
+
+void AudioPolicyManager::checkAndRestoreOutputs() {
+
+    sp<AudioOutputDescriptor> desc;
+
+    if (!isHDMIPassthroughEnabled()) {
+        ALOGV("checkAndRestoreOutputs: passthrough not enabled");
+        return;
+    }
+
+    for (size_t i = 0; i < mOutputs.size(); i++) {
+        desc = mOutputs.valueAt(i);
+        ALOGV("checkAndRestoreOutputs: device 0x%x, flag %x, music refcount %d",
+             desc->mDevice, desc->mFlags, desc->mRefCount[AUDIO_STREAM_MUSIC]);
+        if (desc->mDevice & AUDIO_DEVICE_OUT_AUX_DIGITAL ||
+            desc->mDevice == AUDIO_DEVICE_NONE) {
+            // check if the deep buffer/fast/multichannel outputs were
+            // suspended before restore.
+            if (((desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_FAST) &&
+                    mFastSuspended) ||
+                ((desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_DEEP_BUFFER) &&
+                    mPrimarySuspended) ||
+                ((desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_PRIMARY) &&
+                    mPrimarySuspended) ||
+                ((desc->mFlags &  AUDIO_OUTPUT_FLAG_DIRECT) &&
+                    !(desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
+                    mMultiChannelSuspended)) {
+
+                ALOGD("restore Output");
+                mpClientInterface->restoreOutput(mOutputs.keyAt(i));
+                // update the reference count for fast/deep buffer/multichannel
+                // after restore.
+                if (desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_DEEP_BUFFER ||
+                    desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_PRIMARY) {
+                    mPrimarySuspended--;
+                } else if (desc->mFlags &
+                    AUDIO_OUTPUT_FLAG_FAST) {
+                    mFastSuspended--;
+                } else if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DIRECT) &&
+                    !(desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)) {
+                    mMultiChannelSuspended--;
+                }
+            } else {
+                continue;
+                ALOGD("Ignore  restore");
+            }
+        }
+    }
+    ALOGV("Restore count: primary %d, fast %d, multichannel %d",
+          mPrimarySuspended, mFastSuspended, mMultiChannelSuspended);
+}
+
+audio_devices_t AudioPolicyManager::handleHDMIPassthrough(audio_devices_t device,
+                         audio_io_handle_t output, int audio_stream,
+                         int audio_strategy) {
+
+    routing_strategy strategy = (routing_strategy)audio_strategy;
+    audio_stream_type_t stream =  (audio_stream_type_t)audio_stream;
+
+    if (!isHDMIPassthroughEnabled()) {
+        ALOGV("handleHDMIPassthrough: passthrough not enabled");
+        return device;
+    }
+
+    ssize_t index = mOutputs.indexOfKey(output);
+    if (index < 0) {
+        ALOGW("handleHDMIPassthrough() unknow output %d, return same device",
+               output);
+        return device;
+    }
+
+    sp<AudioOutputDescriptor> outputDesc = mOutputs.valueAt(index);
+
+    ALOGV("handleHDMIPassthrough:device %x, flags %d, stream %d, strategy %d",
+           device, outputDesc->mFlags, stream, strategy);
+    // check for HDMI device
+    if (device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
+        // check for deep buffer and fast flags
+        if ((outputDesc->mFlags &
+            AUDIO_OUTPUT_FLAG_FAST) ||
+            (outputDesc->mFlags &
+            AUDIO_OUTPUT_FLAG_PRIMARY) ||
+            (outputDesc->mFlags &
+            AUDIO_OUTPUT_FLAG_DEEP_BUFFER)) {
+            //Stream info not available, so need to check for ref count in desc
+            if (stream == -1) {
+                if ((outputDesc->mRefCount[AUDIO_STREAM_SYSTEM] > 0) ||
+                    (outputDesc->mRefCount[AUDIO_STREAM_RING] > 0) ||
+                    (outputDesc->mRefCount[AUDIO_STREAM_ALARM] > 0) ||
+                    (outputDesc->mRefCount[AUDIO_STREAM_DTMF] > 0) ||
+                    (outputDesc->mRefCount[AUDIO_STREAM_NOTIFICATION] > 0)) {
+
+                    device = AUDIO_DEVICE_OUT_SPEAKER;
+                    ALOGV("refcount system %d, refcount ring %d"
+                          ",refcount Alarm %d, refcount notification %d",
+                            outputDesc->mRefCount[AUDIO_STREAM_SYSTEM],
+                            outputDesc->mRefCount[AUDIO_STREAM_RING],
+                            outputDesc->mRefCount[AUDIO_STREAM_ALARM],
+                            outputDesc->mRefCount[AUDIO_STREAM_NOTIFICATION]);
+                    ALOGV("handleHDMIPassthrough:with refcount Use speaker");
+                }
+
+            } else {
+                switch(stream) {
+                    case AUDIO_STREAM_SYSTEM:
+                    case AUDIO_STREAM_RING:
+                    case AUDIO_STREAM_DTMF:
+                    case AUDIO_STREAM_ALARM:
+                    case AUDIO_STREAM_NOTIFICATION:
+                        device = AUDIO_DEVICE_OUT_SPEAKER;
+                        ALOGV("handleHDMIPassthrough:Use speaker");
+                        break;
+                    default:
+                        ALOGV("handleHDMIPassthrough:Use same device");
+                        break;
+               }
+           }
+       } else {
+           ALOGV("no change in device");
+       }
+    }
+    return device;
+}
+
+audio_io_handle_t AudioPolicyManager::getPassthroughOutput(
+                                    audio_stream_type_t stream,
+                                    uint32_t samplingRate,
+                                    audio_format_t format,
+                                    audio_channel_mask_t channelMask,
+                                    audio_output_flags_t flags,
+                                    const audio_offload_info_t *offloadInfo,
+                                    audio_devices_t device)
+{
+
+    audio_io_handle_t output = 0;
+    bool passthrough = false;
+    sp<IOProfile> profile;
+    status_t status;
+    // The function should return error if it cannot find valid passthrough
+    // output. This is required if client sets passthrough flag directly.
+    bool shouldReturnError = false;
+
+    if (!isHDMIPassthroughEnabled()) {
+        ALOGE("getPassthroughOutput: passthrough not enabled");
+        goto noPassthrough;
+    }
+
+    if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH)
+        shouldReturnError = true;
+
+    // Passthrough used for dolby formats and if device is HDMI
+    if ((format == AUDIO_FORMAT_E_AC3 || format == AUDIO_FORMAT_AC3 ||
+         format == AUDIO_FORMAT_E_AC3_JOC) &&
+         (device & AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
+
+        //stream based effects enabled, ignore passthrough
+        if (isEffectEnabled()) {
+            ALOGE("No PASSTHROUGH - effect enabled");
+            goto noPassthrough;
+        }
+
+        for (size_t i = 0; i < mOutputs.size(); i++) {
+            audio_io_handle_t output = mOutputs.keyAt(i);
+            sp<AudioOutputDescriptor> desc = mOutputs.valueAt(i);
+            if (desc->mDevice & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
+                /*if (((desc->mFlags & (AudioSystem::output_flags)
+                                    AUDIO_OUTPUT_FLAG_FAST) ||
+                    (desc->mFlags & (AudioSystem::output_flags)
+                                    AUDIO_OUTPUT_FLAG_PRIMARY) ||
+                    (desc->mFlags & (AudioSystem::output_flags)
+                                    AUDIO_OUTPUT_FLAG_DEEP_BUFFER)) &&
+                    (desc->mRefCount[AudioSystem::MUSIC] > 0))
+                            goto no_passthrough;
+                else*/
+                // Check is compress offload stream is active before allowing
+                // passthrough stream
+                if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
+                       (!desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH)
+                       && desc->mDirectOpenCount > 0) {
+                    ALOGE("Ignore passthrough,offload session active");
+                    goto noPassthrough;
+                }
+            }
+        }
+
+        checkAndSuspendOutputs();
+        closeOffloadOutputs();
+        flags = (audio_output_flags_t)(flags|AUDIO_OUTPUT_FLAG_DIRECT|
+                 AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH);
+
+        profile = getProfileForDirectOutput(device, samplingRate, format,
+                                            channelMask, flags);
+        if (profile != NULL) {
+            sp<AudioOutputDescriptor> outputDesc = NULL;
+
+            for (size_t i = 0; i < mOutputs.size(); i++) {
+                sp<AudioOutputDescriptor> desc = mOutputs.valueAt(i);
+                if (!desc->isDuplicated() && (profile == desc->mProfile)) {
+                    outputDesc = desc;
+                    // reuse direct output if currently open and configured
+                    // with same parameters
+                    if ((samplingRate == outputDesc->mSamplingRate) &&
+                            (format == outputDesc->mFormat) &&
+                            (channelMask == outputDesc->mChannelMask)) {
+                            outputDesc->mDirectOpenCount++;
+                        ALOGE("getPassthroughOutput() reusing direct output %d",
+                               mOutputs.keyAt(i));
+                        return mOutputs.keyAt(i);
+                    }
+               }
+           }
+           // close direct output if currently open and configured with
+           // different parameters
+           if (outputDesc != NULL) {
+               closeOutput(outputDesc->mIoHandle);
+           }
+           outputDesc = new AudioOutputDescriptor(profile);
+           outputDesc->mDevice = device;
+           outputDesc->mLatency = 0;
+           outputDesc->mFlags =(audio_output_flags_t) (outputDesc->mFlags | flags);
+           audio_config_t config = AUDIO_CONFIG_INITIALIZER;
+           config.sample_rate = samplingRate;
+           config.channel_mask = channelMask;
+           config.format = format; 
+           if (offloadInfo != NULL) {
+               config.offload_info = *offloadInfo;
+           }
+           //outputDesc->mRefCount[stream] = 0;
+           //outputDesc->mDirectOpenCount = 1;
+           status = mpClientInterface->openOutput(profile->mModule->mHandle,
+                                               &output,
+                                               &config,
+                                               &outputDesc->mDevice,
+                                               String8(""),
+                                               &outputDesc->mLatency,
+                                               outputDesc->mFlags);
+
+            // only accept an output with the requested parameters
+            if (status != NO_ERROR ||
+                (samplingRate != 0 &&
+                samplingRate != config.sample_rate) ||
+                (format != AUDIO_FORMAT_DEFAULT && format != config.format) ||
+                (channelMask != 0 &&
+                channelMask != config.channel_mask)) {
+                ALOGE("getPassthroughOutput() failed opening direct output:"
+                      " output %d samplingRate %d %d, format %d %d,"
+                      " channelMask %04x %04x", output, samplingRate,
+                      outputDesc->mSamplingRate, format, outputDesc->mFormat,
+                      channelMask, outputDesc->mChannelMask);
+                if (output != 0) {
+                    mpClientInterface->closeOutput(output);
+                }
+                ALOGE("getPassthroughOutput return 0");
+                    goto noPassthrough;
+            }
+            outputDesc->mSamplingRate = config.sample_rate;
+            outputDesc->mChannelMask = config.channel_mask;
+            outputDesc->mFormat = config.format;
+            outputDesc->mRefCount[stream] = 0;
+            outputDesc->mStopTime[stream] = 0;
+            outputDesc->mDirectOpenCount = 1;
+
+            addOutput(output, outputDesc);
+            mPreviousOutputs = mOutputs;
+            ALOGE("getPassthroughOutput() returns new direct o/p %d", output);
+            mpClientInterface->onAudioPortListUpdate();
+            return output;
+        }
+    }
+
+noPassthrough:
+    ALOGE("getPassthroughOutput return 0, format %x, flags %x",
+           format, passthrough, flags);
+    if (shouldReturnError)
+        return -EINVAL;
+    return AUDIO_IO_HANDLE_NONE;
+}
+
+bool AudioPolicyManager::isEffectEnabled()
+{
+    for (size_t i = 0; i < mEffects.size(); i++) {
+        sp<EffectDescriptor> pDesc = mEffects.valueAt(i);
+        ALOGVV("isEffectEnabled:Io %d,strategy %d,session %d,enabled %d,name %s"
+            ",implementor %s, uuid type 0x%x uid 0x%x, flags 0x%x\n",
+            pDesc->mIo, pDesc->mStrategy, pDesc->mSession, pDesc->mEnabled,
+            pDesc->mDesc.name, pDesc->mDesc.implementor, pDesc->mDesc.type,
+            pDesc->mDesc.uuid,pDesc->mDesc.flags);
+
+        if  (pDesc->mSession == AUDIO_SESSION_OUTPUT_MIX &&
+             !strcmp(pDesc->mDesc.name, "DAP")) {
+            ALOGV("Ignore DAP enable global session and dap effect");
+            continue;
+        }
+        if (pDesc->mEnabled) {
+            ALOGV("isEffectEnabled() effect %s enabled on session %d",
+                  pDesc->mDesc.name, pDesc->mSession);
+            return true;
+        }
+    }
+    return false;
+}
+
+void AudioPolicyManager::updateAndCloseOutputs() {
+
+    bool passthroughActive = false;
+    sp<AudioOutputDescriptor> desc;
+
+    if (!isHDMIPassthroughEnabled()) {
+        ALOGV("updateAndCloseOutputs: passthrough not enabled");
+        return;
+    }
+
+    ALOGV("updateAndCloseOutputs");
+    for (size_t i = 0; i < mOutputs.size(); i++) {
+        desc = mOutputs.valueAt(i);
+        ALOGV("updateAndCloseOutputs:desc->mFlags %x, refCount %d",
+               desc->mFlags, desc->mRefCount[AUDIO_STREAM_MUSIC]);
+        if ((desc->mFlags &
+            AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH)
+            && desc->mRefCount[AUDIO_STREAM_MUSIC] > 0) {
+            passthroughActive = true;
+            break;
+        }
+    }
+
+    ALOGV("updateAndCloseOutputs:passthrough_active %d", passthroughActive);
+    if (passthroughActive) {
+        // Move tracks associated to this strategy from previous
+        // output to new output
+        ALOGV("\n Invalidate stream\n");
+        mpClientInterface->invalidateStream(AUDIO_STREAM_MUSIC);
+    }
+}
+
+void AudioPolicyManager::closeOffloadOutputs() {
+
+    bool passthroughActive = false;
+    sp<AudioOutputDescriptor> desc;
+
+    if (!isHDMIPassthroughEnabled())
+        return;
+    ALOGV("closeOffloadOutputs");
+    // Invalidate and close offload output before starting a pasthrough output.
+    // This allows compressed stream to be restarted from correct position.
+    // If compressed output is not closed, passthrough session is stopped on
+    // de-routing offload session when offload session runs into standy after
+    // 1 minute standby time.
+    for (size_t i = 0; i < mOutputs.size(); i++) {
+        desc = mOutputs.valueAt(i);
+        ALOGV("closeOffloadOutputs:desc->mFlags %x, refCount %d",
+               desc->mFlags, desc->mRefCount[AUDIO_STREAM_MUSIC]);
+        if (((desc->mFlags &
+            AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
+            (!(desc->mFlags &
+            AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH))
+            ) && desc->mRefCount[AUDIO_STREAM_MUSIC] == 0) {
+            mpClientInterface->invalidateStream(AUDIO_STREAM_MUSIC);
+            closeOutput(desc->mIoHandle);
+        }
+    }
+}
+bool AudioPolicyManager::isHDMIPassthroughEnabled() {
+
+    char value[PROPERTY_VALUE_MAX] = {0};
+
+    property_get("audio.offload.passthrough", value, NULL);
+    if (atoi(value) || !strncmp("true", value, 4)) {
+        ALOGD("HDMI Passthrough is enabled");
+        return true;
+    }
+    ALOGV("HDMI Passthrough is not enabled");
+    return false;
+}
+#endif
 }; // namespace android

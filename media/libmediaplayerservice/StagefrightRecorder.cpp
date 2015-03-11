@@ -867,7 +867,9 @@ status_t StagefrightRecorder::prepare() {
 
 status_t StagefrightRecorder::start() {
     ALOGV("start");
-    ExtendedStats::AutoProfile autoProfile(STATS_PROFILE_START_LATENCY, mRecorderExtendedStats);
+    ExtendedStats::AutoProfile autoProfile(
+            STATS_PROFILE_SF_RECORDER_START_LATENCY, mRecorderExtendedStats);
+    RECORDER_STATS(profileStart, STATS_PROFILE_START_LATENCY);
 
     if (mOutputFd < 0) {
         ALOGE("Output file descriptor is invalid");
@@ -1067,7 +1069,9 @@ sp<MediaSource> StagefrightRecorder::createAudioSource() {
         format->setInt32("time-scale", mAudioTimeScale);
     }
 
-    format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    if (mRecorderExtendedStats != NULL) {
+        format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    }
     sp<MediaSource> audioEncoder =
             MediaCodecSource::Create(mLooper, format, audioSource);
     // If encoder could not be created (as in LPCM), then
@@ -1719,7 +1723,9 @@ status_t StagefrightRecorder::setupVideoEncoder(
         flags |= MediaCodecSource::FLAG_USE_SURFACE_INPUT;
     }
 
-    format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    if (mRecorderExtendedStats != NULL) {
+        format->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
+    }
     sp<MediaCodecSource> encoder =
             MediaCodecSource::Create(mLooper, format, cameraSource, flags);
     if (encoder == NULL) {

@@ -519,7 +519,7 @@ public:
 
                 void        setMasterVolume(float value);
                 void        setMasterMute(bool muted);
-
+                void        setPostPro();
                 void        setStreamVolume(audio_stream_type_t stream, float value);
                 void        setStreamMute(audio_stream_type_t stream, bool muted);
 
@@ -861,6 +861,13 @@ protected:
     virtual     void        threadLoop_removeTracks(const Vector< sp<Track> >& tracksToRemove);
     virtual     uint32_t    correctLatency_l(uint32_t latency) const;
 
+#ifdef HW_ACC_EFFECTS
+    void checkForHwAccModeChange_l(const sp<Track>& track, int device);
+    void updateHwAccMode_l(const sp<Track>& track, bool enable);
+#ifdef HW_ACC_HPX
+    void updateHPXState_l(const sp<Track>& track, int state);
+#endif
+#endif
                 AudioMixer* mAudioMixer;    // normal mixer
 private:
                 // one-time initialization, no locks required
