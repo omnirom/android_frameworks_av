@@ -719,10 +719,16 @@ bool ExtendedUtils::ShellProp::isAudioDisabled(bool isEncoder) {
     property_get("persist.debug.sf.noaudio", disableAudio, "0");
     if (isEncoder && (atoi(disableAudio) & 0x02)) {
         retVal = true;
-    } else if (atoi(disableAudio) & 0x01) {
+    } else if (!isEncoder && atoi(disableAudio) & 0x01) {
         retVal = true;
     }
     return retVal;
+}
+
+bool ExtendedUtils::ShellProp::isVideoRenderingDisabled() {
+    char disableVideoRendering[PROPERTY_VALUE_MAX];
+    property_get("persist.debug.sf.nodisplay", disableVideoRendering, "0");
+    return atoi(disableVideoRendering) > 0 ? true : false;
 }
 
 void ExtendedUtils::ShellProp::setEncoderProfile(
@@ -1835,12 +1841,11 @@ sp<MetaData> ExtendedUtils::createPCMMetaFromSource(
     tPCMMeta->setInt32(kKeyChannelCount, channelCount);
     tPCMMeta->setInt32(kKeyChannelMask, cmask);
 
-    int64_t duration = 0;
+    int64_t duration = INT_MAX;
     if (!sMeta->findInt64(kKeyDuration, &duration)) {
-        ALOGW("No duration in meta");
-    } else {
-        tPCMMeta->setInt64(kKeyDuration, duration);
+        ALOGW("No duration in meta setting max duration");
     }
+    tPCMMeta->setInt64(kKeyDuration, duration);
 
     int32_t bitRate = -1;
     if (!sMeta->findInt32(kKeyBitRate, &bitRate)) {
@@ -1878,6 +1883,28 @@ void ExtendedUtils::overWriteAudioFormat(
     }
 
     return;
+}
+
+
+bool ExtendedUtils::is24bitPCMOffloaded(const sp<MetaData> &sMeta) {
+    bool decision = false;
+
+    if (sMeta == NULL) {
+        return decision;
+    }
+
+   /* Return true, if
+      1. 24 bit offload flag is enabled
+      2. the bit stream is raw 
+      3. this is 24 bit PCM */
+
+    if (is24bitPCMOffloadEnabled() && isRAWFormat(sMeta) &&
+        getPcmSampleBits(sMeta) == 24) {
+        ALOGV("%s: decided its true for 24 bit PCM offloading", __func__);
+        decision = true;
+    }
+
+    return decision;
 }
 
 }
@@ -1932,6 +1959,11 @@ int32_t ExtendedUtils::HFR::getHFRCapabilities(
 }
 
 bool ExtendedUtils::ShellProp::isAudioDisabled(bool isEncoder) {
+    ARG_TOUCH(isEncoder);
+    return false;
+}
+
+bool ExtendedUtils::ShellProp::isVideoRenderingDisabled() {
     return false;
 }
 
@@ -2147,6 +2179,12 @@ void ExtendedUtils::overWriteAudioFormat(
     ARG_TOUCH(dst);
     ARG_TOUCH(src);
     return;
+}
+
+bool ExtendedUtils::is24bitPCMOffloaded(const sp<MetaData> &sMeta) {
+    ARG_TOUCH(sMeta);
+
+    return false;
 }
 
 } // namespace android
