@@ -47,8 +47,10 @@
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
+#include <QCMetaData.h>
 
 #include "include/avc_utils.h"
+#include "include/ExtendedUtils.h"
 
 #include <inttypes.h>
 #include <netinet/in.h>
@@ -192,8 +194,9 @@ static bool IsSeeminglyValidAC3Header(const uint8_t *ptr, size_t size) {
     return parseAC3SyncFrame(ptr, size, NULL) > 0;
 }
 
-static bool IsSeeminglyValidADTSHeader(const uint8_t *ptr, size_t size) {
-    if (size < 3) {
+static bool IsSeeminglyValidADTSHeader(
+        const uint8_t *ptr, size_t size, size_t *frameLength) {
+    if (size < 7) {
         // Not enough data to verify header.
         return false;
     }
@@ -216,6 +219,13 @@ static bool IsSeeminglyValidADTSHeader(const uint8_t *ptr, size_t size) {
         return false;
     }
 
+    size_t frameLengthInHeader =
+            ((ptr[3] & 3) << 11) + (ptr[4] << 3) + ((ptr[5] >> 5) & 7);
+    if (frameLengthInHeader > size) {
+        return false;
+    }
+
+    *frameLength = frameLengthInHeader;
     return true;
 }
 
@@ -269,6 +279,7 @@ status_t ElementaryStreamQueue::appendData(
     if (mBuffer == NULL || mBuffer->size() == 0) {
         switch (mMode) {
             case H264:
+            case H265:
             case MPEG_VIDEO:
             {
 #if 0
@@ -345,8 +356,10 @@ status_t ElementaryStreamQueue::appendData(
                 }
 #else
                 ssize_t startOffset = -1;
+                size_t frameLength;
                 for (size_t i = 0; i < size; ++i) {
-                    if (IsSeeminglyValidADTSHeader(&ptr[i], size - i)) {
+                    if (IsSeeminglyValidADTSHeader(
+                            &ptr[i], size - i, &frameLength)) {
                         startOffset = i;
                         break;
                     }
@@ -360,6 +373,12 @@ status_t ElementaryStreamQueue::appendData(
                     ALOGI("found something resembling an AAC syncword at "
                           "offset %zd",
                           startOffset);
+                }
+
+                if (frameLength != size - startOffset) {
+                    ALOGV("First ADTS AAC frame length is %zd bytes, "
+                          "while the buffer size is %zd bytes.",
+                          frameLength, size - startOffset);
                 }
 
                 data = &ptr[startOffset];
@@ -498,7 +517,7 @@ status_t ElementaryStreamQueue::appendData(
 }
 
 sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
-    if ((mFlags & kFlag_AlignedData) && mMode == H264) {
+    if (((mFlags & kFlag_AlignedData) && mMode == H264) || mMode == H265) {
         if (mRangeInfos.empty()) {
             return NULL;
         }
@@ -517,7 +536,16 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
         mBuffer->setRange(0, mBuffer->size() - info.mLength);
 
         if (mFormat == NULL) {
-            mFormat = MakeAVCCodecSpecificData(accessUnit);
+            if (mMode == H264) {
+                mFormat = MakeAVCCodecSpecificData(accessUnit);
+            } else if (mMode == H265) {
+                mFormat = ExtendedUtils::MakeHEVCCodecSpecificData(accessUnit);
+                if (mFormat != NULL) {
+                    // Unlike H264, we do not require HEVC data to be aligned.
+                    // To handle this, let the decoder do the frame parsing.
+                    mFormat->setInt32(kKeyUseArbitraryMode, 1);
+                }
+            }
         }
 
         return accessUnit;
@@ -526,6 +554,8 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
     switch (mMode) {
         case H264:
             return dequeueAccessUnitH264();
+        case H265:
+            return dequeueAccessUnitH265();
         case AAC:
             return dequeueAccessUnitAAC();
         case AC3:
@@ -919,6 +949,12 @@ struct NALPosition {
     size_t nalOffset;
     size_t nalSize;
 };
+
+sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH265() {
+    ALOGE("Should not be here - frame parsing is done in decoder");
+    TRESPASS();
+    return NULL;
+}
 
 sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
     const uint8_t *data = mBuffer->data();

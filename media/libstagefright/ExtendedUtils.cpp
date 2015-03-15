@@ -50,6 +50,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
+#include "include/avc_utils.h"
 #include "include/ExtendedUtils.h"
 
 static const int64_t kDefaultAVSyncLateMargin =  40000;
@@ -63,6 +64,10 @@ static const unsigned kMinRtpPort = 1024;
 static const unsigned kMaxRtpPort = 65535;
 
 #define ARG_TOUCH(x) (void)x
+
+static const uint8_t kHEVCNalUnitTypeIDR         = 0x13;
+static const uint8_t kHEVCNalUnitTypeIDRNoLP     = 0x14;
+static const uint8_t kHEVCNalUnitTypeCRA         = 0x15;
 static const uint8_t kHEVCNalUnitTypeVidParamSet = 0x20;
 static const uint8_t kHEVCNalUnitTypeSeqParamSet = 0x21;
 static const uint8_t kHEVCNalUnitTypePicParamSet = 0x22;
@@ -713,16 +718,71 @@ status_t ExtendedUtils::HEVCMuxer::makeHEVCCodecSpecificData(
     return OK;
 }
 
+sp<MetaData> ExtendedUtils::MakeHEVCCodecSpecificData(const sp<ABuffer> &accessUnit) {
+    const uint8_t *data = accessUnit->data();
+    size_t size = accessUnit->size();
+
+    if (data == NULL || size == 0) {
+        ALOGE("Invalid HEVC CSD");
+        return NULL;
+    }
+
+    sp<MetaData> meta = new MetaData;
+    meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_VIDEO_HEVC);
+    meta->setData(kKeyHVCC, kTypeHVCC, data, size);
+
+    // Set width & height to minimum (QCIF). This will trigger a port reconfig &
+    // the decoder will find the correct dimensions.
+    meta->setInt32(kKeyWidth, (int32_t)177);
+    meta->setInt32(kKeyHeight, (int32_t)144);
+
+    return meta;
+}
+
+bool ExtendedUtils::IsHevcIDR(const sp<ABuffer> &buffer) {
+    const uint8_t *data = buffer->data();
+    size_t size = buffer->size();
+
+    bool foundRef = false;
+    const uint8_t *nalStart;
+    size_t nalSize;
+    while (!foundRef && getNextNALUnit(&data, &size, &nalStart, &nalSize, true) == OK) {
+        if (nalSize == 0) {
+            ALOGW("Encountered zero-length HEVC NAL", nalSize);
+            return false;
+        }
+
+        uint8_t nalType;
+        getHEVCNalUnitType(nalStart[0], &nalType);
+
+        switch(nalType) {
+        case kHEVCNalUnitTypeIDR:
+        case kHEVCNalUnitTypeIDRNoLP:
+        case kHEVCNalUnitTypeCRA:
+            foundRef = true;
+            break;
+        }
+    }
+
+    return foundRef;
+}
+
 bool ExtendedUtils::ShellProp::isAudioDisabled(bool isEncoder) {
     bool retVal = false;
     char disableAudio[PROPERTY_VALUE_MAX];
     property_get("persist.debug.sf.noaudio", disableAudio, "0");
     if (isEncoder && (atoi(disableAudio) & 0x02)) {
         retVal = true;
-    } else if (atoi(disableAudio) & 0x01) {
+    } else if (!isEncoder && atoi(disableAudio) & 0x01) {
         retVal = true;
     }
     return retVal;
+}
+
+bool ExtendedUtils::ShellProp::isVideoRenderingDisabled() {
+    char disableVideoRendering[PROPERTY_VALUE_MAX];
+    property_get("persist.debug.sf.nodisplay", disableVideoRendering, "0");
+    return atoi(disableVideoRendering) > 0 ? true : false;
 }
 
 void ExtendedUtils::ShellProp::setEncoderProfile(
@@ -1798,7 +1858,6 @@ bool ExtendedUtils::pcmOffloadException(const char* const mime) {
 sp<MetaData> ExtendedUtils::createPCMMetaFromSource(
                 const sp<MetaData> &sMeta)
 {
-
     sp<MetaData> tPCMMeta = new MetaData;
     //hard code as RAW
     tPCMMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_RAW);
@@ -1808,7 +1867,7 @@ sp<MetaData> ExtendedUtils::createPCMMetaFromSource(
     tPCMMeta->setInt32(kKeySampleBits, 16);
 
     if (sMeta == NULL) {
-        ALOGV("%s: no meta returning dummy meta");
+        ALOGW("no meta returning dummy meta");
         return tPCMMeta;
     }
 
@@ -1835,12 +1894,11 @@ sp<MetaData> ExtendedUtils::createPCMMetaFromSource(
     tPCMMeta->setInt32(kKeyChannelCount, channelCount);
     tPCMMeta->setInt32(kKeyChannelMask, cmask);
 
-    int64_t duration = 0;
+    int64_t duration = INT_MAX;
     if (!sMeta->findInt64(kKeyDuration, &duration)) {
-        ALOGW("No duration in meta");
-    } else {
-        tPCMMeta->setInt64(kKeyDuration, duration);
+        ALOGW("No duration in meta setting max duration");
     }
+    tPCMMeta->setInt64(kKeyDuration, duration);
 
     int32_t bitRate = -1;
     if (!sMeta->findInt32(kKeyBitRate, &bitRate)) {
@@ -1878,6 +1936,28 @@ void ExtendedUtils::overWriteAudioFormat(
     }
 
     return;
+}
+
+
+bool ExtendedUtils::is24bitPCMOffloaded(const sp<MetaData> &sMeta) {
+    bool decision = false;
+
+    if (sMeta == NULL) {
+        return decision;
+    }
+
+   /* Return true, if
+      1. 24 bit offload flag is enabled
+      2. the bit stream is raw 
+      3. this is 24 bit PCM */
+
+    if (is24bitPCMOffloadEnabled() && isRAWFormat(sMeta) &&
+        getPcmSampleBits(sMeta) == 24) {
+        ALOGV("%s: decided its true for 24 bit PCM offloading", __func__);
+        decision = true;
+    }
+
+    return decision;
 }
 
 }
@@ -1931,7 +2011,22 @@ int32_t ExtendedUtils::HFR::getHFRCapabilities(
     return -1;
 }
 
+sp<MetaData> ExtendedUtils::MakeHEVCCodecSpecificData(const sp<ABuffer> &accessUnit) {
+    ARG_TOUCH(accessUnit);
+    return NULL;
+}
+
+bool ExtendedUtils::IsHevcIDR(const sp<ABuffer> &buffer) {
+    ARG_TOUCH(buffer);
+    return false;
+}
+
 bool ExtendedUtils::ShellProp::isAudioDisabled(bool isEncoder) {
+    ARG_TOUCH(isEncoder);
+    return false;
+}
+
+bool ExtendedUtils::ShellProp::isVideoRenderingDisabled() {
     return false;
 }
 
@@ -2147,6 +2242,12 @@ void ExtendedUtils::overWriteAudioFormat(
     ARG_TOUCH(dst);
     ARG_TOUCH(src);
     return;
+}
+
+bool ExtendedUtils::is24bitPCMOffloaded(const sp<MetaData> &sMeta) {
+    ARG_TOUCH(sMeta);
+
+    return false;
 }
 
 } // namespace android

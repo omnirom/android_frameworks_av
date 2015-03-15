@@ -42,8 +42,13 @@
 #include "include/ESDS.h"
 #include "include/ExtendedUtils.h"
 
+
+#ifndef __predict_false
+#define __predict_false(exp) __builtin_expect((exp) != 0, 0)
+#endif
+
 #define WARN_UNLESS(condition, message, ...) \
-( (CONDITION(condition)) ? false : ({ \
+( (__predict_false(condition)) ? false : ({ \
     ALOGW("Condition %s failed "  message, #condition, ##__VA_ARGS__); \
     true; \
 }))
@@ -2792,8 +2797,6 @@ void MPEG4Writer::Track::writeVideoFourCCBox() {
     mOwner->writeInt16(0x18);        // depth
     mOwner->writeInt16(-1);          // predefined
 
-    CHECK_LT(23 + mCodecSpecificDataSize, 128);
-
     if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG4, mime)) {
         writeMp4vEsdsBox();
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_H263, mime)) {
@@ -2897,6 +2900,9 @@ void MPEG4Writer::Track::writeMp4vEsdsBox() {
     CHECK(mCodecSpecificData);
     CHECK_GT(mCodecSpecificDataSize, 0);
     mOwner->beginBox("esds");
+
+    // Make sure all sizes encode to a single byte.
+    CHECK_LT(mCodecSpecificDataSize + 23, 128);
 
     mOwner->writeInt32(0);    // version=0, flags=0
 

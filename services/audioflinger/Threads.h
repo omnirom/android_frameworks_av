@@ -440,6 +440,12 @@ protected:
                                         mSuspendedSessions;
                 static const size_t     kLogSize = 4 * 1024;
                 sp<NBLog::Writer>       mNBLogWriter;
+#ifdef HW_ACC_EFFECTS
+                // Hw accelerated effects in a deep-buffer playback session
+                bool mHwAccEffectsNeeded;
+                int32_t mHwAccEffectsSessionId;
+                int32_t mHwAccEffectsId;
+#endif
 };
 
 // --- PlaybackThread ---
@@ -711,6 +717,9 @@ protected:
                                    audio_patch_handle_t *handle);
     virtual     status_t    releaseAudioPatch_l(const audio_patch_handle_t handle);
 
+                bool        usesHwAvSync() const { return (mType == DIRECT) && (mOutput != NULL) &&
+                                                (mOutput->flags & AUDIO_OUTPUT_FLAG_HW_AV_SYNC); }
+
 private:
 
     friend class AudioFlinger;      // for numerous
@@ -729,9 +738,7 @@ private:
     void        dumpTracks(int fd, const Vector<String16>& args);
 
     SortedVector< sp<Track> >       mTracks;
-    // mStreamTypes[] uses 1 additional stream type internally for the OutputTrack used by
-    // DuplicatingThread
-    stream_type_t                   mStreamTypes[AUDIO_STREAM_CNT + 1];
+    stream_type_t                   mStreamTypes[AUDIO_STREAM_CNT];
     AudioStreamOut                  *mOutput;
 
     float                           mMasterVolume;
@@ -813,7 +820,9 @@ public:
 protected:
                 // accessed by both binder threads and within threadLoop(), lock on mutex needed
                 unsigned    mFastTrackAvailMask;    // bit i set if fast track [i] is available
-
+                bool        mHwSupportsPause;
+                bool        mHwPaused;
+                bool        mFlushPending;
 private:
     // timestamp latch:
     //  D input is written by threadLoop_write while mutex is unlocked, and read while locked
@@ -921,6 +930,8 @@ protected:
     virtual     mixer_state prepareTracks_l(Vector< sp<Track> > *tracksToRemove);
     virtual     void        threadLoop_mix();
     virtual     void        threadLoop_sleepTime();
+    virtual     void        threadLoop_exit();
+    virtual     bool        shouldStandby_l();
 
     // volumes last sent to audio HAL with stream->set_volume()
     float mLeftVolFloat;
@@ -951,13 +962,10 @@ protected:
 
     virtual     bool        waitingAsyncCallback();
     virtual     bool        waitingAsyncCallback_l();
-    virtual     bool        shouldStandby_l();
     virtual     void        onAddNewTrack_l();
     virtual     void        onFatalError();
 
 private:
-    bool        mHwPaused;
-    bool        mFlushPending;
     size_t      mPausedWriteLength;     // length in bytes of write interrupted by pause
     size_t      mPausedBytesRemaining;  // bytes still waiting in mixbuffer after resume
     wp<Track>   mPreviousTrack;         // used to detect track switch
