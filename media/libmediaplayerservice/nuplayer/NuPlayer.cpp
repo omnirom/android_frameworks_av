@@ -922,7 +922,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 } else {
                     ALOGV("Decoded PCM offload flushing");
                     if (mAudioDecoder != NULL) {
-                        flushDecoder(true /* audio */, false/* needShutdown */);
+                        flushDecoder(true /* audio */, true/* needShutdown */);
                     }
                 }
                 mRenderer->flush(
@@ -939,6 +939,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                         if (ExtendedUtils::is24bitPCMOffloaded(audioMeta)) {
                               ALOGV("Override pcm format to 16 bits");
                               ExtendedUtils::setKeyPCMFormat(audioMeta, AUDIO_FORMAT_PCM_16_BIT);
+                              mSource->stop();
                               mSource->start();
                         }
                     }
@@ -1066,21 +1067,7 @@ void NuPlayer::onStart() {
         }
     }
 
-    bool overrideSourceStart = false;
-    if (ExtendedUtils::is24bitPCMOffloadEnabled()) {
-        sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
-        if (ExtendedUtils::is24bitPCMOffloaded(audioMeta)) {
-            ALOGI("Override source start");
-            overrideSourceStart = true;
-        }
-    }
-
-    if (!overrideSourceStart) {
-        mSource->start();
-    } else {
-        //ignore start, this is called just before sink is opened
-    }
-
+    mSource->start();
     uint32_t flags = 0;
 
     if (mSource->isRealTime()) {
@@ -1107,7 +1094,7 @@ void NuPlayer::onStart() {
         if (audioMeta != NULL) {
             audioMeta->findCString(kKeyMIMEType, &mime);
         }
-    mOffloadAudio =
+        mOffloadAudio =
                 ((mime && !ExtendedUtils::pcmOffloadException(mime)) &&
                 canOffloadStream(audioPCMMeta, (videoFormat != NULL), vMeta,
                         mIsStreaming /* is_streaming */, streamType));
@@ -1324,6 +1311,7 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
                 if (ExtendedUtils::is24bitPCMOffloaded(audioMeta)) {
                     ALOGV("Overriding PCM format with 24 bit and calling start");
                     ExtendedUtils::setKeyPCMFormat(audioMeta, AUDIO_FORMAT_PCM_8_24_BIT);
+                    mSource->stop();
                     mSource->start();
                 }
             }
@@ -1334,6 +1322,7 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
                 if (ExtendedUtils::is24bitPCMOffloaded(audioMeta)) {
                     ALOGV("Setting 16 bit in case session is not offloaded");
                     ExtendedUtils::setKeyPCMFormat(audioMeta, AUDIO_FORMAT_PCM_16_BIT);
+                    mSource->stop();
                     mSource->start();
                 }
             }
