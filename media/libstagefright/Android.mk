@@ -169,21 +169,17 @@ endif
 endif #TARGET_ENABLE_AV_ENHANCEMENTS
 
 ifeq ($(call is-vendor-board-platform,QCOM),true)
-ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD_24)),true)
-       LOCAL_CFLAGS     += -DPCM_OFFLOAD_ENABLED_24
 ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
 else
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 endif
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD_24)),true)
+       LOCAL_CFLAGS     += -DPCM_OFFLOAD_ENABLED_24
+endif
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD)),true)
        LOCAL_CFLAGS     += -DPCM_OFFLOAD_ENABLED
-       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 endif
-endif
-endif
-
-ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_FLAC_OFFLOAD)),true)
        LOCAL_CFLAGS     += -DFLAC_OFFLOAD_ENABLED
 endif
