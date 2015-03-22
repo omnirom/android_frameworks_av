@@ -1085,6 +1085,18 @@ void NuPlayer::onStart() {
     convertMessageToMetaData(videoFormat, vMeta);
     mOffloadAudio = canOffloadStream(audioMeta, (videoFormat != NULL), vMeta,
                          mIsStreaming /* is_streaming */, streamType);
+
+    // dont try to use pcm offload if property to disable av offload is set globally
+    char propValue[PROPERTY_VALUE_MAX];
+    bool offloadVideoAudio = true;
+    if(property_get("av.offload.enable", propValue, NULL)) {
+        bool prop_enabled = atoi(propValue) || !strncmp("true", propValue, 4);
+        if (!prop_enabled) {
+            ALOGI("offload disabled by av.offload.enable = %s ", propValue );
+            offloadVideoAudio = false;
+        }
+    }
+
      //For offloading decoded content
     if (!mOffloadAudio && (audioMeta != NULL)) {
         sp<MetaData> audioPCMMeta =
@@ -1097,7 +1109,8 @@ void NuPlayer::onStart() {
         mOffloadAudio =
                 ((mime && !ExtendedUtils::pcmOffloadException(mime)) &&
                 canOffloadStream(audioPCMMeta, (videoFormat != NULL), vMeta,
-                        mIsStreaming /* is_streaming */, streamType));
+                        mIsStreaming /* is_streaming */, streamType)) &&
+                (videoFormat != NULL && offloadVideoAudio);
         mOffloadDecodedPCM = mOffloadAudio;
         ALOGI("Could not offload audio decode, pcm offload decided :%d",
                 mOffloadDecodedPCM);
