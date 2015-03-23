@@ -99,7 +99,7 @@ LOCAL_SHARED_LIBRARIES := \
         libz \
         libpowermanager
 
-ifeq ($(TARGET_BOARD_PLATFORM),omap4)
+ifeq ($(TARGET_BOARD_PLATFORM),omap4 s5pc110 exynos4)
 LOCAL_CFLAGS := -DBOARD_CANT_REALLOCATE_OMX_BUFFERS
 endif
 
