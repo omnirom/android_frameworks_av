@@ -11,8 +11,15 @@ LOCAL_SRC_FILES:=                 \
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/media/libstagefright \
-        $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+        $(TOP)/frameworks/native/include/media/openmax
+
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+else
+       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+endif
+endif
 
 LOCAL_CFLAGS += -Werror
 
