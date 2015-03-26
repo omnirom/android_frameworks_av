@@ -1,0 +1,38 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "6b22818b_fc645a48",
+        "filename": "media/libstagefright/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 136,
+      "author": {
+        "id": 1000032
+      },
+      "writtenOn": "2015-03-26T23:22:41Z",
+      "side": 1,
+      "message": "Spaces, not tabs",
+      "revId": "04b4b1adaecedd979e92567025dae07b3dc0c890",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6b22818b_dc779efc",
+        "filename": "media/libstagefright/colorconversion/SoftwareRenderer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 141,
+      "author": {
+        "id": 1000032
+      },
+      "writtenOn": "2015-03-26T23:22:41Z",
+      "side": 1,
+      "message": "Can\u0027t this be simplified into one ifdef, by only having \n| GRALLOC_USAGE_HW_FIMC1 | GRALLOC_USAGE_HWC_HWOVERLAY\nunder an ifdef in the original code?",
+      "revId": "04b4b1adaecedd979e92567025dae07b3dc0c890",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
