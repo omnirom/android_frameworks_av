@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "6b22818b_06db9d54",
+        "filename": "media/libstagefright/Android.mk",
+        "patchSetId": 2
+      },
+      "lineNbr": 102,
+      "author": {
+        "id": 1000551
+      },
+      "writtenOn": "2015-04-04T10:21:29Z",
+      "side": 1,
+      "message": "Or ifeq ($(TARGET_BOARD_PLATFORM),$(filter $(TARGET_BOARD_PLATFORM),omap4 s5pc110 exynos4))\n\nlike suggested by Michael Bestas?",
+      "revId": "44bf4590e5ff469747e6eb3b4fe02227e17897bd",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
