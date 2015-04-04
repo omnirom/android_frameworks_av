@@ -99,7 +99,7 @@ LOCAL_SHARED_LIBRARIES := \
         libz \
         libpowermanager
 
-ifeq ($(TARGET_BOARD_PLATFORM),omap4 s5pc110 exynos4)
+ifneq ($(filter omap4 s5pc110 exynos4,$(TARGET_BOARD_PLATFORM)),)
 LOCAL_CFLAGS := -DBOARD_CANT_REALLOCATE_OMX_BUFFERS
 endif
 
