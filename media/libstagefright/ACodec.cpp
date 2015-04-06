@@ -5318,7 +5318,7 @@ bool ACodec::LoadedState::onConfigureComponent(
 
     status_t err = mCodec->configureCodec(mime.c_str(), msg);
 
-    if (err != OK) {
+    if (err != OK &&  !strncmp(mime.c_str(), "video/", strlen("video/"))) {
         ALOGE("[%s] configureCodec returning error %d",
               mCodec->mComponentName.c_str(), err);
 
@@ -5327,7 +5327,7 @@ bool ACodec::LoadedState::onConfigureComponent(
             encoder = false;
         }
 
-        if (!encoder && !strncmp(mime.c_str(), "video/", strlen("video/"))) {
+        if (!encoder ) {
             Vector<OMXCodec::CodecNameAndQuirks> matchingCodecs;
 
             OMXCodec::findMatchingCodecs(
@@ -5388,6 +5388,13 @@ bool ACodec::LoadedState::onConfigureComponent(
                 mCodec->signalError(OMX_ErrorUndefined, makeNoSideEffectStatus(err));
                 return false;
             }
+        } else {
+            if (err != OK) {
+                ALOGE("[%s] configureCodec returning error %d",
+                        mCodec->mComponentName.c_str(), err);
+                mCodec->signalError(OMX_ErrorUndefined, makeNoSideEffectStatus(err));
+                return false;
+             }
         }
     }
 
