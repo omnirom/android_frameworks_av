@@ -471,7 +471,9 @@ ACodec::ACodec()
       mTimePerCaptureUs(-1ll),
       mCreateInputBuffersSuspended(false),
       mTunneled(false),
-      mIsVideoRenderingDisabled(false) {
+      mIsVideoRenderingDisabled(false),
+      mEncoderComponent(false),
+      mComponentAllocByName(false) {
     mUninitializedState = new UninitializedState(this);
     mLoadedState = new LoadedState(this);
     mLoadedToIdleState = new LoadedToIdleState(this);
@@ -4983,6 +4985,8 @@ void ACodec::UninitializedState::stateEntered() {
     mCodec->mOMX.clear();
     mCodec->mQuirks = 0;
     mCodec->mFlags = 0;
+    mCodec->mEncoderComponent = 0;
+    mCodec->mComponentAllocByName = 0;
     mCodec->mUseMetadataOnEncoderOutput = 0;
     mCodec->mComponentName.clear();
 }
@@ -5084,6 +5088,7 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
         ssize_t index = matchingCodecs.add();
         OMXCodec::CodecNameAndQuirks *entry = &matchingCodecs.editItemAt(index);
         entry->mName = String8(componentName.c_str());
+        mCodec->mComponentAllocByName = true;
 
         if (!OMXCodec::findCodecQuirks(
                     componentName.c_str(), &entry->mQuirks)) {
@@ -5094,6 +5099,10 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
 
         if (!msg->findInt32("encoder", &encoder)) {
             encoder = false;
+        }
+
+        if (encoder == true) {
+            mCodec->mEncoderComponent = true;
         }
 
 #ifdef ENABLE_AV_ENHANCEMENTS
@@ -5318,21 +5327,16 @@ bool ACodec::LoadedState::onConfigureComponent(
 
     status_t err = mCodec->configureCodec(mime.c_str(), msg);
 
-    if (err != OK &&  !strncmp(mime.c_str(), "video/", strlen("video/"))) {
+    if (err != OK ) {
         ALOGE("[%s] configureCodec returning error %d",
               mCodec->mComponentName.c_str(), err);
 
-        int32_t encoder;
-        if (!msg->findInt32("encoder", &encoder)) {
-            encoder = false;
-        }
-
-        if (!encoder ) {
+        if (!mCodec->mEncoderComponent && !mCodec->mComponentAllocByName &&  !strncmp(mime.c_str(), "video/", strlen("video/"))) {
             Vector<OMXCodec::CodecNameAndQuirks> matchingCodecs;
 
             OMXCodec::findMatchingCodecs(
                 mime.c_str(),
-                encoder, // createEncoder
+                false, // createEncoder
                 NULL,  // matchComponentName
                 0,     // flags
                 &matchingCodecs);
@@ -5368,8 +5372,7 @@ bool ACodec::LoadedState::onConfigureComponent(
 
             if (mCodec->mNode == NULL) {
                 if (!mime.empty()) {
-                    ALOGE("Unable to instantiate a %scoder for type '%s'.",
-                            encoder ? "en" : "de", mime.c_str());
+                    ALOGE("Unable to instantiate a decoder for type '%s'", mime.c_str());
                 } else {
                     ALOGE("Unable to instantiate codec '%s'.", componentName.c_str());
                 }
@@ -5385,6 +5388,8 @@ bool ACodec::LoadedState::onConfigureComponent(
             err = mCodec->configureCodec(mime.c_str(), msg);
 
             if (err != OK) {
+                ALOGE("[%s] configureCodec returning error %d",
+                         mCodec->mComponentName.c_str(), err);
                 mCodec->signalError(OMX_ErrorUndefined, makeNoSideEffectStatus(err));
                 return false;
             }
