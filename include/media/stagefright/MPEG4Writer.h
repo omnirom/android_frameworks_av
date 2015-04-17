@@ -23,6 +23,7 @@
 #include <media/stagefright/MediaWriter.h>
 #include <utils/List.h>
 #include <utils/threads.h>
+#include <media/stagefright/ExtendedStats.h>
 
 namespace android {
 
@@ -96,6 +97,7 @@ private:
     int mLongitudex10000;
     bool mAreGeoTagsAvailable;
     int32_t mStartTimeOffsetMs;
+    int mHFRRatio;
 
     Mutex mLock;
 
@@ -204,6 +206,9 @@ private:
 
     MPEG4Writer(const MPEG4Writer &);
     MPEG4Writer &operator=(const MPEG4Writer &);
+
+    bool mIsVideoHEVC;
+    bool mIsAudioAMR;
 };
 
 }  // namespace android

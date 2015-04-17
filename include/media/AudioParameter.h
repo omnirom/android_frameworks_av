@@ -48,6 +48,8 @@ public:
     static const char * const keyFrameCount;
     static const char * const keyInputSource;
     static const char * const keyScreenState;
+    static const char * const keyFluenceType;
+    static const char * const keyADSPStatus;
 
     String8 toString();
 

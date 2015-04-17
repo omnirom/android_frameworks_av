@@ -13,6 +13,25 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2014 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
 */
 
 
@@ -36,6 +55,9 @@
 #include <media/nbaio/Pipe.h>
 #include <media/nbaio/PipeReader.h>
 #include <audio_utils/minifloat.h>
+#ifdef DOLBY_UDC
+#include <media/AudioParameter.h>
+#endif // DOLBY_UDC
 
 // ----------------------------------------------------------------------------
 
@@ -113,7 +135,7 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
 
     // ALOGD("Creating track with %d buffers @ %d bytes", bufferCount, bufferSize);
     size_t size = sizeof(audio_track_cblk_t);
-    size_t bufferSize = (buffer == NULL ? roundup(frameCount) : frameCount) * mFrameSize;
+    size_t bufferSize = (((buffer == NULL) && audio_is_linear_pcm(format)) ? roundup(frameCount) : frameCount) * mFrameSize;
     if (buffer == NULL && alloc == ALLOC_CBLK) {
         size += bufferSize;
     }
@@ -493,6 +515,10 @@ void AudioFlinger::PlaybackThread::Track::destroy()
         if (isExternalTrack() && !wasActive) {
             AudioSystem::releaseOutput(mThreadIoHandle, mStreamType, (audio_session_t)mSessionId);
         }
+#ifdef DOLBY_UDC
+        // Notify effect DAP controller that processed audio is no longer available
+        EffectDapController::instance()->setProcessedAudioState(mId, false);
+#endif // DOLBY_END
     }
 }
 
@@ -631,7 +657,7 @@ size_t AudioFlinger::PlaybackThread::Track::framesReleased() const
 
 // Don't call for fast tracks; the framesReady() could result in priority inversion
 bool AudioFlinger::PlaybackThread::Track::isReady() const {
-    if (mFillingUpStatus != FS_FILLING || isStopped() || isPausing()) {
+    if (mFillingUpStatus != FS_FILLING || isStopped() || isPausing() || isStopping()) {
         return true;
     }
 
@@ -693,6 +719,11 @@ status_t AudioFlinger::PlaybackThread::Track::start(AudioSystem::sync_event_t ev
         }
 
         PlaybackThread *playbackThread = (PlaybackThread *)thread.get();
+        if (isFastTrack()) {
+            // refresh fast track underruns upon start
+            // it's essential given the same track will be recycled.
+            mObservedUnderruns = playbackThread->getFastTrackUnderruns(mFastIndex);
+        }
         status = playbackThread->addTrack_l(this);
         if (status == INVALID_OPERATION || status == PERMISSION_DENIED) {
             triggerEvents(AudioSystem::SYNC_EVENT_PRESENTATION_COMPLETE);
@@ -846,6 +877,20 @@ void AudioFlinger::PlaybackThread::Track::flushAck()
     mFlushHwPending = false;
 }
 
+void AudioFlinger::PlaybackThread::Track::signalError()
+{
+    // TBD, is this needed for pcm too?
+    if (!isOffloaded())
+        return;
+
+    // FIXME should use proxy, and needs work
+    audio_track_cblk_t* cblk = mCblk;
+    android_atomic_or(CBLK_STREAM_FATAL_ERROR, &cblk->mFlags);
+    android_atomic_release_store(0x40000000, &cblk->mFutex);
+    // client is not in server, so FUTEX_WAKE is needed instead of FUTEX_WAKE_PRIVATE
+    (void) syscall(__NR_futex, &cblk->mFutex, FUTEX_WAKE, INT_MAX);
+}
+
 void AudioFlinger::PlaybackThread::Track::reset()
 {
     // Do not reset twice to avoid discarding data written just after a flush and before
@@ -864,6 +909,14 @@ void AudioFlinger::PlaybackThread::Track::reset()
 
 status_t AudioFlinger::PlaybackThread::Track::setParameters(const String8& keyValuePairs)
 {
+#ifdef DOLBY_UDC
+    AudioParameter ap(keyValuePairs);
+    int value = 0;
+    // Bypass DAP if processed audio is flowing through this track.
+    if (ap.getInt(String8(DOLBY_PARAM_PROCESSED_AUDIO), value) == NO_ERROR) {
+        return EffectDapController::instance()->setProcessedAudioState(mId, value);
+    }
+#endif // DOLBY_END
     sp<ThreadBase> thread = mThread.promote();
     if (thread == 0) {
         ALOGE("thread is dead");

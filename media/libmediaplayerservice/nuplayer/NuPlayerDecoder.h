@@ -60,9 +60,9 @@ private:
     sp<CCDecoder> mCCDecoder;
 
     sp<AMessage> mInputFormat;
-    sp<AMessage> mOutputFormat;
     sp<MediaCodec> mCodec;
     sp<ALooper> mCodecLooper;
+    sp<PlayerExtendedStats> mPlayerExtendedStats;
 
     List<sp<AMessage> > mPendingInputMessages;
 

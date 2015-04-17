@@ -23,6 +23,16 @@
 #include <utils/String8.h>
 
 #include <system/audio.h>
+#include <binder/AppOpsManager.h>
+
+#include <media/stagefright/ExtendedStats.h>
+
+#define RECORDER_STATS(func, ...) \
+    do { \
+        if(mRecorderExtendedStats != NULL) { \
+            mRecorderExtendedStats->func(__VA_ARGS__);} \
+    } \
+    while(0)
 
 namespace android {
 
@@ -58,6 +68,7 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual status_t setParameters(const String8& params);
     virtual status_t setListener(const sp<IMediaRecorderClient>& listener);
     virtual status_t setClientName(const String16& clientName);
+    virtual status_t setSourcePause(bool pause);
     virtual status_t prepare();
     virtual status_t start();
     virtual status_t pause();
@@ -70,6 +81,7 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() const;
 
 private:
+    AppOpsManager mAppOpsManager;
     sp<ICamera> mCamera;
     sp<ICameraRecordingProxy> mCameraProxy;
     sp<IGraphicBufferProducer> mPreviewSurface;
@@ -77,6 +89,9 @@ private:
     String16 mClientName;
     uid_t mClientUid;
     sp<MediaWriter> mWriter;
+    sp<MediaSource> mVideoEncoderOMX;
+    sp<MediaSource> mAudioEncoderOMX;
+    sp<MediaSource> mVideoSourceNode;
     int mOutputFd;
     sp<AudioSource> mAudioSourceNode;
 
@@ -120,12 +135,15 @@ private:
     MediaProfiles *mEncoderProfiles;
 
     bool mStarted;
+    bool mRecPaused;
     // Needed when GLFrames are encoded.
     // An <IGraphicBufferProducer> pointer
     // will be sent to the client side using which the
     // frame buffers will be queued and dequeued
     sp<IGraphicBufferProducer> mGraphicBufferProducer;
     sp<ALooper> mLooper;
+
+    sp<RecorderExtendedStats> mRecorderExtendedStats;
 
     status_t prepareInternal();
     status_t setupMPEG4orWEBMRecording();
@@ -183,6 +201,13 @@ private:
 
     StagefrightRecorder(const StagefrightRecorder &);
     StagefrightRecorder &operator=(const StagefrightRecorder &);
+
+    /* extension */
+#ifdef ENABLE_AV_ENHANCEMENTS
+    status_t setupFMA2DPWriter();
+    status_t setupWAVERecording();
+    status_t setupExtendedRecording();
+#endif
 };
 
 }  // namespace android

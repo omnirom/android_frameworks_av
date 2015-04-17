@@ -77,6 +77,7 @@ struct NuPlayer::Renderer : public AHandler {
             bool offloadOnly,
             bool hasVideo,
             uint32_t flags,
+            bool isStreaming,
             bool *isOffloaded);
     void closeAudioSink();
 
@@ -129,6 +130,7 @@ private:
 
     static const int64_t kMinPositionUpdateDelayUs;
 
+    sp<PlayerExtendedStats> mPlayerExtendedStats;
     sp<MediaPlayerBase::AudioSink> mAudioSink;
     sp<AMessage> mNotify;
     Mutex mLock;
@@ -194,7 +196,6 @@ private:
 
     int32_t mTotalBuffersQueued;
     int32_t mLastAudioBufferDrained;
-
     sp<AWakeLock> mWakeLock;
 
     status_t getCurrentPositionOnLooper(int64_t *mediaUs);
@@ -234,6 +235,7 @@ private:
             const sp<AMessage> &format,
             bool offloadOnly,
             bool hasVideo,
+            bool isStreaming,
             uint32_t flags);
     void onCloseAudioSink();
 

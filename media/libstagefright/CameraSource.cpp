@@ -32,6 +32,7 @@
 #include <gui/Surface.h>
 #include <utils/String8.h>
 #include <cutils/properties.h>
+#include "include/ExtendedUtils.h"
 
 #if LOG_NDEBUG
 #define UNUSED_UNLESS_VERBOSE(x) (void)(x)
@@ -185,7 +186,11 @@ CameraSource::CameraSource(
       mNumFramesDropped(0),
       mNumGlitches(0),
       mGlitchDurationThresholdUs(200000),
-      mCollectStats(false) {
+      mCollectStats(false),
+      mRecPause(false),
+      mPauseAdjTimeUs(0),
+      mPauseStartTimeUs(0),
+      mPauseEndTimeUs(0) {
     mVideoSize.width  = -1;
     mVideoSize.height = -1;
 
@@ -575,6 +580,10 @@ status_t CameraSource::initWithCameraAccess(
     mMeta->setInt32(kKeyStride,      mVideoSize.width);
     mMeta->setInt32(kKeySliceHeight, mVideoSize.height);
     mMeta->setInt32(kKeyFrameRate,   mVideoFrameRate);
+
+    ExtendedUtils::HFR::setHFRIfEnabled(params, mMeta);
+    ExtendedUtils::applyPreRotation(params, mMeta);
+
     return OK;
 }
 
@@ -631,6 +640,21 @@ status_t CameraSource::startCameraRecording() {
 
 status_t CameraSource::start(MetaData *meta) {
     ALOGV("start");
+    if(mRecPause) {
+        mRecPause = false;
+        mPauseAdjTimeUs = mPauseEndTimeUs - mPauseStartTimeUs;
+        ALOGV("resume : mPause Adj / End / Start : %lld / %lld / %lld us",
+            mPauseAdjTimeUs, mPauseEndTimeUs, mPauseStartTimeUs);
+        return OK;
+    }
+
+    if (mRecorderExtendedStats == NULL && meta != NULL) {
+        RecorderExtendedStats* rStats = NULL;
+        meta->findPointer(ExtendedStats::MEDIA_STATS_FLAG, (void**) &rStats);
+        mRecorderExtendedStats = rStats;
+    }
+
+    RECORDER_STATS(profileStart, STATS_PROFILE_CAMERA_SOURCE_START_LATENCY);
     CHECK(!mStarted);
     if (mInitCheck != OK) {
         ALOGE("CameraSource is not initialized yet");
@@ -644,6 +668,10 @@ status_t CameraSource::start(MetaData *meta) {
     }
 
     mStartTimeUs = 0;
+    mRecPause = false;
+    mPauseAdjTimeUs = 0;
+    mPauseStartTimeUs = 0;
+    mPauseEndTimeUs = 0;
     mNumInputBuffers = 0;
     if (meta) {
         int64_t startTimeUs;
@@ -664,6 +692,15 @@ status_t CameraSource::start(MetaData *meta) {
     }
 
     return err;
+}
+
+status_t CameraSource::pause() {
+    mRecPause = true;
+    mPauseStartTimeUs = mLastFrameTimestampUs;
+    RECORDER_STATS(notifyPause, mPauseStartTimeUs);
+    ALOGV("pause : mPauseStart %lld us, #Queued Frames : %d",
+        mPauseStartTimeUs, mFramesReceived.size());
+    return OK;
 }
 
 void CameraSource::stopCameraRecording() {
@@ -742,11 +779,11 @@ status_t CameraSource::reset() {
                     mNumFramesReceived, mNumFramesEncoded, mNumFramesDropped,
                     mLastFrameTimestampUs - mFirstFrameTimeUs);
         }
+        RECORDER_STATS(logRecordingDuration, mLastFrameTimestampUs - mFirstFrameTimeUs);
 
         if (mNumGlitches > 0) {
             ALOGW("%d long delays between neighboring video frames", mNumGlitches);
         }
-
         CHECK_EQ(mNumFramesReceived, mNumFramesEncoded + mNumFramesDropped);
     }
 
@@ -774,6 +811,7 @@ void CameraSource::releaseQueuedFrames() {
         releaseRecordingFrame(*it);
         mFramesReceived.erase(it);
         ++mNumFramesDropped;
+        RECORDER_STATS(logFrameDropped);
     }
 }
 
@@ -794,6 +832,7 @@ void CameraSource::signalBufferReturned(MediaBuffer *buffer) {
             releaseOneRecordingFrame((*it));
             mFramesBeingEncoded.erase(it);
             ++mNumFramesEncoded;
+            RECORDER_STATS(logFrameEncoded);
             buffer->setObserver(0);
             buffer->release();
             mFrameCompleteCondition.signal();
@@ -860,6 +899,19 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
         return;
     }
 
+    if (mRecPause == true) {
+        if(!mFramesReceived.empty()) {
+            ALOGV("releaseQueuedFrames - #Queued Frames : %d", mFramesReceived.size());
+            releaseQueuedFrames();
+        }
+        ALOGV("release One Video Frame for Pause : %lld us", timestampUs);
+        releaseOneRecordingFrame(data);
+        mPauseEndTimeUs = timestampUs;
+        return;
+    }
+    timestampUs -= mPauseAdjTimeUs;
+    ALOGV("dataCallbackTimestamp: AdjTimestamp %lld us", timestampUs);
+
     if (mNumFramesReceived > 0) {
         CHECK(timestampUs > mLastFrameTimestampUs);
         if (timestampUs - mLastFrameTimestampUs > mGlitchDurationThresholdUs) {
@@ -876,6 +928,8 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
 
     mLastFrameTimestampUs = timestampUs;
     if (mNumFramesReceived == 0) {
+        RECORDER_STATS(profileStop, STATS_PROFILE_CAMERA_SOURCE_START_LATENCY);
+        RECORDER_STATS(profileStop, STATS_PROFILE_START_LATENCY);
         mFirstFrameTimeUs = timestampUs;
         // Initial delay
         if (mStartTimeUs > 0) {
