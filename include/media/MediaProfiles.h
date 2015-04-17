@@ -33,6 +33,10 @@ enum camcorder_quality {
     CAMCORDER_QUALITY_720P = 5,
     CAMCORDER_QUALITY_1080P = 6,
     CAMCORDER_QUALITY_QVGA = 7,
+#ifndef QCOM_HARDWARE
+    CAMCORDER_QUALITY_2160P = 8,
+    CAMCORDER_QUALITY_LIST_END = 8,
+#else /* QCOM_HARDWARE */
     CAMCORDER_QUALITY_2160P = 8, // a.k.a 4K-UHD
     CAMCORDER_QUALITY_WVGA = 9,
     CAMCORDER_QUALITY_VGA = 10,
@@ -44,6 +48,7 @@ enum camcorder_quality {
     CAMCORDER_QUALITY_HEVC4kUHD = 16,
     CAMCORDER_QUALITY_HEVC4kDCI = 17,
     CAMCORDER_QUALITY_LIST_END = 17,
+#endif /* QCOM_HARDWARE */
 
     CAMCORDER_QUALITY_TIME_LAPSE_LIST_START = 1000,
     CAMCORDER_QUALITY_TIME_LAPSE_LOW  = 1000,
@@ -55,12 +60,16 @@ enum camcorder_quality {
     CAMCORDER_QUALITY_TIME_LAPSE_1080P = 1006,
     CAMCORDER_QUALITY_TIME_LAPSE_QVGA = 1007,
     CAMCORDER_QUALITY_TIME_LAPSE_2160P = 1008,
+#ifndef QCOM_HARDWARE
+    CAMCORDER_QUALITY_TIME_LAPSE_LIST_END = 1008,
+#else /* QCOM_HARDWARE */
     CAMCORDER_QUALITY_TIME_LAPSE_WVGA = 1009,
     CAMCORDER_QUALITY_TIME_LAPSE_VGA = 1010,
     CAMCORDER_QUALITY_TIME_LAPSE_WQVGA = 1011,
     CAMCORDER_QUALITY_TIME_LAPSE_FWVGA = 1012,
     CAMCORDER_QUALITY_TIME_LAPSE_4kDCI = 1013,
     CAMCORDER_QUALITY_TIME_LAPSE_LIST_END = 1013,
+#endif /* QCOM_HARDWARE */
 
     CAMCORDER_QUALITY_HIGH_SPEED_LIST_START = 2000,
     CAMCORDER_QUALITY_HIGH_SPEED_LOW  = 2000,
@@ -71,6 +80,9 @@ enum camcorder_quality {
     CAMCORDER_QUALITY_HIGH_SPEED_2160P = 2005,
     CAMCORDER_QUALITY_HIGH_SPEED_LIST_END = 2005,
 };
+#ifndef QCOM_HARDWARE
+
+#endif /* ! QCOM_HARDWARE */
 /**
  * Set CIF as default maximum import and export resolution of video editor.
  * The maximum import and export resolutions are platform specific,
@@ -157,9 +169,11 @@ public:
      * enc.vid.bps.max - max bit rate in bits per second
      * enc.vid.fps.min - min frame rate in frames per second
      * enc.vid.fps.max - max frame rate in frames per second
+#ifdef QCOM_HARDWARE
      * enc.vid.hfr.width.max - max hfr video frame width
      * enc.vid.hfr.height.max - max hfr video frame height
      * enc.vid.hfr.mode.max - max hfr mode
+#endif /* QCOM_HARDWARE */
      */
     int getVideoEncoderParamByName(const char *name, video_encoder codec) const;
 
@@ -324,16 +338,24 @@ private:
                         int minBitRate, int maxBitRate,
                         int minFrameWidth, int maxFrameWidth,
                         int minFrameHeight, int maxFrameHeight,
+#ifndef QCOM_HARDWARE
+                        int minFrameRate, int maxFrameRate)
+#else /* QCOM_HARDWARE */
                         int minFrameRate, int maxFrameRate,
                         int maxHFRFrameWidth, int maxHFRFrameHeight,
                         int maxHFRMode)
+#endif /* QCOM_HARDWARE */
             : mCodec(codec),
               mMinBitRate(minBitRate), mMaxBitRate(maxBitRate),
               mMinFrameWidth(minFrameWidth), mMaxFrameWidth(maxFrameWidth),
               mMinFrameHeight(minFrameHeight), mMaxFrameHeight(maxFrameHeight),
+#ifndef QCOM_HARDWARE
+              mMinFrameRate(minFrameRate), mMaxFrameRate(maxFrameRate) {}
+#else /* QCOM_HARDWARE */
               mMinFrameRate(minFrameRate), mMaxFrameRate(maxFrameRate),
               mMaxHFRFrameWidth(maxHFRFrameWidth), mMaxHFRFrameHeight(maxHFRFrameHeight),
               mMaxHFRMode(maxHFRMode) {}
+#endif /* QCOM_HARDWARE */
 
          ~VideoEncoderCap() {}
 
@@ -342,8 +364,10 @@ private:
         int mMinFrameWidth, mMaxFrameWidth;
         int mMinFrameHeight, mMaxFrameHeight;
         int mMinFrameRate, mMaxFrameRate;
+#ifdef QCOM_HARDWARE
         int mMaxHFRFrameWidth, mMaxHFRFrameHeight;
         int mMaxHFRMode;
+#endif /* QCOM_HARDWARE */
     };
 
     struct AudioEncoderCap {
@@ -489,8 +513,10 @@ private:
     static VideoEncoderCap* createDefaultH263VideoEncoderCap();
     static VideoEncoderCap* createDefaultM4vVideoEncoderCap();
     static AudioEncoderCap* createDefaultAmrNBEncoderCap();
+#ifdef QCOM_HARDWARE
     static AudioEncoderCap* createDefaultAacEncoderCap();
     static AudioEncoderCap* createDefaultLpcmEncoderCap();
+#endif /* QCOM_HARDWARE */
 
     static int findTagForName(const NameToTagMap *map, size_t nMappings, const char *name);
 

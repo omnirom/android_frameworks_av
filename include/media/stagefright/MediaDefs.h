@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* QCOM_HARDWARE */
  */
 
 #ifndef MEDIA_DEFS_H_
@@ -46,7 +48,9 @@ extern const char *MEDIA_MIMETYPE_VIDEO_VP9;
 extern const char *MEDIA_MIMETYPE_VIDEO_AVC;
 extern const char *MEDIA_MIMETYPE_VIDEO_HEVC;
 extern const char *MEDIA_MIMETYPE_VIDEO_MPEG4;
+#ifdef QCOM_HARDWARE
 extern const char *MEDIA_MIMETYPE_VIDEO_MPEG4_DP;
+#endif /* QCOM_HARDWARE */
 extern const char *MEDIA_MIMETYPE_VIDEO_H263;
 extern const char *MEDIA_MIMETYPE_VIDEO_MPEG2;
 extern const char *MEDIA_MIMETYPE_VIDEO_RAW;
@@ -84,10 +88,12 @@ extern const char *MEDIA_MIMETYPE_TEXT_SUBRIP;
 extern const char *MEDIA_MIMETYPE_TEXT_VTT;
 extern const char *MEDIA_MIMETYPE_TEXT_CEA_608;
 
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
 extern const char *MEDIA_MIMETYPE_AUDIO_EAC3_JOC;
 extern const char *MEDIA_MIMETYPE_AUDIO_EAC3;
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 }  // namespace android
 
 #endif  // MEDIA_DEFS_H_

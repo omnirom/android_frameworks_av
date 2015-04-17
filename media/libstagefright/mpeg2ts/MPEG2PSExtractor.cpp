@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* QCOM_HARDWARE */
  */
 
 //#define LOG_NDEBUG 0
@@ -573,6 +575,7 @@ MPEG2PSExtractor::Track::Track(
             mode = ElementaryStreamQueue::MPEG_AUDIO;
             break;
 
+#ifdef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
         case ATSParser::STREAMTYPE_AC3:
             mode = ElementaryStreamQueue::AC3;
@@ -581,6 +584,7 @@ MPEG2PSExtractor::Track::Track(
             mode = ElementaryStreamQueue::DDP_EC3_AUDIO;
             break;
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
         case ATSParser::STREAMTYPE_MPEG1_VIDEO:
         case ATSParser::STREAMTYPE_MPEG2_VIDEO:
             mode = ElementaryStreamQueue::MPEG_VIDEO;

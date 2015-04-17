@@ -38,7 +38,9 @@
 #include "../../libstagefright/include/WVMExtractor.h"
 #include "../../libstagefright/include/HTTPBase.h"
 
+#ifdef QCOM_HARDWARE
 #include <ExtendedUtils.h>
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 static int64_t kLowWaterMarkUs = 2000000ll;  // 2secs
@@ -241,8 +243,10 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
                     if (mUIDValid) {
                         extractor->setUID(mUID);
                     }
+#ifdef QCOM_HARDWARE
                 } else {
                      mIsWidevine = false;
+#endif /* QCOM_HARDWARE */
                 }
             }
         }
@@ -269,6 +273,11 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
     // Widevine sources might re-initialize crypto when starting, if we delay
     // this to start(), all data buffered during prepare would be wasted.
     // (We don't actually start reading until start().)
+#ifndef QCOM_HARDWARE
+    if (mAudioTrack.mSource != NULL && mAudioTrack.mSource->start() != OK) {
+        ALOGE("failed to start audio track!");
+        return UNKNOWN_ERROR;
+#else /* QCOM_HARDWARE */
     if (mAudioTrack.mSource != NULL) {
         bool overrideSourceStart = false;
         status_t status = false;
@@ -293,6 +302,7 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
             ALOGE("failed to start audio track!");
             return UNKNOWN_ERROR;
         }
+#endif /* QCOM_HARDWARE */
     }
 
     if (mVideoTrack.mSource != NULL && mVideoTrack.mSource->start() != OK) {
@@ -358,7 +368,9 @@ void NuPlayer::GenericSource::prepareAsync() {
 
 void NuPlayer::GenericSource::onPrepareAsync() {
     // delayed data source creation
+#ifdef QCOM_HARDWARE
     ALOGV("%s", __func__);
+#endif /* QCOM_HARDWARE */
     if (mDataSource == NULL) {
         // set to false first, if the extractor
         // comes back as secure, set it to true then.
@@ -1490,13 +1502,21 @@ void NuPlayer::GenericSource::readBuffer(
     switch (trackType) {
         case MEDIA_TRACK_TYPE_VIDEO:
             track = &mVideoTrack;
+#ifndef QCOM_HARDWARE
+            if (mIsWidevine) {
+#else /* QCOM_HARDWARE */
             if (mIsWidevine || (mHttpSource != NULL)) {
+#endif /* QCOM_HARDWARE */
                 maxBuffers = 2;
             }
             break;
         case MEDIA_TRACK_TYPE_AUDIO:
             track = &mAudioTrack;
+#ifndef QCOM_HARDWARE
+            if (mIsWidevine) {
+#else /* QCOM_HARDWARE */
             if (mIsWidevine || (mHttpSource != NULL)) {
+#endif /* QCOM_HARDWARE */
                 maxBuffers = 8;
             } else {
                 maxBuffers = 64;
@@ -1560,16 +1580,23 @@ void NuPlayer::GenericSource::readBuffer(
                 track->mPackets->queueDiscontinuity( type, NULL, true /* discard */);
             }
 
+#ifndef QCOM_HARDWARE
+            sp<ABuffer> buffer = mediaBufferToABuffer(
+                    mbuf, trackType, seekTimeUs, actualTimeUs);
+#else /* QCOM_HARDWARE */
             sp<ABuffer> buffer = mediaBufferToABuffer(mbuf, trackType, seekTimeUs,
                 numBuffers == 0 ? actualTimeUs : NULL);
+#endif /* QCOM_HARDWARE */
             track->mPackets->queueAccessUnit(buffer);
             formatChange = false;
             seeking = false;
             ++numBuffers;
+#ifdef QCOM_HARDWARE
 
             if (trackType == MEDIA_TRACK_TYPE_VIDEO) {
                 actualTimeUs = NULL;
             }
+#endif /* QCOM_HARDWARE */
         } else if (err == WOULD_BLOCK) {
             break;
         } else if (err == INFO_FORMAT_CHANGED) {

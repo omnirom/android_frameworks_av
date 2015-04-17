@@ -55,12 +55,14 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES:= \
     AudioPolicyManager.cpp
 
+#ifdef QCOM_HARDWARE
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_DTS_EAGLE)),true)
   LOCAL_CFLAGS += -DDTS_EAGLE
   LOCAL_C_INCLUDES += $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ/usr/include
   LOCAL_SRC_FILES += AudioUtil.c
 endif
 
+#endif /* QCOM_HARDWARE */
 LOCAL_SHARED_LIBRARIES := \
     libcutils \
     libutils \
@@ -69,6 +71,7 @@ LOCAL_SHARED_LIBRARIES := \
 
 LOCAL_STATIC_LIBRARIES := \
     libmedia_helper
+#ifdef QCOM_HARDWARE
 
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_COMPRESS_VOIP)),true)
 LOCAL_CFLAGS += -DAUDIO_EXTN_COMPRESS_VOIP_ENABLED
@@ -133,6 +136,7 @@ endif #DOLBY_END
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_HDMI_PASSTHROUGH)),true)
     LOCAL_CFLAGS += -DHDMI_PASSTHROUGH_ENABLED
 endif
+#endif /* QCOM_HARDWARE */
 
 LOCAL_MODULE:= libaudiopolicymanagerdefault
 

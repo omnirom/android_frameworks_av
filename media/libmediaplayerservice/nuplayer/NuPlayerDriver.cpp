@@ -30,8 +30,10 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
 
+#ifdef QCOM_HARDWARE
 #include "ExtendedUtils.h"
 
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 NuPlayerDriver::NuPlayerDriver()
@@ -115,10 +117,12 @@ status_t NuPlayerDriver::setDataSource(int fd, int64_t offset, int64_t length) {
         mCondition.wait(mLock);
     }
 
+#ifdef QCOM_HARDWARE
     if (fd) {
         ExtendedUtils::printFileName(fd);
     }
 
+#endif /* QCOM_HARDWARE */
     return mAsyncResult;
 }
 
@@ -548,10 +552,12 @@ status_t NuPlayerDriver::getMetadata(
     using media::Metadata;
 
     Metadata meta(records);
+#ifdef QCOM_HARDWARE
 
     meta.appendInt32(
             Metadata::kServerTimeout,
             (int32_t)(mPlayer->getServerTimeoutUs() / 1000));
+#endif /* QCOM_HARDWARE */
 
     meta.appendBool(
             Metadata::kPauseAvailable,

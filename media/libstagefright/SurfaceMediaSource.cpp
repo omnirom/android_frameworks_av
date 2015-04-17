@@ -34,9 +34,11 @@
 #include <utils/String8.h>
 
 #include <private/gui/ComposerService.h>
+#ifdef QCOM_HARDWARE
 #if QCOM_BSP
 #include <gralloc_priv.h>
 #endif
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -61,12 +63,17 @@ SurfaceMediaSource::SurfaceMediaSource(uint32_t bufferWidth, uint32_t bufferHeig
 
     BufferQueue::createBufferQueue(&mProducer, &mConsumer);
     mConsumer->setDefaultBufferSize(bufferWidth, bufferHeight);
+#ifndef QCOM_HARDWARE
+    mConsumer->setConsumerUsageBits(GRALLOC_USAGE_HW_VIDEO_ENCODER |
+            GRALLOC_USAGE_HW_TEXTURE);
+#else /* QCOM_HARDWARE */
     mConsumer->setConsumerUsageBits(GRALLOC_USAGE_HW_VIDEO_ENCODER
             | GRALLOC_USAGE_HW_TEXTURE
 #ifdef QCOM_BSP
             | GRALLOC_USAGE_PRIVATE_WFD
 #endif
             );
+#endif /* QCOM_HARDWARE */
 
     sp<ISurfaceComposer> composer(ComposerService::getComposerService());
 

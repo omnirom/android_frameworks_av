@@ -262,7 +262,11 @@ int SoundPool::play(int sampleID, float leftVolume, float rightVolume,
     dump();
 
     // allocate a channel
+#ifndef QCOM_HARDWARE
+    channel = allocateChannel_l(priority);
+#else /* QCOM_HARDWARE */
     channel = allocateChannel_l(priority, sampleID);
+#endif /* QCOM_HARDWARE */
 
     // no channel allocated - return 0
     if (!channel) {
@@ -277,13 +281,22 @@ int SoundPool::play(int sampleID, float leftVolume, float rightVolume,
     return channelID;
 }
 
+#ifndef QCOM_HARDWARE
+SoundChannel* SoundPool::allocateChannel_l(int priority)
+#else /* QCOM_HARDWARE */
 SoundChannel* SoundPool::allocateChannel_l(int priority, int sampleID)
+#endif /* QCOM_HARDWARE */
 {
     List<SoundChannel*>::iterator iter;
     SoundChannel* channel = NULL;
 
+#ifndef QCOM_HARDWARE
+    // allocate a channel
+#else /* QCOM_HARDWARE */
     // check if channel for given sampleID still available
+#endif /* QCOM_HARDWARE */
     if (!mChannels.empty()) {
+#ifdef QCOM_HARDWARE
         for (iter = mChannels.begin(); iter != mChannels.end(); ++iter) {
             if (sampleID == (*iter)->getPrevSampleID() && (*iter)->state() == SoundChannel::IDLE) {
                 channel = *iter;
@@ -296,6 +309,7 @@ SoundChannel* SoundPool::allocateChannel_l(int priority, int sampleID)
 
     // allocate any channel
     if (!channel && !mChannels.empty()) {
+#endif /* QCOM_HARDWARE */
         iter = mChannels.begin();
         if (priority >= (*iter)->priority()) {
             channel = *iter;
@@ -563,7 +577,9 @@ error:
 void SoundChannel::init(SoundPool* soundPool)
 {
     mSoundPool = soundPool;
+#ifdef QCOM_HARDWARE
     mPrevSampleID = -1;
+#endif /* QCOM_HARDWARE */
 }
 
 // call with sound pool lock held
@@ -572,7 +588,11 @@ void SoundChannel::play(const sp<Sample>& sample, int nextChannelID, float leftV
 {
     sp<AudioTrack> oldTrack;
     sp<AudioTrack> newTrack;
+#ifndef QCOM_HARDWARE
+    status_t status;
+#else /* QCOM_HARDWARE */
     status_t status = NO_ERROR;
+#endif /* QCOM_HARDWARE */
 
     { // scope for the lock
         Mutex::Autolock lock(&mLock);
@@ -618,6 +638,16 @@ void SoundChannel::play(const sp<Sample>& sample, int nextChannelID, float leftV
         }
 #endif
 
+#ifndef QCOM_HARDWARE
+        // mToggle toggles each time a track is started on a given channel.
+        // The toggle is concatenated with the SoundChannel address and passed to AudioTrack
+        // as callback user data. This enables the detection of callbacks received from the old
+        // audio track while the new one is being started and avoids processing them with
+        // wrong audio audio buffer size  (mAudioBufferSize)
+        unsigned long toggle = mToggle ^ 1;
+        void *userData = (void *)((unsigned long)this | toggle);
+        audio_channel_mask_t channelMask = audio_channel_out_mask_from_count(numChannels);
+#else /* QCOM_HARDWARE */
         if (!mAudioTrack.get() || mPrevSampleID != sample->sampleID()) {
             // mToggle toggles each time a track is started on a given channel.
             // The toggle is concatenated with the SoundChannel address and passed to AudioTrack
@@ -627,16 +657,36 @@ void SoundChannel::play(const sp<Sample>& sample, int nextChannelID, float leftV
             unsigned long toggle = mToggle ^ 1;
             void *userData = (void *)((unsigned long)this | toggle);
             audio_channel_mask_t channelMask = audio_channel_out_mask_from_count(numChannels);
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        // do not create a new audio track if current track is compatible with sample parameters
+#else /* QCOM_HARDWARE */
             // do not create a new audio track if current track is compatible with sample parameters
+#endif /* QCOM_HARDWARE */
 #ifdef USE_SHARED_MEM_BUFFER
+#ifndef QCOM_HARDWARE
+        newTrack = new AudioTrack(streamType, sampleRate, sample->format(),
+#else /* QCOM_HARDWARE */
             newTrack = new AudioTrack(streamType, sampleRate, sample->format(),
+#endif /* QCOM_HARDWARE */
                 channelMask, sample->getIMemory(), AUDIO_OUTPUT_FLAG_FAST, callback, userData);
 #else
+#ifndef QCOM_HARDWARE
+        newTrack = new AudioTrack(streamType, sampleRate, sample->format(),
+#else /* QCOM_HARDWARE */
             newTrack = new AudioTrack(streamType, sampleRate, sample->format(),
+#endif /* QCOM_HARDWARE */
                 channelMask, frameCount, AUDIO_OUTPUT_FLAG_FAST, callback, userData,
                 bufferFrames);
 #endif
+#ifndef QCOM_HARDWARE
+        oldTrack = mAudioTrack;
+        status = newTrack->initCheck();
+        if (status != NO_ERROR) {
+            ALOGE("Error creating AudioTrack");
+            goto exit;
+#else /* QCOM_HARDWARE */
             oldTrack = mAudioTrack;
             status = newTrack->initCheck();
             if (status != NO_ERROR) {
@@ -650,10 +700,19 @@ void SoundChannel::play(const sp<Sample>& sample, int nextChannelID, float leftV
         } else {
             newTrack = mAudioTrack;
             ALOGV("reusing track %p for sample %d", mAudioTrack.get(), sample->sampleID());
+#endif /* QCOM_HARDWARE */
         }
+#ifndef QCOM_HARDWARE
+        ALOGV("setVolume %p", newTrack.get());
+#endif /* ! QCOM_HARDWARE */
         newTrack->setVolume(leftVolume, rightVolume);
         newTrack->setLoop(0, frameCount, loop);
 
+#ifndef QCOM_HARDWARE
+        // From now on, AudioTrack callbacks received with previous toggle value will be ignored.
+        mToggle = toggle;
+        mAudioTrack = newTrack;
+#endif /* ! QCOM_HARDWARE */
         mPos = 0;
         mSample = sample;
         mChannelID = nextChannelID;
@@ -795,7 +854,9 @@ bool SoundChannel::doStop_l()
         setVolume_l(0, 0);
         ALOGV("stop");
         mAudioTrack->stop();
+#ifdef QCOM_HARDWARE
         mPrevSampleID = mSample->sampleID();
+#endif /* QCOM_HARDWARE */
         mSample.clear();
         mState = IDLE;
         mPriority = IDLE_PRIORITY;

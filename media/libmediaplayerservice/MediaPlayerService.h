@@ -150,7 +150,9 @@ class MediaPlayerService : public BnMediaPlayerService
         static bool             mIsOnEmulator;
         static int              mMinBufferCount;  // 12 for emulator; otherwise 4
         audio_output_flags_t    mFlags;
+#ifdef QCOM_HARDWARE
         uint16_t                mBitWidth;
+#endif /* QCOM_HARDWARE */
 
         // CallbackData is what is passed to the AudioTrack as the "user" data.
         // We need to be able to target this to a different Output on the fly,
@@ -387,9 +389,11 @@ private:
         virtual status_t        dump(int fd, const Vector<String16>& args) const;
 
                 int             getAudioSessionId() { return mAudioSessionId; }
+#ifdef QCOM_HARDWARE
 
         virtual status_t        suspend();
         virtual status_t        resume();
+#endif /* QCOM_HARDWARE */
 
     private:
         friend class MediaPlayerService;

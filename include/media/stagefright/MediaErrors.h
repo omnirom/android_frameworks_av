@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* QCOM_HARDWARE */
  */
 
 #ifndef MEDIA_ERRORS_H_
@@ -72,10 +74,12 @@ enum {
     INFO_FORMAT_CHANGED    = MEDIA_ERROR_BASE - 12,
     INFO_DISCONTINUITY     = MEDIA_ERROR_BASE - 13,
     INFO_OUTPUT_BUFFERS_CHANGED = MEDIA_ERROR_BASE - 14,
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
     INFO_DOLBY_PROCESSED_AUDIO_START = MEDIA_ERROR_BASE - 15,
     INFO_DOLBY_PROCESSED_AUDIO_STOP = MEDIA_ERROR_BASE - 16,
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 
     // The following constant values should be in sync with
     // drm/drm_framework_common.h

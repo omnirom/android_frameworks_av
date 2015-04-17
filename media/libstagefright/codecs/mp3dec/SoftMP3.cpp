@@ -112,7 +112,11 @@ void SoftMP3::initPorts() {
 void SoftMP3::initDecoder() {
     mConfig->equalizerType = flat;
     mConfig->crcEnabled = false;
+#ifndef QCOM_HARDWARE
+
+#else /* QCOM_HARDWARE */
     mConfig->samplingRate = mSamplingRate;
+#endif /* QCOM_HARDWARE */
     uint32_t memRequirements = pvmp3_decoderMemRequirements();
     mDecoderBuf = malloc(memRequirements);
 
@@ -259,6 +263,12 @@ void SoftMP3::onQueueFilled(OMX_U32 /* portIndex */) {
             if (decoderErr != NO_ENOUGH_MAIN_DATA_ERROR
                         && decoderErr != SIDE_INFO_ERROR) {
                 ALOGE("mp3 decoder returned error %d", decoderErr);
+#ifndef QCOM_HARDWARE
+
+                notify(OMX_EventError, OMX_ErrorUndefined, decoderErr, NULL);
+                mSignalledError = true;
+                return;
+#else /* QCOM_HARDWARE */
                 if(decoderErr == SYNCH_LOST_ERROR) {
                     mConfig->outputFrameSize = kOutputBufferSize / sizeof(int16_t);
                 } else {
@@ -266,6 +276,7 @@ void SoftMP3::onQueueFilled(OMX_U32 /* portIndex */) {
                     mSignalledError = true;
                     return;
                 }
+#endif /* QCOM_HARDWARE */
             }
 
             if (mConfig->outputFrameSize == 0) {

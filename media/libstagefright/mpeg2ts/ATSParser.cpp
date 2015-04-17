@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* QCOM_HARDWARE */
  */
 
 //#define LOG_NDEBUG 0
@@ -42,7 +44,9 @@
 #include "AnotherPacketSource.h"
 #include "ESQueue.h"
 #include "include/avc_utils.h"
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 
 #include <media/stagefright/foundation/ABitReader.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -522,6 +526,7 @@ ATSParser::Stream::Stream(
                     (mProgram->parserFlags() & ALIGNED_VIDEO_DATA)
                         ? ElementaryStreamQueue::kFlag_AlignedData : 0);
             break;
+#ifdef QCOM_HARDWARE
         case STREAMTYPE_H265:
             ALOGV("create ESQ for H265");
             mQueue = new ElementaryStreamQueue(
@@ -529,6 +534,7 @@ ATSParser::Stream::Stream(
                     (mProgram->parserFlags() & ALIGNED_VIDEO_DATA)
                         ? ElementaryStreamQueue::kFlag_AlignedData : 0);
             break;
+#endif /* QCOM_HARDWARE */
         case STREAMTYPE_MPEG2_AUDIO_ADTS:
             mQueue = new ElementaryStreamQueue(ElementaryStreamQueue::AAC);
             break;
@@ -555,12 +561,14 @@ ATSParser::Stream::Stream(
                     ElementaryStreamQueue::AC3);
             break;
 
+#ifdef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
         case STREAMTYPE_DDP_EC3_AUDIO:
             mQueue = new ElementaryStreamQueue(
                     ElementaryStreamQueue::DDP_EC3_AUDIO);
             break;
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
         default:
             break;
     }
@@ -587,9 +595,33 @@ status_t ATSParser::Stream::parse(
 
     if (mExpectedContinuityCounter >= 0
             && (unsigned)mExpectedContinuityCounter != continuity_counter) {
+#ifndef QCOM_HARDWARE
+        ALOGI("discontinuity on stream pid 0x%04x", mElementaryPID);
+#else /* QCOM_HARDWARE */
         ALOGI("discontinuity on stream pid 0x%04x, Ignored", mElementaryPID);
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        mPayloadStarted = false;
+        mBuffer->setRange(0, 0);
+#endif /* ! QCOM_HARDWARE */
         mExpectedContinuityCounter = -1;
+#ifndef QCOM_HARDWARE
+
+#if 0
+        // Uncomment this if you'd rather see no corruption whatsoever on
+        // screen and suspend updates until we come across another IDR frame.
+
+        if (mStreamType == STREAMTYPE_H264) {
+            ALOGI("clearing video queue");
+            mQueue->clear(true /* clearFormat */);
+        }
+#endif
+
+        if (!payload_unit_start_indicator) {
+            return OK;
+        }
+#endif /* ! QCOM_HARDWARE */
     }
 
     mExpectedContinuityCounter = (continuity_counter + 1) & 0x0f;
@@ -639,7 +671,9 @@ status_t ATSParser::Stream::parse(
 bool ATSParser::Stream::isVideo() const {
     switch (mStreamType) {
         case STREAMTYPE_H264:
+#ifdef QCOM_HARDWARE
         case STREAMTYPE_H265:
+#endif /* QCOM_HARDWARE */
         case STREAMTYPE_MPEG1_VIDEO:
         case STREAMTYPE_MPEG2_VIDEO:
         case STREAMTYPE_MPEG4_VIDEO:
@@ -657,9 +691,11 @@ bool ATSParser::Stream::isAudio() const {
         case STREAMTYPE_MPEG2_AUDIO_ADTS:
         case STREAMTYPE_LPCM_AC3:
         case STREAMTYPE_AC3:
+#ifdef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
         case STREAMTYPE_DDP_EC3_AUDIO:
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
             return true;
 
         default:
@@ -937,12 +973,19 @@ void ATSParser::Stream::onPayloadData(
                      mElementaryPID, mStreamType);
 
                 const char *mime;
+#ifdef QCOM_HARDWARE
                 bool isAvcIDR = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC)
                         && !IsIDR(accessUnit);
                 bool isHevcIDR = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC)
                         && !ExtendedUtils::IsHevcIDR(accessUnit);
+#endif /* QCOM_HARDWARE */
                 if (meta->findCString(kKeyMIMEType, &mime)
+#ifndef QCOM_HARDWARE
+                        && !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC)
+                        && !IsIDR(accessUnit)) {
+#else /* QCOM_HARDWARE */
                         && (isAvcIDR || isHevcIDR)) {
+#endif /* QCOM_HARDWARE */
                     continue;
                 }
                 mSource = new AnotherPacketSource(meta);

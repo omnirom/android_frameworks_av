@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* QCOM_HARDWARE */
  */
 
 //#define LOG_NDEBUG 0
@@ -47,10 +49,14 @@
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
+#ifdef QCOM_HARDWARE
 #include <QCMetaData.h>
+#endif /* QCOM_HARDWARE */
 
 #include "include/avc_utils.h"
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 
 #include <inttypes.h>
 #include <netinet/in.h>
@@ -266,6 +272,7 @@ static bool IsSeeminglyValidMPEGAudioHeader(const uint8_t *ptr, size_t size) {
     return true;
 }
 
+#ifdef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
 static bool IsSeeminglyValidDDPAudioHeader(const uint8_t *ptr, size_t size) {
     if (size < 2) return false;
@@ -274,12 +281,15 @@ static bool IsSeeminglyValidDDPAudioHeader(const uint8_t *ptr, size_t size) {
     return false;
 }
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 status_t ElementaryStreamQueue::appendData(
         const void *data, size_t size, int64_t timeUs) {
     if (mBuffer == NULL || mBuffer->size() == 0) {
         switch (mMode) {
             case H264:
+#ifdef QCOM_HARDWARE
             case H265:
+#endif /* QCOM_HARDWARE */
             case MPEG_VIDEO:
             {
 #if 0
@@ -446,6 +456,7 @@ status_t ElementaryStreamQueue::appendData(
                 break;
             }
 
+#ifdef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
             case DDP_EC3_AUDIO:
             {
@@ -475,6 +486,7 @@ status_t ElementaryStreamQueue::appendData(
             }
 
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
             default:
                 TRESPASS();
                 break;
@@ -517,7 +529,11 @@ status_t ElementaryStreamQueue::appendData(
 }
 
 sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
+#ifndef QCOM_HARDWARE
+    if ((mFlags & kFlag_AlignedData) && mMode == H264) {
+#else /* QCOM_HARDWARE */
     if (((mFlags & kFlag_AlignedData) && mMode == H264) || mMode == H265) {
+#endif /* QCOM_HARDWARE */
         if (mRangeInfos.empty()) {
             return NULL;
         }
@@ -536,6 +552,9 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
         mBuffer->setRange(0, mBuffer->size() - info.mLength);
 
         if (mFormat == NULL) {
+#ifndef QCOM_HARDWARE
+            mFormat = MakeAVCCodecSpecificData(accessUnit);
+#else /* QCOM_HARDWARE */
             if (mMode == H264) {
                 mFormat = MakeAVCCodecSpecificData(accessUnit);
             } else if (mMode == H265) {
@@ -546,6 +565,7 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
                     mFormat->setInt32(kKeyUseArbitraryMode, 1);
                 }
             }
+#endif /* QCOM_HARDWARE */
         }
 
         return accessUnit;
@@ -554,8 +574,10 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
     switch (mMode) {
         case H264:
             return dequeueAccessUnitH264();
+#ifdef QCOM_HARDWARE
         case H265:
             return dequeueAccessUnitH265();
+#endif /* QCOM_HARDWARE */
         case AAC:
             return dequeueAccessUnitAAC();
         case AC3:
@@ -566,10 +588,12 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
             return dequeueAccessUnitMPEG4Video();
         case PCM_AUDIO:
             return dequeueAccessUnitPCMAudio();
+#ifdef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
         case DDP_EC3_AUDIO:
             return dequeueAccessUnitDDP();
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
         default:
             CHECK_EQ((unsigned)mMode, (unsigned)MPEG_AUDIO);
             return dequeueAccessUnitMPEGAudio();
@@ -722,7 +746,9 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAAC() {
             mFormat = MakeAACCodecSpecificData(
                     profile, sampling_freq_index, channel_configuration);
 
+#ifdef QCOM_HARDWARE
             mFormat->setInt32(kKeyMaxInputSize, (8192 * 4)); // setting max aac input size
+#endif /* QCOM_HARDWARE */
             mFormat->setInt32(kKeyIsADTS, true);
 
             int32_t sampleRate;
@@ -780,6 +806,7 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAAC() {
     return accessUnit;
 }
 
+#ifdef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
 static int
 calc_dd_frame_size(int code)
@@ -871,6 +898,7 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitDDP() {
     return accessUnit;
 }
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 int64_t ElementaryStreamQueue::fetchTimestamp(size_t size) {
     int64_t timeUs = -1;
     bool first = true;
@@ -882,9 +910,13 @@ int64_t ElementaryStreamQueue::fetchTimestamp(size_t size) {
 
         if (first) {
             timeUs = info->mTimestampUs;
+#ifndef QCOM_HARDWARE
+            first = false;
+#else /* QCOM_HARDWARE */
             if(mMode != AAC) {
                first = false;
             }
+#endif /* QCOM_HARDWARE */
         }
 
         if (info->mLength > size) {
@@ -950,12 +982,14 @@ struct NALPosition {
     size_t nalSize;
 };
 
+#ifdef QCOM_HARDWARE
 sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH265() {
     ALOGE("Should not be here - frame parsing is done in decoder");
     TRESPASS();
     return NULL;
 }
 
+#endif /* QCOM_HARDWARE */
 sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
     const uint8_t *data = mBuffer->data();
 
@@ -1055,9 +1089,11 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
 
             if (mFormat == NULL) {
                 mFormat = MakeAVCCodecSpecificData(accessUnit);
+#ifdef QCOM_HARDWARE
                 if (mFormat != NULL) {
                     mFormat->setInt32(kKeyMaxInputSize, (8192 * 10));
                 }
+#endif /* QCOM_HARDWARE */
             }
 
             return accessUnit;

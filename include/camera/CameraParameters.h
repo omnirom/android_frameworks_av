@@ -552,7 +552,9 @@ public:
     static const char WHITE_BALANCE_CLOUDY_DAYLIGHT[];
     static const char WHITE_BALANCE_TWILIGHT[];
     static const char WHITE_BALANCE_SHADE[];
+#ifdef QCOM_HARDWARE
     static const char WHITE_BALANCE_MANUAL_CCT[];
+#endif /* QCOM_HARDWARE */
 
     // Values for effect settings.
     static const char EFFECT_NONE[];
@@ -675,8 +677,10 @@ public:
     // To stop continuous focus, applications should change the focus mode to
     // other modes.
     static const char FOCUS_MODE_CONTINUOUS_PICTURE[];
+#ifdef QCOM_HARDWARE
 
     static const char FOCUS_MODE_MANUAL_POSITION[];
+#endif /* QCOM_HARDWARE */
 
     // Values for light special effects
     // Low-light enhancement mode

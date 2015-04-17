@@ -51,7 +51,9 @@
 
 #include "ESDS.h"
 #include <media/stagefright/Utils.h>
+#ifdef QCOM_HARDWARE
 #include "ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -168,9 +170,11 @@ NuPlayer::NuPlayer()
     : mUIDValid(false),
       mSourceFlags(0),
       mOffloadAudio(false),
+#ifdef QCOM_HARDWARE
       mOffloadDecodedPCM(false),
       mSwitchingFromPcmOffload(false),
       mIsStreaming(false),
+#endif /* QCOM_HARDWARE */
       mAudioDecoderGeneration(0),
       mVideoDecoderGeneration(0),
       mRendererGeneration(0),
@@ -188,8 +192,10 @@ NuPlayer::NuPlayer()
       mPaused(false),
       mPausedByClient(false) {
     clearFlushComplete();
+#ifdef QCOM_HARDWARE
     mPlayerExtendedStats = (PlayerExtendedStats *)ExtendedStats::Create(
             ExtendedStats::PLAYER, "NuPlayer", gettid());
+#endif /* QCOM_HARDWARE */
 }
 
 NuPlayer::~NuPlayer() {
@@ -209,7 +215,9 @@ void NuPlayer::setDataSourceAsync(const sp<IStreamSource> &source) {
 
     sp<AMessage> notify = new AMessage(kWhatSourceNotify, id());
 
+#ifdef QCOM_HARDWARE
     mIsStreaming = true;
+#endif /* QCOM_HARDWARE */
     msg->setObject("source", new StreamingSource(notify, source));
     msg->post();
 }
@@ -268,15 +276,19 @@ void NuPlayer::setDataSourceAsync(
             ALOGE("Failed to set data source!");
         }
     }
+#ifdef QCOM_HARDWARE
     mIsStreaming = true;
+#endif /* QCOM_HARDWARE */
     msg->setObject("source", source);
     msg->post();
 }
 
 void NuPlayer::setDataSourceAsync(int fd, int64_t offset, int64_t length) {
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(profileStart, STATS_PROFILE_START_LATENCY);
     PLAYER_STATS(profileStart, STATS_PROFILE_SET_DATA_SOURCE);
 
+#endif /* QCOM_HARDWARE */
     sp<AMessage> msg = new AMessage(kWhatSetDataSource, id());
 
     sp<AMessage> notify = new AMessage(kWhatSourceNotify, id());
@@ -290,14 +302,18 @@ void NuPlayer::setDataSourceAsync(int fd, int64_t offset, int64_t length) {
         ALOGE("Failed to set data source!");
         source = NULL;
     }
+#ifdef QCOM_HARDWARE
     mIsStreaming = false;
+#endif /* QCOM_HARDWARE */
 
     msg->setObject("source", source);
     msg->post();
 }
 
 void NuPlayer::prepareAsync() {
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(profileStart, STATS_PROFILE_PREPARE);
+#endif /* QCOM_HARDWARE */
     (new AMessage(kWhatPrepare, id()))->post();
 }
 
@@ -324,17 +340,25 @@ void NuPlayer::setAudioSink(const sp<MediaPlayerBase::AudioSink> &sink) {
 }
 
 void NuPlayer::start() {
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(notifyPlaying, true);
+#endif /* QCOM_HARDWARE */
     (new AMessage(kWhatStart, id()))->post();
 }
 
 void NuPlayer::pause() {
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(profileStart, STATS_PROFILE_PAUSE);
+#endif /* QCOM_HARDWARE */
     (new AMessage(kWhatPause, id()))->post();
+#ifdef QCOM_HARDWARE
     //*Note* PLAYER_STATS(notifyPause, <timeUs>) done in NuPlayerRenderer
+#endif /* QCOM_HARDWARE */
 }
 
+#ifdef QCOM_HARDWARE
 
+#endif /* QCOM_HARDWARE */
 void NuPlayer::resetAsync() {
     if (mSource != NULL) {
         // During a reset, the data source might be unresponsive already, we need to
@@ -350,9 +374,11 @@ void NuPlayer::resetAsync() {
 }
 
 void NuPlayer::seekToAsync(int64_t seekTimeUs, bool needNotify) {
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(notifySeek, seekTimeUs);
     PLAYER_STATS(profileStart, STATS_PROFILE_SEEK);
 
+#endif /* QCOM_HARDWARE */
     sp<AMessage> msg = new AMessage(kWhatSeek, id());
     msg->setInt64("seekTimeUs", seekTimeUs);
     msg->setInt32("needNotify", needNotify);
@@ -410,8 +436,10 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             if (driver != NULL) {
                 driver->notifySetDataSourceCompleted(err);
             }
+#ifdef QCOM_HARDWARE
 
             PLAYER_STATS(profileStop, STATS_PROFILE_SET_DATA_SOURCE);
+#endif /* QCOM_HARDWARE */
             break;
         }
 
@@ -638,7 +666,11 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             mScanSourcesPending = false;
 
             ALOGV("scanning sources haveAudio=%d, haveVideo=%d",
+#ifndef QCOM_HARDWARE
+                 mAudioDecoder != NULL, mVideoDecoder != NULL);
+#else /* QCOM_HARDWARE */
                 mAudioDecoder != NULL, mVideoDecoder != NULL);
+#endif /* QCOM_HARDWARE */
 
             bool mHadAnySourcesBefore =
                 (mAudioDecoder != NULL) || (mVideoDecoder != NULL);
@@ -654,11 +686,17 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
                 sp<AMessage> videoFormat = mSource->getFormat(false /* audio */);
                 audio_stream_type_t streamType = mAudioSink->getAudioStreamType();
+#ifdef QCOM_HARDWARE
                 sp<MetaData> vMeta = new MetaData;
                 convertMessageToMetaData(videoFormat, vMeta);
+#endif /* QCOM_HARDWARE */
                 const bool hasVideo = (videoFormat != NULL);
                 const bool canOffload = canOffloadStream(
+#ifndef QCOM_HARDWARE
+                        audioMeta, hasVideo, true /* is_streaming */, streamType);
+#else /* QCOM_HARDWARE */
                         audioMeta, hasVideo, vMeta, mIsStreaming /* is_streaming */, streamType);
+#endif /* QCOM_HARDWARE */
                 if (canOffload) {
                     if (!mOffloadAudio) {
                         mRenderer->signalEnableOffloadAudio();
@@ -879,7 +917,9 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                     mAudioEOS = true;
                 } else {
                     mVideoEOS = true;
+#ifdef QCOM_HARDWARE
                     PLAYER_STATS(notifyEOS);
+#endif /* QCOM_HARDWARE */
                 }
 
                 if (finalResult == ERROR_END_OF_STREAM) {
@@ -904,18 +944,28 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 handleFlushComplete(audio, false /* isDecoder */);
                 finishFlushIfPossible();
             } else if (what == Renderer::kWhatVideoRenderingStart) {
+#ifdef QCOM_HARDWARE
                 PLAYER_STATS(profileStop, STATS_PROFILE_START_LATENCY);
+#endif /* QCOM_HARDWARE */
                 notifyListener(MEDIA_INFO, MEDIA_INFO_RENDERING_START, 0);
             } else if (what == Renderer::kWhatMediaRenderingStart) {
                 ALOGV("media rendering started");
                 notifyListener(MEDIA_STARTED, 0, 0);
             } else if (what == Renderer::kWhatAudioOffloadTearDown) {
+#ifndef QCOM_HARDWARE
+                ALOGV("Tear down audio offload, fall back to s/w path if due to error.");
+#else /* QCOM_HARDWARE */
                 ALOGI("Tear down audio offload, fall back to s/w path if due to error.");
+#endif /* QCOM_HARDWARE */
                 int64_t positionUs;
                 CHECK(msg->findInt64("positionUs", &positionUs));
                 int32_t reason;
                 CHECK(msg->findInt32("reason", &reason));
                 closeAudioSink();
+#ifndef QCOM_HARDWARE
+                mAudioDecoder.clear();
+                ++mAudioDecoderGeneration;
+#else /* QCOM_HARDWARE */
                 if (!mOffloadDecodedPCM) {
                     mAudioDecoder.clear();
                     ++mAudioDecoderGeneration;
@@ -925,6 +975,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                         flushDecoder(true /* audio */, true/* needShutdown */);
                     }
                 }
+#endif /* QCOM_HARDWARE */
                 mRenderer->flush(
                         true /* audio */, false /* notifyComplete */);
                 if (mVideoDecoder != NULL) {
@@ -934,6 +985,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
 
                 performSeek(positionUs, false /* needNotify */);
                 if (reason == Renderer::kDueToError) {
+#ifdef QCOM_HARDWARE
                     if (ExtendedUtils::is24bitPCMOffloadEnabled()) {
                         sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
                         if (ExtendedUtils::is24bitPCMOffloaded(audioMeta)) {
@@ -943,9 +995,12 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                               mSource->start();
                         }
                     }
+#endif /* QCOM_HARDWARE */
                     mRenderer->signalDisableOffloadAudio();
                     mOffloadAudio = false;
+#ifdef QCOM_HARDWARE
                     mOffloadDecodedPCM = false;
+#endif /* QCOM_HARDWARE */
                     instantiateDecoder(true /* audio */, &mAudioDecoder);
                 }
             }
@@ -1045,13 +1100,17 @@ void NuPlayer::onResume() {
     } else {
         ALOGW("resume called when renderer is gone or not set");
     }
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(notifyPlaying, true);
     PLAYER_STATS(profileStart, STATS_PROFILE_RESUME);
+#endif /* QCOM_HARDWARE */
 }
 
 void NuPlayer::onStart() {
     mOffloadAudio = false;
+#ifdef QCOM_HARDWARE
     mOffloadDecodedPCM = false;
+#endif /* QCOM_HARDWARE */
     mAudioEOS = false;
     mVideoEOS = false;
     mStarted = true;
@@ -1068,6 +1127,9 @@ void NuPlayer::onStart() {
     }
 
     mSource->start();
+#ifndef QCOM_HARDWARE
+
+#endif /* ! QCOM_HARDWARE */
     uint32_t flags = 0;
 
     if (mSource->isRealTime()) {
@@ -1081,6 +1143,7 @@ void NuPlayer::onStart() {
     }
 
     sp<AMessage> videoFormat = mSource->getFormat(false /* audio */);
+#ifdef QCOM_HARDWARE
     sp<MetaData> vMeta = new MetaData;
     convertMessageToMetaData(videoFormat, vMeta);
     mOffloadAudio = canOffloadStream(audioMeta, (videoFormat != NULL), vMeta,
@@ -1096,7 +1159,13 @@ void NuPlayer::onStart() {
             offloadVideoAudio = false;
         }
     }
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+    mOffloadAudio =
+        canOffloadStream(audioMeta, (videoFormat != NULL),
+                         true /* is_streaming */, streamType);
+#else /* QCOM_HARDWARE */
      //For offloading decoded content
     if (!mOffloadAudio && (audioMeta != NULL)) {
         sp<MetaData> audioPCMMeta =
@@ -1115,6 +1184,7 @@ void NuPlayer::onStart() {
         ALOGI("Could not offload audio decode, pcm offload decided :%d",
                 mOffloadDecodedPCM);
     }
+#endif /* QCOM_HARDWARE */
     if (mOffloadAudio) {
         flags |= Renderer::FLAG_OFFLOAD_AUDIO;
     }
@@ -1122,9 +1192,11 @@ void NuPlayer::onStart() {
     sp<AMessage> notify = new AMessage(kWhatRendererNotify, id());
     ++mRendererGeneration;
     notify->setInt32("generation", mRendererGeneration);
+#ifdef QCOM_HARDWARE
     if (mPlayerExtendedStats != NULL) {
         notify->setObject(MEDIA_EXTENDED_STATS, mPlayerExtendedStats);
     }
+#endif /* QCOM_HARDWARE */
     mRenderer = new Renderer(mAudioSink, notify, flags);
 
     mRendererLooper = new ALooper;
@@ -1164,7 +1236,9 @@ void NuPlayer::onPause() {
     } else {
         ALOGW("pause called when renderer is gone or not set");
     }
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(profileStop, STATS_PROFILE_PAUSE);
+#endif /* QCOM_HARDWARE */
 }
 
 bool NuPlayer::audioDecoderStillNeeded() {
@@ -1248,6 +1322,7 @@ void NuPlayer::tryOpenAudioSinkForOffload(const sp<AMessage> &format, bool hasVi
     // Note: This is called early in NuPlayer to determine whether offloading
     // is possible; otherwise the decoders call the renderer openAudioSink directly.
 
+#ifdef QCOM_HARDWARE
     //update bit width before opening audio sink
     if (ExtendedUtils::is24bitPCMOffloadEnabled()) {
         sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
@@ -1257,12 +1332,19 @@ void NuPlayer::tryOpenAudioSinkForOffload(const sp<AMessage> &format, bool hasVi
         }
     }
 
+#endif /* QCOM_HARDWARE */
     status_t err = mRenderer->openAudioSink(
+#ifndef QCOM_HARDWARE
+            format, true /* offloadOnly */, hasVideo, AUDIO_OUTPUT_FLAG_NONE, &mOffloadAudio);
+#else /* QCOM_HARDWARE */
             format, true /* offloadOnly */, hasVideo, AUDIO_OUTPUT_FLAG_NONE, mIsStreaming, &mOffloadAudio);
+#endif /* QCOM_HARDWARE */
     if (err != OK) {
         // Any failure we turn off mOffloadAudio.
         mOffloadAudio = false;
+#ifdef QCOM_HARDWARE
         mOffloadDecodedPCM = false;
+#endif /* QCOM_HARDWARE */
     } else if (mOffloadAudio) {
         sp<MetaData> audioMeta =
                 mSource->getFormatMeta(true /* audio */);
@@ -1274,19 +1356,23 @@ void NuPlayer::closeAudioSink() {
     mRenderer->closeAudioSink();
 }
 
+#ifdef QCOM_HARDWARE
 int64_t NuPlayer::getServerTimeoutUs() {
     return mSource->getServerTimeoutUs();
 }
 
+#endif /* QCOM_HARDWARE */
 status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
     if (*decoder != NULL) {
         return OK;
     }
 
+#ifdef QCOM_HARDWARE
     if (audio && ExtendedUtils::ShellProp::isAudioDisabled(false)) {
         return OK;
     }
 
+#endif /* QCOM_HARDWARE */
     sp<AMessage> format = mSource->getFormat(audio);
 
     if (format == NULL) {
@@ -1316,6 +1402,9 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
         ++mAudioDecoderGeneration;
         notify->setInt32("generation", mAudioDecoderGeneration);
 
+#ifndef QCOM_HARDWARE
+        if (mOffloadAudio) {
+#else /* QCOM_HARDWARE */
         sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
 
         if (mOffloadAudio && !mOffloadDecodedPCM) {
@@ -1328,8 +1417,10 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
                     mSource->start();
                 }
             }
+#endif /* QCOM_HARDWARE */
             *decoder = new DecoderPassThrough(notify, mSource, mRenderer);
         } else {
+#ifdef QCOM_HARDWARE
             if (ExtendedUtils::is24bitPCMOffloadEnabled()) {
                 sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
                 if (ExtendedUtils::is24bitPCMOffloaded(audioMeta)) {
@@ -1339,6 +1430,7 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
                     mSource->start();
                 }
             }
+#endif /* QCOM_HARDWARE */
             *decoder = new Decoder(notify, mSource, mRenderer);
         }
     } else {
@@ -1360,11 +1452,13 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
             }
         }
     }
+#ifdef QCOM_HARDWARE
 
     if (mPlayerExtendedStats != NULL) {
         format->setObject(MEDIA_EXTENDED_STATS, mPlayerExtendedStats);
     }
 
+#endif /* QCOM_HARDWARE */
     (*decoder)->init();
     (*decoder)->configure(format);
 
@@ -1409,7 +1503,9 @@ void NuPlayer::updateVideoSize(
         int32_t width, height;
         CHECK(outputFormat->findInt32("width", &width));
         CHECK(outputFormat->findInt32("height", &height));
+#ifdef QCOM_HARDWARE
         PLAYER_STATS(logDimensions, width, height);
+#endif /* QCOM_HARDWARE */
 
         int32_t cropLeft, cropTop, cropRight, cropBottom;
         CHECK(outputFormat->findRect(
@@ -1434,7 +1530,11 @@ void NuPlayer::updateVideoSize(
 
     // Take into account sample aspect ratio if necessary:
     int32_t sarWidth, sarHeight;
+#ifndef QCOM_HARDWARE
+    if (inputFormat->findInt32("sar-width", &sarWidth)
+#else /* QCOM_HARDWARE */
     if (inputFormat != NULL && inputFormat->findInt32("sar-width", &sarWidth)
+#endif /* QCOM_HARDWARE */
             && inputFormat->findInt32("sar-height", &sarHeight)) {
         ALOGV("Sample aspect ratio %d : %d", sarWidth, sarHeight);
 
@@ -1524,10 +1624,12 @@ void NuPlayer::queueDecoderShutdown(
     processDeferredActions();
 }
 
+#ifdef QCOM_HARDWARE
 int64_t NuPlayer::Source::getServerTimeoutUs() {
     return 0;
 }
 
+#endif /* QCOM_HARDWARE */
 status_t NuPlayer::setVideoScalingMode(int32_t mode) {
     mVideoScalingMode = mode;
     if (mNativeWindow != NULL) {
@@ -1658,9 +1760,11 @@ void NuPlayer::performSeek(int64_t seekTimeUs, bool needNotify) {
     ++mTimedTextGeneration;
 
     // everything's flushed, continue playback.
+#ifdef QCOM_HARDWARE
 
     PLAYER_STATS(notifySeekDone);
     PLAYER_STATS(profileStop, STATS_PROFILE_SEEK);
+#endif /* QCOM_HARDWARE */
 }
 
 void NuPlayer::performDecoderFlush(FlushCommand audio, FlushCommand video) {
@@ -1715,9 +1819,11 @@ void NuPlayer::performReset() {
     }
 
     mStarted = false;
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(notifyEOS);
     PLAYER_STATS(dump);
     PLAYER_STATS(reset);
+#endif /* QCOM_HARDWARE */
 }
 
 void NuPlayer::performScanSources() {
@@ -1809,7 +1915,9 @@ void NuPlayer::onSourceNotify(const sp<AMessage> &msg) {
                 if (mSource->getDuration(&durationUs) == OK) {
                     driver->notifyDuration(durationUs);
                 }
+#ifdef QCOM_HARDWARE
                 PLAYER_STATS(profileStop, STATS_PROFILE_PREPARE);
+#endif /* QCOM_HARDWARE */
                 driver->notifyPrepareCompleted(err);
             }
 

@@ -60,9 +60,15 @@ void mapAACProfileToAudioFormat(audio_format_t& format, uint64_t eAacProfile);
 status_t sendMetaDataToHal(sp<MediaPlayerBase::AudioSink>& sink, const sp<MetaData>& meta);
 
 // Check whether the stream defined by meta can be offloaded to hardware
+#ifndef QCOM_HARDWARE
+bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
+#else /* QCOM_HARDWARE */
 bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData>& vMeta,
+#endif /* QCOM_HARDWARE */
                       bool isStreaming, audio_stream_type_t streamType);
+#ifdef QCOM_HARDWARE
 void printFileName(int fd);
+#endif /* QCOM_HARDWARE */
 
 AString uriDebugString(const AString &uri, bool incognito = false);
 

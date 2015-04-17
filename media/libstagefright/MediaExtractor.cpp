@@ -39,8 +39,10 @@
 #include <media/stagefright/MetaData.h>
 #include <utils/String8.h>
 
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
 
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 sp<MetaData> MediaExtractor::getMetaData() {
@@ -128,7 +130,11 @@ sp<MediaExtractor> MediaExtractor::Create(
        }
     }
 
+#ifndef QCOM_HARDWARE
+    return ret;
+#else /* QCOM_HARDWARE */
     return ExtendedUtils::MediaExtractor_CreateIfNeeded(ret, source, mime);
+#endif /* QCOM_HARDWARE */
 }
 
 }  // namespace android

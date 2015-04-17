@@ -13,6 +13,7 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -32,6 +33,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* QCOM_HARDWARE */
 */
 
 
@@ -55,9 +57,11 @@
 #include <media/nbaio/Pipe.h>
 #include <media/nbaio/PipeReader.h>
 #include <audio_utils/minifloat.h>
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
 #include <media/AudioParameter.h>
 #endif // DOLBY_UDC
+#endif /* QCOM_HARDWARE */
 
 // ----------------------------------------------------------------------------
 
@@ -135,7 +139,11 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
 
     // ALOGD("Creating track with %d buffers @ %d bytes", bufferCount, bufferSize);
     size_t size = sizeof(audio_track_cblk_t);
+#ifndef QCOM_HARDWARE
+    size_t bufferSize = (buffer == NULL ? roundup(frameCount) : frameCount) * mFrameSize;
+#else /* QCOM_HARDWARE */
     size_t bufferSize = (((buffer == NULL) && audio_is_linear_pcm(format)) ? roundup(frameCount) : frameCount) * mFrameSize;
+#endif /* QCOM_HARDWARE */
     if (buffer == NULL && alloc == ALLOC_CBLK) {
         size += bufferSize;
     }
@@ -515,10 +523,12 @@ void AudioFlinger::PlaybackThread::Track::destroy()
         if (isExternalTrack() && !wasActive) {
             AudioSystem::releaseOutput(mThreadIoHandle, mStreamType, (audio_session_t)mSessionId);
         }
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
         // Notify effect DAP controller that processed audio is no longer available
         EffectDapController::instance()->setProcessedAudioState(mId, false);
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
     }
 }
 
@@ -657,7 +667,11 @@ size_t AudioFlinger::PlaybackThread::Track::framesReleased() const
 
 // Don't call for fast tracks; the framesReady() could result in priority inversion
 bool AudioFlinger::PlaybackThread::Track::isReady() const {
+#ifndef QCOM_HARDWARE
+    if (mFillingUpStatus != FS_FILLING || isStopped() || isPausing()) {
+#else /* QCOM_HARDWARE */
     if (mFillingUpStatus != FS_FILLING || isStopped() || isPausing() || isStopping()) {
+#endif /* QCOM_HARDWARE */
         return true;
     }
 
@@ -719,11 +733,13 @@ status_t AudioFlinger::PlaybackThread::Track::start(AudioSystem::sync_event_t ev
         }
 
         PlaybackThread *playbackThread = (PlaybackThread *)thread.get();
+#ifdef QCOM_HARDWARE
         if (isFastTrack()) {
             // refresh fast track underruns upon start
             // it's essential given the same track will be recycled.
             mObservedUnderruns = playbackThread->getFastTrackUnderruns(mFastIndex);
         }
+#endif /* QCOM_HARDWARE */
         status = playbackThread->addTrack_l(this);
         if (status == INVALID_OPERATION || status == PERMISSION_DENIED) {
             triggerEvents(AudioSystem::SYNC_EVENT_PRESENTATION_COMPLETE);
@@ -877,6 +893,7 @@ void AudioFlinger::PlaybackThread::Track::flushAck()
     mFlushHwPending = false;
 }
 
+#ifdef QCOM_HARDWARE
 void AudioFlinger::PlaybackThread::Track::signalError()
 {
     // TBD, is this needed for pcm too?
@@ -891,6 +908,7 @@ void AudioFlinger::PlaybackThread::Track::signalError()
     (void) syscall(__NR_futex, &cblk->mFutex, FUTEX_WAKE, INT_MAX);
 }
 
+#endif /* QCOM_HARDWARE */
 void AudioFlinger::PlaybackThread::Track::reset()
 {
     // Do not reset twice to avoid discarding data written just after a flush and before
@@ -909,6 +927,7 @@ void AudioFlinger::PlaybackThread::Track::reset()
 
 status_t AudioFlinger::PlaybackThread::Track::setParameters(const String8& keyValuePairs)
 {
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
     AudioParameter ap(keyValuePairs);
     int value = 0;
@@ -917,6 +936,7 @@ status_t AudioFlinger::PlaybackThread::Track::setParameters(const String8& keyVa
         return EffectDapController::instance()->setProcessedAudioState(mId, value);
     }
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
     sp<ThreadBase> thread = mThread.promote();
     if (thread == 0) {
         ALOGE("thread is dead");

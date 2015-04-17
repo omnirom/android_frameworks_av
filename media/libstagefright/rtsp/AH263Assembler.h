@@ -49,10 +49,12 @@ private:
     AssemblyStatus addPacket(const sp<ARTPSource> &source);
     void submitAccessUnit();
 
+#ifdef QCOM_HARDWARE
     size_t getOffsetOfHeader(const sp<ABuffer> buffer);
 
     void insertPacket(const sp<ABuffer> &buffer);
 
+#endif /* QCOM_HARDWARE */
     DISALLOW_EVIL_CONSTRUCTORS(AH263Assembler);
 };
 

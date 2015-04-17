@@ -144,7 +144,9 @@ public:
     void nextEvent();
     int nextChannelID() { return mNextEvent.channelID(); }
     void dump();
+#ifdef QCOM_HARDWARE
     int getPrevSampleID(void) { return mPrevSampleID; }
+#endif /* QCOM_HARDWARE */
 
 private:
     static void callback(int event, void* user, void *info);
@@ -161,7 +163,9 @@ private:
     int                 mAudioBufferSize;
     unsigned long       mToggle;
     bool                mAutoPaused;
+#ifdef QCOM_HARDWARE
     int                 mPrevSampleID;
+#endif /* QCOM_HARDWARE */
 };
 
 // application object for managing a pool of sounds
@@ -204,7 +208,11 @@ private:
     sp<Sample> findSample(int sampleID) { return mSamples.valueFor(sampleID); }
     SoundChannel* findChannel (int channelID);
     SoundChannel* findNextChannel (int channelID);
+#ifndef QCOM_HARDWARE
+    SoundChannel* allocateChannel_l(int priority);
+#else /* QCOM_HARDWARE */
     SoundChannel* allocateChannel_l(int priority, int sampleID);
+#endif /* QCOM_HARDWARE */
     void moveToFront_l(SoundChannel* channel);
     void notify(SoundPoolEvent event);
     void dump();

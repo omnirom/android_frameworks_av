@@ -27,6 +27,7 @@
 #include <utils/RefBase.h>
 #include <utils/String16.h>
 
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedStats.h>
 #define RECORDER_STATS(func, ...) \
     do { \
@@ -35,6 +36,7 @@
     } \
     while(0)
 
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 class IMemory;
@@ -96,7 +98,9 @@ public:
     virtual ~CameraSource();
 
     virtual status_t start(MetaData *params = NULL);
+#ifdef QCOM_HARDWARE
     virtual status_t pause();
+#endif /* QCOM_HARDWARE */
     virtual status_t stop() { return reset(); }
     virtual status_t read(
             MediaBuffer **buffer, const ReadOptions *options = NULL);
@@ -172,11 +176,13 @@ protected:
     bool mStarted;
     int32_t mNumFramesEncoded;
 
+#ifdef QCOM_HARDWARE
     bool mRecPause;
     int64_t  mPauseAdjTimeUs;
     int64_t  mPauseStartTimeUs;
     int64_t  mPauseEndTimeUs;
 
+#endif /* QCOM_HARDWARE */
     // Time between capture of two frames.
     int64_t mTimeBetweenFrameCaptureUs;
 
@@ -210,7 +216,9 @@ private:
     List<sp<IMemory> > mFramesReceived;
     List<sp<IMemory> > mFramesBeingEncoded;
     List<int64_t> mFrameTimes;
+#ifdef QCOM_HARDWARE
     sp<RecorderExtendedStats> mRecorderExtendedStats;
+#endif /* QCOM_HARDWARE */
 
     int64_t mFirstFrameTimeUs;
     int32_t mNumFramesDropped;

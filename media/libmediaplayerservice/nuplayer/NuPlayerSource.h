@@ -117,8 +117,10 @@ struct NuPlayer::Source : public AHandler {
         return false;
     }
 
+#ifdef QCOM_HARDWARE
     virtual int64_t getServerTimeoutUs();
 
+#endif /* QCOM_HARDWARE */
 protected:
     virtual ~Source() {}
 

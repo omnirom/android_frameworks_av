@@ -32,7 +32,9 @@
 #include "ASessionDescription.h"
 
 #include <ctype.h>
+#ifdef QCOM_HARDWARE
 #include <cutils/properties.h>
+#endif /* QCOM_HARDWARE */
 
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -46,7 +48,9 @@
 #include <netdb.h>
 
 #include "HTTPBase.h"
+#ifdef QCOM_HARDWARE
 #include "ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 
 #if LOG_NDEBUG
 #define UNUSED_UNLESS_VERBOSE(x) (void)(x)
@@ -66,8 +70,10 @@ static int64_t kDefaultKeepAliveTimeoutUs = 60000000ll;
 
 static int64_t kPauseDelayUs = 3000000ll;
 
+#ifdef QCOM_HARDWARE
 static int64_t kTearDownTimeoutUs = 3000000ll;
 
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 static bool GetAttribute(const char *s, const char *key, AString *value) {
@@ -148,6 +154,7 @@ struct MyHandler : public AHandler {
                           false /* canCallJava */,
                           PRIORITY_HIGHEST);
 
+#ifdef QCOM_HARDWARE
         char value[PROPERTY_VALUE_MAX] = {0};
         property_get("rtsp.transport.TCP", value, "false");
         if (!strcmp(value, "true")) {
@@ -156,6 +163,7 @@ struct MyHandler : public AHandler {
             mTryTCPInterleaving = false;
         }
 
+#endif /* QCOM_HARDWARE */
         // Strip any authentication info from the session url, we don't
         // want to transmit user/pass in cleartext.
         AString host, path, user, pass;
@@ -175,8 +183,10 @@ struct MyHandler : public AHandler {
         }
 
         mSessionHost = host;
+#ifdef QCOM_HARDWARE
         mAUTimeoutCheck = true;
         mIPVersion = IPV4;
+#endif /* QCOM_HARDWARE */
     }
 
     void connect() {
@@ -238,10 +248,12 @@ struct MyHandler : public AHandler {
         return mSeekable;
     }
 
+#ifdef QCOM_HARDWARE
     void setAUTimeoutCheck(bool value) {
         mAUTimeoutCheck = value;
     }
 
+#endif /* QCOM_HARDWARE */
     void pause() {
         sp<AMessage> msg = new AMessage('paus', id());
         mPauseGeneration++;
@@ -335,7 +347,20 @@ struct MyHandler : public AHandler {
 
         AString source;
         AString server_port;
+#ifndef QCOM_HARDWARE
+        if (!GetAttribute(transport.c_str(),
+                          "source",
+                          &source)) {
+            ALOGW("Missing 'source' field in Transport response. Using "
+                 "RTSP endpoint address.");
+#endif /* ! QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+            struct hostent *ent = gethostbyname(mSessionHost.c_str());
+            if (ent == NULL) {
+                ALOGE("Failed to look up address of session host '%s'",
+                     mSessionHost.c_str());
+#else /* QCOM_HARDWARE */
         Vector<uint32_t> s_addrs;
         if (GetAttribute(transport.c_str(), "source", &source)){
             ALOGI("found 'source' = %s field in Transport response",
@@ -347,7 +372,11 @@ struct MyHandler : public AHandler {
                 s_addrs.push(addr);
             }
         }
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+                return false;
+#else /* QCOM_HARDWARE */
         struct hostent *ent = gethostbyname(mSessionHost.c_str());
         if (ent != NULL){
             ALOGI("get the endpoint address of session host");
@@ -356,12 +385,21 @@ struct MyHandler : public AHandler {
                 ALOGI("no need to poke the hole");
             } else if (s_addrs.size() == 0 || s_addrs[0] != addr){
                 s_addrs.push(addr);
+#endif /* QCOM_HARDWARE */
             }
+#ifdef QCOM_HARDWARE
         }
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+            addr.sin_addr.s_addr = *(in_addr_t *)ent->h_addr;
+        } else {
+            addr.sin_addr.s_addr = inet_addr(source.c_str());
+#else /* QCOM_HARDWARE */
         if (s_addrs.size() == 0){
             ALOGI("Failed to get any session address");
             return false;
+#endif /* QCOM_HARDWARE */
         }
 
         if (!GetAttribute(transport.c_str(),
@@ -389,32 +427,80 @@ struct MyHandler : public AHandler {
                  "in the future.");
         }
 
+#ifndef QCOM_HARDWARE
+        if (addr.sin_addr.s_addr == INADDR_NONE) {
+            return true;
+        }
+
+        if (IN_LOOPBACK(ntohl(addr.sin_addr.s_addr))) {
+            // No firewalls to traverse on the loopback interface.
+            return true;
+        }
+
+#endif /* ! QCOM_HARDWARE */
         // Make up an RR/SDES RTCP packet.
         sp<ABuffer> buf = new ABuffer(65536);
         buf->setRange(0, 0);
         addRR(buf);
         addSDES(rtpSocket, buf);
 
+#ifndef QCOM_HARDWARE
+        addr.sin_port = htons(rtpPort);
+#else /* QCOM_HARDWARE */
         for (uint32_t i = 0; i < s_addrs.size(); i++){
             addr.sin_addr.s_addr = s_addrs[i];
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        ssize_t n = sendto(
+                rtpSocket, buf->data(), buf->size(), 0,
+                (const sockaddr *)&addr, sizeof(addr));
+#else /* QCOM_HARDWARE */
             addr.sin_port = htons(rtpPort);
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        if (n < (ssize_t)buf->size()) {
+            ALOGE("failed to poke a hole for RTP packets");
+            return false;
+        }
+#else /* QCOM_HARDWARE */
             ssize_t n = sendto(
                     rtpSocket, buf->data(), buf->size(), 0,
                     (const sockaddr *)&addr, sizeof(addr));
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        addr.sin_port = htons(rtcpPort);
+#else /* QCOM_HARDWARE */
             if (n < (ssize_t)buf->size()) {
                 ALOGE("failed to poke a hole for RTP packets");
                 continue;
             }
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        n = sendto(
+                rtcpSocket, buf->data(), buf->size(), 0,
+                (const sockaddr *)&addr, sizeof(addr));
+#else /* QCOM_HARDWARE */
             addr.sin_port = htons(rtcpPort);
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        if (n < (ssize_t)buf->size()) {
+            ALOGE("failed to poke a hole for RTCP packets");
+            return false;
+        }
+#else /* QCOM_HARDWARE */
             n = sendto(
                     rtcpSocket, buf->data(), buf->size(), 0,
                     (const sockaddr *)&addr, sizeof(addr));
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+        ALOGV("successfully poked holes.");
+#else /* QCOM_HARDWARE */
             if (n < (ssize_t)buf->size()) {
                 ALOGE("failed to poke a hole for RTCP packets");
                 continue;
@@ -422,6 +508,7 @@ struct MyHandler : public AHandler {
 
             ALOGI("successfully poked holes for the address = %u", s_addrs[i]);
         }
+#endif /* QCOM_HARDWARE */
 
         return true;
     }
@@ -464,7 +551,9 @@ struct MyHandler : public AHandler {
             case 'conn':
             {
                 int32_t result;
+#ifdef QCOM_HARDWARE
                 int ipver;
+#endif /* QCOM_HARDWARE */
                 CHECK(msg->findInt32("result", &result));
 
                 ALOGI("connection request completed with result %d (%s)",
@@ -472,10 +561,12 @@ struct MyHandler : public AHandler {
 
                 if (result == OK) {
                     AString request;
+#ifdef QCOM_HARDWARE
                     CHECK(msg->findInt32("ipversion", &ipver));
                     mIPVersion = ipver;
                     ALOGI("ipversion:==> %d", ipver);
                     mRTPConn->setIPVersion(mIPVersion);
+#endif /* QCOM_HARDWARE */
                     request = "DESCRIBE ";
                     request.append(mSessionURL);
                     request.append(" RTSP/1.0\r\n");
@@ -741,13 +832,19 @@ struct MyHandler : public AHandler {
                             if (!track->mUsingInterleavedTCP) {
                                 AString transport = response->mHeaders.valueAt(i);
 
+#ifndef QCOM_HARDWARE
+                                // We are going to continue even if we were
+                                // unable to poke a hole into the firewall...
+#else /* QCOM_HARDWARE */
                             // We are going to continue even if we were
                             // unable to poke a hole into the firewall...
                             if (mIPVersion == IPV4) {
+#endif /* QCOM_HARDWARE */
                                 pokeAHole(
                                         track->mRTPSocket,
                                         track->mRTCPSocket,
                                         transport);
+#ifdef QCOM_HARDWARE
                             } else if (mIPVersion == IPV6) {
                                 ExtendedUtils::RTSPStream::pokeAHole_V6(
                                         track->mRTPSocket,
@@ -755,10 +852,13 @@ struct MyHandler : public AHandler {
                                         transport,
                                         mSessionHost);
 
+#endif /* QCOM_HARDWARE */
                             }
 
+#ifdef QCOM_HARDWARE
                         }
 
+#endif /* QCOM_HARDWARE */
                             mRTPConn->addStream(
                                     track->mRTPSocket, track->mRTCPSocket,
                                     mSessionDesc, index,
@@ -805,7 +905,9 @@ struct MyHandler : public AHandler {
                     request.append(mSessionID);
                     request.append("\r\n");
 
+#ifdef QCOM_HARDWARE
                     request.append(StringPrintf("Range: npt=0-\r\n"));
+#endif /* QCOM_HARDWARE */
                     request.append("\r\n");
 
                     sp<AMessage> reply = new AMessage('play', id());
@@ -954,6 +1056,7 @@ struct MyHandler : public AHandler {
                 request.append("\r\n");
 
                 mConn->sendRequest(request.c_str(), reply);
+#ifdef QCOM_HARDWARE
 
                 // If the response of teardown hasn't been received in 3 seconds,
                 // post 'tear' message to avoid ANR.
@@ -963,6 +1066,7 @@ struct MyHandler : public AHandler {
                     teardown->post(kTearDownTimeoutUs);
                 }
 
+#endif /* QCOM_HARDWARE */
                 break;
             }
 
@@ -1014,6 +1118,9 @@ struct MyHandler : public AHandler {
                 }
 
                 mNumAccessUnitsReceived = 0;
+#ifndef QCOM_HARDWARE
+                msg->post(kAccessUnitTimeoutUs);
+#else /* QCOM_HARDWARE */
 
                 // The access unit timeout check should happen only during playback and
                 // the posting of AU timeout check should not happen, if pause is not called from
@@ -1026,6 +1133,7 @@ struct MyHandler : public AHandler {
                     mAUTimeoutCheck = true;
                     break;
                 }
+#endif /* QCOM_HARDWARE */
                 break;
             }
 
@@ -1259,6 +1367,7 @@ struct MyHandler : public AHandler {
                 request.append("\r\n");
 
                 mConn->sendRequest(request.c_str(), reply);
+#ifdef QCOM_HARDWARE
 
                 // After seek, the previous packets are obsolete
                 for (int i = 0; i < mTracks.size(); i++) {
@@ -1268,6 +1377,7 @@ struct MyHandler : public AHandler {
                     }
                 }
 
+#endif /* QCOM_HARDWARE */
                 break;
             }
 
@@ -1436,10 +1546,12 @@ struct MyHandler : public AHandler {
         }
     }
 
+#ifdef QCOM_HARDWARE
     int64_t getServerTimeoutUs() {
         return mKeepAliveTimeoutUs;
     }
 
+#endif /* QCOM_HARDWARE */
     void postKeepAlive() {
         sp<AMessage> msg = new AMessage('aliv', id());
         msg->setInt32("generation", mKeepAliveGeneration);
@@ -1495,10 +1607,14 @@ struct MyHandler : public AHandler {
         CHECK(GetAttribute(range.c_str(), "npt", &val));
 
         float npt1, npt2;
+#ifndef QCOM_HARDWARE
+        if (!ASessionDescription::parseNTPRange(val.c_str(), &npt1, &npt2)) {
+#else /* QCOM_HARDWARE */
         int64_t durationUs;
         if (!ASessionDescription::parseNTPRange(val.c_str(), &npt1, &npt2)
             && !mSessionDesc->getDurationUs(&durationUs)
             && (durationUs==0)) {
+#endif /* QCOM_HARDWARE */
             // This is a live stream and therefore not seekable.
 
             ALOGI("This is a live stream");
@@ -1522,7 +1638,11 @@ struct MyHandler : public AHandler {
 
             size_t trackIndex = 0;
             while (trackIndex < mTracks.size()
+#ifndef QCOM_HARDWARE
+                    && !(val == mTracks.editItemAt(trackIndex).mURL)) {
+#else /* QCOM_HARDWARE */
                     && !(mTracks.editItemAt(trackIndex).mURL.endsWith(val.c_str()))) {
+#endif /* QCOM_HARDWARE */
                 ++trackIndex;
             }
             CHECK_LT(trackIndex, mTracks.size());
@@ -1633,8 +1753,10 @@ private:
     Vector<TrackInfo> mTracks;
 
     bool mPlayResponseParsed;
+#ifdef QCOM_HARDWARE
     bool mAUTimeoutCheck;
     int mIPVersion;
+#endif /* QCOM_HARDWARE */
 
     void setupTrack(size_t index) {
         sp<APacketSource> source =
@@ -1701,13 +1823,19 @@ private:
             request.append(interleaveIndex + 1);
         } else {
             unsigned rtpPort;
+#ifndef QCOM_HARDWARE
+            ARTPConnection::MakePortPair(
+#else /* QCOM_HARDWARE */
             if (mIPVersion == IPV4) {
                 ARTPConnection::MakePortPair(
+#endif /* QCOM_HARDWARE */
                     &info->mRTPSocket, &info->mRTCPSocket, &rtpPort);
+#ifdef QCOM_HARDWARE
             } else if (mIPVersion == IPV6) {
                 ExtendedUtils::RTSPStream::MakePortPair_V6(
                     &info->mRTPSocket, &info->mRTCPSocket, &rtpPort);
             }
+#endif /* QCOM_HARDWARE */
 
             if (mUIDValid) {
                 HTTPBase::RegisterSocketUserTag(info->mRTPSocket, mUID,

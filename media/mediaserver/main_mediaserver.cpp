@@ -35,9 +35,11 @@
 #include "MediaPlayerService.h"
 #include "AudioPolicyService.h"
 #include "SoundTriggerHwService.h"
+#ifdef QCOM_HARDWARE
 #ifdef AUDIO_LISTEN_ENABLED
 #include "ListenService.h"
 #endif
+#endif /* QCOM_HARDWARE */
 
 using namespace android;
 
@@ -131,10 +133,12 @@ int main(int argc __unused, char** argv)
         AudioFlinger::instantiate();
         MediaPlayerService::instantiate();
         CameraService::instantiate();
+#ifdef QCOM_HARDWARE
 #ifdef AUDIO_LISTEN_ENABLED
         ALOGI("ListenService instantiated");
         ListenService::instantiate();
 #endif
+#endif /* QCOM_HARDWARE */
         AudioPolicyService::instantiate();
         SoundTriggerHwService::instantiate();
         registerExtensions();

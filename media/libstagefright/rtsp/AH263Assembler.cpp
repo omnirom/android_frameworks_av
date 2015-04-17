@@ -64,6 +64,7 @@ ARTPAssembler::AssemblyStatus AH263Assembler::addPacket(
                 break;
             }
 
+#ifdef QCOM_HARDWARE
             //check whether the rtp time of this later packet is equal
             //to the current one, if yes, it means this packet belongs
             //to the candidate access unit and should be inserted.
@@ -73,6 +74,7 @@ ARTPAssembler::AssemblyStatus AH263Assembler::addPacket(
                 ALOGV("insert the rtp packet into the candidate access unit");
                 insertPacket(*it);
             }
+#endif /* QCOM_HARDWARE */
             it = queue->erase(it);
         }
 
@@ -104,16 +106,61 @@ ARTPAssembler::AssemblyStatus AH263Assembler::addPacket(
 
     // hexdump(buffer->data(), buffer->size());
 
-    size_t skip;
-    if ((skip = getOffsetOfHeader(buffer)) == 1){
+#ifndef QCOM_HARDWARE
+    if (buffer->size() < 2) {
         queue->erase(queue->begin());
         ++mNextExpectedSeqNo;
+
         return MALFORMED_PACKET;
     }
 
+    unsigned payloadHeader = U16_AT(buffer->data());
+    unsigned P = (payloadHeader >> 10) & 1;
+    unsigned V = (payloadHeader >> 9) & 1;
+    unsigned PLEN = (payloadHeader >> 3) & 0x3f;
+    unsigned PEBIT = payloadHeader & 7;
+
+    // V=0
+    if (V != 0u) {
+        queue->erase(queue->begin());
+        ++mNextExpectedSeqNo;
+        ALOGW("Packet discarded due to VRC (V != 0)");
+        return MALFORMED_PACKET;
+    }
+
+    // PLEN=0
+    if (PLEN != 0u) {
+        queue->erase(queue->begin());
+        ++mNextExpectedSeqNo;
+        ALOGW("Packet discarded (PLEN != 0)");
+        return MALFORMED_PACKET;
+    }
+
+    // PEBIT=0
+    if (PEBIT != 0u) {
+#else /* QCOM_HARDWARE */
+    size_t skip;
+    if ((skip = getOffsetOfHeader(buffer)) == 1){
+#endif /* QCOM_HARDWARE */
+        queue->erase(queue->begin());
+        ++mNextExpectedSeqNo;
+#ifndef QCOM_HARDWARE
+        ALOGW("Packet discarded (PEBIT != 0)");
+#endif /* ! QCOM_HARDWARE */
+        return MALFORMED_PACKET;
+    }
+
+#ifndef QCOM_HARDWARE
+    size_t skip = V + PLEN + (P ? 0 : 2);
+
+#endif /* ! QCOM_HARDWARE */
     buffer->setRange(buffer->offset() + skip, buffer->size() - skip);
 
+#ifndef QCOM_HARDWARE
+    if (P) {
+#else /* QCOM_HARDWARE */
     if (skip == 0) {
+#endif /* QCOM_HARDWARE */
         buffer->data()[0] = 0x00;
         buffer->data()[1] = 0x00;
     }
@@ -188,6 +235,7 @@ void AH263Assembler::onByeReceived() {
     msg->post();
 }
 
+#ifdef QCOM_HARDWARE
 size_t AH263Assembler::getOffsetOfHeader(const sp<ABuffer> buffer) {
     //the final right offset should be 0 or 2, it is
     //initialized to 1 for checking whether errors happen
@@ -251,5 +299,6 @@ void AH263Assembler::insertPacket(const sp<ABuffer> &buffer){
     ALOGV("insert the buffer into the current packets");
     mPackets.insert(it, buffer);
 }
+#endif /* QCOM_HARDWARE */
 }  // namespace android
 

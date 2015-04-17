@@ -50,8 +50,10 @@ struct ARTPConnection : public AHandler {
     static void MakePortPair(
             int *rtpSocket, int *rtcpSocket, unsigned *rtpPort);
 
+#ifdef QCOM_HARDWARE
     void setIPVersion(int ipVersion);
 
+#endif /* QCOM_HARDWARE */
 protected:
     virtual ~ARTPConnection();
     virtual void onMessageReceived(const sp<AMessage> &msg);
@@ -73,7 +75,9 @@ private:
 
     bool mPollEventPending;
     int64_t mLastReceiverReportTimeUs;
+#ifdef QCOM_HARDWARE
     int mIPVersion;
+#endif /* QCOM_HARDWARE */
 
     void onAddStream(const sp<AMessage> &msg);
     void onRemoveStream(const sp<AMessage> &msg);

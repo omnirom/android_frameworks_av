@@ -173,10 +173,12 @@ enum {
     kKeyTrackIsDefault    = 'dflt', // bool (int32_t)
     // Similar to MediaFormat.KEY_IS_FORCED_SUBTITLE but pertains to av tracks as well.
     kKeyTrackIsForced     = 'frcd', // bool (int32_t)
+#ifdef QCOM_HARDWARE
 
     // Indicate if it is OK to hold on to the MediaBuffer and not
     // release it immediately
     kKeyCanDeferRelease   = 'drel', // bool (int32_t)
+#endif /* QCOM_HARDWARE */
 };
 
 enum {

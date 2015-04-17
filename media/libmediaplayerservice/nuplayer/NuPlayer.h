@@ -19,10 +19,13 @@
 #define NU_PLAYER_H_
 
 #include <media/MediaPlayerInterface.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedStats.h>
+#endif /* QCOM_HARDWARE */
 #include <media/stagefright/foundation/AHandler.h>
 #include <media/stagefright/NativeWindowWrapper.h>
 
+#ifdef QCOM_HARDWARE
 #define PLAYER_STATS(func, ...) \
     do { \
         if(mPlayerExtendedStats != NULL) { \
@@ -30,6 +33,7 @@
     } \
     while(0)
 
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 struct ABuffer;
@@ -78,7 +82,9 @@ struct NuPlayer : public AHandler {
     void getStats(int64_t *mNumFramesTotal, int64_t *mNumFramesDropped);
 
     sp<MetaData> getFileMeta();
+#ifdef QCOM_HARDWARE
     int64_t getServerTimeoutUs();
+#endif /* QCOM_HARDWARE */
 
 protected:
     virtual ~NuPlayer();
@@ -129,7 +135,9 @@ private:
         kWhatGetSelectedTrack           = 'gSel',
         kWhatSelectTrack                = 'selT',
     };
+#ifdef QCOM_HARDWARE
     sp<PlayerExtendedStats> mPlayerExtendedStats;
+#endif /* QCOM_HARDWARE */
 
     wp<NuPlayerDriver> mDriver;
     bool mUIDValid;
@@ -140,12 +148,16 @@ private:
     sp<MediaPlayerBase::AudioSink> mAudioSink;
     sp<DecoderBase> mVideoDecoder;
     bool mOffloadAudio;
+#ifdef QCOM_HARDWARE
 
     bool mOffloadDecodedPCM;
     bool mSwitchingFromPcmOffload;
     bool mIsStreaming;
+#endif /* QCOM_HARDWARE */
     sp<DecoderBase> mAudioDecoder;
+#ifdef QCOM_HARDWARE
 
+#endif /* QCOM_HARDWARE */
     sp<CCDecoder> mCCDecoder;
     sp<Renderer> mRenderer;
     sp<ALooper> mRendererLooper;
