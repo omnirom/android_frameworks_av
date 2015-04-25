@@ -1115,7 +1115,7 @@ void NuPlayer::onStart() {
                 ((mime && !ExtendedUtils::pcmOffloadException(mime)) &&
                 canOffloadStream(audioPCMMeta, (videoFormat != NULL), vMeta,
                         mIsStreaming /* is_streaming */, streamType)) &&
-                (videoFormat != NULL && offloadVideoAudio);
+                (videoFormat != NULL ? offloadVideoAudio : true);
         mOffloadDecodedPCM = mOffloadAudio;
         ALOGI("Could not offload audio decode, pcm offload decided :%d",
                 mOffloadDecodedPCM);
