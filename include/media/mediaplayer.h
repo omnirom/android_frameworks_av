@@ -50,6 +50,7 @@ enum media_event_type {
     MEDIA_ERROR             = 100,
     MEDIA_INFO              = 200,
     MEDIA_SUBTITLE_DATA     = 201,
+    MEDIA_QOE               = 300,
 };
 
 // Generic error codes for the media player framework.  Errors are fatal, the
@@ -143,7 +144,8 @@ enum media_player_states {
     MEDIA_PLAYER_STARTED            = 1 << 4,
     MEDIA_PLAYER_PAUSED             = 1 << 5,
     MEDIA_PLAYER_STOPPED            = 1 << 6,
-    MEDIA_PLAYER_PLAYBACK_COMPLETE  = 1 << 7
+    MEDIA_PLAYER_PLAYBACK_COMPLETE  = 1 << 7,
+    MEDIA_PLAYER_SUSPENDED          = 1 << 8
 };
 
 // Keep KEY_PARAMETER_* in sync with MediaPlayer.java.
@@ -254,6 +256,8 @@ public:
             status_t        getParameter(int key, Parcel* reply);
             status_t        setRetransmitEndpoint(const char* addrString, uint16_t port);
             status_t        setNextMediaPlayer(const sp<MediaPlayer>& player);
+            status_t        suspend();
+            status_t        resume();
 
 private:
             void            clear_l();

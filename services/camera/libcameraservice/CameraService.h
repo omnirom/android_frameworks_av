@@ -193,6 +193,7 @@ public:
         pid_t                           mClientPid;
         uid_t                           mClientUid;      // immutable after constructor
         pid_t                           mServicePid;     // immutable after constructor
+        int                             mBurstCnt;
 
         // - The app-side Binder interface to receive callbacks from us
         sp<IBinder>                     mRemoteBinder;   // immutable after constructor
@@ -284,11 +285,11 @@ public:
         virtual void         notifyError(ICameraDeviceCallbacks::CameraErrorCode errorCode,
                                          const CaptureResultExtras& resultExtras);
 
-        // Initialized in constructor
 
         // - The app-side Binder interface to receive callbacks from us
         sp<ICameraClient>               mRemoteCallback;
 
+        bool                 mLongshotEnabled;
     }; // class Client
 
     class ProClient : public BnProCameraUser, public BasicClient {

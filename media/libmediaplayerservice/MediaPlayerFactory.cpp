@@ -33,6 +33,7 @@
 #include "TestPlayerStub.h"
 #include "StagefrightPlayer.h"
 #include "nuplayer/NuPlayerDriver.h"
+#include <dlfcn.h>
 
 namespace android {
 
@@ -184,6 +185,27 @@ class StagefrightPlayerFactory :
                                int64_t offset,
                                int64_t length,
                                float /*curScore*/) {
+
+#ifdef QTI_FLAC_DECODER
+        // Flac playback forced to Awesomeplayer
+        if (fd) {
+            char symName[40] = {0};
+            char fileName[256] = {0};
+            snprintf(symName, sizeof(symName), "/proc/%d/fd/%d", getpid(), fd);
+
+            if (readlink(symName, fileName, (sizeof(fileName) - 1)) != -1 ) {
+                static const char* extn = ".flac";
+                uint32_t lenExtn = strlen(extn);
+                uint32_t lenFileName = strlen(fileName);
+                uint32_t start = lenFileName - lenExtn;
+                if (start > 0) {
+                    if (!strncasecmp(fileName + start, extn, lenExtn)) {
+                        return 1.0;
+                    }
+                }
+            }
+        }
+#endif
         if (legacyDrm()) {
             sp<DataSource> source = new FileSource(dup(fd), offset, length);
             String8 mimeType;
@@ -261,6 +283,11 @@ class NuPlayerFactory : public MediaPlayerFactory::IFactory {
         }
 
         if (!strncasecmp("rtsp://", url, 7)) {
+            return kOurScore;
+        }
+
+        if (!strncasecmp("http://", url, 7)
+                || !strncasecmp("https://", url, 8)) {
             return kOurScore;
         }
 
@@ -377,6 +404,32 @@ void MediaPlayerFactory::registerBuiltinFactories() {
     registerFactory_l(new SonivoxPlayerFactory(), SONIVOX_PLAYER);
     registerFactory_l(new TestPlayerFactory(), TEST_PLAYER);
 
+    const char* FACTORY_LIB           = "libdashplayer.so";
+    const char* FACTORY_CREATE_FN     = "CreateDASHFactory";
+
+    MediaPlayerFactory::IFactory* pFactory  = NULL;
+    void* pFactoryLib = NULL;
+    typedef MediaPlayerFactory::IFactory* (*CreateDASHDriverFn)();
+    ALOGE("calling dlopen on FACTORY_LIB");
+    pFactoryLib = ::dlopen(FACTORY_LIB, RTLD_LAZY);
+    if (pFactoryLib == NULL) {
+      ALOGE("Failed to open FACTORY_LIB Error : %s ",::dlerror());
+    } else {
+      CreateDASHDriverFn pCreateFnPtr;
+      ALOGE("calling dlsym on pFactoryLib for FACTORY_CREATE_FN ");
+      pCreateFnPtr = (CreateDASHDriverFn) dlsym(pFactoryLib, FACTORY_CREATE_FN);
+      if (pCreateFnPtr == NULL) {
+          ALOGE("Could not locate pCreateFnPtr");
+      } else {
+        pFactory = pCreateFnPtr();
+        if(pFactory == NULL) {
+          ALOGE("Failed to invoke CreateDASHDriverFn...");
+        } else {
+          ALOGE("registering DASH Player factory...");
+          registerFactory_l(pFactory,DASH_PLAYER);
+        }
+      }
+    }
     sInitComplete = true;
 }
 

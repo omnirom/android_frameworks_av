@@ -31,7 +31,12 @@
 #include <media/stagefright/foundation/hexdump.h>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <netdb.h>
+
 #include <sys/socket.h>
+
+#include "include/ExtendedUtils.h"
 
 namespace android {
 
@@ -70,7 +75,8 @@ struct ARTPConnection::StreamInfo {
 ARTPConnection::ARTPConnection(uint32_t flags)
     : mFlags(flags),
       mPollEventPending(false),
-      mLastReceiverReportTimeUs(-1) {
+      mLastReceiverReportTimeUs(-1),
+      mIPVersion(IPV4) {
 }
 
 ARTPConnection::~ARTPConnection() {
@@ -82,6 +88,7 @@ void ARTPConnection::addStream(
         size_t index,
         const sp<AMessage> &notify,
         bool injected) {
+        ALOGV("addStream() rtpSocket:%d rtcpSocket:%d index:%zu injected:%d", rtpSocket, rtcpSocket, index, (int)injected);
     sp<AMessage> msg = new AMessage(kWhatAddStream, id());
     msg->setInt32("rtp-socket", rtpSocket);
     msg->setInt32("rtcp-socket", rtcpSocket);
@@ -93,6 +100,7 @@ void ARTPConnection::addStream(
 }
 
 void ARTPConnection::removeStream(int rtpSocket, int rtcpSocket) {
+    ALOGV("removeStream() rtpSocket:%d rtcpSocket:%d ", rtpSocket, rtcpSocket);
     sp<AMessage> msg = new AMessage(kWhatRemoveStream, id());
     msg->setInt32("rtp-socket", rtpSocket);
     msg->setInt32("rtcp-socket", rtcpSocket);
@@ -104,7 +112,12 @@ static void bumpSocketBufferSize(int s) {
     CHECK_EQ(setsockopt(s, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)), 0);
 }
 
-// static
+void ARTPConnection::setIPVersion(int ipVersion) {
+    mIPVersion = ipVersion;
+    ALOGI("IP Version:%d", mIPVersion);
+}
+
+//static
 void ARTPConnection::MakePortPair(
         int *rtpSocket, int *rtcpSocket, unsigned *rtpPort) {
     *rtpSocket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -117,11 +130,20 @@ void ARTPConnection::MakePortPair(
 
     bumpSocketBufferSize(*rtcpSocket);
 
-    /* rand() * 1000 may overflow int type, use long long */
-    unsigned start = (unsigned)((rand()* 1000ll)/RAND_MAX) + 15550;
-    start &= ~1;
+    unsigned portRangeStart = 0;
+    unsigned portRangeEnd = 0;
+    ExtendedUtils::ShellProp::getRtpPortRange(&portRangeStart, &portRangeEnd);
 
-    for (unsigned port = start; port < 65536; port += 2) {
+    // choose a random start port from range of [portRangeStart, portRangeEnd)
+    unsigned start = (unsigned)((random() % (portRangeEnd - portRangeStart))
+            + portRangeStart);
+    start &= ~1;
+    if (start < portRangeStart) {
+        start += 2;
+    }
+    ALOGV("Test rtp port in range [%u, %u]", start, portRangeEnd);
+
+    for (unsigned port = start; port <= portRangeEnd; port += 2) {
         struct sockaddr_in addr;
         memset(addr.sin_zero, 0, sizeof(addr.sin_zero));
         addr.sin_family = AF_INET;
@@ -137,6 +159,7 @@ void ARTPConnection::MakePortPair(
 
         if (bind(*rtcpSocket,
                  (const struct sockaddr *)&addr, sizeof(addr)) == 0) {
+            ALOGV("RTCP port: %u", port + 1);
             *rtpPort = port;
             return;
         }
@@ -340,12 +363,21 @@ void ARTPConnection::onPollStreams() {
             if (buffer->size() > 0) {
                 ALOGV("Sending RR...");
 
-                ssize_t n;
+                ssize_t n = 0;
                 do {
-                    n = sendto(
-                        s->mRTCPSocket, buffer->data(), buffer->size(), 0,
-                        (const struct sockaddr *)&s->mRemoteRTCPAddr,
-                        sizeof(s->mRemoteRTCPAddr));
+                    if(mIPVersion == IPV4) {
+                        n = sendto(
+                            s->mRTCPSocket, buffer->data(), buffer->size(), 0,
+                            (const struct sockaddr *)&s->mRemoteRTCPAddr,
+                            sizeof(s->mRemoteRTCPAddr));
+                    } else if (mIPVersion == IPV6) {
+                        n = sendto(
+                            s->mRTCPSocket, buffer->data(), buffer->size(), 0,
+                            (const struct sockaddr *)&s->mRemoteRTCPAddr,
+                            sizeof(struct sockaddr_in6));
+                    } else {
+                        TRESPASS();
+                    }
                 } while (n < 0 && errno == EINTR);
 
                 if (n <= 0) {

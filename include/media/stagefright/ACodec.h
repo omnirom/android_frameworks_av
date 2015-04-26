@@ -23,10 +23,18 @@
 #include <media/IOMX.h>
 #include <media/stagefright/foundation/AHierarchicalStateMachine.h>
 #include <media/stagefright/CodecBase.h>
+#include <media/stagefright/ExtendedStats.h>
 #include <media/stagefright/SkipCutBuffer.h>
 #include <OMX_Audio.h>
 
 #define TRACK_BUFFER_TIMING     0
+
+#define CODEC_PLAYER_STATS(func, ...) \
+    do { \
+        if(mCodec != NULL && mCodec->mMediaExtendedStats != NULL) { \
+            mCodec->mMediaExtendedStats->func(__VA_ARGS__);} \
+    } \
+    while(0)
 
 namespace android {
 
@@ -172,6 +180,7 @@ private:
     sp<IdleToLoadedState> mIdleToLoadedState;
     sp<FlushingState> mFlushingState;
     sp<SkipCutBuffer> mSkipCutBuffer;
+    sp<MediaExtendedStats> mMediaExtendedStats;
 
     AString mComponentName;
     uint32_t mFlags;
@@ -194,6 +203,8 @@ private:
     bool mSentFormat;
     bool mIsEncoder;
     bool mUseMetadataOnEncoderOutput;
+    bool mEncoderComponent;
+    bool mComponentAllocByName;
     bool mShutdownInProgress;
     bool mExplicitShutdown;
 
@@ -221,6 +232,8 @@ private:
     bool mCreateInputBuffersSuspended;
 
     bool mTunneled;
+
+    bool mIsVideoRenderingDisabled;
 
     status_t setCyclicIntraMacroblockRefresh(const sp<AMessage> &msg, int32_t mode);
     status_t allocateBuffersOnPort(OMX_U32 portIndex);

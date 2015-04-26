@@ -38,6 +38,7 @@
 #include "../../libstagefright/include/WVMExtractor.h"
 #include "../../libstagefright/include/HTTPBase.h"
 
+#include <ExtendedUtils.h>
 namespace android {
 
 static int64_t kLowWaterMarkUs = 2000000ll;  // 2secs
@@ -240,6 +241,8 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
                     if (mUIDValid) {
                         extractor->setUID(mUID);
                     }
+                } else {
+                     mIsWidevine = false;
                 }
             }
         }
@@ -272,9 +275,30 @@ status_t NuPlayer::GenericSource::startSources() {
     // Widevine sources might re-initialize crypto when starting, if we delay
     // this to start(), all data buffered during prepare would be wasted.
     // (We don't actually start reading until start().)
-    if (mAudioTrack.mSource != NULL && mAudioTrack.mSource->start() != OK) {
-        ALOGE("failed to start audio track!");
-        return UNKNOWN_ERROR;
+    if (mAudioTrack.mSource != NULL) {
+        bool overrideSourceStart = false;
+        status_t status = false;
+        sp<MetaData> audioMeta = NULL;
+        audioMeta = mAudioTrack.mSource->getFormat();
+
+        if (ExtendedUtils::is24bitPCMOffloadEnabled()) {
+            if(ExtendedUtils::is24bitPCMOffloaded(audioMeta)) {
+                overrideSourceStart = true;
+            }
+        }
+
+        if (overrideSourceStart && audioMeta.get()) {
+            ALOGV("Override AudioTrack source with Meta");
+            status = mAudioTrack.mSource->start(audioMeta.get());
+        } else {
+            ALOGV("Do not override AudioTrack source with Meta");
+            status = mAudioTrack.mSource->start();
+        }
+
+        if (status != OK ) {
+            ALOGE("failed to start audio track!");
+            return UNKNOWN_ERROR;
+        }
     }
 
     if (mVideoTrack.mSource != NULL && mVideoTrack.mSource->start() != OK) {
@@ -338,6 +362,7 @@ void NuPlayer::GenericSource::prepareAsync() {
 
 void NuPlayer::GenericSource::onPrepareAsync() {
     // delayed data source creation
+    ALOGV("%s", __func__);
     if (mDataSource == NULL) {
         // set to false first, if the extractor
         // comes back as secure, set it to true then.
@@ -1504,13 +1529,13 @@ void NuPlayer::GenericSource::readBuffer(
     switch (trackType) {
         case MEDIA_TRACK_TYPE_VIDEO:
             track = &mVideoTrack;
-            if (mIsWidevine) {
+            if (mIsWidevine || (mHttpSource != NULL)) {
                 maxBuffers = 2;
             }
             break;
         case MEDIA_TRACK_TYPE_AUDIO:
             track = &mAudioTrack;
-            if (mIsWidevine) {
+            if (mIsWidevine || (mHttpSource != NULL)) {
                 maxBuffers = 8;
             } else {
                 maxBuffers = 64;
@@ -1574,12 +1599,16 @@ void NuPlayer::GenericSource::readBuffer(
                 track->mPackets->queueDiscontinuity( type, NULL, true /* discard */);
             }
 
-            sp<ABuffer> buffer = mediaBufferToABuffer(
-                    mbuf, trackType, seekTimeUs, actualTimeUs);
+            sp<ABuffer> buffer = mediaBufferToABuffer(mbuf, trackType, seekTimeUs,
+                numBuffers == 0 ? actualTimeUs : NULL);
             track->mPackets->queueAccessUnit(buffer);
             formatChange = false;
             seeking = false;
             ++numBuffers;
+
+            if (trackType == MEDIA_TRACK_TYPE_VIDEO) {
+                actualTimeUs = NULL;
+            }
         } else if (err == WOULD_BLOCK) {
             break;
         } else if (err == INFO_FORMAT_CHANGED) {

@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2015, The Linux Foundation. All rights reserved.
+ * Not a Contribution.
  * Copyright (C) 2015 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,7 +39,9 @@ AWakeLock::AWakeLock() :
 AWakeLock::~AWakeLock() {
     if (mPowerManager != NULL) {
         sp<IBinder> binder = mPowerManager->asBinder();
-        binder->unlinkToDeath(mDeathRecipient);
+        if (binder != NULL) {
+            binder->unlinkToDeath(mDeathRecipient);
+        }
     }
     clearPowerManager();
 }

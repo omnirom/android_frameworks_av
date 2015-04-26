@@ -456,6 +456,9 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
     const size_t SIZE = 256;
     char buffer[SIZE];
     String8 result;
+    SortedVector< sp<Client> > clients; //to serialise the mutex unlock & client destruction.
+    SortedVector< sp<MediaRecorderClient> > mediaRecorderClients;
+
     if (checkCallingPermission(String16("android.permission.DUMP")) == false) {
         snprintf(buffer, SIZE, "Permission Denial: "
                 "can't dump MediaPlayerService from pid=%d, uid=%d\n",
@@ -467,6 +470,7 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
         for (int i = 0, n = mClients.size(); i < n; ++i) {
             sp<Client> c = mClients[i].promote();
             if (c != 0) c->dump(fd, args);
+            clients.add(c);
         }
         if (mMediaRecorderClients.size() == 0) {
                 result.append(" No media recorder client\n\n");
@@ -479,6 +483,7 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
                     write(fd, result.string(), result.size());
                     result = "\n";
                     c->dump(fd, args);
+                    mediaRecorderClients.add(c);
                 }
             }
         }
@@ -1198,8 +1203,17 @@ void MediaPlayerService::Client::notify(
         if (msg == MEDIA_PLAYBACK_COMPLETE && client->mNextClient != NULL) {
             if (client->mAudioOutput != NULL)
                 client->mAudioOutput->switchToNextOutput();
-            client->mNextClient->start();
-            client->mNextClient->mClient->notify(MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            ALOGD("gapless:current track played back");
+            ALOGD("gapless:try to do a gapless switch to next track");
+            status_t ret;
+            ret = client->mNextClient->start();
+            if (ret == NO_ERROR) {
+                client->mNextClient->mClient->notify(MEDIA_INFO,
+                        MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            } else {
+                client->mClient->notify(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN , 0, obj);
+                ALOGW("gapless:start playback for next track failed");
+            }
         }
     }
 
@@ -1244,6 +1258,22 @@ void MediaPlayerService::Client::addNewMetadataUpdate(media::Metadata::Type meta
     if (mMetadataUpdated.indexOf(metadata_type) < 0) {
         mMetadataUpdated.add(metadata_type);
     }
+}
+
+status_t MediaPlayerService::Client::suspend()
+{
+    ALOGV("[%d] suspend", mConnId);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == NULL) return NO_INIT;
+    return p->suspend();
+}
+
+status_t MediaPlayerService::Client::resume()
+{
+    ALOGV("[%d] resume", mConnId);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == NULL) return NO_INIT;
+    return p->resume();
 }
 
 #if CALLBACK_ANTAGONIZER
@@ -1325,7 +1355,7 @@ status_t MediaPlayerService::decode(
     if (cache->wait() != NO_ERROR) goto Exit;
 
     ALOGV("start");
-    player->start();
+    if (player->start() != NO_ERROR) goto Exit;
 
     ALOGV("wait for playback complete");
     cache->wait();
@@ -1380,7 +1410,7 @@ status_t MediaPlayerService::decode(int fd, int64_t offset, int64_t length,
     if (cache->wait() != NO_ERROR) goto Exit;
 
     ALOGV("start");
-    player->start();
+    if (player->start() != NO_ERROR) goto Exit;
 
     ALOGV("wait for playback complete");
     cache->wait();
@@ -1427,6 +1457,7 @@ MediaPlayerService::AudioOutput::AudioOutput(int sessionId, int uid, int pid,
     mSendLevel = 0.0;
     setMinBufferCount();
     mAttributes = attr;
+    mBitWidth = 16;
 }
 
 MediaPlayerService::AudioOutput::~AudioOutput()
@@ -1635,6 +1666,15 @@ status_t MediaPlayerService::AudioOutput::open(
         } else if (mRecycledTrack->format() != format) {
             reuse = false;
         }
+
+        if (bothOffloaded) {
+            if (mBitWidth != offloadInfo->bit_width) {
+                ALOGV("output bit width differs %d v/s %d",
+                      mBitWidth, offloadInfo->bit_width);
+                reuse = false;
+            }
+        }
+
     } else {
         ALOGV("no track available to recycle");
     }
@@ -1746,6 +1786,13 @@ status_t MediaPlayerService::AudioOutput::open(
     mSampleRateHz = sampleRate;
     mFlags = flags;
     mMsecsPerFrame = mPlaybackRatePermille / (float) sampleRate;
+
+    if (offloadInfo) {
+        mBitWidth = offloadInfo->bit_width;
+    } else {
+        mBitWidth = 16;
+    }
+
     uint32_t pos;
     if (t->getPosition(&pos) == OK) {
         mBytesWritten = uint64_t(pos) * t->frameSize();
@@ -1753,7 +1800,7 @@ status_t MediaPlayerService::AudioOutput::open(
     mTrack = t;
 
     status_t res = NO_ERROR;
-    if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) {
+    if ((t->getFlags() & (AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_DIRECT)) == 0) {
         res = t->setSampleRate(mPlaybackRatePermille * mSampleRateHz / 1000);
         if (res == NO_ERROR) {
             t->setAuxEffectSendLevel(mSendLevel);
@@ -1798,6 +1845,7 @@ void MediaPlayerService::AudioOutput::switchToNextOutput() {
         mNextOutput->mMsecsPerFrame = mMsecsPerFrame;
         mNextOutput->mBytesWritten = mBytesWritten;
         mNextOutput->mFlags = mFlags;
+        mNextOutput->mBitWidth = mBitWidth;
     }
 }
 
@@ -2069,6 +2117,7 @@ status_t MediaPlayerService::AudioCache::open(
 {
     ALOGV("open(%u, %d, 0x%x, %d, %d)", sampleRate, channelCount, channelMask, format, bufferCount);
     if (mHeap->getHeapID() < 0) {
+        ALOGE("Invalid heap Id");
         return NO_INIT;
     }
 
@@ -2078,7 +2127,12 @@ status_t MediaPlayerService::AudioCache::open(
     mMsecsPerFrame = 1.e3 / (float) sampleRate;
     mFrameSize =  audio_is_linear_pcm(mFormat)
             ? mChannelCount * audio_bytes_per_sample(mFormat) : 1;
-    mFrameCount = mHeap->getSize() / mFrameSize;
+
+    if (cb == NULL) {
+        // Use buffer of size equal to that of the heap if AudioCache used by NuPlayer.
+        // Otherwise use default buffersize.
+        mFrameCount = mHeap->getSize() / mFrameSize;
+    }
 
     if (cb != NULL) {
         mCallbackThread = new CallbackThread(this, cb, cookie);

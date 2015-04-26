@@ -33,6 +33,8 @@
 
 #include <inttypes.h>
 
+#include <ExtendedUtils.h>
+
 namespace android {
 
 struct DataSourceReader : public mkvparser::IMkvReader {
@@ -850,6 +852,8 @@ static void addESDSFromCodecPrivate(
     memcpy(esds + idx, priv, privSize);
 
     meta->setData(kKeyESDS, 0, esds, esdsSize);
+
+    ExtendedUtils::updateVideoTrackInfoFromESDS_MPEG4Video(meta);
 
     delete[] esds;
     esds = NULL;
