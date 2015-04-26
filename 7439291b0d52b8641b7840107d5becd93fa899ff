@@ -1,0 +1,1143 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "2b1c0951_a938f9eb",
+        "filename": "NOTICE",
+        "patchSetId": 3
+      },
+      "lineNbr": 325,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Kill these ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_c93d35db",
+        "filename": "cmds/stagefright/stagefright.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Kill these ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_e942f163",
+        "filename": "cmds/stagefright/stagefright.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 643,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Potentially redundant",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_09282d95",
+        "filename": "drm/libdrmframework/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 34,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "We can probably safely remove ifdefs for this change",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2925e9bd",
+        "filename": "include/media/MediaPlayerInterface.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 226,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move these ifdefs down two lines",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_49322509",
+        "filename": "include/media/MediaProfiles.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 83,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Unneeded, clear this out",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_692fe19b",
+        "filename": "include/media/MediaProfiles.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 172,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove ifdef of comments, bad things happen",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_891c1d7d",
+        "filename": "include/media/mediarecorder.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 2,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Get rid of this",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_a921d9af",
+        "filename": "include/media/mediarecorder.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 76,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "No need to ifdef this",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_c916155b",
+        "filename": "include/media/mediarecorder.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 115,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Replace with a plain old ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_e91bd17f",
+        "filename": "include/media/stagefright/AudioPlayer.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_09110d61",
+        "filename": "include/media/stagefright/AudioPlayer.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 142,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Check for redundancy\n\nProbably better safe than sorry though",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_290ec93d",
+        "filename": "include/media/stagefright/AudioPlayer.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 152,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "A little messy, clean it",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_490b052d",
+        "filename": "include/media/stagefright/AudioSource.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 122,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Useless ifdef, clean it",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6908c12f",
+        "filename": "include/media/stagefright/MediaDefs.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this ifdef of comments",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8cf98b1a",
+        "filename": "include/media/stagefright/MediaDefs.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 91,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Check for redundancy",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_acfe47fd",
+        "filename": "include/media/stagefright/MediaErrors.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc038310",
+        "filename": "include/media/stagefright/MediaErrors.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 77,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Check for redundancy",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec083f2d",
+        "filename": "include/media/stagefright/OMXCodec.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4c18737a",
+        "filename": "include/media/stagefright/OMXCodec.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 277,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Check for redundancy",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c226ba2",
+        "filename": "include/media/stagefright/foundation/AWakeLock.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 2,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac2727b1",
+        "filename": "media/libeffects/data/audio_effects.conf",
+        "patchSetId": 3
+      },
+      "lineNbr": 1,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc1c636c",
+        "filename": "media/libeffects/data/audio_effects.conf",
+        "patchSetId": 3
+      },
+      "lineNbr": 62,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "We probably can\u0027t ifdef this file, need to look into what #DOLBY_DAP does",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec211f9d",
+        "filename": "media/libeffects/data/audio_effects.conf",
+        "patchSetId": 3
+      },
+      "lineNbr": 160,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Same as above",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0c375be2",
+        "filename": "media/libeffects/lvm/wrapper/Bundle/EffectBundle.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2896,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "ifdefs of comments, but // might be OK, may want to leave this so it\u0027s clear",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4c5f9312",
+        "filename": "media/libeffects/lvm/wrapper/Bundle/EffectBundle.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3000,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "ifdefs of comments usually do bad things, but a // might be OK",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_aca2c7f8",
+        "filename": "media/libeffects/lvm/wrapper/Bundle/EffectBundle.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3023,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Same as previous",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cca70308",
+        "filename": "media/libeffects/lvm/wrapper/Bundle/EffectBundle.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3079,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Again, same as before",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ecacbfec",
+        "filename": "media/libeffects/lvm/wrapper/Bundle/EffectBundle.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3422,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Just remove this ifdef and keep qcom\u0027s typo fix",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0cb2fb49",
+        "filename": "media/libmedia/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 14,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "FIXME - can\u0027t ifdef .mk files",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2cafb7de",
+        "filename": "media/libmedia/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 78,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "FIXME",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4cbcf319",
+        "filename": "media/libmedia/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 94,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Fix this",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6cb9af28",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 490,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this blank line ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c86eb69",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1168,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "We can merge this block with the one below",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac8ba770",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1187,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "This appears to be just indentation cruft?",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc80e34f",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1194,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Useless ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec859f5c",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1474,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Can probably remove these ifdefs, it\u0027s just for log typo corrections",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0c9bdbc1",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1516,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Can probably convert this to a #else",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2cddf772",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2355,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move this into the ifndef/else blocks for readability...",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4cea3306",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2443,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move this into the ifndef/else blocks for readability",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6ce7ef3c",
+        "filename": "media/libmedia/AudioTrack.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2444,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "This whole block can be moved into the ifndef above",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8cd42b4e",
+        "filename": "media/libmedia/AudioTrackShared.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 167,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Ifdef of comments, need to be careful",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_acd9e784",
+        "filename": "media/libmedia/AudioTrackShared.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 629,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Again, gotta be careful with comments",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ccce23b8",
+        "filename": "media/libmedia/IMediaPlayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 575,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move this and its mate down two lines",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ecd3df60",
+        "filename": "media/libmedia/IMediaRecorder.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 348,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move this and its mate down two lines",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2cc6d79e",
+        "filename": "media/libmedia/SoundPool.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 293,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Need to think about all of this",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c318bbb",
+        "filename": "media/libmedia/SoundPool.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 651,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "May just be able to ifdef this and its endbracket instead of this ifndef/else mess",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4cc3138e",
+        "filename": "media/libmedia/SoundPool.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 662,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "ifdefs of comments that appear to be merely typo-fixed or indented\n\nrearrange?",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6cc0cf80",
+        "filename": "media/libmedia/SoundPool.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 667,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "BE CAREFUL with nested ifdefs here!",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac3647ae",
+        "filename": "media/libmedia/mediaplayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 918,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move this and its mate down one for readability",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc3b8395",
+        "filename": "media/libmediaplayerservice/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 62,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "FIXME, can\u0027t ifdef .mk files\n\nchange to checking for BOARD_HAS_QCOM_HARDWARE",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec403f0e",
+        "filename": "media/libmediaplayerservice/StagefrightRecorder.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 979,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Should we rename this to ENABLE_QC_AV_ENHANCEMENTS?",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0c467b27",
+        "filename": "media/libmediaplayerservice/StagefrightRecorder.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1405,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "useless blank line ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2c6c1798",
+        "filename": "media/libmediaplayerservice/StagefrightRecorder.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2076,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this blank line ifndef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6c660fba",
+        "filename": "media/libmediaplayerservice/StagefrightRecorder.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2218,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move this and its mate down one line for readability",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0cf4bbcb",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 362,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move this up with the previous block",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec0e7fe6",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 367,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "bogus blank line ifdef, remove",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2cf177dc",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 677,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this indentation change ifndef/else",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4cfeb3ab",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 966,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Decide whether to make this V or I, remove ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6cfb6fba",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1159,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this blank line ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c28ab33",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1193,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "We can probably move this block to above the previous QCOM_HARDWARE ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac2d6742",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayer.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2103,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Move this to above 2082",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc22a351",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayer.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 158,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this blank line ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec275f5e",
+        "filename": "media/libmediaplayerservice/nuplayer/NuPlayerRenderer.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 203,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Kill this blank line ifndef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0c1d9b13",
+        "filename": "media/libmediaplayerservice/nuplayer/RTSPSource.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 324,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Put an endif here",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2c1a571c",
+        "filename": "media/libmediaplayerservice/nuplayer/RTSPSource.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 327,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "ifdef this whole function",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4c1793f3",
+        "filename": "media/libstagefright/ACodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-26T19:19:42Z",
+      "side": 1,
+      "message": "Remove this comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
