@@ -7,7 +7,9 @@ LOCAL_SRC_FILES:=                 \
 LOCAL_C_INCLUDES:= \
         $(TOP)/external/libvpx/libwebm \
         $(TOP)/frameworks/native/include/media/openmax \
+#ifdef QCOM_HARDWARE
         $(TOP)/frameworks/av/media/libstagefright/include \
+#endif /* QCOM_HARDWARE */
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 

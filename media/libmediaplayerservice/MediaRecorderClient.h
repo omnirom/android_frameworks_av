@@ -50,7 +50,9 @@ public:
     virtual     status_t   prepare();
     virtual     status_t   getMaxAmplitude(int* max);
     virtual     status_t   start();
+#ifdef QCOM_HARDWARE
     virtual     status_t   pause();
+#endif /* QCOM_HARDWARE */
     virtual     status_t   stop();
     virtual     status_t   reset();
     virtual     status_t   init();

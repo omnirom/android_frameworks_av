@@ -21,6 +21,7 @@
 #include <media/stagefright/foundation/AHandlerReflector.h>
 #include <media/stagefright/MediaSource.h>
 
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedStats.h>
 #define RECORDER_STATS(func, ...) \
     do { \
@@ -29,6 +30,7 @@
     } \
     while(0)
 
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 class ALooper;
@@ -99,7 +101,9 @@ private:
     bool reachedEOS();
     status_t postSynchronouslyAndReturnError(const sp<AMessage> &msg);
 
+#ifdef QCOM_HARDWARE
     sp<RecorderExtendedStats> mRecorderExtendedStats;
+#endif /* QCOM_HARDWARE */
     sp<ALooper> mLooper;
     sp<ALooper> mCodecLooper;
     sp<AHandlerReflector<MediaCodecSource> > mReflector;

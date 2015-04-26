@@ -34,6 +34,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MediaCodecSource.h>
 #include <media/stagefright/Utils.h>
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
 
 #ifdef ENABLE_AV_ENHANCEMENTS
@@ -41,6 +42,7 @@
 #include <media/stagefright/OMXCodec.h>
 #include <ExtendedUtils.h>
 #endif
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -314,10 +316,12 @@ status_t MediaCodecSource::read(
         MediaBuffer** buffer, const ReadOptions* /* options */) {
     Mutex::Autolock autolock(mOutputBufferLock);
 
+#ifdef QCOM_HARDWARE
     AString outputMIME;
     CHECK(mOutputFormat->findString("mime", &outputMIME));
     RECORDER_STATS(profileStartOnce, STATS_PROFILE_FIRST_BUFFER(mIsVideo));
 
+#endif /* QCOM_HARDWARE */
     *buffer = NULL;
     while (mOutputBufferQueue.size() == 0 && !mEncoderReachedEOS) {
         mOutputBufferCond.wait(mOutputBufferLock);
@@ -325,11 +329,15 @@ status_t MediaCodecSource::read(
     if (!mEncoderReachedEOS) {
         *buffer = *mOutputBufferQueue.begin();
         mOutputBufferQueue.erase(mOutputBufferQueue.begin());
+#ifdef QCOM_HARDWARE
 
         RECORDER_STATS(profileStop, STATS_PROFILE_FIRST_BUFFER(mIsVideo));
+#endif /* QCOM_HARDWARE */
         return OK;
     }
+#ifdef QCOM_HARDWARE
     RECORDER_STATS(profileStop, STATS_PROFILE_FIRST_BUFFER(mIsVideo));
+#endif /* QCOM_HARDWARE */
     return mErrorCode;
 }
 
@@ -366,6 +374,7 @@ MediaCodecSource::MediaCodecSource(
     if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
         mPuller = new Puller(source);
     }
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
     int32_t bitRate = 0;
     int32_t sampleRate = 0;
@@ -401,6 +410,7 @@ MediaCodecSource::MediaCodecSource(
     if (mRecorderExtendedStats == NULL) {
         outputFormat->findObject(MEDIA_EXTENDED_STATS, (sp<RefBase>*)&mRecorderExtendedStats);
     }
+#endif /* QCOM_HARDWARE */
 }
 
 MediaCodecSource::~MediaCodecSource() {
@@ -439,6 +449,10 @@ status_t MediaCodecSource::initEncoder() {
     AString outputMIME;
     CHECK(mOutputFormat->findString("mime", &outputMIME));
 
+#ifndef QCOM_HARDWARE
+    mEncoder = MediaCodec::CreateByType(
+            mCodecLooper, outputMIME.c_str(), true /* encoder */);
+#else /* QCOM_HARDWARE */
     int width, height;
     mOutputFormat->findInt32("width", &width);
     mOutputFormat->findInt32("height", &height);
@@ -453,6 +467,7 @@ status_t MediaCodecSource::initEncoder() {
         mEncoder = MediaCodec::CreateByType(
                 mCodecLooper, outputMIME.c_str(), true /* encoder */);
     }
+#endif /* QCOM_HARDWARE */
 
     if (mEncoder == NULL) {
         return NO_INIT;
@@ -460,9 +475,11 @@ status_t MediaCodecSource::initEncoder() {
 
     ALOGV("output format is '%s'", mOutputFormat->debugString(0).c_str());
 
+#ifdef QCOM_HARDWARE
     if (mRecorderExtendedStats != NULL) {
         mOutputFormat->setObject(MEDIA_EXTENDED_STATS, mRecorderExtendedStats);
     }
+#endif /* QCOM_HARDWARE */
     status_t err = mEncoder->configure(
                 mOutputFormat,
                 NULL /* nativeWindow */,
@@ -473,14 +490,18 @@ status_t MediaCodecSource::initEncoder() {
         return err;
     }
 
+#ifdef QCOM_HARDWARE
     int32_t hfrRatio = 0;
     mOutputFormat->findInt32("hfr-ratio", &hfrRatio);
 
+#endif /* QCOM_HARDWARE */
     mEncoder->getOutputFormat(&mOutputFormat);
     convertMessageToMetaData(mOutputFormat, mMeta);
 
+#ifdef QCOM_HARDWARE
     ExtendedUtils::HFR::setHFRRatio(mMeta, hfrRatio);
 
+#endif /* QCOM_HARDWARE */
     if (mFlags & FLAG_USE_SURFACE_INPUT) {
         CHECK(mIsVideo);
 
@@ -672,9 +693,11 @@ status_t MediaCodecSource::onStart(MetaData *params) {
             resume();
         } else {
             CHECK(mPuller != NULL);
+#ifdef QCOM_HARDWARE
             if (mIsVideo) {
                 mEncoder->requestIDRFrame();
             }
+#endif /* QCOM_HARDWARE */
             mPuller->resume();
         }
         return OK;
@@ -887,7 +910,11 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
     }
     case kWhatPause:
     {
+#ifndef QCOM_HARDWARE
+        if (mFlags && FLAG_USE_SURFACE_INPUT) {
+#else /* QCOM_HARDWARE */
         if (mFlags & FLAG_USE_SURFACE_INPUT) {
+#endif /* QCOM_HARDWARE */
             suspend();
         } else {
             CHECK(mPuller != NULL);

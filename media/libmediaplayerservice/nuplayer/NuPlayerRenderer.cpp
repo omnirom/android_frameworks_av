@@ -32,7 +32,9 @@
 #include <VideoFrameScheduler.h>
 
 #include <inttypes.h>
+#ifdef QCOM_HARDWARE
 #include <ExtendedUtils.h>
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -92,7 +94,9 @@ NuPlayer::Renderer::Renderer(
       mLastAudioBufferDrained(0),
       mWakeLock(new AWakeLock()) {
 
+#ifdef QCOM_HARDWARE
     notify->findObject(MEDIA_EXTENDED_STATS, (sp<RefBase>*)&mPlayerExtendedStats);
+#endif /* QCOM_HARDWARE */
 }
 
 NuPlayer::Renderer::~Renderer() {
@@ -308,13 +312,17 @@ status_t NuPlayer::Renderer::openAudioSink(
         bool offloadOnly,
         bool hasVideo,
         uint32_t flags,
+#ifdef QCOM_HARDWARE
         bool isStreaming,
+#endif /* QCOM_HARDWARE */
         bool *isOffloaded) {
     sp<AMessage> msg = new AMessage(kWhatOpenAudioSink, id());
     msg->setMessage("format", format);
     msg->setInt32("offload-only", offloadOnly);
     msg->setInt32("has-video", hasVideo);
+#ifdef QCOM_HARDWARE
     msg->setInt32("isStreaming", isStreaming);
+#endif /* QCOM_HARDWARE */
     msg->setInt32("flags", flags);
 
     sp<AMessage> response;
@@ -354,10 +362,14 @@ void NuPlayer::Renderer::onMessageReceived(const sp<AMessage> &msg) {
             uint32_t flags;
             CHECK(msg->findInt32("flags", (int32_t *)&flags));
 
+#ifndef QCOM_HARDWARE
+            status_t err = onOpenAudioSink(format, offloadOnly, hasVideo, flags);
+#else /* QCOM_HARDWARE */
             uint32_t isStreaming;
             CHECK(msg->findInt32("isStreaming", (int32_t *)&isStreaming));
 
             status_t err = onOpenAudioSink(format, offloadOnly, hasVideo, isStreaming, flags);
+#endif /* QCOM_HARDWARE */
 
             sp<AMessage> response = new AMessage;
             response->setInt32("err", err);
@@ -400,11 +412,17 @@ void NuPlayer::Renderer::onMessageReceived(const sp<AMessage> &msg) {
 
             if (onDrainAudioQueue()) {
                 uint32_t numFramesPlayed;
+#ifndef QCOM_HARDWARE
+                CHECK_EQ(mAudioSink->getPosition(&numFramesPlayed),
+                         (status_t)OK);
+
+#else /* QCOM_HARDWARE */
                 if (mAudioSink->getPosition(&numFramesPlayed) != OK) {
                     ALOGE("Error in time stamp query, return from here.\
                              Fillbuffer is called as part of session recreation");
                     break;
                 }
+#endif /* QCOM_HARDWARE */
                 uint32_t numFramesPendingPlayout =
                     mNumFramesWritten - numFramesPlayed;
 
@@ -419,11 +437,15 @@ void NuPlayer::Renderer::onMessageReceived(const sp<AMessage> &msg) {
                 // kWhatDrainAudioQueue is used for non-offloading mode,
                 // and mLock is used only for offloading mode. Therefore,
                 // no need to acquire mLock here.
+#ifndef QCOM_HARDWARE
+                postDrainAudioQueue_l(delayUs / 2);
+#else /* QCOM_HARDWARE */
                 if(mAudioSink->frameCount() == numFramesPendingPlayout) {
                     postDrainAudioQueue_l(delayUs / 8);
                 } else {
                     postDrainAudioQueue_l(delayUs / 2);
                 }
+#endif /* QCOM_HARDWARE */
             }
             break;
         }
@@ -717,16 +739,22 @@ bool NuPlayer::Renderer::onDrainAudioQueue() {
 
         if (entry->mOffset == 0) {
             int64_t mediaTimeUs;
+#ifdef QCOM_HARDWARE
             int32_t eos = 0;
             int32_t bufferSize = 0;
+#endif /* QCOM_HARDWARE */
             CHECK(entry->mBuffer->meta()->findInt64("timeUs", &mediaTimeUs));
             ALOGV("rendering audio at media time %.2f secs", mediaTimeUs / 1E6);
+#ifndef QCOM_HARDWARE
+            onNewAudioMediaTime(mediaTimeUs);
+#else /* QCOM_HARDWARE */
 
             int32_t audioEos = 0;
             if (!(entry->mBuffer->meta()->findInt32("eos", &audioEos) &&
                 audioEos) || entry->mBuffer->size()) {
                 onNewAudioMediaTime(mediaTimeUs);
             }
+#endif /* QCOM_HARDWARE */
         }
 
         size_t copy = entry->mBuffer->size() - entry->mOffset;
@@ -912,10 +940,15 @@ void NuPlayer::Renderer::onDrainVideoQueue() {
 
     int64_t nowUs = -1;
     int64_t realTimeUs;
+#ifdef QCOM_HARDWARE
     int64_t mediaTimeUs;
+#endif /* QCOM_HARDWARE */
     if (mFlags & FLAG_REAL_TIME) {
         CHECK(entry->mBuffer->meta()->findInt64("timeUs", &realTimeUs));
     } else {
+#ifndef QCOM_HARDWARE
+        int64_t mediaTimeUs;
+#endif /* ! QCOM_HARDWARE */
         CHECK(entry->mBuffer->meta()->findInt64("timeUs", &mediaTimeUs));
 
         nowUs = ALooper::GetNowUs();
@@ -963,12 +996,14 @@ void NuPlayer::Renderer::onDrainVideoQueue() {
         }
         notifyIfMediaRenderingStarted();
     }
+#ifdef QCOM_HARDWARE
 
     if (tooLate) { //dropped!
         PLAYER_STATS(logFrameDropped);
     } else {
         PLAYER_STATS(logFrameRendered);
     }
+#endif /* QCOM_HARDWARE */
 }
 
 void NuPlayer::Renderer::notifyVideoRenderingStart() {
@@ -1291,8 +1326,10 @@ void NuPlayer::Renderer::onPause() {
 
     ALOGV("now paused audio queue has %d entries, video has %d entries",
           mAudioQueue.size(), mVideoQueue.size());
+#ifdef QCOM_HARDWARE
 
     PLAYER_STATS(notifyPause, (ALooper::GetNowUs() - mAnchorTimeRealUs) + mAnchorTimeMediaUs);
+#endif /* QCOM_HARDWARE */
 }
 
 void NuPlayer::Renderer::onResume() {
@@ -1301,13 +1338,19 @@ void NuPlayer::Renderer::onResume() {
     }
 
     if (mHasAudio) {
+#ifdef QCOM_HARDWARE
         status_t status = NO_ERROR;
+#endif /* QCOM_HARDWARE */
         cancelAudioOffloadPauseTimeout();
+#ifndef QCOM_HARDWARE
+        mAudioSink->start();
+#else /* QCOM_HARDWARE */
         status = mAudioSink->start();
         if (offloadingAudio() && status != NO_ERROR && status != INVALID_OPERATION) {
             ALOGD("received error :%d on resume for offload track posting TEAR_DOWN event",status);
             notifyAudioOffloadTearDown();
         }
+#endif /* QCOM_HARDWARE */
     }
 
     Mutex::Autolock autoLock(mLock);
@@ -1326,7 +1369,9 @@ void NuPlayer::Renderer::onResume() {
     if (!mVideoQueue.empty()) {
         postDrainVideoQueue_l();
     }
+#ifdef QCOM_HARDWARE
     PLAYER_STATS(profileStop, STATS_PROFILE_RESUME);
+#endif /* QCOM_HARDWARE */
 }
 
 void NuPlayer::Renderer::onSetVideoFrameRate(float fps) {
@@ -1348,7 +1393,9 @@ int64_t NuPlayer::Renderer::getPlayedOutAudioDurationUs(int64_t nowUs) {
     int64_t numFramesPlayedAt;
     AudioTimestamp ts;
     static const int64_t kStaleTimestamp100ms = 100000;
+#ifdef QCOM_HARDWARE
     int64_t durationUs;
+#endif /* QCOM_HARDWARE */
 
     status_t res = mAudioSink->getTimestamp(ts);
     if (res == OK) {                 // case 1: mixing audio tracks and offloaded tracks.
@@ -1375,6 +1422,11 @@ int64_t NuPlayer::Renderer::getPlayedOutAudioDurationUs(int64_t nowUs) {
         //        numFramesPlayed, (long long)numFramesPlayedAt);
     } else {                         // case 3: transitory at new track or audio fast tracks.
         res = mAudioSink->getPosition(&numFramesPlayed);
+#ifndef QCOM_HARDWARE
+        CHECK_EQ(res, (status_t)OK);
+        numFramesPlayedAt = nowUs;
+        numFramesPlayedAt += 1000LL * mAudioSink->latency() / 2; /* XXX */
+#else /* QCOM_HARDWARE */
         if (res != OK) {
             //query to getPosition fails, use system clock to simulate render position
             getCurrentPosition(&durationUs);
@@ -1384,12 +1436,17 @@ int64_t NuPlayer::Renderer::getPlayedOutAudioDurationUs(int64_t nowUs) {
             numFramesPlayedAt = nowUs;
             numFramesPlayedAt += 1000LL * mAudioSink->latency() / 2; /* XXX */
         }
+#endif /* QCOM_HARDWARE */
         //ALOGD("getPosition: %d %lld", numFramesPlayed, numFramesPlayedAt);
     }
 
     // TODO: remove the (int32_t) casting below as it may overflow at 12.4 hours.
     //CHECK_EQ(numFramesPlayed & (1 << 31), 0);  // can't be negative until 12.4 hrs, test
+#ifndef QCOM_HARDWARE
+    int64_t durationUs = (int64_t)((int32_t)numFramesPlayed * 1000LL * mAudioSink->msecsPerFrame())
+#else /* QCOM_HARDWARE */
     durationUs = (int64_t)((int32_t)numFramesPlayed * 1000LL * mAudioSink->msecsPerFrame())
+#endif /* QCOM_HARDWARE */
             + nowUs - numFramesPlayedAt;
     if (durationUs < 0) {
         // Occurs when numFramesPlayed position is very small and the following:
@@ -1430,10 +1487,14 @@ void NuPlayer::Renderer::onAudioOffloadTearDown(AudioOffloadTearDownReason reaso
 
 void NuPlayer::Renderer::startAudioOffloadPauseTimeout() {
     if (offloadingAudio()) {
+#ifndef QCOM_HARDWARE
+        mWakeLock->acquire();
+#else /* QCOM_HARDWARE */
         bool granted = mWakeLock->acquire();
         if (!granted) {
             ALOGW("fail to acquire wake lock");
         }
+#endif /* QCOM_HARDWARE */
         sp<AMessage> msg = new AMessage(kWhatAudioOffloadPauseTimeout, id());
         msg->setInt32("generation", mAudioOffloadPauseTimeoutGeneration);
         msg->post(kOffloadPauseMaxUs);
@@ -1451,7 +1512,9 @@ status_t NuPlayer::Renderer::onOpenAudioSink(
         const sp<AMessage> &format,
         bool offloadOnly,
         bool hasVideo,
+#ifdef QCOM_HARDWARE
         bool isStreaming,
+#endif /* QCOM_HARDWARE */
         uint32_t flags) {
     ALOGV("openAudioSink: offloadOnly(%d) offloadingAudio(%d)",
             offloadOnly, offloadingAudio());
@@ -1480,6 +1543,7 @@ status_t NuPlayer::Renderer::onOpenAudioSink(
                     "audio_format", mime.c_str());
             onDisableOffloadAudio();
         } else {
+#ifdef QCOM_HARDWARE
             int32_t bitWidth = 16;
             if (AUDIO_FORMAT_PCM_16_BIT == audioFormat) {
                 if ((ExtendedUtils::getPcmSampleBits(format) == 24) &&
@@ -1491,6 +1555,7 @@ status_t NuPlayer::Renderer::onOpenAudioSink(
                     audioFormat = AUDIO_FORMAT_PCM_16_BIT_OFFLOAD;
                 }
             }
+#endif /* QCOM_HARDWARE */
             ALOGV("Mime \"%s\" mapped to audio_format 0x%x",
                     mime.c_str(), audioFormat);
 
@@ -1516,10 +1581,14 @@ status_t NuPlayer::Renderer::onOpenAudioSink(
             offloadInfo.stream_type = AUDIO_STREAM_MUSIC;
             offloadInfo.bit_rate = avgBitRate;
             offloadInfo.has_video = hasVideo;
+#ifndef QCOM_HARDWARE
+            offloadInfo.is_streaming = true;
+#else /* QCOM_HARDWARE */
             offloadInfo.is_streaming = isStreaming;
             offloadInfo.use_small_bufs =
                 (audioFormat == AUDIO_FORMAT_PCM_16_BIT_OFFLOAD);
             offloadInfo.bit_width = bitWidth;
+#endif /* QCOM_HARDWARE */
 
             if (memcmp(&mCurrentOffloadInfo, &offloadInfo, sizeof(offloadInfo)) == 0) {
                 ALOGV("openAudioSink: no change in offload mode");

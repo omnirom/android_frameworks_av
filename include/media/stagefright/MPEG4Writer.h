@@ -23,7 +23,9 @@
 #include <media/stagefright/MediaWriter.h>
 #include <utils/List.h>
 #include <utils/threads.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/ExtendedStats.h>
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -97,7 +99,9 @@ private:
     int mLongitudex10000;
     bool mAreGeoTagsAvailable;
     int32_t mStartTimeOffsetMs;
+#ifdef QCOM_HARDWARE
     int mHFRRatio;
+#endif /* QCOM_HARDWARE */
 
     Mutex mLock;
 
@@ -206,9 +210,11 @@ private:
 
     MPEG4Writer(const MPEG4Writer &);
     MPEG4Writer &operator=(const MPEG4Writer &);
+#ifdef QCOM_HARDWARE
 
     bool mIsVideoHEVC;
     bool mIsAudioAMR;
+#endif /* QCOM_HARDWARE */
 };
 
 }  // namespace android

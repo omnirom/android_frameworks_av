@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* QCOM_HARDWARE */
  */
 
 #ifndef AUDIO_PLAYER_H_
@@ -113,7 +115,9 @@ private:
 
     int64_t mPositionTimeMediaUs;
     int64_t mPositionTimeRealUs;
+#ifdef QCOM_HARDWARE
     int64_t mDurationUs;
+#endif /* QCOM_HARDWARE */
 
     bool mSeeking;
     bool mReachedEOS;
@@ -121,7 +125,9 @@ private:
     int64_t mSeekTimeUs;
 
     bool mStarted;
+#ifdef QCOM_HARDWARE
     bool mSourcePaused;
+#endif /* QCOM_HARDWARE */
 
     bool mIsFirstBuffer;
     status_t mFirstBufferResult;
@@ -133,15 +139,21 @@ private:
 
     bool mPlaying;
     int64_t mStartPosUs;
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
     bool mDolbyProcessedAudio;
     void updateDolbyProcessedAudioState();
     void setDolbyProcessedAudioState(bool processed);
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
     const uint32_t mCreateFlags;
+#ifdef QCOM_HARDWARE
     bool mPauseRequired;
+#endif /* QCOM_HARDWARE */
 
+#ifdef QCOM_HARDWARE
     bool mUseSmallBufs;
+#endif /* QCOM_HARDWARE */
     static void AudioCallback(int event, void *user, void *info);
     void AudioCallback(int event, void *info);
 

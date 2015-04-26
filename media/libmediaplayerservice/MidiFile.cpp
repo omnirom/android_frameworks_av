@@ -212,6 +212,7 @@ status_t MidiFile::start()
         return ERROR_NOT_OPEN;
     }
 
+#ifdef QCOM_HARDWARE
     if (mState == EAS_STATE_STOPPED) {
         int mStartTime = (mPlayTime >= mDuration) ? 0 : mPlayTime;
         if (EAS_Locate(mEasData, mEasHandle, mStartTime, false)
@@ -222,6 +223,7 @@ status_t MidiFile::start()
         EAS_GetLocation(mEasData, mEasHandle, &mPlayTime);
     }
 
+#endif /* QCOM_HARDWARE */
     // resuming after pause?
     if (mPaused) {
         if (EAS_Resume(mEasData, mEasHandle) != EAS_SUCCESS) {
@@ -232,10 +234,12 @@ status_t MidiFile::start()
     }
 
     mRender = true;
+#ifdef QCOM_HARDWARE
     // Due to the limitation of EAS_XXX interfaces design, there's no way
     // to restart midi playback again once last track reaches EOS.
     // Here introduces a hack to enforce start again
     mState = EAS_STATE_PLAY;
+#endif /* QCOM_HARDWARE */
     if (mState == EAS_STATE_PLAY) {
         sendEvent(MEDIA_STARTED);
     }
@@ -259,7 +263,9 @@ status_t MidiFile::stop()
             ALOGE("EAS_Pause returned error %ld", result);
             return ERROR_EAS_FAILURE;
         }
+#ifdef QCOM_HARDWARE
         updateState();
+#endif /* QCOM_HARDWARE */
     }
     mPaused = false;
     sendEvent(MEDIA_STOPPED);
@@ -538,7 +544,9 @@ int MidiFile::render() {
             case EAS_STATE_STOPPED:
             {
                 ALOGV("MidiFile::render - stopped");
+#ifdef QCOM_HARDWARE
                 mPlayTime = mDuration;
+#endif /* QCOM_HARDWARE */
                 sendEvent(MEDIA_PLAYBACK_COMPLETE);
                 break;
             }

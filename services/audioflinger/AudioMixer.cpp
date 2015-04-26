@@ -81,9 +81,11 @@ static const bool kUseFloat = true;
 // Set to default copy buffer size in frames for input processing.
 static const size_t kCopyBufferFrameCount = 256;
 
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
 #define QTI_RESAMPLER_MAX_SAMPLERATE 192000
 #endif
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 // ----------------------------------------------------------------------------
@@ -508,9 +510,11 @@ int AudioMixer::getTrackName(audio_channel_mask_t channelMask,
             ALOGE("AudioMixer::getTrackName invalid channelMask (%#x)", channelMask);
             return -1;
         }
+#ifdef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
         t->hwAcc = new EffectsHwAcc(mSampleRate);
 #endif
+#endif /* QCOM_HARDWARE */
         // initTrackDownmix() may change the input format requirement.
         // If you desire floating point input to the mixer, it may change
         // to integer because the downmixer requires integer to process.
@@ -857,6 +861,7 @@ void AudioMixer::setParameter(int name, int target, int param, void *value)
                 invalidateState(1 << name);
             }
             } break;
+#ifdef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
         case ENABLE_HW_ACC_EFFECTS: {
             ALOGV("ENABLE_HW_ACC");
@@ -889,6 +894,7 @@ void AudioMixer::setParameter(int name, int target, int param, void *value)
         }
 #endif
 #endif
+#endif /* QCOM_HARDWARE */
         default:
             LOG_ALWAYS_FATAL("setParameter track: bad param %d", param);
         }
@@ -898,9 +904,11 @@ void AudioMixer::setParameter(int name, int target, int param, void *value)
         switch (param) {
         case SAMPLE_RATE:
             ALOG_ASSERT(valueInt > 0, "bad sample rate %d", valueInt);
+#ifdef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
             track.hwAcc->setSampleRate(uint32_t(valueInt), mSampleRate);
 #endif
+#endif /* QCOM_HARDWARE */
             if (track.setResampler(uint32_t(valueInt), mSampleRate)) {
                 ALOGV("setParameter(RESAMPLE, SAMPLE_RATE, %u)",
                         uint32_t(valueInt));
@@ -972,6 +980,7 @@ bool AudioMixer::track_t::setResampler(uint32_t trackSampleRate, uint32_t devSam
                 // FIXME this is flawed for dynamic sample rates, as we choose the resampler
                 // quality level based on the initial ratio, but that could change later.
                 // Should have a way to distinguish tracks with static ratios vs. dynamic ratios.
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
                 if ((trackSampleRate <= QTI_RESAMPLER_MAX_SAMPLERATE) &&
                        (trackSampleRate > devSampleRate * 2) &&
@@ -979,6 +988,7 @@ bool AudioMixer::track_t::setResampler(uint32_t trackSampleRate, uint32_t devSam
                     quality = AudioResampler::QTI_QUALITY;
                 } else
 #endif
+#endif /* QCOM_HARDWARE */
                 if (!((trackSampleRate == 44100 && devSampleRate == 48000) ||
                       (trackSampleRate == 48000 && devSampleRate == 44100))) {
                     quality = AudioResampler::DYN_LOW_QUALITY;
@@ -1074,6 +1084,7 @@ void AudioMixer::setBufferProvider(int name, AudioBufferProvider* bufferProvider
     name -= TRACK0;
     ALOG_ASSERT(uint32_t(name) < MAX_NUM_TRACKS, "bad track name %d", name);
 
+#ifdef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
     if (mState.tracks[name].hwAcc->mEnabled) {
         mState.tracks[name].hwAcc->setBufferProvider(&bufferProvider,
@@ -1081,6 +1092,7 @@ void AudioMixer::setBufferProvider(int name, AudioBufferProvider* bufferProvider
         return;
     }
 #endif
+#endif /* QCOM_HARDWARE */
     if (mState.tracks[name].mInputBufferProvider == bufferProvider) {
         return; // don't reset any buffer providers if identical.
     }
@@ -1183,12 +1195,14 @@ void AudioMixer::process__validate(state_t* state, int64_t pts)
                 }
             }
         }
+#ifdef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
         if (t.hwAcc->mEnabled) {
             t.tmpHook = t.hook;
             t.hook = track__16BitsStereo;
         }
 #endif
+#endif /* QCOM_HARDWARE */
     }
 
     // select the processing hooks
@@ -1753,11 +1767,15 @@ void AudioMixer::process__genericResampling(state_t* state, int64_t pts)
             // this is a little goofy, on the resampling case we don't
             // acquire/release the buffers because it's done by
             // the resampler.
+#ifndef QCOM_HARDWARE
+            if (t.needs & NEEDS_RESAMPLE) {
+#else /* QCOM_HARDWARE */
             if ((t.needs & NEEDS_RESAMPLE)
 #ifdef HW_ACC_EFFECTS
                 && !t.hwAcc->mEnabled
 #endif
                 ) {
+#endif /* QCOM_HARDWARE */
                 t.resampler->setPTS(pts);
                 t.hook(&t, outTemp, numFrames, state->resampleTemp, aux);
             } else {

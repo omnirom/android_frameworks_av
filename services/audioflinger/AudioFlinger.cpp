@@ -13,6 +13,7 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+#ifdef QCOM_HARDWARE
 **
 ** This file was modified by Dolby Laboratories, Inc. The portions of the
 ** code that are surrounded by "DOLBY..." are copyrighted and
@@ -36,6 +37,7 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License
+#endif /* QCOM_HARDWARE */
 */
 
 
@@ -85,9 +87,11 @@
 #include <media/nbaio/PipeReader.h>
 #include <media/AudioParameter.h>
 #include <private/android_filesystem_config.h>
+#ifdef QCOM_HARDWARE
 #ifdef SRS_PROCESSING
 #include "postpro_patch.h"
 #endif
+#endif /* QCOM_HARDWARE */
 
 // ----------------------------------------------------------------------------
 
@@ -104,9 +108,11 @@
 #define ALOGVV(a...) do { } while(0)
 #endif
 
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_DAP
 #include "EffectDapController_impl.h"
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 static const char kDeadlockedString[] = "AudioFlinger may be deadlocked\n";
@@ -117,9 +123,11 @@ static const char kClientLockedString[] = "Client lock is taken\n";
 nsecs_t AudioFlinger::mStandbyTimeInNsecs = kDefaultStandbyTimeInNsecs;
 
 uint32_t AudioFlinger::mScreenState;
+#ifdef QCOM_HARDWARE
 #ifdef HW_ACC_HPX
 bool AudioFlinger::mIsHPXOn = false;
 #endif
+#endif /* QCOM_HARDWARE */
 
 #ifdef TEE_SINK
 bool AudioFlinger::mTeeSinkInputEnabled = false;
@@ -239,9 +247,11 @@ AudioFlinger::AudioFlinger()
         mTeeSinkTrackEnabled = true;
     }
 #endif
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_DAP
     EffectDapController::mInstance = new EffectDapController(this);
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 }
 
 void AudioFlinger::onFirstRef()
@@ -271,9 +281,11 @@ void AudioFlinger::onFirstRef()
 
 AudioFlinger::~AudioFlinger()
 {
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_DAP
     delete EffectDapController::mInstance;
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
     while (!mRecordThreads.isEmpty()) {
         // closeInput_nonvirtual() will remove specified entry from mRecordThreads
         closeInput_nonvirtual(mRecordThreads.keyAt(0));
@@ -1053,6 +1065,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
     if (ioHandle == AUDIO_IO_HANDLE_NONE) {
         Mutex::Autolock _l(mLock);
         status_t final_result = NO_ERROR;
+#ifdef QCOM_HARDWARE
 
 #ifdef SRS_PROCESSING
         POSTPRO_PATCH_PARAMS_SET(keyValuePairs);
@@ -1061,6 +1074,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             thread->setPostPro();
         }
 #endif
+#endif /* QCOM_HARDWARE */
         {
             AutoMutex lock(mHardwareLock);
             mHardwareStatus = AUDIO_HW_SET_PARAMETER;
@@ -1071,10 +1085,17 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             }
             mHardwareStatus = AUDIO_HW_IDLE;
         }
+#ifndef QCOM_HARDWARE
+        // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
+#else /* QCOM_HARDWARE */
 
         // invalidate all tracks of type MUSIC. This is handled in the player as a teardown
         // event and can be used for fallback and retry.
+#endif /* QCOM_HARDWARE */
         AudioParameter param = AudioParameter(keyValuePairs);
+#ifndef QCOM_HARDWARE
+        String8 value;
+#else /* QCOM_HARDWARE */
         String8 value, key;
         int i = 0;
 
@@ -1093,6 +1114,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
         }
 
         // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
+#endif /* QCOM_HARDWARE */
         if (param.get(String8(AUDIO_PARAMETER_KEY_BT_NREC), value) == NO_ERROR) {
             bool btNrecIsOff = (value == AUDIO_PARAMETER_VALUE_OFF);
             if (mBtNrecIsOff != btNrecIsOff) {
@@ -1123,10 +1145,12 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
                 AudioFlinger::mScreenState = ((AudioFlinger::mScreenState & ~1) + 2) | isOff;
             }
         }
+#ifdef QCOM_HARDWARE
 #ifdef HW_ACC_HPX
         if (param.get(String8("HPX"), value) == NO_ERROR)
             AudioFlinger::mIsHPXOn = !(value == "OFF");
 #endif
+#endif /* QCOM_HARDWARE */
         return final_result;
     }
 
@@ -1166,10 +1190,12 @@ String8 AudioFlinger::getParameters(audio_io_handle_t ioHandle, const String8& k
     if (ioHandle == AUDIO_IO_HANDLE_NONE) {
         String8 out_s8;
 
+#ifdef QCOM_HARDWARE
 #ifdef SRS_PROCESSING
         POSTPRO_PATCH_PARAMS_GET(keys, out_s8);
 #endif
 
+#endif /* QCOM_HARDWARE */
         for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
             char *s;
             {
@@ -1370,19 +1396,25 @@ sp<AudioFlinger::PlaybackThread> AudioFlinger::getEffectThread_l(int sessionId, 
 
 
 
+#ifdef QCOM_HARDWARE
 void AudioFlinger::PlaybackThread::setPostPro()
 {
     Mutex::Autolock _l(mLock);
     if (mType == OFFLOAD)
         broadcast_l();
 }
+#endif /* QCOM_HARDWARE */
 // ----------------------------------------------------------------------------
 
 AudioFlinger::Client::Client(const sp<AudioFlinger>& audioFlinger, pid_t pid)
     :   RefBase(),
         mAudioFlinger(audioFlinger),
         // FIXME should be a "k" constant not hard-coded, in .h or ro. property, see 4 lines below
+#ifndef QCOM_HARDWARE
+        mMemoryDealer(new MemoryDealer(1024*1024, "AudioFlinger::Client")),
+#else /* QCOM_HARDWARE */
         mMemoryDealer(new MemoryDealer(1028*1024, "AudioFlinger::Client")), //1MB + 1 more 4k page
+#endif /* QCOM_HARDWARE */
         mPid(pid),
         mTimedTrackCount(0)
 {
@@ -1488,10 +1520,16 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         goto Exit;
     }
 
+#ifndef QCOM_HARDWARE
+    // we don't yet support anything other than 16-bit PCM
+    if (!(audio_is_valid_format(format) &&
+            audio_is_linear_pcm(format) && format == AUDIO_FORMAT_PCM_16_BIT)) {
+#else /* QCOM_HARDWARE */
     // we don't yet support anything other than 16-bit PCM and compress formats
     if (format != AUDIO_FORMAT_PCM_16_BIT &&
             !audio_is_compress_voip_format(format) &&
             !audio_is_compress_capture_format(format)) {
+#endif /* QCOM_HARDWARE */
         ALOGE("openRecord() invalid format %#x", format);
         lStatus = BAD_VALUE;
         goto Exit;
@@ -2707,11 +2745,13 @@ status_t AudioFlinger::moveEffects(int sessionId, audio_io_handle_t srcOutput,
 
     Mutex::Autolock _dl(dstThread->mLock);
     Mutex::Autolock _sl(srcThread->mLock);
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_DAP_MOVE_EFFECT
     if (sessionId == DOLBY_MOVE_EFFECT_SIGNAL) {
         return EffectDapController::instance()->moveEffect(AUDIO_SESSION_OUTPUT_MIX, srcThread, dstThread);
     }
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
     return moveEffectChain_l(sessionId, srcThread, dstThread, false);
 }
 
@@ -2793,6 +2833,7 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
     if (status != NO_ERROR) {
         for (size_t i = 0; i < removed.size(); i++) {
             srcThread->addEffect_l(removed[i]);
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_DAP_MOVE_EFFECT
             // removeEffect_l() has stopped the effect if it was active so it must be restarted
             if (effect->state() == EffectModule::ACTIVE ||
@@ -2800,6 +2841,7 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
                 effect->start();
             }
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
             if (dstChain != 0 && reRegister) {
                 AudioSystem::unregisterEffect(removed[i]->id());
                 AudioSystem::registerEffect(&removed[i]->desc(),

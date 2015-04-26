@@ -58,7 +58,11 @@ void SoftRaw::initPorts() {
     def.eDir = OMX_DirInput;
     def.nBufferCountMin = kNumBuffers;
     def.nBufferCountActual = def.nBufferCountMin;
+#ifndef QCOM_HARDWARE
+    def.nBufferSize = 32 * 1024;
+#else /* QCOM_HARDWARE */
     def.nBufferSize = 192 * 1024;
+#endif /* QCOM_HARDWARE */
     def.bEnabled = OMX_TRUE;
     def.bPopulated = OMX_FALSE;
     def.eDomain = OMX_PortDomainAudio;
@@ -76,7 +80,11 @@ void SoftRaw::initPorts() {
     def.eDir = OMX_DirOutput;
     def.nBufferCountMin = kNumBuffers;
     def.nBufferCountActual = def.nBufferCountMin;
+#ifndef QCOM_HARDWARE
+    def.nBufferSize = 32 * 1024;
+#else /* QCOM_HARDWARE */
     def.nBufferSize = 192 * 1024;
+#endif /* QCOM_HARDWARE */
     def.bEnabled = OMX_TRUE;
     def.bPopulated = OMX_FALSE;
     def.eDomain = OMX_PortDomainAudio;

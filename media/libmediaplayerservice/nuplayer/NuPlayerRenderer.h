@@ -77,7 +77,9 @@ struct NuPlayer::Renderer : public AHandler {
             bool offloadOnly,
             bool hasVideo,
             uint32_t flags,
+#ifdef QCOM_HARDWARE
             bool isStreaming,
+#endif /* QCOM_HARDWARE */
             bool *isOffloaded);
     void closeAudioSink();
 
@@ -130,7 +132,9 @@ private:
 
     static const int64_t kMinPositionUpdateDelayUs;
 
+#ifdef QCOM_HARDWARE
     sp<PlayerExtendedStats> mPlayerExtendedStats;
+#endif /* QCOM_HARDWARE */
     sp<MediaPlayerBase::AudioSink> mAudioSink;
     sp<AMessage> mNotify;
     Mutex mLock;
@@ -196,6 +200,9 @@ private:
 
     int32_t mTotalBuffersQueued;
     int32_t mLastAudioBufferDrained;
+#ifndef QCOM_HARDWARE
+
+#endif /* ! QCOM_HARDWARE */
     sp<AWakeLock> mWakeLock;
 
     status_t getCurrentPositionOnLooper(int64_t *mediaUs);
@@ -235,7 +242,9 @@ private:
             const sp<AMessage> &format,
             bool offloadOnly,
             bool hasVideo,
+#ifdef QCOM_HARDWARE
             bool isStreaming,
+#endif /* QCOM_HARDWARE */
             uint32_t flags);
     void onCloseAudioSink();
 

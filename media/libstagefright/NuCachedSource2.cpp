@@ -197,8 +197,12 @@ NuCachedSource2::NuCachedSource2(
       mHighwaterThresholdBytes(kDefaultHighWaterThreshold),
       mLowwaterThresholdBytes(kDefaultLowWaterThreshold),
       mKeepAliveIntervalUs(kDefaultKeepAliveIntervalUs),
+#ifndef QCOM_HARDWARE
+      mDisconnectAtHighwatermark(disconnectAtHighwatermark) {
+#else /* QCOM_HARDWARE */
       mDisconnectAtHighwatermark(disconnectAtHighwatermark),
       mSuspended(false) {
+#endif /* QCOM_HARDWARE */
     // We are NOT going to support disconnect-at-highwatermark indefinitely
     // and we are not guaranteeing support for client-specified cache
     // parameters. Both of these are temporary measures to solve a specific
@@ -324,7 +328,11 @@ void NuCachedSource2::fetchInternal() {
         }
     }
 
+#ifndef QCOM_HARDWARE
+    if (reconnect) {
+#else /* QCOM_HARDWARE */
     if (reconnect && !mSuspended) {
+#endif /* QCOM_HARDWARE */
         status_t err =
             mSource->reconnectAtOffset(mCacheOffset + mCache->totalSize());
 
@@ -434,12 +442,14 @@ void NuCachedSource2::onFetch() {
         delayUs = 100000ll;
     }
 
+#ifdef QCOM_HARDWARE
     if (mSuspended) {
         static_cast<HTTPBase *>(mSource.get())->disconnect();
         mFinalStatus = -EAGAIN;
         return;
     }
 
+#endif /* QCOM_HARDWARE */
     (new AMessage(kWhatFetchMore, mReflector->id()))->post(delayUs);
 }
 
@@ -684,12 +694,16 @@ String8 NuCachedSource2::getMIMEType() const {
 
 void NuCachedSource2::updateCacheParamsFromSystemProperty() {
     char value[PROPERTY_VALUE_MAX];
+#ifndef QCOM_HARDWARE
+    if (!property_get("media.stagefright.cache-params", value, NULL)) {
+#else /* QCOM_HARDWARE */
     // Use persistent property to save settings
     if (property_get("persist.sys.media.cache-params", value, NULL)) {
         ALOGV("Get cache params from property persist.sys.media.cache-params: [%s]", value);
     } else if (property_get("media.stagefright.cache-params", value, NULL)) {
         ALOGV("Get cache params from property media.stagefright.cache-params: [%s]", value);
     } else {
+#endif /* QCOM_HARDWARE */
         return;
     }
 
@@ -765,6 +779,7 @@ void NuCachedSource2::RemoveCacheSpecificHeaders(
 
         ALOGV("Client requested disconnection at highwater mark");
     }
+#ifdef QCOM_HARDWARE
 }
 
 status_t NuCachedSource2::disconnectWhileSuspend() {
@@ -786,6 +801,7 @@ status_t NuCachedSource2::connectWhileResume() {
     (new AMessage(kWhatFetchMore, mReflector->id()))->post();
 
     return OK;
+#endif /* QCOM_HARDWARE */
 }
 
 }  // namespace android

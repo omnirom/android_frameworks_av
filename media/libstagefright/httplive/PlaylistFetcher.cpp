@@ -25,7 +25,9 @@
 #include "M3UParser.h"
 
 #include "include/avc_utils.h"
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 #include "include/HTTPBase.h"
 #include "include/ID3.h"
 #include "mpeg2ts/AnotherPacketSource.h"
@@ -895,7 +897,11 @@ void PlaylistFetcher::onDownloadNext() {
     ALOGV("fetching segment %d from (%d .. %d)",
           mSeqNumber, firstSeqNumberInPlaylist, lastSeqNumberInPlaylist);
 
+#ifndef QCOM_HARDWARE
+    ALOGV("fetching '%s'", uri.c_str());
+#else /* QCOM_HARDWARE */
     ALOGI("fetching '%s'", uri.c_str());
+#endif /* QCOM_HARDWARE */
 
     sp<DataSource> source;
     sp<ABuffer> buffer, tsBuffer;
@@ -1284,6 +1290,11 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                     const char *mime;
                     sp<MetaData> format  = source->getFormat();
                     bool isAvc = false;
+#ifndef QCOM_HARDWARE
+                    if (format != NULL && format->findCString(kKeyMIMEType, &mime)
+                            && !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC)) {
+                        isAvc = true;
+#else /* QCOM_HARDWARE */
                     bool isHevc = false;
                     if (format != NULL && format->findCString(kKeyMIMEType, &mime)) {
                         if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC)) {
@@ -1291,12 +1302,21 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                         } else if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC)) {
                             isHevc = true;
                         }
+#endif /* QCOM_HARDWARE */
                     }
+#ifndef QCOM_HARDWARE
+                    if (isAvc && IsIDR(accessUnit)) {
+#else /* QCOM_HARDWARE */
                     if ((isAvc && IsIDR(accessUnit)) || (isHevc &&
                             ExtendedUtils::IsHevcIDR(accessUnit))) {
+#endif /* QCOM_HARDWARE */
                         mVideoBuffer->clear();
                     }
+#ifndef QCOM_HARDWARE
+                    if (isAvc) {
+#else /* QCOM_HARDWARE */
                     if (isAvc || isHevc) {
+#endif /* QCOM_HARDWARE */
                         mVideoBuffer->queueAccessUnit(accessUnit);
                     }
 

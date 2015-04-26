@@ -32,8 +32,10 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXCodec.h>
 #include <media/stagefright/MediaDefs.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/Utils.h>
 #include "include/ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 #include <CharacterEncodingDetector.h>
 
 namespace android {
@@ -60,7 +62,11 @@ status_t StagefrightMetadataRetriever::setDataSource(
         const sp<IMediaHTTPService> &httpService,
         const char *uri,
         const KeyedVector<String8, String8> *headers) {
+#ifndef QCOM_HARDWARE
+    ALOGV("setDataSource(%s)", uri);
+#else /* QCOM_HARDWARE */
     ALOGI("setDataSource(%s)", uriDebugString(uri, false).c_str());
+#endif /* QCOM_HARDWARE */
 
     mParsedMetaData = false;
     mMetaData.clear();
@@ -93,9 +99,11 @@ status_t StagefrightMetadataRetriever::setDataSource(
     fd = dup(fd);
 
     ALOGV("setDataSource(%d, %" PRId64 ", %" PRId64 ")", fd, offset, length);
+#ifdef QCOM_HARDWARE
     if (fd) {
         ExtendedUtils::printFileName(fd);
     }
+#endif /* QCOM_HARDWARE */
 
     mParsedMetaData = false;
     mMetaData.clear();
@@ -160,11 +168,16 @@ static VideoFrame *extractVideoFrameWithCodecFlags(
     // XXX:
     // Once all vendors support OMX_COLOR_FormatYUV420Planar, we can
     // remove this check and always set the decoder output color format
+#ifndef QCOM_HARDWARE
+    if (isYUV420PlanarSupported(client, trackMeta)) {
+        format->setInt32(kKeyColorFormat, OMX_COLOR_FormatYUV420Planar);
+#else /* QCOM_HARDWARE */
     // skip this check for software decoders
     if (!(flags & OMXCodec::kSoftwareCodecsOnly)) {
         if (isYUV420PlanarSupported(client, trackMeta)) {
             format->setInt32(kKeyColorFormat, OMX_COLOR_FormatYUV420Planar);
         }
+#endif /* QCOM_HARDWARE */
     }
 
     sp<MediaSource> decoder =
@@ -394,7 +407,11 @@ VideoFrame *StagefrightMetadataRetriever::getFrameAtTime(
 
     VideoFrame *frame =
         extractVideoFrameWithCodecFlags(
+#ifndef QCOM_HARDWARE
+                &mClient, trackMeta, source, OMXCodec::kPreferSoftwareCodecs,
+#else /* QCOM_HARDWARE */
                 &mClient, trackMeta, source, OMXCodec::kSoftwareCodecsOnly,
+#endif /* QCOM_HARDWARE */
                 timeUs, option);
 
     if (frame == NULL) {
@@ -565,6 +582,11 @@ void StagefrightMetadataRetriever::parseMetaData() {
                 }
             } else if (!strcasecmp(mime, MEDIA_MIMETYPE_TEXT_3GPP)) {
                 const char *lang;
+#ifndef QCOM_HARDWARE
+                trackMeta->findCString(kKeyMediaLanguage, &lang);
+                timedTextLang.append(String8(lang));
+                timedTextLang.append(String8(":"));
+#else /* QCOM_HARDWARE */
                 bool success = trackMeta->findCString(kKeyMediaLanguage, &lang);
                 if (success) {
                     timedTextLang.append(String8(lang));
@@ -572,6 +594,7 @@ void StagefrightMetadataRetriever::parseMetaData() {
                 } else {
                     ALOGE("No language found for timed text");
                 }
+#endif /* QCOM_HARDWARE */
             }
         }
     }

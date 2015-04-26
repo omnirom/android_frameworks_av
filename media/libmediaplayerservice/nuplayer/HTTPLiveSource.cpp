@@ -30,8 +30,10 @@
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
+#ifdef QCOM_HARDWARE
 #include <media/stagefright/Utils.h>
 
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -116,6 +118,7 @@ sp<AMessage> NuPlayer::HTTPLiveSource::getFormat(bool audio) {
 
     return format;
 }
+#ifdef QCOM_HARDWARE
 
 sp<MetaData> NuPlayer::HTTPLiveSource::getFormatMeta(bool audio) {
     sp<AMessage> format = getFormat(audio);
@@ -130,6 +133,7 @@ sp<MetaData> NuPlayer::HTTPLiveSource::getFormatMeta(bool audio) {
     return meta;
 }
 
+#endif /* QCOM_HARDWARE */
 
 status_t NuPlayer::HTTPLiveSource::feedMoreTSData() {
     return OK;

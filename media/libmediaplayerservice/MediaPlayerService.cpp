@@ -456,9 +456,11 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
     const size_t SIZE = 256;
     char buffer[SIZE];
     String8 result;
+#ifdef QCOM_HARDWARE
     SortedVector< sp<Client> > clients; //to serialise the mutex unlock & client destruction.
     SortedVector< sp<MediaRecorderClient> > mediaRecorderClients;
 
+#endif /* QCOM_HARDWARE */
     if (checkCallingPermission(String16("android.permission.DUMP")) == false) {
         snprintf(buffer, SIZE, "Permission Denial: "
                 "can't dump MediaPlayerService from pid=%d, uid=%d\n",
@@ -470,7 +472,9 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
         for (int i = 0, n = mClients.size(); i < n; ++i) {
             sp<Client> c = mClients[i].promote();
             if (c != 0) c->dump(fd, args);
+#ifdef QCOM_HARDWARE
             clients.add(c);
+#endif /* QCOM_HARDWARE */
         }
         if (mMediaRecorderClients.size() == 0) {
                 result.append(" No media recorder client\n\n");
@@ -483,7 +487,9 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
                     write(fd, result.string(), result.size());
                     result = "\n";
                     c->dump(fd, args);
+#ifdef QCOM_HARDWARE
                     mediaRecorderClients.add(c);
+#endif /* QCOM_HARDWARE */
                 }
             }
         }
@@ -1203,6 +1209,10 @@ void MediaPlayerService::Client::notify(
         if (msg == MEDIA_PLAYBACK_COMPLETE && client->mNextClient != NULL) {
             if (client->mAudioOutput != NULL)
                 client->mAudioOutput->switchToNextOutput();
+#ifndef QCOM_HARDWARE
+            client->mNextClient->start();
+            client->mNextClient->mClient->notify(MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+#else /* QCOM_HARDWARE */
             ALOGD("gapless:current track played back");
             ALOGD("gapless:try to do a gapless switch to next track");
             status_t ret;
@@ -1214,6 +1224,7 @@ void MediaPlayerService::Client::notify(
                 client->mClient->notify(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN , 0, obj);
                 ALOGW("gapless:start playback for next track failed");
             }
+#endif /* QCOM_HARDWARE */
         }
     }
 
@@ -1260,6 +1271,7 @@ void MediaPlayerService::Client::addNewMetadataUpdate(media::Metadata::Type meta
     }
 }
 
+#ifdef QCOM_HARDWARE
 status_t MediaPlayerService::Client::suspend()
 {
     ALOGV("[%d] suspend", mConnId);
@@ -1276,6 +1288,7 @@ status_t MediaPlayerService::Client::resume()
     return p->resume();
 }
 
+#endif /* QCOM_HARDWARE */
 #if CALLBACK_ANTAGONIZER
 const int Antagonizer::interval = 10000; // 10 msecs
 
@@ -1355,7 +1368,11 @@ status_t MediaPlayerService::decode(
     if (cache->wait() != NO_ERROR) goto Exit;
 
     ALOGV("start");
+#ifndef QCOM_HARDWARE
+    player->start();
+#else /* QCOM_HARDWARE */
     if (player->start() != NO_ERROR) goto Exit;
+#endif /* QCOM_HARDWARE */
 
     ALOGV("wait for playback complete");
     cache->wait();
@@ -1410,7 +1427,11 @@ status_t MediaPlayerService::decode(int fd, int64_t offset, int64_t length,
     if (cache->wait() != NO_ERROR) goto Exit;
 
     ALOGV("start");
+#ifndef QCOM_HARDWARE
+    player->start();
+#else /* QCOM_HARDWARE */
     if (player->start() != NO_ERROR) goto Exit;
+#endif /* QCOM_HARDWARE */
 
     ALOGV("wait for playback complete");
     cache->wait();
@@ -1457,7 +1478,9 @@ MediaPlayerService::AudioOutput::AudioOutput(int sessionId, int uid, int pid,
     mSendLevel = 0.0;
     setMinBufferCount();
     mAttributes = attr;
+#ifdef QCOM_HARDWARE
     mBitWidth = 16;
+#endif /* QCOM_HARDWARE */
 }
 
 MediaPlayerService::AudioOutput::~AudioOutput()
@@ -1666,6 +1689,7 @@ status_t MediaPlayerService::AudioOutput::open(
         } else if (mRecycledTrack->format() != format) {
             reuse = false;
         }
+#ifdef QCOM_HARDWARE
 
         if (bothOffloaded) {
             if (mBitWidth != offloadInfo->bit_width) {
@@ -1675,6 +1699,7 @@ status_t MediaPlayerService::AudioOutput::open(
             }
         }
 
+#endif /* QCOM_HARDWARE */
     } else {
         ALOGV("no track available to recycle");
     }
@@ -1786,6 +1811,7 @@ status_t MediaPlayerService::AudioOutput::open(
     mSampleRateHz = sampleRate;
     mFlags = flags;
     mMsecsPerFrame = mPlaybackRatePermille / (float) sampleRate;
+#ifdef QCOM_HARDWARE
 
     if (offloadInfo) {
         mBitWidth = offloadInfo->bit_width;
@@ -1793,6 +1819,7 @@ status_t MediaPlayerService::AudioOutput::open(
         mBitWidth = 16;
     }
 
+#endif /* QCOM_HARDWARE */
     uint32_t pos;
     if (t->getPosition(&pos) == OK) {
         mBytesWritten = uint64_t(pos) * t->frameSize();
@@ -1800,7 +1827,11 @@ status_t MediaPlayerService::AudioOutput::open(
     mTrack = t;
 
     status_t res = NO_ERROR;
+#ifndef QCOM_HARDWARE
+    if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) {
+#else /* QCOM_HARDWARE */
     if ((t->getFlags() & (AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_DIRECT)) == 0) {
+#endif /* QCOM_HARDWARE */
         res = t->setSampleRate(mPlaybackRatePermille * mSampleRateHz / 1000);
         if (res == NO_ERROR) {
             t->setAuxEffectSendLevel(mSendLevel);
@@ -1845,7 +1876,9 @@ void MediaPlayerService::AudioOutput::switchToNextOutput() {
         mNextOutput->mMsecsPerFrame = mMsecsPerFrame;
         mNextOutput->mBytesWritten = mBytesWritten;
         mNextOutput->mFlags = mFlags;
+#ifdef QCOM_HARDWARE
         mNextOutput->mBitWidth = mBitWidth;
+#endif /* QCOM_HARDWARE */
     }
 }
 
@@ -2117,7 +2150,9 @@ status_t MediaPlayerService::AudioCache::open(
 {
     ALOGV("open(%u, %d, 0x%x, %d, %d)", sampleRate, channelCount, channelMask, format, bufferCount);
     if (mHeap->getHeapID() < 0) {
+#ifdef QCOM_HARDWARE
         ALOGE("Invalid heap Id");
+#endif /* QCOM_HARDWARE */
         return NO_INIT;
     }
 
@@ -2127,12 +2162,16 @@ status_t MediaPlayerService::AudioCache::open(
     mMsecsPerFrame = 1.e3 / (float) sampleRate;
     mFrameSize =  audio_is_linear_pcm(mFormat)
             ? mChannelCount * audio_bytes_per_sample(mFormat) : 1;
+#ifndef QCOM_HARDWARE
+    mFrameCount = mHeap->getSize() / mFrameSize;
+#else /* QCOM_HARDWARE */
 
     if (cb == NULL) {
         // Use buffer of size equal to that of the heap if AudioCache used by NuPlayer.
         // Otherwise use default buffersize.
         mFrameCount = mHeap->getSize() / mFrameSize;
     }
+#endif /* QCOM_HARDWARE */
 
     if (cb != NULL) {
         mCallbackThread = new CallbackThread(this, cb, cookie);

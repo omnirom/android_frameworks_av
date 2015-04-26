@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -49,6 +50,7 @@
  ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  ** See the License for the specific language governing permissions and
  ** limitations under the License
+#endif /* QCOM_HARDWARE */
  */
 
 //#define LOG_NDEBUG 0
@@ -76,19 +78,25 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <utils/String8.h>
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
 #include <QCMediaDefs.h>
 #endif
+#endif /* QCOM_HARDWARE */
 
 #include <byteswap.h>
 #include "include/ID3.h"
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 
+#ifdef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DEBUG_LOG_DDP_DECODER_EXTRA)
 #define DLOGD ALOGD
 #else
 #define DLOGD
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 namespace android {
 
 class MPEG4Source : public MediaSource {
@@ -244,9 +252,11 @@ MPEG4DataSource::MPEG4DataSource(const sp<DataSource> &source)
       mCachedOffset(0),
       mCachedSize(0),
       mCache(NULL) {
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
       DLOGD("@DDP MPEG4DataSource::MPEG4DataSource");
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 }
 
 MPEG4DataSource::~MPEG4DataSource() {
@@ -354,28 +364,35 @@ static void hexdump(const void *_data, size_t size) {
 }
 
 static const char *FourCC2MIME(uint32_t fourcc) {
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
     DLOGD("@DDP FourCC2MIME");
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
     switch (fourcc) {
         case FOURCC('m', 'p', '4', 'a'):
             return MEDIA_MIMETYPE_AUDIO_AAC;
 
+#ifdef QCOM_HARDWARE
         case FOURCC('e', 'n', 'c', 'a'):
             return MEDIA_MIMETYPE_AUDIO_AAC;
 
         case FOURCC('.', 'm', 'p', '3'):
             return MEDIA_MIMETYPE_AUDIO_MPEG;
 
+#endif /* QCOM_HARDWARE */
         case FOURCC('s', 'a', 'm', 'r'):
             return MEDIA_MIMETYPE_AUDIO_AMR_NB;
 
         case FOURCC('s', 'a', 'w', 'b'):
             return MEDIA_MIMETYPE_AUDIO_AMR_WB;
+#ifdef QCOM_HARDWARE
 #ifdef DTS_CODEC_M_
         case FOURCC('d', 't', 's', 'c'):
             return MEDIA_MIMETYPE_AUDIO_DTS;
+#endif /* QCOM_HARDWARE */
 
+#ifdef QCOM_HARDWARE
         case FOURCC('d', 't', 's', 'h'):
             return MEDIA_MIMETYPE_AUDIO_DTS;
 
@@ -385,12 +402,15 @@ static const char *FourCC2MIME(uint32_t fourcc) {
         case FOURCC('d', 't', 's', 'e'):
             return MEDIA_MIMETYPE_AUDIO_DTS;
 #endif
+#endif /* QCOM_HARDWARE */
         case FOURCC('m', 'p', '4', 'v'):
             return MEDIA_MIMETYPE_VIDEO_MPEG4;
 
+#ifdef QCOM_HARDWARE
         case FOURCC('e', 'n', 'c', 'v'):
             return MEDIA_MIMETYPE_VIDEO_MPEG4;
 
+#endif /* QCOM_HARDWARE */
         case FOURCC('s', '2', '6', '3'):
         case FOURCC('h', '2', '6', '3'):
         case FOURCC('H', '2', '6', '3'):
@@ -402,6 +422,7 @@ static const char *FourCC2MIME(uint32_t fourcc) {
         case FOURCC('h', 'v', 'c', '1'):
         case FOURCC('h', 'e', 'v', '1'):
             return MEDIA_MIMETYPE_VIDEO_HEVC;
+#ifdef QCOM_HARDWARE
 
 #ifdef ENABLE_AV_ENHANCEMENTS
         case FOURCC('s', 'q', 'c', 'p'):
@@ -417,10 +438,13 @@ static const char *FourCC2MIME(uint32_t fourcc) {
             return MEDIA_MIMETYPE_AUDIO_EAC3;
 #endif
 
+#endif /* QCOM_HARDWARE */
         default:
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
             ALOGD("@DDP FourCC2Mime default (not found)");
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
             CHECK(!"should not be here.");
             return NULL;
     }
@@ -452,9 +476,11 @@ MPEG4Extractor::MPEG4Extractor(const sp<DataSource> &source)
       mFileMetaData(new MetaData),
       mFirstSINF(NULL),
       mIsDrm(false) {
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
       DLOGD("@DDP MPEG4Extractor::MPEG4Extractor");
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 }
 
 MPEG4Extractor::~MPEG4Extractor() {
@@ -1381,9 +1407,12 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 
         case FOURCC('m', 'p', '4', 'a'):
         case FOURCC('e', 'n', 'c', 'a'):
+#ifdef QCOM_HARDWARE
         case FOURCC('.', 'm', 'p', '3'):
+#endif /* QCOM_HARDWARE */
         case FOURCC('s', 'a', 'm', 'r'):
         case FOURCC('s', 'a', 'w', 'b'):
+#ifdef QCOM_HARDWARE
         case FOURCC('s', 'e', 'v', 'c'):
         case FOURCC('s', 'q', 'c', 'p'):
 #ifdef DTS_CODEC_M_
@@ -1394,6 +1423,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 #endif
         case FOURCC('a', 'c', '-', '3'):
         case FOURCC('e', 'c', '-', '3'):
+#endif /* QCOM_HARDWARE */
         {
             uint8_t buffer[8 + 20];
             if (chunk_data_size < (ssize_t)sizeof(buffer)) {
@@ -1414,6 +1444,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 
             if (chunk_type != FOURCC('e', 'n', 'c', 'a')) {
                 // if the chunk type is enca, we'll get the type from the sinf/frma box later
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
                 const char *mime;
                 CHECK(mLastTrack->meta->findCString(kKeyMIMEType, &mime));
@@ -1423,21 +1454,29 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 if (!strcmp(mime, "application/octet-stream")) {
                     DLOGD("@DDP Set mimetype from %s to %s", mime, FourCC2MIME(chunk_type));
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
                 mLastTrack->meta->setCString(kKeyMIMEType, FourCC2MIME(chunk_type));
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
                 }
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
                 AdjustChannelsAndRate(chunk_type, &num_channels, &sample_rate);
             }
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
             DLOGD("@DDP FourCC:'%s'", FourCC2MIME(chunk_type));
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
             ALOGV("*** coding='%s' %d channels, size %d, rate %d\n",
                    chunk, num_channels, sample_size, sample_rate);
             mLastTrack->meta->setInt32(kKeyChannelCount, num_channels);
             mLastTrack->meta->setInt32(kKeySampleRate, sample_rate);
 
             off64_t stop_offset = *offset + chunk_size;
+#ifndef QCOM_HARDWARE
+            *offset = data_offset + sizeof(buffer);
+#else /* QCOM_HARDWARE */
             if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_MPEG, FourCC2MIME(chunk_type)) ||
                 !strcasecmp(MEDIA_MIMETYPE_AUDIO_AMR_WB, FourCC2MIME(chunk_type))) {
                 // ESD is not required in mp3
@@ -1446,6 +1485,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             } else {
                *offset = data_offset + sizeof(buffer);
             }
+#endif /* QCOM_HARDWARE */
             while (*offset < stop_offset) {
                 status_t err = parseChunk(offset, depth + 1);
                 if (err != OK) {
@@ -1459,6 +1499,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             break;
         }
 
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
         case FOURCC('d', 'e', 'c', '3'):
         {
@@ -1518,6 +1559,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         }
 #endif // DOLBY_END
 
+#endif /* QCOM_HARDWARE */
         case FOURCC('m', 'p', '4', 'v'):
         case FOURCC('e', 'n', 'c', 'v'):
         case FOURCC('s', '2', '6', '3'):
@@ -1710,6 +1752,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC('s', 't', 's', 's'):
         {
             *offset += chunk_size;
+#ifdef QCOM_HARDWARE
             // Ignore stss block for audio even if its present
             // All audio sample are sync samples itself,
             // self decodeable and playable.
@@ -1721,10 +1764,20 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 status_t err =
                     mLastTrack->sampleTable->setSyncSampleParams(
                             data_offset, chunk_data_size);
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
+            status_t err =
+                mLastTrack->sampleTable->setSyncSampleParams(
+                        data_offset, chunk_data_size);
+
+            if (err != OK) {
+                return err;
+#else /* QCOM_HARDWARE */
                 if (err != OK) {
                     return err;
                 }
+#endif /* QCOM_HARDWARE */
             }
 
             break;
@@ -1807,6 +1860,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 }
             }
 
+#ifdef QCOM_HARDWARE
             ExtendedUtils::updateVideoTrackInfoFromESDS_MPEG4Video(mLastTrack->meta);
 
             break;
@@ -1821,6 +1875,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             //no information need to be passed here, just log and end
             ALOGV("ddts/dac3/dec3 pass from mpeg4 extractor");
             *offset += chunk_size;
+#endif /* QCOM_HARDWARE */
             break;
         }
 
@@ -2908,6 +2963,7 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
         return ERROR_MALFORMED;
     }
 
+#ifdef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
     if (objectTypeIndication == 0xA0) {
         // This isn't MPEG4 audio at all, it's EVRC
@@ -2915,18 +2971,28 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
        return OK;
     }
 #endif
+#endif /* QCOM_HARDWARE */
     if (objectTypeIndication == 0xe1) {
         // This isn't MPEG4 audio at all, it's QCELP 14k...
         mLastTrack->meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_QCELP);
         return OK;
     }
 
+#ifndef QCOM_HARDWARE
+    if (objectTypeIndication  == 0x6b) {
+        // The media subtype is MP3 audio
+        // Our software MP3 audio decoder may not be able to handle
+        // packetized MP3 audio; for now, lets just return ERROR_UNSUPPORTED
+        ALOGE("MP3 track in MP4/3GPP file is not supported");
+        return ERROR_UNSUPPORTED;
+#else /* QCOM_HARDWARE */
     if (objectTypeIndication  == 0x6b
          || objectTypeIndication  == 0x69) {
          // This is mpeg1/2 audio content, set mimetype to mpeg
          mLastTrack->meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
          ALOGD("objectTypeIndication:0x%x, set mimetype to mpeg ",objectTypeIndication);
          return OK;
+#endif /* QCOM_HARDWARE */
     }
 
     const uint8_t *csd;
@@ -3071,7 +3137,11 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
                         extensionFlag, objectType);
             }
 
+#ifndef QCOM_HARDWARE
+            if (numChannels == 0) {
+#else /* QCOM_HARDWARE */
             if (numChannels == 0 && (br.numBitsLeft() > 0)) {
+#endif /* QCOM_HARDWARE */
                 int32_t channelsEffectiveNum = 0;
                 int32_t channelsNum = 0;
                 const int32_t ElementInstanceTag = br.getBits(4);
@@ -3193,9 +3263,11 @@ MPEG4Source::MPEG4Source(
       mBuffer(NULL),
       mWantsNALFragments(false),
       mSrcBuffer(NULL) {
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
       DLOGD("@DDP MPEG4Source::MPEG4Source");
 #endif // DOLBY_END
+#endif /* QCOM_HARDWARE */
 
     memset(&mTrackFragmentHeaderInfo, 0, sizeof(mTrackFragmentHeaderInfo));
 
@@ -4457,9 +4529,13 @@ static bool LegacySniffMPEG4(
         return false;
     }
 
+#ifndef QCOM_HARDWARE
+    if (!memcmp(header, "ftyp3gp", 7) || !memcmp(header, "ftypmp42", 8)
+#else /* QCOM_HARDWARE */
     if (!memcmp(header, "ftyp3g2a", 8) || !memcmp(header, "ftyp3g2b", 8)
         || !memcmp(header, "ftyp3g2c", 8)
         || !memcmp(header, "ftyp3gp", 7) || !memcmp(header, "ftypmp42", 8)
+#endif /* QCOM_HARDWARE */
         || !memcmp(header, "ftyp3gr6", 8) || !memcmp(header, "ftyp3gs6", 8)
         || !memcmp(header, "ftyp3ge6", 8) || !memcmp(header, "ftyp3gg6", 8)
         || !memcmp(header, "ftypisom", 8) || !memcmp(header, "ftypM4V ", 8)

@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifdef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -49,6 +50,7 @@
  ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  ** See the License for the specific language governing permissions and
  ** limitations under the License
+#endif /* QCOM_HARDWARE */
  */
 
 //#define LOG_NDEBUG 0
@@ -95,6 +97,7 @@ static const struct {
     { "OMX.google.raw.decoder", "rawdec", "audio_decoder.raw" },
     { "OMX.google.flac.encoder", "flacenc", "audio_encoder.flac" },
     { "OMX.google.gsm.decoder", "gsmdec", "audio_decoder.gsm" },
+#ifdef QCOM_HARDWARE
 #ifdef DOLBY_UDC
     { "OMX.dolby.ac3.decoder", "ddpdec", "audio_decoder.ac3" },
     { "OMX.dolby.eac3.decoder", "ddpdec", "audio_decoder.eac3" },
@@ -103,6 +106,7 @@ static const struct {
 #ifdef DTS_CODEC_M_
     { "OMX.DTS.audio_decoder.dts", "dtsdec", "audio_decoder.dts" },
 #endif
+#endif /* QCOM_HARDWARE */
 };
 
 static const size_t kNumComponents =

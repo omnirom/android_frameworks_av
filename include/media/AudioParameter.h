@@ -48,8 +48,10 @@ public:
     static const char * const keyFrameCount;
     static const char * const keyInputSource;
     static const char * const keyScreenState;
+#ifdef QCOM_HARDWARE
     static const char * const keyFluenceType;
     static const char * const keyADSPStatus;
+#endif /* QCOM_HARDWARE */
 
     String8 toString();
 

@@ -34,7 +34,9 @@
 #include <sys/socket.h>
 
 #include "include/HTTPBase.h"
+#ifdef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif /* QCOM_HARDWARE */
 
 namespace android {
 
@@ -171,6 +173,9 @@ bool ARTSPConnection::ParseURL(
         }
     }
 
+#ifndef QCOM_HARDWARE
+    const char *colonPos = strchr(host->c_str(), ':');
+#else /* QCOM_HARDWARE */
     const char *colonPos = NULL;
     ssize_t bracketBegin = host->find("[");
 
@@ -184,6 +189,7 @@ bool ARTSPConnection::ParseURL(
     } else {
         colonPos = strchr(host->c_str(), ':');
     }
+#endif /* QCOM_HARDWARE */
 
     if (colonPos != NULL) {
         unsigned long x;
@@ -222,6 +228,7 @@ static status_t MakeSocketBlocking(int s, bool blocking) {
     return flags == -1 ? UNKNOWN_ERROR : OK;
 }
 
+#ifdef QCOM_HARDWARE
 bool ARTSPConnection::createSocketAndConnect(void *res, unsigned port,const sp<AMessage> &reply) {
 
 
@@ -294,6 +301,7 @@ bool ARTSPConnection::createSocketAndConnect(void *res, unsigned port,const sp<A
     return false;
 }
 
+#endif /* QCOM_HARDWARE */
 void ARTSPConnection::onConnect(const sp<AMessage> &msg) {
     ++mConnectionID;
 
@@ -337,6 +345,11 @@ void ARTSPConnection::onConnect(const sp<AMessage> &msg) {
         ALOGV("user = '%s', pass = '%s'", mUser.c_str(), mPass.c_str());
     }
 
+#ifndef QCOM_HARDWARE
+    struct hostent *ent = gethostbyname(host.c_str());
+    if (ent == NULL) {
+        ALOGE("Unknown host %s", host.c_str());
+#else /* QCOM_HARDWARE */
     struct addrinfo hints, *res = NULL;
     memset(&hints, 0, sizeof (hints));
     hints.ai_flags = AI_PASSIVE;
@@ -344,26 +357,92 @@ void ARTSPConnection::onConnect(const sp<AMessage> &msg) {
     hints.ai_socktype = SOCK_STREAM;
 
     int err = getaddrinfo(host.c_str(), NULL, &hints, &res);
+#endif /* QCOM_HARDWARE */
 
+#ifdef QCOM_HARDWARE
     if (err != 0 || res == NULL) {
         ALOGE("Unknown host, err %d (%s)", err, gai_strerror(err));
+#endif /* QCOM_HARDWARE */
         reply->setInt32("result", -ENOENT);
         reply->post();
-        mState = DISCONNECTED;
+#ifndef QCOM_HARDWARE
 
+#endif /* ! QCOM_HARDWARE */
+        mState = DISCONNECTED;
+#ifndef QCOM_HARDWARE
+        return;
+    }
+
+    mSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (mUIDValid) {
+        HTTPBase::RegisterSocketUserTag(mSocket, mUID,
+                                        (uint32_t)*(uint32_t*) "RTSP");
+        HTTPBase::RegisterSocketUserMark(mSocket, mUID);
+    }
+#endif /* ! QCOM_HARDWARE */
+
+#ifndef QCOM_HARDWARE
+    MakeSocketBlocking(mSocket, false);
+
+    struct sockaddr_in remote;
+    memset(remote.sin_zero, 0, sizeof(remote.sin_zero));
+    remote.sin_family = AF_INET;
+    remote.sin_addr.s_addr = *(in_addr_t *)ent->h_addr;
+    remote.sin_port = htons(port);
+
+    int err = ::connect(
+            mSocket, (const struct sockaddr *)&remote, sizeof(remote));
+
+    reply->setInt32("server-ip", ntohl(remote.sin_addr.s_addr));
+
+    if (err < 0) {
+        if (errno == EINPROGRESS) {
+            sp<AMessage> msg = new AMessage(kWhatCompleteConnection, id());
+            msg->setMessage("reply", reply);
+            msg->setInt32("connection-id", mConnectionID);
+            msg->post();
+            return;
+#else /* QCOM_HARDWARE */
         if (res != NULL) {
             freeaddrinfo(res);
+#endif /* QCOM_HARDWARE */
         }
+#ifndef QCOM_HARDWARE
+
+#else /* QCOM_HARDWARE */
         return;
     }
     if (!createSocketAndConnect(res, port, reply)) {
         ALOGV("Failed to connect to %s", host.c_str());
+#endif /* QCOM_HARDWARE */
         reply->setInt32("result", -errno);
         mState = DISCONNECTED;
+#ifndef QCOM_HARDWARE
+
+        if (mUIDValid) {
+            HTTPBase::UnRegisterSocketUserTag(mSocket);
+            HTTPBase::UnRegisterSocketUserMark(mSocket);
+        }
+        close(mSocket);
+#endif /* ! QCOM_HARDWARE */
         mSocket = -1;
+#ifndef QCOM_HARDWARE
+    } else {
+        reply->setInt32("result", OK);
+        mState = CONNECTED;
+        mNextCSeq = 1;
+
+        postReceiveReponseEvent();
+#else /* QCOM_HARDWARE */
         reply->post();
         freeaddrinfo(res);
+#endif /* QCOM_HARDWARE */
     }
+#ifndef QCOM_HARDWARE
+
+    reply->post();
+#endif /* ! QCOM_HARDWARE */
 }
 
 void ARTSPConnection::performDisconnect() {
@@ -431,8 +510,10 @@ void ARTSPConnection::onCompleteConnection(const sp<AMessage> &msg) {
     }
 
     int err;
+#ifdef QCOM_HARDWARE
     int ipver;
 
+#endif /* QCOM_HARDWARE */
     socklen_t optionLen = sizeof(err);
     CHECK_EQ(getsockopt(mSocket, SOL_SOCKET, SO_ERROR, &err, &optionLen), 0);
     CHECK_EQ(optionLen, (socklen_t)sizeof(err));
@@ -450,10 +531,14 @@ void ARTSPConnection::onCompleteConnection(const sp<AMessage> &msg) {
         close(mSocket);
         mSocket = -1;
     } else {
+#ifdef QCOM_HARDWARE
         CHECK(msg->findInt32("ipversion", &ipver));
+#endif /* QCOM_HARDWARE */
         reply->setInt32("result", OK);
+#ifdef QCOM_HARDWARE
         ALOGV("setting ipversion:%d", ipver);
         reply->setInt32("ipversion", ipver);
+#endif /* QCOM_HARDWARE */
         mState = CONNECTED;
         mNextCSeq = 1;
 

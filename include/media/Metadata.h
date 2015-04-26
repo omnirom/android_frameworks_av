@@ -92,8 +92,10 @@ class Metadata {
     static const Type kNumTracks             = 30; // Integer
     static const Type kDrmCrippled           = 31; // Boolean
 
+#ifdef QCOM_HARDWARE
     static const Type kServerTimeout         = 8801; // Integer, ms, RTSP server timeout
 
+#endif /* QCOM_HARDWARE */
     // @param p[inout] The parcel to append the metadata records
     // to. The global metadata header should have been set already.
     explicit Metadata(Parcel *p);

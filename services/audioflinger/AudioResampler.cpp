@@ -28,10 +28,12 @@
 #include "AudioResamplerCubic.h"
 #include "AudioResamplerDyn.h"
 
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
 #include "AudioResamplerQTI.h"
 #endif
 
+#endif /* QCOM_HARDWARE */
 #ifdef __arm__
 #include <machine/cpu-features.h>
 #endif
@@ -97,9 +99,11 @@ bool AudioResampler::qualityIsSupported(src_quality quality)
     case DYN_LOW_QUALITY:
     case DYN_MED_QUALITY:
     case DYN_HIGH_QUALITY:
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
     case QTI_QUALITY:
 #endif
+#endif /* QCOM_HARDWARE */
         return true;
     default:
         return false;
@@ -120,11 +124,15 @@ void AudioResampler::init_routine()
         if (*endptr == '\0') {
             defaultQuality = (src_quality) l;
             ALOGD("forcing AudioResampler quality to %d", defaultQuality);
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
             if (defaultQuality < DEFAULT_QUALITY || defaultQuality > QTI_QUALITY) {
 #else
+#endif /* QCOM_HARDWARE */
             if (defaultQuality < DEFAULT_QUALITY || defaultQuality > DYN_HIGH_QUALITY) {
+#ifdef QCOM_HARDWARE
 #endif
+#endif /* QCOM_HARDWARE */
                 defaultQuality = DEFAULT_QUALITY;
             }
         }
@@ -143,9 +151,11 @@ uint32_t AudioResampler::qualityMHz(src_quality quality)
     case HIGH_QUALITY:
         return 20;
     case VERY_HIGH_QUALITY:
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
     case QTI_QUALITY: //for QTI_QUALITY, currently assuming same as VHQ
 #endif
+#endif /* QCOM_HARDWARE */
         return 34;
     case DYN_LOW_QUALITY:
         return 4;
@@ -221,11 +231,13 @@ AudioResampler* AudioResampler::create(audio_format_t format, int inChannelCount
         case DYN_HIGH_QUALITY:
             quality = DYN_MED_QUALITY;
             break;
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
         case QTI_QUALITY:
             quality = DYN_HIGH_QUALITY;
             break;
 #endif
+#endif /* QCOM_HARDWARE */
         }
     }
     pthread_mutex_unlock(&mutex);
@@ -272,12 +284,14 @@ AudioResampler* AudioResampler::create(audio_format_t format, int inChannelCount
             }
         }
         break;
+#ifdef QCOM_HARDWARE
 #ifdef QTI_RESAMPLER
     case QTI_QUALITY:
         ALOGV("Create QTI_QUALITY Resampler = %d",quality);
         resampler = new AudioResamplerQTI(format, inChannelCount, sampleRate);
         break;
 #endif
+#endif /* QCOM_HARDWARE */
     }
 
     // initialize resampler

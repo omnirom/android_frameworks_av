@@ -66,9 +66,11 @@ public:
 
     virtual status_t dump(int fd, const Vector<String16> &args) const;
 
+#ifdef QCOM_HARDWARE
     virtual status_t suspend();
     virtual status_t resume();
 
+#endif /* QCOM_HARDWARE */
 private:
     AwesomePlayer *mPlayer;
 

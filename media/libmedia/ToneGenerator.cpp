@@ -698,6 +698,7 @@ const ToneGenerator::ToneDescriptor ToneGenerator::sToneDescriptors[] = {
           { segments: { { duration: 0, waveFreq: { 0 }, 0, 0 }},
           repeatCnt: 0,
           repeatSegment: 0 },                            // TONE_CDMA_SIGNAL_OFF
+#ifdef QCOM_HARDWARE
         { segments: { { duration: 300, waveFreq: { 450, 0 }, 0, 0 },
                       { duration: 300, waveFreq: { 450, 0 }, 0, 0 },
                       { duration: 5000, waveFreq: { 0 }, 0, 0 },
@@ -714,6 +715,7 @@ const ToneGenerator::ToneDescriptor ToneGenerator::sToneDescriptors[] = {
                       { duration: 0 , waveFreq: { 0 }, 0, 0}},
           repeatCnt: ToneGenerator::TONEGEN_INF,
           repeatSegment: 0 },                              // TONE_HOLD_RECALL
+#endif /* QCOM_HARDWARE */
 
         { segments: { { duration: ToneGenerator::TONEGEN_INF, waveFreq: { 350, 440, 0 }, 0, 0 },
                       { duration: 0 , waveFreq: { 0 }, 0, 0}},
@@ -820,12 +822,14 @@ ToneGenerator::ToneGenerator(audio_stream_type_t streamType, float volume, bool 
         ALOGE("Unable to marshal AudioFlinger");
         return;
     }
+#ifdef QCOM_HARDWARE
 
     if (mSamplingRate > 48000) {
         ALOGW("mSamplingRate %d . limit to 48k", mSamplingRate);
         mSamplingRate = 48000;
     }
 
+#endif /* QCOM_HARDWARE */
     mThreadCanCallJava = threadCanCallJava;
     mStreamType = streamType;
     mVolume = volume;
@@ -1064,22 +1068,32 @@ void ToneGenerator::stopTone() {
 ////////////////////////////////////////////////////////////////////////////////
 bool ToneGenerator::initAudioTrack() {
 
+#ifdef QCOM_HARDWARE
     audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_FAST;
     // Set AUDIO_OUTPUT_FLAG_DIRECT and AUDIO_OUTPUT_FLAG_INCALL_MUSIC for incall music delivery
     if (mStreamType == AUDIO_STREAM_INCALL_MUSIC) {
         flags = (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_INCALL_MUSIC);
     }
 
+#endif /* QCOM_HARDWARE */
     // Open audio track in mono, PCM 16bit, default sampling rate, default buffer size
     mpAudioTrack = new AudioTrack();
     ALOGV("Create Track: %p", mpAudioTrack.get());
 
     mpAudioTrack->set(mStreamType,
+#ifndef QCOM_HARDWARE
+                      0,    // sampleRate
+#else /* QCOM_HARDWARE */
                       mSamplingRate,
+#endif /* QCOM_HARDWARE */
                       AUDIO_FORMAT_PCM_16_BIT,
                       AUDIO_CHANNEL_OUT_MONO,
                       0,    // frameCount
+#ifndef QCOM_HARDWARE
+                      AUDIO_OUTPUT_FLAG_FAST,
+#else /* QCOM_HARDWARE */
                       flags,
+#endif /* QCOM_HARDWARE */
                       audioCallback,
                       this, // user
                       0,    // notificationFrames

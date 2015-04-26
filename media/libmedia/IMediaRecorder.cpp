@@ -38,7 +38,9 @@ enum {
     QUERY_SURFACE_MEDIASOURCE,
     RESET,
     STOP,
+#ifdef QCOM_HARDWARE
     PAUSE,
+#endif /* QCOM_HARDWARE */
     START,
     PREPARE,
     GET_MAX_AMPLITUDE,
@@ -259,6 +261,7 @@ public:
         return reply.readInt32();
     }
 
+#ifdef QCOM_HARDWARE
     status_t pause()
     {
         ALOGV("pause");
@@ -268,6 +271,7 @@ public:
         return reply.readInt32();
     }
 
+#endif /* QCOM_HARDWARE */
     status_t stop()
     {
         ALOGV("stop");
@@ -341,12 +345,14 @@ status_t BnMediaRecorder::onTransact(
             ALOGV("STOP");
             CHECK_INTERFACE(IMediaRecorder, data, reply);
             reply->writeInt32(stop());
+#ifdef QCOM_HARDWARE
             return NO_ERROR;
         } break;
         case PAUSE: {
             ALOGV("PAUSE");
             CHECK_INTERFACE(IMediaRecorder, data, reply);
             reply->writeInt32(pause());
+#endif /* QCOM_HARDWARE */
             return NO_ERROR;
         } break;
         case START: {
