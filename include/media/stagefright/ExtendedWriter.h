@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
@@ -141,3 +142,4 @@ private:
 }  // namespace android
 
 #endif  // AMR_WRITER_H_
+#endif /* ! QCOM_HARDWARE */

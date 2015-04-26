@@ -10,6 +10,7 @@ LOCAL_SRC_FILES:=                 \
         MPEG2TSExtractor.cpp      \
 
 LOCAL_C_INCLUDES:= \
+#ifndef QCOM_HARDWARE
         $(TOP)/frameworks/av/media/libstagefright \
         $(TOP)/frameworks/native/include/media/openmax
 
@@ -20,6 +21,10 @@ else
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 endif
 endif
+#else /* QCOM_HARDWARE */
+	$(TOP)/frameworks/av/media/libstagefright \
+	$(TOP)/frameworks/native/include/media/openmax
+#endif /* QCOM_HARDWARE */
 
 LOCAL_CFLAGS += -Werror
 

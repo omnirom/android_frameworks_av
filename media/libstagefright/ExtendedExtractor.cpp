@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*Copyright (c) 2012 - 2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -149,3 +150,4 @@ bool ExtendedExtractor::Sniff (
 
 #endif //ENABLE_AV_ENHANCEMENTS
 
+#endif /* ! QCOM_HARDWARE */

@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (C) 2014 The Android Open Source Project
  *
@@ -96,3 +97,4 @@ status_t DTSUtils::setupDecoder(sp<IOMX> omx, IOMX::node_id node, int32_t sample
 }
 
 } // namespace android
+#endif /* ! QCOM_HARDWARE */

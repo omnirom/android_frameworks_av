@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifndef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,15 +32,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* ! QCOM_HARDWARE */
  */
 
 #include <inttypes.h>
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "AudioPlayer"
+#ifndef QCOM_HARDWARE
 #define ATRACE_TAG ATRACE_TAG_AUDIO
+#endif /* ! QCOM_HARDWARE */
 #include <utils/Log.h>
+#ifndef QCOM_HARDWARE
 #include <utils/Trace.h>
+#endif /* ! QCOM_HARDWARE */
 #include <cutils/compiler.h>
 
 #include <binder/IPCThreadState.h>
@@ -53,9 +59,12 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
+#ifndef QCOM_HARDWARE
 #include <media/stagefright/ExtendedCodec.h>
+#endif /* ! QCOM_HARDWARE */
 
 #include "include/AwesomePlayer.h"
+#ifndef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
 #include "QCMetaData.h"
 #include "QCMediaDefs.h"
@@ -67,6 +76,7 @@
 #include <hardware/audio.h>
 #include "ds_config.h"
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
 
 namespace android {
 
@@ -82,13 +92,17 @@ AudioPlayer::AudioPlayer(
       mNumFramesPlayedSysTimeUs(ALooper::GetNowUs()),
       mPositionTimeMediaUs(-1),
       mPositionTimeRealUs(-1),
+#ifndef QCOM_HARDWARE
       mDurationUs(-1),
+#endif /* ! QCOM_HARDWARE */
       mSeeking(false),
       mReachedEOS(false),
       mFinalStatus(OK),
       mSeekTimeUs(0),
       mStarted(false),
+#ifndef QCOM_HARDWARE
       mSourcePaused(false),
+#endif /* ! QCOM_HARDWARE */
       mIsFirstBuffer(false),
       mFirstBufferResult(OK),
       mFirstBuffer(NULL),
@@ -97,12 +111,16 @@ AudioPlayer::AudioPlayer(
       mPinnedTimeUs(-1ll),
       mPlaying(false),
       mStartPosUs(0),
+#ifndef QCOM_HARDWARE
       mCreateFlags(flags),
 #ifdef DOLBY_UDC
       mDolbyProcessedAudio(false),
 #endif //DOLBY_END
       mPauseRequired(false),
       mUseSmallBufs(false) {
+#else /* QCOM_HARDWARE */
+      mCreateFlags(flags) {
+#endif /* QCOM_HARDWARE */
 }
 
 AudioPlayer::~AudioPlayer() {
@@ -122,14 +140,18 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
 
     status_t err;
     if (!sourceAlreadyStarted) {
+#ifndef QCOM_HARDWARE
         mSourcePaused = false;
+#endif /* ! QCOM_HARDWARE */
         err = mSource->start();
 
         if (err != OK) {
             return err;
         }
     }
+#ifndef QCOM_HARDWARE
     ALOGI("start of Playback, useOffload %d",useOffload());
+#endif /* ! QCOM_HARDWARE */
 
     // We allow an optional INFO_FORMAT_CHANGED at the very beginning
     // of playback, if there is one, getFormat below will retrieve the
@@ -144,10 +166,14 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
         mSeeking = false;
     }
 
+#ifndef QCOM_HARDWARE
     do {
         mFirstBufferResult = mSource->read(&mFirstBuffer, &options);
     } while (mFirstBufferResult == -EAGAIN);
 
+#else /* QCOM_HARDWARE */
+    mFirstBufferResult = mSource->read(&mFirstBuffer, &options);
+#endif /* QCOM_HARDWARE */
     if (mFirstBufferResult == INFO_FORMAT_CHANGED) {
         ALOGV("INFO_FORMAT_CHANGED!!!");
 
@@ -167,36 +193,51 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
     success = format->findInt32(kKeySampleRate, &mSampleRate);
     CHECK(success);
 
+#ifndef QCOM_HARDWARE
     int32_t numChannels, channelMask = 0;
+#else /* QCOM_HARDWARE */
+    int32_t numChannels, channelMask;
+#endif /* QCOM_HARDWARE */
     success = format->findInt32(kKeyChannelCount, &numChannels);
     CHECK(success);
 
+#ifndef QCOM_HARDWARE
     format->findInt64(kKeyDuration, &mDurationUs);
 
+#endif /* ! QCOM_HARDWARE */
     if(!format->findInt32(kKeyChannelMask, &channelMask)) {
         // log only when there's a risk of ambiguity of channel mask selection
         ALOGI_IF(numChannels > 2,
                 "source format didn't specify channel mask, using (%d) channel order", numChannels);
         channelMask = CHANNEL_MASK_USE_CHANNEL_ORDER;
+#ifndef QCOM_HARDWARE
     } else if (channelMask == 0) {
         channelMask = audio_channel_out_mask_from_count(numChannels);
         ALOGV("channel mask is zero,update from channel count %d", channelMask);
+#endif /* ! QCOM_HARDWARE */
     }
 
     audio_format_t audioFormat = AUDIO_FORMAT_PCM_16_BIT;
+#ifndef QCOM_HARDWARE
     int32_t bitWidth = 16;
 #ifdef ENABLE_AV_ENHANCEMENTS
 #if defined(FLAC_OFFLOAD_ENABLED) || defined(PCM_OFFLOAD_ENABLED_24)
     format->findInt32(kKeySampleBits, &bitWidth);
 #endif
 #endif
+#endif /* ! QCOM_HARDWARE */
 
     if (useOffload()) {
         if (mapMimeToAudioFormat(audioFormat, mime) != OK) {
+#ifndef QCOM_HARDWARE
             ALOGE("%s Couldn't map mime type \"%s\" to a valid AudioSystem::audio_format",
                   __func__, mime);
+#else /* QCOM_HARDWARE */
+            ALOGE("Couldn't map mime type \"%s\" to a valid AudioSystem::audio_format", mime);
+#endif /* QCOM_HARDWARE */
             audioFormat = AUDIO_FORMAT_INVALID;
         } else {
+#ifndef QCOM_HARDWARE
             // Override audio format for PCM offload
             if (audioFormat == AUDIO_FORMAT_PCM_16_BIT) {
                 if (16 == bitWidth)
@@ -207,6 +248,9 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
 
             ALOGV("%s Mime type \"%s\" mapped to audio_format 0x%x",
                   __func__, mime, audioFormat);
+#else /* QCOM_HARDWARE */
+            ALOGV("Mime type \"%s\" mapped to audio_format 0x%x", mime, audioFormat);
+#endif /* QCOM_HARDWARE */
         }
 
         int32_t aacaot = -1;
@@ -237,7 +281,9 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
                 offloadInfo.duration_us = -1;
             }
 
+#ifndef QCOM_HARDWARE
             offloadInfo.bit_width = bitWidth;
+#endif /* ! QCOM_HARDWARE */
             offloadInfo.sample_rate = mSampleRate;
             offloadInfo.channel_mask = channelMask;
             offloadInfo.format = audioFormat;
@@ -245,10 +291,12 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
             offloadInfo.bit_rate = avgBitRate;
             offloadInfo.has_video = ((mCreateFlags & HAS_VIDEO) != 0);
             offloadInfo.is_streaming = ((mCreateFlags & IS_STREAMING) != 0);
+#ifndef QCOM_HARDWARE
             mUseSmallBufs = (audioFormat == AUDIO_FORMAT_PCM_16_BIT_OFFLOAD);
             offloadInfo.use_small_bufs = mUseSmallBufs;
         } else {
             mUseSmallBufs = false;
+#endif /* ! QCOM_HARDWARE */
         }
 
         status_t err = mAudioSink->open(
@@ -327,10 +375,13 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
 
     mStarted = true;
     mPlaying = true;
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_UDC
     updateDolbyProcessedAudioState();
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
     mPinnedTimeUs = -1ll;
+#ifndef QCOM_HARDWARE
     const char *componentName;
     if (!(format->findCString(kKeyDecoderComponent, &componentName))) {
           componentName = "none";
@@ -349,18 +400,28 @@ void AudioPlayer::updateDolbyProcessedAudioState() {
         mAudioTrack->setParameters(params);
     }
 }
+#endif /* ! QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
 void AudioPlayer::setDolbyProcessedAudioState(bool processed) {
     ALOGD("%s(processed=%d)", __FUNCTION__, processed);
     if(processed != mDolbyProcessedAudio) {
         mDolbyProcessedAudio = processed;
         updateDolbyProcessedAudioState();
     }
+#else /* QCOM_HARDWARE */
+    return OK;
+#endif /* QCOM_HARDWARE */
 }
+#ifndef QCOM_HARDWARE
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
 
 void AudioPlayer::pause(bool playPendingSamples) {
     CHECK(mStarted);
+#ifdef QCOM_HARDWARE
+
+#endif /* QCOM_HARDWARE */
     if (playPendingSamples) {
         if (mAudioSink.get() != NULL) {
             mAudioSink->stop();
@@ -381,6 +442,7 @@ void AudioPlayer::pause(bool playPendingSamples) {
     }
 
     mPlaying = false;
+#ifndef QCOM_HARDWARE
     CHECK(mSource != NULL);
     if (mPauseRequired) {
         if (mSource->pause() == OK) {
@@ -391,16 +453,19 @@ void AudioPlayer::pause(bool playPendingSamples) {
     updateDolbyProcessedAudioState();
 #endif // DOLBY_END
     ALOGI("Pause Playback at %lld",getMediaTimeUs());
+#endif /* ! QCOM_HARDWARE */
 }
 
 status_t AudioPlayer::resume() {
     CHECK(mStarted);
+#ifndef QCOM_HARDWARE
     CHECK(mSource != NULL);
     ALOGI("Resume Playback at %lld",getMediaTimeUs());
     if (mSourcePaused == true) {
         mSourcePaused = false;
         mSource->start();
     }
+#endif /* ! QCOM_HARDWARE */
     status_t err;
 
     if (mAudioSink.get() != NULL) {
@@ -411,9 +476,11 @@ status_t AudioPlayer::resume() {
 
     if (err == OK) {
         mPlaying = true;
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_UDC
         updateDolbyProcessedAudioState();
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
     }
 
     return err;
@@ -422,11 +489,17 @@ status_t AudioPlayer::resume() {
 void AudioPlayer::reset() {
     CHECK(mStarted);
 
+#ifndef QCOM_HARDWARE
     ALOGI("reset: mPlaying=%d mReachedEOS=%d useOffload=%d",
+#else /* QCOM_HARDWARE */
+    ALOGV("reset: mPlaying=%d mReachedEOS=%d useOffload=%d",
+#endif /* QCOM_HARDWARE */
                                 mPlaying, mReachedEOS, useOffload() );
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_UDC
     setDolbyProcessedAudioState(false);
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
 
     if (mAudioSink.get() != NULL) {
         mAudioSink->stop();
@@ -468,7 +541,11 @@ void AudioPlayer::reset() {
         mInputBuffer->release();
         mInputBuffer = NULL;
     }
+#ifndef QCOM_HARDWARE
     mSourcePaused = false;
+#else /* QCOM_HARDWARE */
+
+#endif /* QCOM_HARDWARE */
     mSource->stop();
 
     // The following hack is necessary to ensure that the OMX
@@ -476,11 +553,15 @@ void AudioPlayer::reset() {
     // to instantiate it again.
     // When offloading, the OMX component is not used so this hack
     // is not needed
+#ifndef QCOM_HARDWARE
     sp<MetaData> format = mSource->getFormat();
     const char *mime;
     format->findCString(kKeyMIMEType, &mime);
     if (!useOffload() ||
         (useOffload() && !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW))) {
+#else /* QCOM_HARDWARE */
+    if (!useOffload()) {
+#endif /* QCOM_HARDWARE */
         wp<MediaSource> tmp = mSource;
         mSource.clear();
         while (tmp.promote() != NULL) {
@@ -502,7 +583,9 @@ void AudioPlayer::reset() {
     mStarted = false;
     mPlaying = false;
     mStartPosUs = 0;
+#ifndef QCOM_HARDWARE
     mPauseRequired = false;
+#endif /* ! QCOM_HARDWARE */
 }
 
 // static
@@ -525,10 +608,14 @@ bool AudioPlayer::reachedEOS(status_t *finalStatus) {
 
 void AudioPlayer::notifyAudioEOS() {
     ALOGV("AudioPlayer@0x%p notifyAudioEOS", this);
+#ifndef QCOM_HARDWARE
     if (useOffload()) {
         mPositionTimeRealUs = getOutputPlayPositionUs_l ();
         ALOGV("notifyAudioEOS: mPositionTimeRealUs = %lld ",mPositionTimeRealUs);
     }
+#else /* QCOM_HARDWARE */
+
+#endif /* QCOM_HARDWARE */
     if (mObserver != NULL) {
         mObserver->postAudioEOS(0);
         ALOGV("Notified observer of EOS!");
@@ -609,7 +696,9 @@ uint32_t AudioPlayer::getNumFramesPendingPlayout() const {
 }
 
 size_t AudioPlayer::fillBuffer(void *data, size_t size) {
+#ifndef QCOM_HARDWARE
     ATRACE_CALL();
+#endif /* ! QCOM_HARDWARE */
     if (mNumFramesPlayed == 0) {
         ALOGV("AudioCallback");
     }
@@ -666,6 +755,7 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
                 mIsFirstBuffer = false;
             } else {
                 err = mSource->read(&mInputBuffer, &options);
+#ifndef QCOM_HARDWARE
                 if (err == OK && mInputBuffer == NULL && mSourcePaused) {
                     ALOGV("mSourcePaused, return 0 from fillBuffer");
                     return 0;
@@ -675,17 +765,25 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
             if (err == INFO_DOLBY_PROCESSED_AUDIO_START || err == INFO_DOLBY_PROCESSED_AUDIO_STOP) {
                 setDolbyProcessedAudioState(err == INFO_DOLBY_PROCESSED_AUDIO_START);
                 err = OK;
+#endif /* ! QCOM_HARDWARE */
             }
+#ifndef QCOM_HARDWARE
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
 
             CHECK((err == OK && mInputBuffer != NULL)
                    || (err != OK && mInputBuffer == NULL));
 
             Mutex::Autolock autoLock(mLock);
 
+#ifndef QCOM_HARDWARE
             if (err != OK && err != INFO_FORMAT_CHANGED) {
+#else /* QCOM_HARDWARE */
+            if (err != OK) {
+#endif /* QCOM_HARDWARE */
                 if (!mReachedEOS) {
                     if (useOffload()) {
+#ifndef QCOM_HARDWARE
                         // After seek there is a possible race condition if
                         // OffloadThread is observing state_stopping_1 before
                         // framesReady() > 0. Ensure sink stop is called
@@ -703,6 +801,7 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
                              break;
                         }
 
+#endif /* ! QCOM_HARDWARE */
                         // no more buffers to push - stop() and wait for STREAM_END
                         // don't set mReachedEOS until stream end received
                         if (mAudioSink != NULL) {
@@ -775,11 +874,16 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
                         mObserver->postAudioSeekComplete();
                         postSeekComplete = false;
                     }
+#ifndef QCOM_HARDWARE
                     if(mPositionTimeMediaUs >= 0 ) {
                         mStartPosUs = mPositionTimeMediaUs;
                     } else {
                         ALOGI("Ignore mStartPos update when timestamp returned is negative");
                     }
+#else /* QCOM_HARDWARE */
+
+                    mStartPosUs = mPositionTimeMediaUs;
+#endif /* QCOM_HARDWARE */
                     ALOGV("adjust seek time to: %.2f", mStartPosUs/ 1E6);
                 }
                 // clear seek time with mLock locked and once we have valid mPositionTimeMediaUs
@@ -840,10 +944,12 @@ size_t AudioPlayer::fillBuffer(void *data, size_t size) {
 
         if (mReachedEOS) {
             mPinnedTimeUs = mNumFramesPlayedSysTimeUs;
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_UDC
             // ReachedEOS, send processed audio == false to AF.
             setDolbyProcessedAudioState(false);
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
         } else {
             mPinnedTimeUs = -1ll;
         }
@@ -890,44 +996,77 @@ int64_t AudioPlayer::getRealTimeUsLocked() const {
 
     diffUs -= mNumFramesPlayedSysTimeUs;
 
+#ifndef QCOM_HARDWARE
     ALOGV("getRealTimeUsLocked %" PRId64, result + diffUs);
+#endif /* ! QCOM_HARDWARE */
     return result + diffUs;
 }
 
 int64_t AudioPlayer::getOutputPlayPositionUs_l()
 {
     uint32_t playedSamples = 0;
+#ifndef QCOM_HARDWARE
     status_t err = NO_ERROR;
     int64_t renderedDuration = 0;
     uint32_t sampleRate = 0;
 
+#else /* QCOM_HARDWARE */
+    uint32_t sampleRate;
+#endif /* QCOM_HARDWARE */
     if (mAudioSink != NULL) {
+#ifndef QCOM_HARDWARE
         err = mAudioSink->getPosition(&playedSamples);
+#else /* QCOM_HARDWARE */
+        mAudioSink->getPosition(&playedSamples);
+#endif /* QCOM_HARDWARE */
         sampleRate = mAudioSink->getSampleRate();
+#ifndef QCOM_HARDWARE
     } else if (mAudioTrack != NULL) {
         err = mAudioTrack->getPosition(&playedSamples);
+#else /* QCOM_HARDWARE */
+    } else {
+        mAudioTrack->getPosition(&playedSamples);
+#endif /* QCOM_HARDWARE */
         sampleRate = mAudioTrack->getSampleRate();
     }
+#ifndef QCOM_HARDWARE
 
+#endif /* ! QCOM_HARDWARE */
     if (sampleRate != 0) {
         mSampleRate = sampleRate;
     }
+#ifndef QCOM_HARDWARE
     // Send last known played postion if query to track fails
     if ((err != NO_ERROR) && (mPositionTimeRealUs >= 0)) {
         ALOGV("getOutputPlayPositionUs_l %lld", renderedDuration);
         renderedDuration = mPositionTimeRealUs;
     } else {
         int64_t playedUs = 0;
+#endif /* ! QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
         if (mSampleRate != 0) {
             playedUs = (static_cast<int64_t>(playedSamples) * 1000000 ) / mSampleRate;
         }
         // HAL position is relative to the first buffer we sent at mStartPosUs
         renderedDuration = mStartPosUs + playedUs;
+#else /* QCOM_HARDWARE */
+    int64_t playedUs;
+    if (mSampleRate != 0) {
+        playedUs = (static_cast<int64_t>(playedSamples) * 1000000 ) / mSampleRate;
+    } else {
+        playedUs = 0;
+#endif /* QCOM_HARDWARE */
     }
 
+#ifndef QCOM_HARDWARE
     ALOGV("getOutputPlayPositionUs_l %lld", renderedDuration);
 
+#else /* QCOM_HARDWARE */
+    // HAL position is relative to the first buffer we sent at mStartPosUs
+    const int64_t renderedDuration = mStartPosUs + playedUs;
+    ALOGV("getOutputPlayPositionUs_l %" PRId64, renderedDuration);
+#endif /* QCOM_HARDWARE */
     return renderedDuration;
 }
 
@@ -984,6 +1123,7 @@ status_t AudioPlayer::seekTo(int64_t time_us) {
 
     ALOGV("seekTo( %" PRId64 " )", time_us);
 
+#ifndef QCOM_HARDWARE
     if(useOffload() && !mUseSmallBufs)
     {
         int64_t playPosition = 0;
@@ -1001,6 +1141,7 @@ status_t AudioPlayer::seekTo(int64_t time_us) {
             return OK;
         }
     }
+#endif /* ! QCOM_HARDWARE */
     mSeeking = true;
     mPositionTimeRealUs = mPositionTimeMediaUs = -1;
     mReachedEOS = false;

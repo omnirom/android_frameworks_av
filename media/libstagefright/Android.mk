@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 #
 # This file was modified by DTS, Inc. The portions of the
 # code that are surrounded by "DTS..." are copyrighted and
@@ -17,6 +18,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 #
+#endif /* ! QCOM_HARDWARE */
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
@@ -63,7 +65,9 @@ LOCAL_SRC_FILES:=                         \
         NuMediaExtractor.cpp              \
         OMXClient.cpp                     \
         OMXCodec.cpp                      \
+#ifndef QCOM_HARDWARE
         ExtendedCodec.cpp                 \
+#endif /* ! QCOM_HARDWARE */
         OggExtractor.cpp                  \
         SampleIterator.cpp                \
         SampleTable.cpp                   \
@@ -77,13 +81,17 @@ LOCAL_SRC_FILES:=                         \
         Utils.cpp                         \
         VBRISeeker.cpp                    \
         WAVExtractor.cpp                  \
+#ifndef QCOM_HARDWARE
         WAVEWriter.cpp                    \
+#endif /* ! QCOM_HARDWARE */
         WVMExtractor.cpp                  \
         XINGSeeker.cpp                    \
         avc_utils.cpp                     \
+#ifndef QCOM_HARDWARE
         ExtendedExtractor.cpp             \
         ExtendedUtils.cpp                 \
         ExtendedStats.cpp                 \
+#endif /* ! QCOM_HARDWARE */
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/ \
@@ -123,6 +131,7 @@ LOCAL_SHARED_LIBRARIES := \
         libz \
         libpowermanager
 
+#ifndef QCOM_HARDWARE
 #QTI FLAC Decoder
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio
@@ -133,6 +142,7 @@ LOCAL_CFLAGS := -DQTI_FLAC_DECODER
 endif
 endif
 
+#endif /* ! QCOM_HARDWARE */
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_color_conversion \
         libstagefright_aacenc \
@@ -146,6 +156,7 @@ LOCAL_STATIC_LIBRARIES := \
         libFLAC \
         libmedia_helper
 
+#ifndef QCOM_HARDWARE
 ifeq ($(TARGET_USES_QCOM_BSP), true)
 ifneq ($(TARGET_QCOM_DISPLAY_VARIANT),)
     LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/display-$(TARGET_QCOM_DISPLAY_VARIANT)/libgralloc
@@ -185,6 +196,7 @@ ifeq ($(strip $(AUDIO_FEATURE_ENABLED_FLAC_OFFLOAD)),true)
 endif
 endif
 
+#endif /* ! QCOM_HARDWARE */
 LOCAL_SHARED_LIBRARIES += \
         libstagefright_enc_common \
         libstagefright_avc_common \
@@ -199,11 +211,13 @@ endif
 
 ifeq ($(BOARD_USES_LEGACY_ACQUIRE_WVM),true)
 LOCAL_CFLAGS += -DUSES_LEGACY_ACQUIRE_WVM
+#ifndef QCOM_HARDWARE
 endif
 
 ifeq ($(DTS_CODEC_M_), true)
   LOCAL_SRC_FILES+= DTSUtils.cpp
   LOCAL_CFLAGS += -DDTS_CODEC_M_
+#endif /* ! QCOM_HARDWARE */
 endif
 
 LOCAL_MODULE:= libstagefright

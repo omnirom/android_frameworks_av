@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (C) 2012 The Android Open Source Project
  *
@@ -175,3 +176,4 @@ android::SoftOMXComponent *createSoftOMXComponent(
 
     return dtsDec;
 }
+#endif /* ! QCOM_HARDWARE */

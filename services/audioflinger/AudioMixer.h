@@ -27,9 +27,11 @@
 #include "AudioResampler.h"
 
 #include <hardware/audio_effect.h>
+#ifndef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
 #include "EffectsHwAcc.h"
 #endif
+#endif /* ! QCOM_HARDWARE */
 #include <system/audio.h>
 #include <media/nbaio/NBLog.h>
 
@@ -102,6 +104,7 @@ public:
         VOLUME0         = 0x4200,
         VOLUME1         = 0x4201,
         AUXLEVEL        = 0x4210,
+#ifndef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
         ENABLE_HW_ACC_EFFECTS   = 0X5000,
         DISABLE_HW_ACC_EFFECTS  = 0X5001,
@@ -109,6 +112,7 @@ public:
         HW_ACC_HPX_STATE        = 0X5003,
 #endif
 #endif
+#endif /* ! QCOM_HARDWARE */
     };
 
 
@@ -235,10 +239,12 @@ private:
         float          mPrevAuxLevel;                 // floating point prev aux level
         float          mAuxInc;                       // floating point aux increment
 
+#ifndef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
         EffectsHwAcc* hwAcc;
         hook_t      tmpHook;
 #endif
+#endif /* ! QCOM_HARDWARE */
         // 16-byte boundary
         audio_channel_mask_t mMixerChannelMask;
         uint32_t             mMixerChannelCount;

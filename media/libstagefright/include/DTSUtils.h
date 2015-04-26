@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (C) 2013 The Android Open Source Project
  *
@@ -38,3 +39,4 @@ struct DTSUtils
 } // namespace android
 
 #endif
+#endif /* ! QCOM_HARDWARE */

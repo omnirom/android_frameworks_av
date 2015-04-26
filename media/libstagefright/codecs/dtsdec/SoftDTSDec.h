@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (C) 2012 The Android Open Source Project
  *
@@ -70,3 +71,4 @@ private:
 }  // namespace android
 
 #endif  // SOFT_DTS_DEC_H_
+#endif /* ! QCOM_HARDWARE */

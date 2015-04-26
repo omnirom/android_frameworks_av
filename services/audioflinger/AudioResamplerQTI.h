@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (C) 2014, The Linux Foundation. All rights reserved.
  * Not a Contribution.
@@ -50,3 +51,4 @@ public:
 // ----------------------------------------------------------------------------
 }; // namespace android
 
+#endif /* ! QCOM_HARDWARE */

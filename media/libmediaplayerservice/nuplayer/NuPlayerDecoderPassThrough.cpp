@@ -32,8 +32,10 @@
 
 #include "ATSParser.h"
 
+#ifndef QCOM_HARDWARE
 #include "ExtendedUtils.h"
 
+#endif /* ! QCOM_HARDWARE */
 namespace android {
 
 // TODO optimize buffer size for power consumption
@@ -76,12 +78,15 @@ void NuPlayer::DecoderPassThrough::onConfigure(const sp<AMessage> &format) {
 
     onRequestInputBuffers();
 
+#ifndef QCOM_HARDWARE
     uint32_t isStreaming = 0;
     format->findInt32("isStreaming", (int32_t *)&isStreaming);
 
+#endif /* ! QCOM_HARDWARE */
     // The audio sink is already opened before the PassThrough decoder is created.
     // Opening again might be relevant if decoder is instantiated after shutdown and
     // format is different.
+#ifndef QCOM_HARDWARE
     if (ExtendedUtils::is24bitPCMOffloadEnabled()) {
         sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
         if (ExtendedUtils::is24bitPCMOffloaded(audioMeta)) {
@@ -89,9 +94,14 @@ void NuPlayer::DecoderPassThrough::onConfigure(const sp<AMessage> &format) {
         }
     }
 
+#endif /* ! QCOM_HARDWARE */
     status_t err = mRenderer->openAudioSink(
             format, true /* offloadOnly */, false /* hasVideo */,
+#ifndef QCOM_HARDWARE
             AUDIO_OUTPUT_FLAG_NONE /* flags */, isStreaming, NULL /* isOffloaded */);
+#else /* QCOM_HARDWARE */
+            AUDIO_OUTPUT_FLAG_NONE /* flags */, NULL /* isOffloaded */);
+#endif /* QCOM_HARDWARE */
     if (err != OK) {
         handleError(err);
     }

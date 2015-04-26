@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
 * Copyright (c) 2014, The Linux Foundation. All rights reserved.
 *
@@ -322,3 +323,4 @@ bool WAVEWriter::reachedEOS() {
 }
 
 }  // namespace android
+#endif /* ! QCOM_HARDWARE */

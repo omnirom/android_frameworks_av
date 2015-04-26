@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /* Copyright (c) 2013 - 2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -268,3 +269,4 @@ struct ExtendedUtils {
 
 }
 #endif  //EXTENDED_UTILS_H_
+#endif /* ! QCOM_HARDWARE */

@@ -193,7 +193,9 @@ public:
         pid_t                           mClientPid;
         uid_t                           mClientUid;      // immutable after constructor
         pid_t                           mServicePid;     // immutable after constructor
+#ifndef QCOM_HARDWARE
         int                             mBurstCnt;
+#endif /* ! QCOM_HARDWARE */
 
         // - The app-side Binder interface to receive callbacks from us
         sp<IBinder>                     mRemoteBinder;   // immutable after constructor
@@ -285,11 +287,16 @@ public:
         virtual void         notifyError(ICameraDeviceCallbacks::CameraErrorCode errorCode,
                                          const CaptureResultExtras& resultExtras);
 
+#ifdef QCOM_HARDWARE
+        // Initialized in constructor
+#endif /* QCOM_HARDWARE */
 
         // - The app-side Binder interface to receive callbacks from us
         sp<ICameraClient>               mRemoteCallback;
 
+#ifndef QCOM_HARDWARE
         bool                 mLongshotEnabled;
+#endif /* ! QCOM_HARDWARE */
     }; // class Client
 
     class ProClient : public BnProCameraUser, public BasicClient {

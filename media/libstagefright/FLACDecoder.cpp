@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*Copyright (c) 2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -318,3 +319,4 @@ status_t FLACDecoder::read(MediaBuffer **out, const ReadOptions* options) {
 }
 
 }
+#endif /* ! QCOM_HARDWARE */

@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifndef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* ! QCOM_HARDWARE */
  */
 
 #ifndef OMX_CODEC_H_
@@ -45,6 +47,7 @@
 
 #include <OMX_Audio.h>
 
+#ifndef QCOM_HARDWARE
 #include <media/stagefright/ExtendedStats.h>
 
 #define PLAYER_STATS(func, ...) \
@@ -54,6 +57,7 @@
     } \
     while(0)
 
+#endif /* ! QCOM_HARDWARE */
 namespace android {
 
 struct MediaCodecInfo;
@@ -128,8 +132,10 @@ struct OMXCodec : public MediaSource,
         kSupportsMultipleFramesPerInputBuffer = 1024,
         kRequiresLargerEncoderOutputBuffer    = 2048,
         kOutputBuffersAreUnreadable           = 4096,
+#ifndef QCOM_HARDWARE
         kRequiresGlobalFlush                  = 0x20000000, // 2^29
         kRequiresWMAProComponent              = 0x40000000, //2^30
+#endif /* ! QCOM_HARDWARE */
     };
 
     struct CodecNameAndQuirks {
@@ -149,19 +155,23 @@ struct OMXCodec : public MediaSource,
 
     static bool findCodecQuirks(const char *componentName, uint32_t *quirks);
 
+#ifndef QCOM_HARDWARE
     // If profile/level is set in the meta data, its value in the meta
     // data will be used; otherwise, the default value will be used.
     status_t getVideoProfileLevel(const sp<MetaData>& meta,
             const CodecProfileLevel& defaultProfileLevel,
             CodecProfileLevel& profileLevel);
 
+#endif /* ! QCOM_HARDWARE */
 protected:
     virtual ~OMXCodec();
 
 private:
 
+#ifndef QCOM_HARDWARE
     sp<PlayerExtendedStats> mPlayerExtendedStats;
 
+#endif /* ! QCOM_HARDWARE */
     // Make sure mLock is accessible to OMXCodecObserver
     friend class OMXCodecObserver;
 
@@ -177,14 +187,18 @@ private:
         EXECUTING_TO_IDLE,
         IDLE_TO_LOADED,
         RECONFIGURING,
+#ifndef QCOM_HARDWARE
         PAUSING,
         FLUSHING,
         PAUSED,
+#endif /* ! QCOM_HARDWARE */
         ERROR
     };
 
     enum {
+#ifndef QCOM_HARDWARE
         kPortIndexBoth   = -1,
+#endif /* ! QCOM_HARDWARE */
         kPortIndexInput  = 0,
         kPortIndexOutput = 1
     };
@@ -211,7 +225,9 @@ private:
         size_t mSize;
         void *mData;
         MediaBuffer *mMediaBuffer;
+#ifndef QCOM_HARDWARE
         bool mOutputCropChanged;
+#endif /* ! QCOM_HARDWARE */
     };
 
     struct CodecSpecificData {
@@ -258,11 +274,13 @@ private:
     Condition mAsyncCompletion;
 
     bool mPaused;
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_UDC
     // Indicate if processed audio is being provided by Dolby decoder
     bool mDolbyProcessedAudio;
     bool mDolbyProcessedAudioStateChanged;
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
 
     sp<ANativeWindow> mNativeWindow;
 
@@ -319,6 +337,14 @@ private:
     status_t isColorFormatSupported(
             OMX_COLOR_FORMATTYPE colorFormat, int portIndex);
 
+#ifdef QCOM_HARDWARE
+    // If profile/level is set in the meta data, its value in the meta
+    // data will be used; otherwise, the default value will be used.
+    status_t getVideoProfileLevel(const sp<MetaData>& meta,
+            const CodecProfileLevel& defaultProfileLevel,
+            CodecProfileLevel& profileLevel);
+
+#endif /* QCOM_HARDWARE */
     status_t setVideoOutputFormat(
             const char *mime, const sp<MetaData>& meta);
 
@@ -392,7 +418,9 @@ private:
     status_t applyRotation();
     status_t waitForBufferFilled_l();
 
+#ifndef QCOM_HARDWARE
     status_t resumeLocked(bool drainInputBuf);
+#endif /* ! QCOM_HARDWARE */
     int64_t getDecodingTimeUs();
 
     status_t parseHEVCCodecSpecificData(
@@ -406,10 +434,12 @@ private:
 
     OMXCodec(const OMXCodec &);
     OMXCodec &operator=(const OMXCodec &);
+#ifndef QCOM_HARDWARE
 
     int32_t mNumBFrames;
     bool mInSmoothStreamingMode;
     bool mOutputCropChanged;
+#endif /* ! QCOM_HARDWARE */
 };
 
 struct CodecCapabilities {

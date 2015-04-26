@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 
    Copyright (c) 2005-2008, The Android Open Source Project
 
@@ -187,3 +188,4 @@
       of your accepting any such warranty or additional liability.
 
    END OF TERMS AND CONDITIONS
+#endif /* ! QCOM_HARDWARE */

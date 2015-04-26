@@ -33,8 +33,10 @@
 
 #include <inttypes.h>
 
+#ifndef QCOM_HARDWARE
 #include <ExtendedUtils.h>
 
+#endif /* ! QCOM_HARDWARE */
 namespace android {
 
 struct DataSourceReader : public mkvparser::IMkvReader {
@@ -852,8 +854,10 @@ static void addESDSFromCodecPrivate(
     memcpy(esds + idx, priv, privSize);
 
     meta->setData(kKeyESDS, 0, esds, esdsSize);
+#ifndef QCOM_HARDWARE
 
     ExtendedUtils::updateVideoTrackInfoFromESDS_MPEG4Video(meta);
+#endif /* ! QCOM_HARDWARE */
 
     delete[] esds;
     esds = NULL;

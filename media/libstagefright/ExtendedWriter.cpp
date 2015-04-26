@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
 * Copyright (c) 2014, The Linux Foundation. All rights reserved.
 *
@@ -400,3 +401,4 @@ status_t ExtendedWriter::writeEVRCHeader() {
 
 
 }  // namespace android
+#endif /* ! QCOM_HARDWARE */

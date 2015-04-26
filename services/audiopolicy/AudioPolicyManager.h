@@ -43,8 +43,12 @@ namespace android {
 #define SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY 5000
 // Time in milliseconds during witch some streams are muted while the audio path
 // is switched
+#ifndef QCOM_HARDWARE
 //FIXME:: Audio team
 #define MUTE_TIME_MS 2000 //500 ms
+#else /* QCOM_HARDWARE */
+#define MUTE_TIME_MS 2000
+#endif /* QCOM_HARDWARE */
 
 #define NUM_TEST_OUTPUTS 5
 
@@ -54,7 +58,11 @@ namespace android {
 // Can be overridden by the audio.offload.min.duration.secs property
 #define OFFLOAD_DEFAULT_MIN_DURATION_SECS 60
 
+#ifndef QCOM_HARDWARE
 #define MAX_MIXER_SAMPLING_RATE 192000
+#else /* QCOM_HARDWARE */
+#define MAX_MIXER_SAMPLING_RATE 48000
+#endif /* QCOM_HARDWARE */
 #define MAX_MIXER_CHANNEL_COUNT 8
 
 // ----------------------------------------------------------------------------
@@ -880,6 +888,7 @@ protected:
         uint32_t        mTestChannels;
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
+#ifndef QCOM_HARDWARE
 
 #ifdef HDMI_PASSTHROUGH_ENABLED
         void checkAndSuspendOutputs();
@@ -912,6 +921,7 @@ protected:
         //parameter indicates if HDMI plug in/out detected
         bool mHdmiAudioEvent;
 private:
+#endif /* ! QCOM_HARDWARE */
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
         static bool isVirtualInputDevice(audio_devices_t device);
@@ -944,6 +954,7 @@ private:
                 const audio_offload_info_t *offloadInfo);
         // internal function to derive a stream type value from audio attributes
         audio_stream_type_t streamTypefromAttributesInt(const audio_attributes_t *attr);
+#ifndef QCOM_HARDWARE
         // Used for voip + voice concurrency usecase
         int mPrevPhoneState;
         int mvoice_call_state;
@@ -957,6 +968,7 @@ protected:
 #include "DolbyAudioPolicy.h"
         DolbyAudioPolicy mDolbyAudioPolicy;
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
         // return true if any output is playing anything besides the stream to ignore
         bool isAnyOutputActive(audio_stream_type_t streamToIgnore);
         // event is one of STARTING_OUTPUT, STARTING_BEACON, STOPPING_OUTPUT, STOPPING_BEACON

@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifndef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* ! QCOM_HARDWARE */
  */
 
 #include <inttypes.h>
@@ -638,11 +640,13 @@ static void dumpCodecProfiles(const sp<IOMX>& omx, bool queryDecoders) {
         MEDIA_MIMETYPE_AUDIO_MPEG, MEDIA_MIMETYPE_AUDIO_G711_MLAW,
         MEDIA_MIMETYPE_AUDIO_G711_ALAW, MEDIA_MIMETYPE_AUDIO_VORBIS,
         MEDIA_MIMETYPE_VIDEO_VP8, MEDIA_MIMETYPE_VIDEO_VP9
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_UDC
         ,
         MEDIA_MIMETYPE_AUDIO_AC3,
         MEDIA_MIMETYPE_AUDIO_EAC3
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
     };
 
     const char *codecType = queryDecoders? "decoder" : "encoder";

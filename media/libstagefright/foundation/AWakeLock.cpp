@@ -1,6 +1,8 @@
 /*
+#ifndef QCOM_HARDWARE
  * Copyright (C) 2015, The Linux Foundation. All rights reserved.
  * Not a Contribution.
+#endif /* ! QCOM_HARDWARE */
  * Copyright (C) 2015 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,9 +41,13 @@ AWakeLock::AWakeLock() :
 AWakeLock::~AWakeLock() {
     if (mPowerManager != NULL) {
         sp<IBinder> binder = mPowerManager->asBinder();
+#ifndef QCOM_HARDWARE
         if (binder != NULL) {
             binder->unlinkToDeath(mDeathRecipient);
         }
+#else /* QCOM_HARDWARE */
+        binder->unlinkToDeath(mDeathRecipient);
+#endif /* QCOM_HARDWARE */
     }
     clearPowerManager();
 }

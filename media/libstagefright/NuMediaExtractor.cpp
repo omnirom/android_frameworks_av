@@ -23,9 +23,11 @@
 #include "include/ESDS.h"
 #include "include/NuCachedSource2.h"
 #include "include/WVMExtractor.h"
+#ifndef QCOM_HARDWARE
 #ifdef QTI_FLAC_DECODER
 #include "include/FLACDecoder.h"
 #endif
+#endif /* ! QCOM_HARDWARE */
 
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -280,10 +282,19 @@ status_t NuMediaExtractor::selectTrack(size_t index) {
             return OK;
         }
     }
+#ifdef QCOM_HARDWARE
+
+#endif /* QCOM_HARDWARE */
     sp<MediaSource> source = mImpl->getTrack(index);
+#ifdef QCOM_HARDWARE
+
+    CHECK_EQ((status_t)OK, source->start());
+
+#endif /* QCOM_HARDWARE */
     mSelectedTracks.push();
     TrackInfo *info = &mSelectedTracks.editItemAt(mSelectedTracks.size() - 1);
 
+#ifndef QCOM_HARDWARE
     const char *mime;
     CHECK(source->getFormat()->findCString(kKeyMIMEType, &mime));
 #ifdef QTI_FLAC_DECODER
@@ -298,11 +309,19 @@ status_t NuMediaExtractor::selectTrack(size_t index) {
         info->mSource = source;
     }
 
+#else /* QCOM_HARDWARE */
+    info->mSource = source;
+#endif /* QCOM_HARDWARE */
     info->mTrackIndex = index;
     info->mFinalResult = OK;
     info->mSample = NULL;
     info->mSampleTimeUs = -1ll;
     info->mTrackFlags = 0;
+#ifdef QCOM_HARDWARE
+
+    const char *mime;
+    CHECK(source->getFormat()->findCString(kKeyMIMEType, &mime));
+#endif /* QCOM_HARDWARE */
 
     if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_VORBIS)) {
         info->mTrackFlags |= kIsVorbis;

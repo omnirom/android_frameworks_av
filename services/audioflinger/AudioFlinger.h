@@ -13,6 +13,7 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+#ifndef QCOM_HARDWARE
 **
 ** This file was modified by Dolby Laboratories, Inc. The portions of the
 ** code that are surrounded by "DOLBY..." are copyrighted and
@@ -32,6 +33,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 **
+#endif /* ! QCOM_HARDWARE */
 */
 
 #ifndef ANDROID_AUDIO_FLINGER_H
@@ -80,9 +82,11 @@
 
 #include <media/nbaio/NBLog.h>
 #include <private/media/AudioTrackShared.h>
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_DAP
 #include "ds_config.h"
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
 
 namespace android {
 
@@ -403,10 +407,12 @@ private:
     // incremented by 2 when screen state changes, bit 0 == 1 means "off"
     // AudioFlinger::setParameters() updates, other threads read w/o lock
     static uint32_t         mScreenState;
+#ifndef QCOM_HARDWARE
 #ifdef HW_ACC_HPX
     // HPX On/Off state
     static bool         mIsHPXOn;
 #endif
+#endif /* ! QCOM_HARDWARE */
 
     // Internal dump utilities.
     static const int kDumpLockRetries = 50;
@@ -817,6 +823,7 @@ private:
 
     uint32_t    mPrimaryOutputSampleRate;   // sample rate of the primary output, or zero if none
                                             // protected by mHardwareLock
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_DAP
 #ifdef DOLBY_DAP_FAST_API
      enum ds_profile {
@@ -834,6 +841,7 @@ private:
 #endif
 #include "EffectDapController.h"
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
 };
 
 #undef INCLUDING_FROM_AUDIOFLINGER_H

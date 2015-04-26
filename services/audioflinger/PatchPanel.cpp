@@ -525,17 +525,27 @@ void AudioFlinger::PatchPanel::clearPatchConnections(Patch *patch)
     if (patch->mRecordThread != 0) {
         if (patch->mPatchRecord != 0) {
             patch->mRecordThread->deletePatchRecord(patch->mPatchRecord);
+#ifdef QCOM_HARDWARE
+            patch->mPatchRecord.clear();
+#endif /* QCOM_HARDWARE */
         }
         audioflinger->closeInputInternal_l(patch->mRecordThread);
+#ifdef QCOM_HARDWARE
+        patch->mRecordThread.clear();
+#endif /* QCOM_HARDWARE */
     }
     if (patch->mPlaybackThread != 0) {
         if (patch->mPatchTrack != 0) {
             patch->mPlaybackThread->deletePatchTrack(patch->mPatchTrack);
+#ifdef QCOM_HARDWARE
+            patch->mPatchTrack.clear();
+#endif /* QCOM_HARDWARE */
         }
         // if num sources == 2 we are reusing an existing playback thread so we do not close it
         if (patch->mAudioPatch.num_sources != 2) {
             audioflinger->closeOutputInternal_l(patch->mPlaybackThread);
         }
+#ifndef QCOM_HARDWARE
     }
     if (patch->mRecordThread != 0) {
         if (patch->mPatchRecord != 0) {
@@ -547,9 +557,12 @@ void AudioFlinger::PatchPanel::clearPatchConnections(Patch *patch)
         if (patch->mPatchTrack != 0) {
             patch->mPatchTrack.clear();
         }
+#endif /* ! QCOM_HARDWARE */
         patch->mPlaybackThread.clear();
     }
+#ifndef QCOM_HARDWARE
 
+#endif /* ! QCOM_HARDWARE */
 }
 
 /* Disconnect a patch */

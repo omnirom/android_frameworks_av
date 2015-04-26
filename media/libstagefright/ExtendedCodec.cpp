@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (c) 2013 - 2015, The Linux Foundation. All rights reserved.
  *
@@ -1476,3 +1477,4 @@ namespace android {
 } //namespace android
 
 #endif //ENABLE_AV_ENHANCEMENTS
+#endif /* ! QCOM_HARDWARE */

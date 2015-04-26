@@ -13,6 +13,7 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+#ifndef QCOM_HARDWARE
 **
 ** This file was modified by Dolby Laboratories, Inc. The portions of the
 ** code that are surrounded by "DOLBY..." are copyrighted and
@@ -32,6 +33,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 **
+#endif /* ! QCOM_HARDWARE */
 */
 
 
@@ -89,9 +91,11 @@ AudioFlinger::EffectModule::EffectModule(ThreadBase *thread,
       // mDisableWaitCnt is set by process() and updateState() and not used before then
       mSuspended(false),
       mAudioFlinger(thread->mAudioFlinger)
+#ifndef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
       , mHwAccModeEnabled(false)
 #endif
+#endif /* ! QCOM_HARDWARE */
 {
     ALOGV("Constructor %p", this);
     int lStatus;
@@ -298,6 +302,7 @@ void AudioFlinger::EffectModule::process()
                                         mConfig.inputCfg.buffer.frameCount/2);
         }
 
+#ifndef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
        int ret = 0;
        if (mHwAccModeEnabled) {
@@ -313,11 +318,16 @@ void AudioFlinger::EffectModule::process()
                                                &mConfig.outputCfg.buffer);
        }
 #else
+#endif /* ! QCOM_HARDWARE */
         // do the actual processing in the effect engine
         int ret = (*mEffectInterface)->process(mEffectInterface,
                                                &mConfig.inputCfg.buffer,
                                                &mConfig.outputCfg.buffer);
+#ifndef QCOM_HARDWARE
 #endif
+#else /* QCOM_HARDWARE */
+
+#endif /* QCOM_HARDWARE */
         // force transition to IDLE state when engine is ready
         if (mState == STOPPED && ret == -ENODATA) {
             mDisableWaitCnt = 1;
@@ -352,6 +362,7 @@ void AudioFlinger::EffectModule::reset_l()
     (*mEffectInterface)->command(mEffectInterface, EFFECT_CMD_RESET, 0, NULL, 0, NULL);
 }
 
+#ifndef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
 void AudioFlinger::EffectModule::setHwAccEffect(int id)
 {
@@ -368,10 +379,13 @@ void AudioFlinger::EffectModule::setHwAccEffect(int id)
 }
 #endif
 
+#endif /* ! QCOM_HARDWARE */
 status_t AudioFlinger::EffectModule::configure()
 {
     status_t status;
+#ifndef QCOM_HARDWARE
     status_t cmdStatus = 0;
+#endif /* ! QCOM_HARDWARE */
     sp<ThreadBase> thread;
     uint32_t size;
     audio_channel_mask_t channelMask;
@@ -429,6 +443,9 @@ status_t AudioFlinger::EffectModule::configure()
     ALOGV("configure() %p thread %p buffer %p framecount %d",
             this, thread.get(), mConfig.inputCfg.buffer.raw, mConfig.inputCfg.buffer.frameCount);
 
+#ifdef QCOM_HARDWARE
+    status_t cmdStatus;
+#endif /* QCOM_HARDWARE */
     size = sizeof(int);
     status = (*mEffectInterface)->command(mEffectInterface,
                                                    EFFECT_CMD_SET_CONFIG,
@@ -479,7 +496,11 @@ status_t AudioFlinger::EffectModule::init()
     if (mEffectInterface == NULL) {
         return NO_INIT;
     }
+#ifndef QCOM_HARDWARE
     status_t cmdStatus = 0;
+#else /* QCOM_HARDWARE */
+    status_t cmdStatus;
+#endif /* QCOM_HARDWARE */
     uint32_t size = sizeof(status_t);
     status_t status = (*mEffectInterface)->command(mEffectInterface,
                                                    EFFECT_CMD_INIT,
@@ -521,7 +542,11 @@ status_t AudioFlinger::EffectModule::start_l()
     if (mStatus != NO_ERROR) {
         return mStatus;
     }
+#ifndef QCOM_HARDWARE
     status_t cmdStatus = 0;
+#else /* QCOM_HARDWARE */
+    status_t cmdStatus;
+#endif /* QCOM_HARDWARE */
     uint32_t size = sizeof(status_t);
     status_t status = (*mEffectInterface)->command(mEffectInterface,
                                                    EFFECT_CMD_ENABLE,
@@ -722,7 +747,11 @@ status_t AudioFlinger::EffectModule::setVolume(uint32_t *left, uint32_t *right, 
     if (isProcessEnabled() &&
             ((mDescriptor.flags & EFFECT_FLAG_VOLUME_MASK) == EFFECT_FLAG_VOLUME_CTRL ||
             (mDescriptor.flags & EFFECT_FLAG_VOLUME_MASK) == EFFECT_FLAG_VOLUME_IND)) {
+#ifndef QCOM_HARDWARE
         status_t cmdStatus = 0;
+#else /* QCOM_HARDWARE */
+        status_t cmdStatus;
+#endif /* QCOM_HARDWARE */
         uint32_t volume[2];
         uint32_t *pVolume = NULL;
         uint32_t size = sizeof(volume);
@@ -757,7 +786,11 @@ status_t AudioFlinger::EffectModule::setDevice(audio_devices_t device)
     }
     status_t status = NO_ERROR;
     if ((mDescriptor.flags & EFFECT_FLAG_DEVICE_MASK) == EFFECT_FLAG_DEVICE_IND) {
+#ifndef QCOM_HARDWARE
         status_t cmdStatus = 0;
+#else /* QCOM_HARDWARE */
+        status_t cmdStatus;
+#endif /* QCOM_HARDWARE */
         uint32_t size = sizeof(status_t);
         uint32_t cmd = audio_is_output_devices(device) ? EFFECT_CMD_SET_DEVICE :
                             EFFECT_CMD_SET_INPUT_DEVICE;
@@ -779,7 +812,11 @@ status_t AudioFlinger::EffectModule::setMode(audio_mode_t mode)
     }
     status_t status = NO_ERROR;
     if ((mDescriptor.flags & EFFECT_FLAG_AUDIO_MODE_MASK) == EFFECT_FLAG_AUDIO_MODE_IND) {
+#ifndef QCOM_HARDWARE
         status_t cmdStatus = 0;
+#else /* QCOM_HARDWARE */
+        status_t cmdStatus;
+#endif /* QCOM_HARDWARE */
         uint32_t size = sizeof(status_t);
         status = (*mEffectInterface)->command(mEffectInterface,
                                               EFFECT_CMD_SET_AUDIO_MODE,
@@ -815,9 +852,11 @@ status_t AudioFlinger::EffectModule::setAudioSource(audio_source_t source)
 
 void AudioFlinger::EffectModule::setSuspended(bool suspended)
 {
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_DAP
     EffectDapController::instance()->effectSuspended(this, suspended);
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
     Mutex::Autolock _l(mLock);
     mSuspended = suspended;
 }
@@ -1166,6 +1205,7 @@ status_t AudioFlinger::EffectHandle::enable()
                 Mutex::Autolock _l(t->mLock);
                 t->broadcast_l();
             }
+#ifndef QCOM_HARDWARE
             bool invalidate = false;
 #ifdef HDMI_PASSTHROUGH_ENABLED
             ALOGV("thread->type() %d", thread->type());
@@ -1184,6 +1224,9 @@ status_t AudioFlinger::EffectHandle::enable()
 
             if (!mEffect->isOffloadable() || invalidate) {
                 ALOGV("invalidate");
+#else /* QCOM_HARDWARE */
+            if (!mEffect->isOffloadable()) {
+#endif /* QCOM_HARDWARE */
                 if (thread->type() == ThreadBase::OFFLOAD) {
                     PlaybackThread *t = (PlaybackThread *)thread.get();
                     t->invalidateTracks(AUDIO_STREAM_MUSIC);
@@ -1469,6 +1512,7 @@ sp<AudioFlinger::EffectModule> AudioFlinger::EffectChain::getEffectFromType_l(
     return 0;
 }
 
+#ifndef QCOM_HARDWARE
 #ifdef HW_ACC_EFFECTS
 void AudioFlinger::EffectChain::setHwAccForSessionId_l(int sessionId, int id)
 {
@@ -1482,6 +1526,7 @@ void AudioFlinger::EffectChain::setHwAccForSessionId_l(int sessionId, int id)
 }
 #endif
 
+#endif /* ! QCOM_HARDWARE */
 void AudioFlinger::EffectChain::clearInputBuffer()
 {
     Mutex::Autolock _l(mLock);
@@ -1661,12 +1706,16 @@ status_t AudioFlinger::EffectChain::addEffect_l(const sp<EffectModule>& effect)
         ALOGV("addEffect_l() effect %p, added in chain %p at rank %d", effect.get(), this,
                 idx_insert);
     }
+#ifndef QCOM_HARDWARE
 #ifdef DOLBY_DAP
     return effect->configure();
 #else // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
     effect->configure();
     return NO_ERROR;
+#ifndef QCOM_HARDWARE
 #endif
+#endif /* ! QCOM_HARDWARE */
 }
 
 // removeEffect_l() must be called with PlaybackThread::mLock held

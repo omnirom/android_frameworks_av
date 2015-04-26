@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*Copyright (c) 2012 - 2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,3 +48,4 @@ public:
 }  // namespace android
 
 #endif //EXTENDED_EXTRACTOR_
+#endif /* ! QCOM_HARDWARE */

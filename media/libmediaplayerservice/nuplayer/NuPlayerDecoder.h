@@ -60,9 +60,14 @@ private:
     sp<CCDecoder> mCCDecoder;
 
     sp<AMessage> mInputFormat;
+#ifdef QCOM_HARDWARE
+    sp<AMessage> mOutputFormat;
+#endif /* QCOM_HARDWARE */
     sp<MediaCodec> mCodec;
     sp<ALooper> mCodecLooper;
+#ifndef QCOM_HARDWARE
     sp<PlayerExtendedStats> mPlayerExtendedStats;
+#endif /* ! QCOM_HARDWARE */
 
     List<sp<AMessage> > mPendingInputMessages;
 

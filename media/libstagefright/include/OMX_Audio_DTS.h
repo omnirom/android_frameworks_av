@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (c) 2008 The Khronos Group Inc.
  *
@@ -236,3 +237,4 @@ typedef struct OMX_AUDIO_PARAM_DTSDECTYPE
 
 #endif
 /* File EOF */
+#endif /* ! QCOM_HARDWARE */

@@ -44,9 +44,11 @@ static bool FileHasAcceptableExtension(const char *extension) {
         ".wav", ".amr", ".midi", ".xmf", ".rtttl", ".rtx", ".ota",
         ".mkv", ".mka", ".webm", ".ts", ".fl", ".flac", ".mxmf",
         ".avi", ".mpeg", ".mpg", ".awb", ".mpga"
+#ifndef QCOM_HARDWARE
 #ifdef ENABLE_AV_ENHANCEMENTS
         ,".qcp", ".ac3", ".dts", ".wmv", ".ec3", ".mov"
 #endif
+#endif /* ! QCOM_HARDWARE */
     };
     static const size_t kNumValidExtensions =
         sizeof(kValidExtensions) / sizeof(kValidExtensions[0]);

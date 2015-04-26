@@ -32,7 +32,9 @@
 #include <gui/Surface.h>
 #include <utils/String8.h>
 #include <cutils/properties.h>
+#ifndef QCOM_HARDWARE
 #include "include/ExtendedUtils.h"
+#endif /* ! QCOM_HARDWARE */
 
 #if LOG_NDEBUG
 #define UNUSED_UNLESS_VERBOSE(x) (void)(x)
@@ -186,11 +188,15 @@ CameraSource::CameraSource(
       mNumFramesDropped(0),
       mNumGlitches(0),
       mGlitchDurationThresholdUs(200000),
+#ifndef QCOM_HARDWARE
       mCollectStats(false),
       mRecPause(false),
       mPauseAdjTimeUs(0),
       mPauseStartTimeUs(0),
       mPauseEndTimeUs(0) {
+#else /* QCOM_HARDWARE */
+      mCollectStats(false) {
+#endif /* QCOM_HARDWARE */
     mVideoSize.width  = -1;
     mVideoSize.height = -1;
 
@@ -580,10 +586,12 @@ status_t CameraSource::initWithCameraAccess(
     mMeta->setInt32(kKeyStride,      mVideoSize.width);
     mMeta->setInt32(kKeySliceHeight, mVideoSize.height);
     mMeta->setInt32(kKeyFrameRate,   mVideoFrameRate);
+#ifndef QCOM_HARDWARE
 
     ExtendedUtils::HFR::setHFRIfEnabled(params, mMeta);
     ExtendedUtils::applyPreRotation(params, mMeta);
 
+#endif /* ! QCOM_HARDWARE */
     return OK;
 }
 
@@ -640,6 +648,7 @@ status_t CameraSource::startCameraRecording() {
 
 status_t CameraSource::start(MetaData *meta) {
     ALOGV("start");
+#ifndef QCOM_HARDWARE
     if(mRecPause) {
         mRecPause = false;
         mPauseAdjTimeUs = mPauseEndTimeUs - mPauseStartTimeUs;
@@ -655,6 +664,7 @@ status_t CameraSource::start(MetaData *meta) {
     }
 
     RECORDER_STATS(profileStart, STATS_PROFILE_CAMERA_SOURCE_START_LATENCY);
+#endif /* ! QCOM_HARDWARE */
     CHECK(!mStarted);
     if (mInitCheck != OK) {
         ALOGE("CameraSource is not initialized yet");
@@ -668,10 +678,12 @@ status_t CameraSource::start(MetaData *meta) {
     }
 
     mStartTimeUs = 0;
+#ifndef QCOM_HARDWARE
     mRecPause = false;
     mPauseAdjTimeUs = 0;
     mPauseStartTimeUs = 0;
     mPauseEndTimeUs = 0;
+#endif /* ! QCOM_HARDWARE */
     mNumInputBuffers = 0;
     if (meta) {
         int64_t startTimeUs;
@@ -694,6 +706,7 @@ status_t CameraSource::start(MetaData *meta) {
     return err;
 }
 
+#ifndef QCOM_HARDWARE
 status_t CameraSource::pause() {
     mRecPause = true;
     mPauseStartTimeUs = mLastFrameTimestampUs;
@@ -703,6 +716,7 @@ status_t CameraSource::pause() {
     return OK;
 }
 
+#endif /* ! QCOM_HARDWARE */
 void CameraSource::stopCameraRecording() {
     ALOGV("stopCameraRecording");
     if (mCameraFlags & FLAGS_HOT_CAMERA) {
@@ -779,11 +793,16 @@ status_t CameraSource::reset() {
                     mNumFramesReceived, mNumFramesEncoded, mNumFramesDropped,
                     mLastFrameTimestampUs - mFirstFrameTimeUs);
         }
+#ifndef QCOM_HARDWARE
         RECORDER_STATS(logRecordingDuration, mLastFrameTimestampUs - mFirstFrameTimeUs);
+#endif /* ! QCOM_HARDWARE */
 
         if (mNumGlitches > 0) {
             ALOGW("%d long delays between neighboring video frames", mNumGlitches);
         }
+#ifdef QCOM_HARDWARE
+
+#endif /* QCOM_HARDWARE */
         CHECK_EQ(mNumFramesReceived, mNumFramesEncoded + mNumFramesDropped);
     }
 
@@ -811,7 +830,9 @@ void CameraSource::releaseQueuedFrames() {
         releaseRecordingFrame(*it);
         mFramesReceived.erase(it);
         ++mNumFramesDropped;
+#ifndef QCOM_HARDWARE
         RECORDER_STATS(logFrameDropped);
+#endif /* ! QCOM_HARDWARE */
     }
 }
 
@@ -832,7 +853,9 @@ void CameraSource::signalBufferReturned(MediaBuffer *buffer) {
             releaseOneRecordingFrame((*it));
             mFramesBeingEncoded.erase(it);
             ++mNumFramesEncoded;
+#ifndef QCOM_HARDWARE
             RECORDER_STATS(logFrameEncoded);
+#endif /* ! QCOM_HARDWARE */
             buffer->setObserver(0);
             buffer->release();
             mFrameCompleteCondition.signal();
@@ -899,6 +922,7 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
         return;
     }
 
+#ifndef QCOM_HARDWARE
     if (mRecPause == true) {
         if(!mFramesReceived.empty()) {
             ALOGV("releaseQueuedFrames - #Queued Frames : %d", mFramesReceived.size());
@@ -912,6 +936,7 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
     timestampUs -= mPauseAdjTimeUs;
     ALOGV("dataCallbackTimestamp: AdjTimestamp %lld us", timestampUs);
 
+#endif /* ! QCOM_HARDWARE */
     if (mNumFramesReceived > 0) {
         CHECK(timestampUs > mLastFrameTimestampUs);
         if (timestampUs - mLastFrameTimestampUs > mGlitchDurationThresholdUs) {
@@ -928,8 +953,10 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
 
     mLastFrameTimestampUs = timestampUs;
     if (mNumFramesReceived == 0) {
+#ifndef QCOM_HARDWARE
         RECORDER_STATS(profileStop, STATS_PROFILE_CAMERA_SOURCE_START_LATENCY);
         RECORDER_STATS(profileStop, STATS_PROFILE_START_LATENCY);
+#endif /* ! QCOM_HARDWARE */
         mFirstFrameTimeUs = timestampUs;
         // Initial delay
         if (mStartTimeUs > 0) {

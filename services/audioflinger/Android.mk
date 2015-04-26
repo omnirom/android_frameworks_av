@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 #
 # This file was modified by DTS, Inc. The portions of the
 # code that are surrounded by "DTS..." are copyrighted and
@@ -18,6 +19,7 @@
 # limitations under the License
 #
 
+#endif /* ! QCOM_HARDWARE */
 LOCAL_PATH:= $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -85,6 +87,7 @@ LOCAL_STATIC_LIBRARIES := \
     libcpustats \
     libmedia_helper
 
+#ifndef QCOM_HARDWARE
 #QTI Resampler
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_RESAMPLER)),true)
@@ -93,6 +96,7 @@ endif
 endif
 #QTI Resampler
 
+#endif /* ! QCOM_HARDWARE */
 LOCAL_MODULE:= libaudioflinger
 LOCAL_32_BIT_ONLY := true
 
@@ -111,6 +115,7 @@ endif
 
 LOCAL_CFLAGS += -fvisibility=hidden
 
+#ifndef QCOM_HARDWARE
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_HDMI_PASSTHROUGH)),true)
     LOCAL_CFLAGS += -DHDMI_PASSTHROUGH_ENABLED
 endif
@@ -130,6 +135,7 @@ LOCAL_CFLAGS += -DHW_ACC_HPX
 endif
 endif
 
+#endif /* ! QCOM_HARDWARE */
 include $(BUILD_SHARED_LIBRARY)
 
 #
@@ -175,6 +181,7 @@ LOCAL_SHARED_LIBRARIES := \
     libcutils \
     libdl \
     liblog
+#ifndef QCOM_HARDWARE
 
 #QTI Resampler
 ifeq ($(call is-vendor-board-platform,QCOM),true)
@@ -193,6 +200,7 @@ endif
 endif
 endif
 #QTI Resampler
+#endif /* ! QCOM_HARDWARE */
 
 LOCAL_MODULE := libaudioresampler
 

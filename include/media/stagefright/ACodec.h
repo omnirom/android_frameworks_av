@@ -23,12 +23,15 @@
 #include <media/IOMX.h>
 #include <media/stagefright/foundation/AHierarchicalStateMachine.h>
 #include <media/stagefright/CodecBase.h>
+#ifndef QCOM_HARDWARE
 #include <media/stagefright/ExtendedStats.h>
+#endif /* ! QCOM_HARDWARE */
 #include <media/stagefright/SkipCutBuffer.h>
 #include <OMX_Audio.h>
 
 #define TRACK_BUFFER_TIMING     0
 
+#ifndef QCOM_HARDWARE
 #define CODEC_PLAYER_STATS(func, ...) \
     do { \
         if(mCodec != NULL && mCodec->mMediaExtendedStats != NULL) { \
@@ -36,6 +39,7 @@
     } \
     while(0)
 
+#endif /* ! QCOM_HARDWARE */
 namespace android {
 
 struct ABuffer;
@@ -180,7 +184,9 @@ private:
     sp<IdleToLoadedState> mIdleToLoadedState;
     sp<FlushingState> mFlushingState;
     sp<SkipCutBuffer> mSkipCutBuffer;
+#ifndef QCOM_HARDWARE
     sp<MediaExtendedStats> mMediaExtendedStats;
+#endif /* ! QCOM_HARDWARE */
 
     AString mComponentName;
     uint32_t mFlags;
@@ -203,8 +209,10 @@ private:
     bool mSentFormat;
     bool mIsEncoder;
     bool mUseMetadataOnEncoderOutput;
+#ifndef QCOM_HARDWARE
     bool mEncoderComponent;
     bool mComponentAllocByName;
+#endif /* ! QCOM_HARDWARE */
     bool mShutdownInProgress;
     bool mExplicitShutdown;
 
@@ -232,8 +240,10 @@ private:
     bool mCreateInputBuffersSuspended;
 
     bool mTunneled;
+#ifndef QCOM_HARDWARE
 
     bool mIsVideoRenderingDisabled;
+#endif /* ! QCOM_HARDWARE */
 
     status_t setCyclicIntraMacroblockRefresh(const sp<AMessage> &msg, int32_t mode);
     status_t allocateBuffersOnPort(OMX_U32 portIndex);

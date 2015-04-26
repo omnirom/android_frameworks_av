@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 LOCAL_PATH:= $(call my-dir)
 
 ifeq ($(DTS_CODEC_M_), true)
@@ -26,3 +27,4 @@ LOCAL_MULTILIB := 32
 include $(BUILD_SHARED_LIBRARY)
 
 endif
+#endif /* ! QCOM_HARDWARE */

@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*Copyright (c) 2014 The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -88,3 +89,4 @@ private:
 }  // namespace android
 
 #endif //FLAC_DECODER
+#endif /* ! QCOM_HARDWARE */

@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (c) 2013 - 2014, The Linux Foundation. All rights reserved.
  *
@@ -194,3 +195,4 @@ private:
 }
 #endif /*EXTENDED_CODEC_H_ */
 
+#endif /* ! QCOM_HARDWARE */

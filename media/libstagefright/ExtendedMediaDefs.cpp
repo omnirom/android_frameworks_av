@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*Copyright (c) 2012 - 2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -62,3 +63,4 @@ const char *MEDIA_MIMETYPE_VIDEO_VPX = "video/x-vnd.on2.vp8"; //backward compati
 const char *MEDIA_MIMETYPE_CONTAINER_QTIFLAC = "audio/qti-flac";
 
 }  // namespace android
+#endif /* ! QCOM_HARDWARE */

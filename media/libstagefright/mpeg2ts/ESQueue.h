@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+#ifndef QCOM_HARDWARE
  *
  * This file was modified by Dolby Laboratories, Inc. The portions of the
  * code that are surrounded by "DOLBY..." are copyrighted and
@@ -31,6 +32,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
+#endif /* ! QCOM_HARDWARE */
  */
 
 #ifndef ES_QUEUE_H_
@@ -50,16 +52,20 @@ struct MetaData;
 struct ElementaryStreamQueue {
     enum Mode {
         H264,
+#ifndef QCOM_HARDWARE
         H265,
+#endif /* ! QCOM_HARDWARE */
         AAC,
         AC3,
         MPEG_AUDIO,
         MPEG_VIDEO,
         MPEG4_VIDEO,
         PCM_AUDIO,
+#ifndef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
         DDP_EC3_AUDIO,
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
     };
 
     enum Flags {
@@ -90,16 +96,20 @@ private:
     sp<MetaData> mFormat;
 
     sp<ABuffer> dequeueAccessUnitH264();
+#ifndef QCOM_HARDWARE
     sp<ABuffer> dequeueAccessUnitH265();
+#endif /* ! QCOM_HARDWARE */
     sp<ABuffer> dequeueAccessUnitAAC();
     sp<ABuffer> dequeueAccessUnitAC3();
     sp<ABuffer> dequeueAccessUnitMPEGAudio();
     sp<ABuffer> dequeueAccessUnitMPEGVideo();
     sp<ABuffer> dequeueAccessUnitMPEG4Video();
     sp<ABuffer> dequeueAccessUnitPCMAudio();
+#ifndef QCOM_HARDWARE
 #if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
     sp<ABuffer> dequeueAccessUnitDDP();
 #endif // DOLBY_END
+#endif /* ! QCOM_HARDWARE */
 
     // consume a logical (compressed) access unit of size "size",
     // returns its timestamp in us (or -1 if no time information).

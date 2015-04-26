@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  * Not a Contribution.
@@ -312,3 +313,4 @@ bool FMA2DPWriter::reachedEOS() {
 }
 
 }  // namespace android
+#endif /* ! QCOM_HARDWARE */

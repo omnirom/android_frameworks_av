@@ -24,16 +24,20 @@
 
 #include <audio_utils/primitives.h>
 #include <binder/IPCThreadState.h>
+#ifndef QCOM_HARDWARE
 #include <media/AudioParameter.h>
 #include <media/AudioSystem.h>
+#endif /* ! QCOM_HARDWARE */
 #include <media/AudioTrack.h>
 #include <utils/Log.h>
 #include <private/media/AudioTrackShared.h>
 #include <media/IAudioFlinger.h>
 #include <media/AudioPolicyHelper.h>
 #include <media/AudioResamplerPublic.h>
+#ifndef QCOM_HARDWARE
 #include <cutils/properties.h>
 #include <system/audio.h>
+#endif /* ! QCOM_HARDWARE */
 
 #define WAIT_PERIOD_MS                  10
 #define WAIT_STREAM_END_TIMEOUT_SEC     120
@@ -149,7 +153,9 @@ AudioTrack::AudioTrack(
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
       mPreviousSchedulingGroup(SP_DEFAULT),
+#ifndef QCOM_HARDWARE
       mUseSmallBuf(false),
+#endif /* ! QCOM_HARDWARE */
       mPausedPosition(0)
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
@@ -178,7 +184,9 @@ AudioTrack::AudioTrack(
       mIsTimed(false),
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
       mPreviousSchedulingGroup(SP_DEFAULT),
+#ifndef QCOM_HARDWARE
       mUseSmallBuf(false),
+#endif /* ! QCOM_HARDWARE */
       mPausedPosition(0)
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
@@ -211,6 +219,7 @@ AudioTrack::~AudioTrack()
     }
 }
 
+#ifndef QCOM_HARDWARE
 bool AudioTrack::canOffloadTrack(
         audio_stream_type_t streamType,
         audio_format_t format,
@@ -276,6 +285,7 @@ bool AudioTrack::canOffloadTrack(
               transferType, offloadInfo);
         return false;
 }
+#endif /* ! QCOM_HARDWARE */
 status_t AudioTrack::set(
         audio_stream_type_t streamType,
         uint32_t sampleRate,
@@ -365,7 +375,11 @@ status_t AudioTrack::set(
         memcpy(&mAttributes, pAttributes, sizeof(audio_attributes_t));
         ALOGV("Building AudioTrack with attributes: usage=%d content=%d flags=0x%x tags=[%s]",
                 mAttributes.usage, mAttributes.content_type, mAttributes.flags, mAttributes.tags);
+#ifndef QCOM_HARDWARE
         mStreamType = audio_attributes_to_stream_type(&mAttributes);
+#else /* QCOM_HARDWARE */
+        mStreamType = AUDIO_STREAM_DEFAULT;
+#endif /* QCOM_HARDWARE */
     }
 
     // these below should probably come from the audioFlinger too...
@@ -406,6 +420,7 @@ status_t AudioTrack::set(
                 ((flags | AUDIO_OUTPUT_FLAG_DIRECT) & ~AUDIO_OUTPUT_FLAG_FAST);
     }
 
+#ifndef QCOM_HARDWARE
     // only allow deep buffering for music stream type
     if (mStreamType != AUDIO_STREAM_MUSIC) {
         flags = (audio_output_flags_t)(flags &~AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
@@ -468,10 +483,13 @@ status_t AudioTrack::set(
     }
 
 
+#endif /* ! QCOM_HARDWARE */
     // force direct flag if HW A/V sync requested
     if ((flags & AUDIO_OUTPUT_FLAG_HW_AV_SYNC) != 0) {
         flags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_DIRECT);
+#ifndef QCOM_HARDWARE
 
+#endif /* ! QCOM_HARDWARE */
     }
 
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT) {
@@ -506,12 +524,14 @@ status_t AudioTrack::set(
         mOffloadInfo = NULL;
     }
 
+#ifndef QCOM_HARDWARE
     if (audio_is_offload_pcm(mFormat) &&
          offloadInfo && offloadInfo->use_small_bufs) {
         mUseSmallBuf = true;
         ALOGI("Using small buffers for PCM offload");
     }
 
+#endif /* ! QCOM_HARDWARE */
     mVolume[AUDIO_INTERLEAVE_LEFT] = 1.0f;
     mVolume[AUDIO_INTERLEAVE_RIGHT] = 1.0f;
     mSendLevel = 0.0f;
@@ -626,13 +646,21 @@ status_t AudioTrack::start()
     }
 
     status_t status = NO_ERROR;
+#ifndef QCOM_HARDWARE
     if (!(flags & (CBLK_INVALID | CBLK_STREAM_FATAL_ERROR))) {
+#else /* QCOM_HARDWARE */
+    if (!(flags & CBLK_INVALID)) {
+#endif /* QCOM_HARDWARE */
         status = mAudioTrack->start();
         if (status == DEAD_OBJECT) {
             flags |= CBLK_INVALID;
         }
     }
+#ifndef QCOM_HARDWARE
     if (flags & (CBLK_INVALID | CBLK_STREAM_FATAL_ERROR)) {
+#else /* QCOM_HARDWARE */
+    if (flags & CBLK_INVALID) {
+#endif /* QCOM_HARDWARE */
         status = restoreTrack_l("start");
     }
 
@@ -981,13 +1009,16 @@ status_t AudioTrack::getPosition(uint32_t *position)
     AutoMutex lock(mLock);
     if (isOffloadedOrDirect_l()) {
         uint32_t dspFrames = 0;
+#ifndef QCOM_HARDWARE
         status_t status;
+#endif /* ! QCOM_HARDWARE */
 
         if (isOffloaded_l() && ((mState == STATE_PAUSED) || (mState == STATE_PAUSED_STOPPING))) {
             ALOGV("getPosition called in paused state, return cached position %u", mPausedPosition);
             *position = mPausedPosition;
             return NO_ERROR;
         }
+#ifndef QCOM_HARDWARE
         if (mUseSmallBuf) {
             uint32_t tempPos = 0;
             tempPos = (mState == STATE_STOPPED || mState == STATE_FLUSHED) ?
@@ -995,14 +1026,19 @@ status_t AudioTrack::getPosition(uint32_t *position)
             *position = (tempPos / (mChannelCount * audio_bytes_per_sample(mFormat)));
             return NO_ERROR;
         }
+#endif /* ! QCOM_HARDWARE */
 
         if (mOutput != AUDIO_IO_HANDLE_NONE) {
             uint32_t halFrames;
+#ifndef QCOM_HARDWARE
             status = AudioSystem::getRenderPosition(mOutput, &halFrames, &dspFrames);
             if (status != NO_ERROR) {
                 ALOGW("failed to getRenderPosition for offload session");
                 return INVALID_OPERATION;
             }
+#else /* QCOM_HARDWARE */
+            AudioSystem::getRenderPosition(mOutput, &halFrames, &dspFrames);
+#endif /* QCOM_HARDWARE */
         }
         // FIXME: dspFrames may not be zero in (mState == STATE_STOPPED || mState == STATE_FLUSHED)
         // due to hardware latency. We leave this behavior for now.
@@ -1087,10 +1123,15 @@ status_t AudioTrack::createTrack_l()
         return NO_INIT;
     }
 
+#ifndef QCOM_HARDWARE
     status_t status;
     audio_io_handle_t output = AUDIO_IO_HANDLE_NONE;
+#else /* QCOM_HARDWARE */
+    audio_io_handle_t output;
+#endif /* QCOM_HARDWARE */
     audio_stream_type_t streamType = mStreamType;
     audio_attributes_t *attr = (mStreamType == AUDIO_STREAM_DEFAULT) ? &mAttributes : NULL;
+#ifndef QCOM_HARDWARE
     mCanOffloadPcmTrack = false;
     mIsPcmTrackOffloaded = false;
     mPcmTrackOffloadInfo = AUDIO_INFO_INITIALIZER;
@@ -1119,7 +1160,14 @@ status_t AudioTrack::createTrack_l()
             mUseSmallBuf = true;
         }
     }
+#else /* QCOM_HARDWARE */
+    status_t status = AudioSystem::getOutputForAttr(attr, &output,
+                                                    (audio_session_t)mSessionId, &streamType,
+                                                    mSampleRate, mFormat, mChannelMask,
+                                                    mFlags, mOffloadInfo);
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
     //retry retrieving output
     if (status != NO_ERROR || output == AUDIO_IO_HANDLE_NONE) {
         status = AudioSystem::getOutputForAttr(attr, &output,
@@ -1128,14 +1176,24 @@ status_t AudioTrack::createTrack_l()
                                                         mFlags, mOffloadInfo);
 
     }
+#endif /* ! QCOM_HARDWARE */
 
     if (status != NO_ERROR || output == AUDIO_IO_HANDLE_NONE) {
+#ifndef QCOM_HARDWARE
             ALOGE("Could not get audio output for stream type %d, usage %d, sample rate %u, format %#x,"
                   " channel mask %#x, flags %#x",
                   streamType, mAttributes.usage, mSampleRate, mFormat, mChannelMask, mFlags);
             return BAD_VALUE;
+#else /* QCOM_HARDWARE */
+        ALOGE("Could not get audio output for stream type %d, usage %d, sample rate %u, format %#x,"
+              " channel mask %#x, flags %#x",
+              streamType, mAttributes.usage, mSampleRate, mFormat, mChannelMask, mFlags);
+        return BAD_VALUE;
+#endif /* QCOM_HARDWARE */
     }
+#ifndef QCOM_HARDWARE
 
+#endif /* ! QCOM_HARDWARE */
     {
     // Now that we have a reference to an I/O handle and have not yet handed it off to AudioFlinger,
     // we must release it ourselves if anything goes wrong.
@@ -1193,17 +1251,23 @@ status_t AudioTrack::createTrack_l()
     mNotificationFramesAct = mNotificationFramesReq;
 
     size_t frameCount = mReqFrameCount;
+#ifndef QCOM_HARDWARE
     if(mIsPcmTrackOffloaded)
         frameCount = 0;
 
+#endif /* ! QCOM_HARDWARE */
     if (!audio_is_linear_pcm(mFormat)) {
 
         if (mSharedBuffer != 0) {
             // Same comment as below about ignoring frameCount parameter for set()
             frameCount = mSharedBuffer->size();
         } else if (frameCount == 0) {
+#ifndef QCOM_HARDWARE
             frameCount = afFrameCount * 2;
             ALOGV("Offload: new frameCount = %d", frameCount);
+#else /* QCOM_HARDWARE */
+            frameCount = afFrameCount;
+#endif /* QCOM_HARDWARE */
         }
         if (mNotificationFramesAct != frameCount) {
             mNotificationFramesAct = frameCount;
@@ -1234,7 +1298,11 @@ status_t AudioTrack::createTrack_l()
         // there _is_ a frameCount parameter.  We silently ignore it.
         frameCount = mSharedBuffer->size() / mFrameSizeAF;
 
+#ifndef QCOM_HARDWARE
     } else if (!(mFlags & AUDIO_OUTPUT_FLAG_FAST) || mIsPcmTrackOffloaded) {
+#else /* QCOM_HARDWARE */
+    } else if (!(mFlags & AUDIO_OUTPUT_FLAG_FAST)) {
+#endif /* QCOM_HARDWARE */
 
         // FIXME move these calculations and associated checks to server
 
@@ -1282,17 +1350,22 @@ status_t AudioTrack::createTrack_l()
     }
 
     if (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+#ifndef QCOM_HARDWARE
         ALOGV("TrackOffload: mFlags has offload");
+#endif /* ! QCOM_HARDWARE */
         trackFlags |= IAudioFlinger::TRACK_OFFLOAD;
     }
 
     if (mFlags & AUDIO_OUTPUT_FLAG_DIRECT) {
+#ifndef QCOM_HARDWARE
         ALOGV("TrackOffload: mFlags has direct");
+#endif /* ! QCOM_HARDWARE */
         trackFlags |= IAudioFlinger::TRACK_DIRECT;
     }
 
     size_t temp = frameCount;   // temp may be replaced by a revised value of frameCount,
                                 // but we will still need the original value also
+#ifndef QCOM_HARDWARE
     audio_format_t format = AUDIO_FORMAT_PCM_16_BIT;
     if (mIsPcmTrackOffloaded) {
         format = AUDIO_FORMAT_PCM_16_BIT_OFFLOAD;
@@ -1305,9 +1378,17 @@ status_t AudioTrack::createTrack_l()
                     AUDIO_FORMAT_PCM_16_BIT : mFormat;
         ALOGV("Create normal PCM 0x%x Track", format);
     }
+#endif /* ! QCOM_HARDWARE */
     sp<IAudioTrack> track = audioFlinger->createTrack(streamType,
                                                       mSampleRate,
+#ifndef QCOM_HARDWARE
                                                       format,
+#else /* QCOM_HARDWARE */
+                                                      // AudioFlinger only sees 16-bit PCM
+                                                      mFormat == AUDIO_FORMAT_PCM_8_BIT &&
+                                                          !(mFlags & AUDIO_OUTPUT_FLAG_DIRECT) ?
+                                                              AUDIO_FORMAT_PCM_16_BIT : mFormat,
+#endif /* QCOM_HARDWARE */
                                                       mChannelMask,
                                                       &temp,
                                                       &trackFlags,
@@ -1358,7 +1439,9 @@ status_t AudioTrack::createTrack_l()
     frameCount = temp;
 
     mAwaitBoost = false;
+#ifndef QCOM_HARDWARE
     ALOGV("Flags here  0x%x ", mFlags);
+#endif /* ! QCOM_HARDWARE */
     if (mFlags & AUDIO_OUTPUT_FLAG_FAST) {
         if (trackFlags & IAudioFlinger::TRACK_FAST) {
             ALOGV("AUDIO_OUTPUT_FLAG_FAST successful; frameCount %zu", frameCount);
@@ -1382,9 +1465,17 @@ status_t AudioTrack::createTrack_l()
             }
         }
     }
+#ifndef QCOM_HARDWARE
     if (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD || mIsPcmTrackOffloaded) {
+#else /* QCOM_HARDWARE */
+    if (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+#endif /* QCOM_HARDWARE */
         if (trackFlags & IAudioFlinger::TRACK_OFFLOAD) {
+#ifndef QCOM_HARDWARE
             ALOGV("TrackOffload: AUDIO_OUTPUT_FLAG_OFFLOAD successful");
+#else /* QCOM_HARDWARE */
+            ALOGV("AUDIO_OUTPUT_FLAG_OFFLOAD successful");
+#endif /* QCOM_HARDWARE */
         } else {
             ALOGW("AUDIO_OUTPUT_FLAG_OFFLOAD denied by server");
             mFlags = (audio_output_flags_t) (mFlags & ~AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
@@ -1419,7 +1510,12 @@ status_t AudioTrack::createTrack_l()
     }
 
     mAudioTrack->attachAuxEffect(mAuxEffectId);
+#ifdef QCOM_HARDWARE
+    // FIXME don't believe this lie
+    mLatency = afLatency + (1000*frameCount) / mSampleRate;
+#endif /* QCOM_HARDWARE */
 
+#ifndef QCOM_HARDWARE
     if (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
         // Use latency given by HAL in offload mode
         mLatency = afLatency;
@@ -1427,6 +1523,7 @@ status_t AudioTrack::createTrack_l()
         // FIXME don't believe this lie
         mLatency = afLatency + (1000*frameCount) / mSampleRate;
     }
+#endif /* ! QCOM_HARDWARE */
     mFrameCount = frameCount;
     // If IAudioTrack is re-created, don't let the requested frameCount
     // decrease.  This can confuse clients that cache frameCount().
@@ -1578,11 +1675,13 @@ void AudioTrack::releaseBuffer(Buffer* audioBuffer)
         return;
     }
 
+#ifndef QCOM_HARDWARE
     if (stepCount > audioBuffer->frameCount) {
         ALOGI("TrackOffload: stepCount:framecount %d:%d", stepCount, audioBuffer->frameCount);
         stepCount = audioBuffer->frameCount;
     }
 
+#endif /* ! QCOM_HARDWARE */
     Proxy::Buffer buffer;
     buffer.mFrameCount = stepCount;
     buffer.mRaw = audioBuffer->raw;
@@ -1650,10 +1749,12 @@ ssize_t AudioTrack::write(const void* buffer, size_t userSize, bool blocking)
             memcpy_to_i16_from_u8(audioBuffer.i16, (const uint8_t *) buffer, toWrite);
         } else {
             toWrite = audioBuffer.size;
+#ifndef QCOM_HARDWARE
             if(toWrite > userSize) {
                 ALOGI("TrackOffload: temp toWrite>userSize %d:%d", toWrite, userSize);
                 toWrite = userSize;
             }
+#endif /* ! QCOM_HARDWARE */
             memcpy(audioBuffer.i8, buffer, toWrite);
         }
         buffer = ((const char *) buffer) + toWrite;
@@ -1740,10 +1841,14 @@ nsecs_t AudioTrack::processAudioBuffer()
     // Currently the AudioTrack thread is not created if there are no callbacks.
     // Would it ever make sense to run the thread, even without callbacks?
     // If so, then replace this by checks at each use for mCbf != NULL.
+#ifndef QCOM_HARDWARE
     if (mCblk == NULL) {
         ALOGE("mCblk is NULL");
         return NS_NEVER;
     }
+#else /* QCOM_HARDWARE */
+    LOG_ALWAYS_FATAL_IF(mCblk == NULL);
+#endif /* QCOM_HARDWARE */
 
     mLock.lock();
     if (mAwaitBoost) {
@@ -1771,6 +1876,7 @@ nsecs_t AudioTrack::processAudioBuffer()
     int32_t flags = android_atomic_and(
         ~(CBLK_UNDERRUN | CBLK_LOOP_CYCLE | CBLK_LOOP_FINAL | CBLK_BUFFER_END), &mCblk->mFlags);
 
+#ifndef QCOM_HARDWARE
     if (flags & CBLK_STREAM_FATAL_ERROR) {
         ALOGE("clbk sees STREAM_FATAL_ERROR.. close session");
         mLock.unlock();
@@ -1778,6 +1884,7 @@ nsecs_t AudioTrack::processAudioBuffer()
         return NS_INACTIVE;
     }
 
+#endif /* ! QCOM_HARDWARE */
     // Check for track invalidation
     if (flags & CBLK_INVALID) {
         // for offloaded tracks restoreTrack_l() will just update the sequence and clear
@@ -1854,6 +1961,38 @@ nsecs_t AudioTrack::processAudioBuffer()
 
     mLock.unlock();
 
+#ifdef QCOM_HARDWARE
+    if (waitStreamEnd) {
+        struct timespec timeout;
+        timeout.tv_sec = WAIT_STREAM_END_TIMEOUT_SEC;
+        timeout.tv_nsec = 0;
+
+        status_t status = proxy->waitStreamEndDone(&timeout);
+        switch (status) {
+        case NO_ERROR:
+        case DEAD_OBJECT:
+        case TIMED_OUT:
+            mCbf(EVENT_STREAM_END, mUserData, NULL);
+            {
+                AutoMutex lock(mLock);
+                // The previously assigned value of waitStreamEnd is no longer valid,
+                // since the mutex has been unlocked and either the callback handler
+                // or another thread could have re-started the AudioTrack during that time.
+                waitStreamEnd = mState == STATE_STOPPING;
+                if (waitStreamEnd) {
+                    mState = STATE_STOPPED;
+                    mReleased = 0;
+                }
+            }
+            if (waitStreamEnd && status != DEAD_OBJECT) {
+               return NS_INACTIVE;
+            }
+            break;
+        }
+        return 0;
+    }
+
+#endif /* QCOM_HARDWARE */
     // perform callbacks while unlocked
     if (newUnderrun) {
         mCbf(EVENT_UNDERRUN, mUserData, NULL);
@@ -1885,6 +2024,7 @@ nsecs_t AudioTrack::processAudioBuffer()
         }
     }
 
+#ifndef QCOM_HARDWARE
 
     if (waitStreamEnd) {
         AutoMutex lock(mLock);
@@ -1925,6 +2065,7 @@ nsecs_t AudioTrack::processAudioBuffer()
         }
     }
 
+#endif /* ! QCOM_HARDWARE */
     // if inactive, then don't run me again until re-started
     if (!active) {
         return NS_INACTIVE;
@@ -2197,6 +2338,7 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
 
     // The presented frame count must always lag behind the consumed frame count.
     // To avoid a race, read the presented frames first.  This ensures that presented <= consumed.
+#ifndef QCOM_HARDWARE
     status_t status = NO_ERROR;
     if (!mUseSmallBuf) {
         status = mAudioTrack->getTimestamp(timestamp);
@@ -2204,9 +2346,19 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
             ALOGV_IF(status != WOULD_BLOCK, "getTimestamp error:%#x", status);
             return status;
         }
+#else /* QCOM_HARDWARE */
+    status_t status = mAudioTrack->getTimestamp(timestamp);
+    if (status != NO_ERROR) {
+        ALOGV_IF(status != WOULD_BLOCK, "getTimestamp error:%#x", status);
+        return status;
+#endif /* QCOM_HARDWARE */
     }
+#ifndef QCOM_HARDWARE
 
     if (isOffloadedOrDirect_l() && !mUseSmallBuf) {
+#else /* QCOM_HARDWARE */
+    if (isOffloadedOrDirect_l()) {
+#endif /* QCOM_HARDWARE */
         if (isOffloaded_l() && (mState == STATE_PAUSED || mState == STATE_PAUSED_STOPPING)) {
             // use cached paused position in case another offloaded track is running.
             timestamp.mPosition = mPausedPosition;
@@ -2245,6 +2397,7 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
         }
     } else {
         // Update the mapping between local consumed (mPosition) and server consumed (mServer)
+#ifndef QCOM_HARDWARE
         if (mUseSmallBuf) {
             uint32_t tempPos = 0;
             tempPos = (mState == STATE_STOPPED || mState == STATE_FLUSHED) ?
@@ -2276,7 +2429,33 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
            // between client and server views due to stop() and/or new
            // IAudioTrack.  And timestamp.mPosition is initially in server's
            // point of view, so we need to apply the same fudge factor to it.
+#else /* QCOM_HARDWARE */
+        (void) updateAndGetPosition_l();
+        // Server consumed (mServer) and presented both use the same server time base,
+        // and server consumed is always >= presented.
+        // The delta between these represents the number of frames in the buffer pipeline.
+        // If this delta between these is greater than the client position, it means that
+        // actually presented is still stuck at the starting line (figuratively speaking),
+        // waiting for the first frame to go by.  So we can't report a valid timestamp yet.
+        if ((uint32_t) (mServer - timestamp.mPosition) > mPosition) {
+            return INVALID_OPERATION;
+#endif /* QCOM_HARDWARE */
         }
+#ifdef QCOM_HARDWARE
+        // Convert timestamp position from server time base to client time base.
+        // TODO The following code should work OK now because timestamp.mPosition is 32-bit.
+        // But if we change it to 64-bit then this could fail.
+        // If (mPosition - mServer) can be negative then should use:
+        //   (int32_t)(mPosition - mServer)
+        timestamp.mPosition += mPosition - mServer;
+        // Immediately after a call to getPosition_l(), mPosition and
+        // mServer both represent the same frame position.  mPosition is
+        // in client's point of view, and mServer is in server's point of
+        // view.  So the difference between them is the "fudge factor"
+        // between client and server views due to stop() and/or new
+        // IAudioTrack.  And timestamp.mPosition is initially in server's
+        // point of view, so we need to apply the same fudge factor to it.
+#endif /* QCOM_HARDWARE */
     }
     return status;
 }

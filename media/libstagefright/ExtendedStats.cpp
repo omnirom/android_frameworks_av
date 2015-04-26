@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*Copyright (c) 2013 - 2014, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -627,3 +628,4 @@ void RecorderExtendedStats::dump() {
 }
 
 }
+#endif /* ! QCOM_HARDWARE */

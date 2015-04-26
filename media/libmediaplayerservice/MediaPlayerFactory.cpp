@@ -33,7 +33,9 @@
 #include "TestPlayerStub.h"
 #include "StagefrightPlayer.h"
 #include "nuplayer/NuPlayerDriver.h"
+#ifndef QCOM_HARDWARE
 #include <dlfcn.h>
+#endif /* ! QCOM_HARDWARE */
 
 namespace android {
 
@@ -185,6 +187,7 @@ class StagefrightPlayerFactory :
                                int64_t offset,
                                int64_t length,
                                float /*curScore*/) {
+#ifndef QCOM_HARDWARE
 
 #ifdef QTI_FLAC_DECODER
         // Flac playback forced to Awesomeplayer
@@ -206,6 +209,7 @@ class StagefrightPlayerFactory :
             }
         }
 #endif
+#endif /* ! QCOM_HARDWARE */
         if (legacyDrm()) {
             sp<DataSource> source = new FileSource(dup(fd), offset, length);
             String8 mimeType;
@@ -286,11 +290,13 @@ class NuPlayerFactory : public MediaPlayerFactory::IFactory {
             return kOurScore;
         }
 
+#ifndef QCOM_HARDWARE
         if (!strncasecmp("http://", url, 7)
                 || !strncasecmp("https://", url, 8)) {
             return kOurScore;
         }
 
+#endif /* ! QCOM_HARDWARE */
         return 0.0;
     }
 
@@ -404,6 +410,7 @@ void MediaPlayerFactory::registerBuiltinFactories() {
     registerFactory_l(new SonivoxPlayerFactory(), SONIVOX_PLAYER);
     registerFactory_l(new TestPlayerFactory(), TEST_PLAYER);
 
+#ifndef QCOM_HARDWARE
     const char* FACTORY_LIB           = "libdashplayer.so";
     const char* FACTORY_CREATE_FN     = "CreateDASHFactory";
 
@@ -430,6 +437,7 @@ void MediaPlayerFactory::registerBuiltinFactories() {
         }
       }
     }
+#endif /* ! QCOM_HARDWARE */
     sInitComplete = true;
 }
 

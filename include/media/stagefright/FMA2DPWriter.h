@@ -1,3 +1,4 @@
+#ifndef QCOM_HARDWARE
 /*
  * Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  * Not a Contribution.
@@ -82,3 +83,4 @@ private:
 }  // namespace android
 
 #endif  // FM_A2DP_WRITER_H_
+#endif /* ! QCOM_HARDWARE */
