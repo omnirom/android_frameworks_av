@@ -2362,6 +2362,516 @@
       "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ecd03fd0",
+        "filename": "media/libstagefright/omx/OMXNodeInstance.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 122,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Convert to plain ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0cd67bc9",
+        "filename": "media/libstagefright/omx/OMXNodeInstance.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 141,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Convert to plain ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2cd337da",
+        "filename": "media/libstagefright/omx/SoftOMXPlugin.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Remove comment ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4ce07395",
+        "filename": "media/libstagefright/rtsp/AH263Assembler.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 109,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Consider rearranging this area for better readability",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6cdd2fe0",
+        "filename": "media/libstagefright/rtsp/ARTPConnection.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 127,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Rework this to a plain old ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_acef2780",
+        "filename": "media/libstagefright/rtsp/ARTSPConnection.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 360,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Likely need to rework everything from here to 445",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8cea6b71",
+        "filename": "media/libstagefright/rtsp/ARTSPConnection.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 368,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "blank line ifndef, fix",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ece91f7c",
+        "filename": "media/libstagefright/rtsp/MyHandler.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 350,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Consider reworking all between 350 and 402",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cce463a7",
+        "filename": "media/libstagefright/rtsp/MyHandler.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 356,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Merge these two blocks",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0cff5b31",
+        "filename": "media/libstagefright/rtsp/MyHandler.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 430,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Consider reworking all up to 511",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2cfc173a",
+        "filename": "media/mediaserver/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 43,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "FIXME, ifeq for BOARD_USES_QCOM_HARDWARE",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4cf95349",
+        "filename": "services/audioflinger/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 1,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Remove comment ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6cf60f5c",
+        "filename": "services/audioflinger/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 90,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Fix this to be ifeqs() for BOARD_USES_QCOM_HARDWARE",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c8fcbd5",
+        "filename": "services/audioflinger/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 118,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Fix this too",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac9487ec",
+        "filename": "services/audioflinger/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 184,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Again, replace with ifeqs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc99c323",
+        "filename": "services/audioflinger/AudioFlinger.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 16,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Remove comment ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec9e7f08",
+        "filename": "services/audioflinger/AudioFlinger.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1088,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Move these comments into the ifndef/else blocks below",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0c84bbb5",
+        "filename": "services/audioflinger/AudioFlinger.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 16,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Remove comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2c8177a6",
+        "filename": "services/audioflinger/Effects.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 16,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Remove comment ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4c8eb3d5",
+        "filename": "services/audioflinger/Effects.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 305,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Clean up ifdefs between here and 330",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6c8b6fc4",
+        "filename": "services/audioflinger/Effects.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1709,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Clean up ifdefs between here and 1718",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8cb8ab75",
+        "filename": "services/audioflinger/PatchPanel.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 563,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Remove blank line ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_acbd6764",
+        "filename": "services/audioflinger/Threads.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 16,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Remove comment ifdefing",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ccb2a393",
+        "filename": "services/audioflinger/Threads.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2451,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Can probably rework between here and 2487 to be more readable",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ecb75f80",
+        "filename": "services/audioflinger/Threads.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2864,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Convert to plain old ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0cad9b2d",
+        "filename": "services/audioflinger/Threads.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2955,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Convert to plain old ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2caa5716",
+        "filename": "services/audioflinger/Threads.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 4341,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Check for proper ifdef/endif matching between 4272 and here",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4ca7934d",
+        "filename": "services/audioflinger/Threads.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 530,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Convert to a plain old ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6ca44f48",
+        "filename": "services/audioflinger/Tracks.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 16,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Remove comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c650b1d",
+        "filename": "services/audiopolicy/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 58,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T01:38:49Z",
+      "side": 1,
+      "message": "Replace ifdefs with ifeqs here and throughout the rest of the file",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
