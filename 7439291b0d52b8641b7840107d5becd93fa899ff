@@ -2141,6 +2141,227 @@
       "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2c6df72c",
+        "filename": "media/libstagefright/codecs/mp3dec/SoftMP3.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 115,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Replace with an ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4c7a33e8",
+        "filename": "media/libstagefright/data/media_codecs_google_video.xml",
+        "patchSetId": 3
+      },
+      "lineNbr": 19,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Need to figure out what to do here...  Hopefully qcom\u0027s changes won\u0027t break AOSP since we can\u0027t ifdef an XML...",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6c77effe",
+        "filename": "media/libstagefright/foundation/AWakeLock.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Remove ifdefing of comments",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c642b48",
+        "filename": "media/libstagefright/httplive/LiveSession.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1031,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Decide LOGV vs LOGI, choose one",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac69e71e",
+        "filename": "media/libstagefright/httplive/PlaylistFetcher.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 900,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Decide LOGV vs LOGI, choose one",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc5e237a",
+        "filename": "media/libstagefright/matroska/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 10,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "FIXME\n\nifeq check for BOARD_USES_QCOM_HARDWARE",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec63df3a",
+        "filename": "media/libstagefright/mpeg2ts/ATSParser.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Remove comment ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0c591b90",
+        "filename": "media/libstagefright/mpeg2ts/ATSParser.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Remove this comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2c56d760",
+        "filename": "media/libstagefright/mpeg2ts/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 13,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "FIXME, can\u0027t ifdef .mk files\n\nAnd it looks like this is just some whitespace fixes up until the is-vendor-board-platform stuff",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4c531370",
+        "filename": "media/libstagefright/mpeg2ts/ESQueue.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Remove comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6c50cf62",
+        "filename": "media/libstagefright/mpeg2ts/ESQueue.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Remove comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8cc18b05",
+        "filename": "media/libstagefright/mpeg2ts/MPEG2PSExtractor.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "Remove comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_acc64718",
+        "filename": "media/libstagefright/omx/Android.mk",
+        "patchSetId": 3
+      },
+      "lineNbr": 36,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:18:53Z",
+      "side": 1,
+      "message": "FIXME:  ifeq for BOARD_USES_QCOM_HARDWARE",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
