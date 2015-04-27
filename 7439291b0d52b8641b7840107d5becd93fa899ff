@@ -1801,6 +1801,346 @@
       "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c2d0bfc",
+        "filename": "media/libstagefright/NOTICE",
+        "patchSetId": 3
+      },
+      "lineNbr": 191,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Remove these ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac32c75a",
+        "filename": "media/libstagefright/NuCachedSource2.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 782,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Move this and its mate down one line",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc37034a",
+        "filename": "media/libstagefright/NuMediaExtractor.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 285,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "bogus blank line ifndef, remove",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec3cbf2e",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Remove comment ifndef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0c42fbb3",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 17,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "remove comment ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2c3fb720",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 589,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Determine V vs D, remove ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4c4cf3e3",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 774,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "This whole set can probably be ifdefed more cleanly",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6c49afd2",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 948,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Find the endif for DTS_CODEC_M_ - possible problem here",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c16ebab",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 962,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "This can all be cleaned up from 956 to 966 at least",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac1ba7d2",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1329,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Clean up from 1318 to 1333 - dupe this break to have two cleaner blocks (ifndef and else)",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc10e3b1",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3146,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "3146 to 3168 can probably be cleaned up to be a little less messy...",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec159f9e",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3451,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "3451 to 3496 can be cleaned up to be less messy - two big blocks instead of lots of interspersed ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_0c2bdbdb",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3653,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "This looks like just indentation mangling",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_2c2897dc",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 4484,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "4484 to 4525 can be cleaned up - two big blocks instead of interspersed ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_4c25d303",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 4651,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "rework 4561 to 4692 as two big blocks, not interspersed ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_6c228ffe",
+        "filename": "media/libstagefright/OMXCodec.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 5223,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Rework 5223 through 5292 to two big blocks, not interspersed ifdefs",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_8c7b4bf0",
+        "filename": "media/libstagefright/Utils.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 895,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Convert this to a plain ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ac8007c7",
+        "filename": "media/libstagefright/Utils.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 942,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Move this and its mate down one line",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_cc8543d6",
+        "filename": "media/libstagefright/WAVExtractor.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 562,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Rework 562 to 621 as two big blocks",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_ec8affe2",
+        "filename": "media/libstagefright/avc_utils.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 384,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-27T00:08:25Z",
+      "side": 1,
+      "message": "Look through history of this file, possible bugfix we might not want to ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
