@@ -2872,6 +2872,448 @@
       "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_17ccc464",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 15,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Remove ifdefing of comments",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_37c9c055",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 67,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "auto-ifdefs mixed in with existing ifdefs do Bad Things, fix this\n\nprobably #if defined(QCOM_HARDWARE \u0026\u0026 AUDIO_EXTN_FM_ENABLED)",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_57d63cf8",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 375,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "This pairs with the stuff at 448, determine if there\u0027s an easier way to do this",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_77d33807",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1328,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Blank line ifdef, remove",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_9700b470",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1459,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Blank line ifdef, remove",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_b705b07f",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1478,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Blank line ifdef, remove",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_d7fa2c72",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1717,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Change to a standard ifdef QCOM_HARDWARE",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_f7ff285f",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1802,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Interspersed auto-ifdefs, FIXME!",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_17f5a480",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2190,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "another interspersed auto-ifdef, FIXME\n\nProbably can make it\n#if defined (QCOM_HARDWARE \u0026\u0026 DOLBY_DAP)\n\nor is that\n#if defined(QCOM_HARDWARE) \u0026\u0026 defined(DOLBY_DAP)\n\nit\u0027s 8:13 AM and I need caffeine",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_37f2a099",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2345,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Fix this to be a gigantic ifndef\n\nifdefs of /* comments do Bad Things usually",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_57ef1cac",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 2773,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Fix bad nested auto-ifdefs here",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_77ec18b7",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3325,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Move this bracket up into the ifndef above, otherwise the nested auto-ifdefs will kill us\n\nMay need to fixup the contents of the QCOM_HARDWARE else block - bracket may need to be duped",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_972d14fc",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3339,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Decide on V vs D, choose one and remove ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_b732105b",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3428,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "It may be easier for readability to dupe this bracket into each block",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_d7378c49",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 3920,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Decide what to do here - at minimum make a standard ifdef,\n\nwhat remains is a comment\n\nPerhaps edit to indicate QCOM only",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_f73c882e",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 4154,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "blank line ifdef, remove",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_174204b4",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 5050,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Change this to un-ifdefed FIXME: Qcom Audio Team",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_373f0021",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 5272,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Another busted auto-ifdef nesting case, again in Dolby stuff.  :)",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_574c7ce3",
+        "filename": "services/audiopolicy/AudioPolicyManager.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 8773,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Perhaps dupe this } into the blocks above for readability",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_774978d2",
+        "filename": "services/audiopolicy/AudioPolicyManager.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 46,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "dafuq?",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_9716f4ab",
+        "filename": "services/audiopolicy/AudioPolicyManager.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 924,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Make sure that HDMI_PASSTHROUGH_ENABLED ifdef ended\n\nAlso, that extra private: hanging here seems...  odd...",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_b71bf0d2",
+        "filename": "services/camera/libcameraservice/CameraService.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 755,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "There may be a cleaner way to do this...\n\nOr at least more readable",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_d7106cb1",
+        "filename": "services/camera/libcameraservice/CameraService.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 823,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "See above comment",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_f715689e",
+        "filename": "services/camera/libcameraservice/CameraService.h",
+        "patchSetId": 3
+      },
+      "lineNbr": 290,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Hmm, why did qcom remove this comment?",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_172be4db",
+        "filename": "services/camera/libcameraservice/api1/CameraClient.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 118,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Change to a standard ifdef",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2b1c0951_3728e0dc",
+        "filename": "services/camera/libcameraservice/api1/client2/ZslProcessor3.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 85,
+      "author": {
+        "id": 1000008
+      },
+      "writtenOn": "2015-04-29T12:28:28Z",
+      "side": 1,
+      "message": "Determine what to do about ifdefed QCOM comments:\n\nWe want to preserve them, but also indicate that QCOM added them\n\nIfdefing works although it seems stupid...",
+      "revId": "7439291b0d52b8641b7840107d5becd93fa899ff",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
