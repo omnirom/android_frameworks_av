@@ -802,8 +802,12 @@ status_t AudioFlinger::setMasterVolume(float value)
     // assigned to HALs which do not have master volume support will apply
     // master volume during the mix operation.  Threads with HALs which do
     // support master volume will simply ignore the setting.
-    for (size_t i = 0; i < mPlaybackThreads.size(); i++)
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        if (mPlaybackThreads.valueAt(i)->isDuplicating()) {
+            continue;
+        }
         mPlaybackThreads.valueAt(i)->setMasterVolume(value);
+    }
 
     return NO_ERROR;
 }
@@ -910,8 +914,12 @@ status_t AudioFlinger::setMasterMute(bool muted)
     // mute during the mix operation.  Threads with HALs which do support master
     // mute will simply ignore the setting.
 #ifndef ICS_AUDIO_BLOB
-    for (size_t i = 0; i < mPlaybackThreads.size(); i++)
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        if (mPlaybackThreads.valueAt(i)->isDuplicating()) {
+            continue;
+        }
         mPlaybackThreads.valueAt(i)->setMasterMute(muted);
+    }
 #endif
 
     return NO_ERROR;
@@ -2018,11 +2026,10 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
 
         if (thread->type() == ThreadBase::MIXER) {
             for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
-                if (mPlaybackThreads.valueAt(i)->type() == ThreadBase::DUPLICATING) {
+                if (mPlaybackThreads.valueAt(i)->isDuplicating()) {
                     DuplicatingThread *dupThread =
                             (DuplicatingThread *)mPlaybackThreads.valueAt(i).get();
                     dupThread->removeOutputTrack((MixerThread *)thread.get());
-
                 }
             }
         }
@@ -2049,7 +2056,7 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
     // The thread entity (active unit of execution) is no longer running here,
     // but the ThreadBase container still exists.
 
-    if (thread->type() != ThreadBase::DUPLICATING) {
+    if (!thread->isDuplicating()) {
         AudioStreamOut *out = thread->clearOutput();
         ALOG_ASSERT(out != NULL, "out shouldn't be NULL");
         // from now on thread->mOutput is NULL
@@ -2445,6 +2452,9 @@ AudioFlinger::PlaybackThread *AudioFlinger::primaryPlaybackThread_l() const
 {
     for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
         PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+        if(thread->isDuplicating()) {
+            continue;
+        }
         AudioStreamOut *output = thread->getOutput();
         if (output != NULL && output->audioHwDev == mPrimaryHardwareDev) {
             return thread;
@@ -2741,6 +2751,17 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
     if (chain == 0) {
         ALOGW("moveEffectChain_l() effect chain for session %d not on source thread %p",
                 sessionId, srcThread);
+        return INVALID_OPERATION;
+    }
+
+    // Check whether the destination thread has a channel count of FCC_2, which is
+    // currently required for (most) effects. Prevent moving the effect chain here rather
+    // than disabling the addEffect_l() call in dstThread below.
+    if ((dstThread->type() == ThreadBase::MIXER || dstThread->isDuplicating()) &&
+            dstThread->mChannelCount != FCC_2) {
+        ALOGW("moveEffectChain_l() effect chain failed because"
+                " destination thread %p channel count(%u) != %u",
+                dstThread, dstThread->mChannelCount, FCC_2);
         return INVALID_OPERATION;
     }
 
