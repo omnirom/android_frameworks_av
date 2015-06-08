@@ -7,7 +7,7 @@ LOCAL_SRC_FILES:=                 \
 LOCAL_C_INCLUDES:= \
         $(TOP)/external/libvpx/libwebm \
         $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/frameworks/av/media/libstagefright/include \
+        $(TOP)/frameworks/av-caf/media/libstagefright/include \
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 

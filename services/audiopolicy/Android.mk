@@ -19,7 +19,7 @@ LOCAL_SRC_FILES += \
 endif
 
 LOCAL_C_INCLUDES := \
-    $(TOPDIR)frameworks/av/services/audioflinger \
+    $(TOPDIR)frameworks/av-caf/services/audioflinger \
     $(call include-path-for, audio-effects) \
     $(call include-path-for, audio-utils)
 

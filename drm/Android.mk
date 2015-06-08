@@ -1,5 +1,4 @@
-#
-# Copyright (C) 2010 The Android Open Source Project
+# Copyright 2014 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,22 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-LOCAL_PATH := $(call my-dir)
-
-include $(CLEAR_VARS)
-
-LOCAL_SRC_FILES := \
-    FwdLockFile.c
-
-LOCAL_C_INCLUDES := \
-    frameworks/av-caf/drm/libdrmframework/plugins/forward-lock/internal-format/common \
-    external/openssl/include
-
-LOCAL_SHARED_LIBRARIES := libcrypto
-
-LOCAL_MODULE := libfwdlock-decoder
-
-LOCAL_MODULE_TAGS := optional
-
-include $(BUILD_STATIC_LIBRARY)
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+include $(call all-subdir-makefiles)
+endif

@@ -28,7 +28,7 @@ LOCAL_SHARED_LIBRARIES := \
     libutils liblog
 
 LOCAL_C_INCLUDES += \
-    $(TOP)/frameworks/av/include \
+    $(TOP)/frameworks/av-caf/include \
     $(TOP)/frameworks/native/include/media
 
 # Set the following flag to enable the decryption passthru flow

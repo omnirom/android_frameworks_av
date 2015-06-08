@@ -48,10 +48,10 @@ LOCAL_STATIC_LIBRARIES :=       \
     libstagefright_rtsp         \
 
 LOCAL_C_INCLUDES :=                                                 \
-    $(TOP)/frameworks/av/media/libstagefright/include               \
-    $(TOP)/frameworks/av/media/libstagefright/rtsp                  \
-    $(TOP)/frameworks/av/media/libstagefright/wifi-display          \
-    $(TOP)/frameworks/av/media/libstagefright/webm                  \
+    $(TOP)/frameworks/av-caf/media/libstagefright/include               \
+    $(TOP)/frameworks/av-caf/media/libstagefright/rtsp                  \
+    $(TOP)/frameworks/av-caf/media/libstagefright/wifi-display          \
+    $(TOP)/frameworks/av-caf/media/libstagefright/webm                  \
     $(TOP)/frameworks/native/include/media/openmax                  \
     $(TOP)/external/tremolo/Tremolo                                 \
 
@@ -61,7 +61,7 @@ LOCAL_32_BIT_ONLY := true
 
 ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
     LOCAL_CFLAGS += -DENABLE_AV_ENHANCEMENTS
-    LOCAL_C_INCLUDES += $(TOP)/frameworks/av/include/media
+    LOCAL_C_INCLUDES += $(TOP)/frameworks/av-caf/include/media
 ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
     LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
 else

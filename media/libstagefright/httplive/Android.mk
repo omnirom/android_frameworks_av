@@ -9,7 +9,7 @@ LOCAL_SRC_FILES:=               \
         PlaylistFetcher.cpp     \
 
 LOCAL_C_INCLUDES:= \
-	$(TOP)/frameworks/av/media/libstagefright \
+	$(TOP)/frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax \
 	$(TOP)/external/openssl/include
 

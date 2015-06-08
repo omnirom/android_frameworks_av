@@ -5,7 +5,7 @@ LOCAL_SRC_FILES := \
         SoftGSM.cpp
 
 LOCAL_C_INCLUDES := \
-        frameworks/av/media/libstagefright/include \
+        frameworks/av-caf/media/libstagefright/include \
         frameworks/native/include/media/openmax \
         external/libgsm/inc
 

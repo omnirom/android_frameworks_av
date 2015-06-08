@@ -12,8 +12,8 @@ LOCAL_SRC_FILES:=                 \
 LOCAL_CFLAGS += -Wno-multichar -Werror
 
 LOCAL_C_INCLUDES:= \
-        $(TOP)/frameworks/av/include/media/stagefright/timedtext \
-        $(TOP)/frameworks/av/media/libstagefright
+        $(TOP)/frameworks/av-caf/include/media/stagefright/timedtext \
+        $(TOP)/frameworks/av-caf/media/libstagefright
 
 LOCAL_MODULE:= libstagefright_timedtext
 

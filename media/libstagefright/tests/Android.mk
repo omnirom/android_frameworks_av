@@ -37,8 +37,8 @@ LOCAL_C_INCLUDES := \
 	bionic/libstdc++/include \
 	external/gtest/include \
 	external/stlport/stlport \
-	frameworks/av/media/libstagefright \
-	frameworks/av/media/libstagefright/include \
+	frameworks/av-caf/media/libstagefright \
+	frameworks/av-caf/media/libstagefright/include \
 	$(TOP)/frameworks/native/include/media/openmax \
 
 LOCAL_32_BIT_ONLY := true
@@ -75,9 +75,9 @@ LOCAL_C_INCLUDES := \
 	bionic/libstdc++/include \
 	external/gtest/include \
 	external/stlport/stlport \
-	frameworks/av/include \
-	frameworks/av/media/libstagefright \
-	frameworks/av/media/libstagefright/include \
+	frameworks/av-caf/include \
+	frameworks/av-caf/media/libstagefright \
+	frameworks/av-caf/media/libstagefright/include \
 	$(TOP)/frameworks/native/include/media/openmax \
 
 include $(BUILD_EXECUTABLE)
