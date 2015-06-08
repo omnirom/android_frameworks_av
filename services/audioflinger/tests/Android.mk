@@ -24,7 +24,7 @@ LOCAL_C_INCLUDES := \
 	external/gtest/include \
 	external/stlport/stlport \
 	$(call include-path-for, audio-utils) \
-	frameworks/av/services/audioflinger
+	frameworks/av-caf/services/audioflinger
 
 LOCAL_SRC_FILES := \
 	resampler_tests.cpp
@@ -49,7 +49,7 @@ LOCAL_C_INCLUDES := \
 	external/stlport/stlport \
 	$(call include-path-for, audio-effects) \
 	$(call include-path-for, audio-utils) \
-	frameworks/av/services/audioflinger
+	frameworks/av-caf/services/audioflinger
 
 LOCAL_STATIC_LIBRARIES := \
 	libsndfile

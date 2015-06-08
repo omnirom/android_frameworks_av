@@ -34,8 +34,8 @@ LOCAL_C_INCLUDES := \
     bionic \
     external/jsmn \
     external/openssl/include \
-    frameworks/av/drm/mediadrm/plugins/clearkey \
-    frameworks/av/include \
+    frameworks/av-caf/drm/mediadrm/plugins/clearkey \
+    frameworks/av-caf/include \
     frameworks/native/include \
 
 LOCAL_MODULE := libdrmclearkeyplugin

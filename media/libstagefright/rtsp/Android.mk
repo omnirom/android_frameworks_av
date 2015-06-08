@@ -20,7 +20,7 @@ LOCAL_SRC_FILES:=       \
         SDPLoader.cpp               \
 
 LOCAL_C_INCLUDES:= \
-	$(TOP)/frameworks/av/media/libstagefright \
+	$(TOP)/frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax \
 	$(TOP)/external/openssl/include
 
@@ -50,7 +50,7 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_rtsp
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
+	frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar

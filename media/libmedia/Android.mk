@@ -95,8 +95,8 @@ LOCAL_MODULE:= libmedia
 
 LOCAL_C_INCLUDES := \
     $(TOP)/frameworks/native/include/media/openmax \
-    $(TOP)/frameworks/av/include/media/ \
-    $(TOP)/frameworks/av/media/libstagefright \
+    $(TOP)/frameworks/av-caf/include/media/ \
+    $(TOP)/frameworks/av-caf/media/libstagefright \
     $(TOP)/external/icu/icu4c/source/common \
     $(TOP)/external/icu/icu4c/source/i18n \
     $(call include-path-for, audio-effects) \

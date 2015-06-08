@@ -8,7 +8,7 @@ LOCAL_SRC_FILES := \
       SoftDTSDec.cpp
 
 LOCAL_C_INCLUDES := \
-      frameworks/av/media/libstagefright/include \
+      frameworks/av-caf/media/libstagefright/include \
       frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS :=

@@ -20,7 +20,7 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-include frameworks/av/media/libstagefright/codecs/common/Config.mk
+include frameworks/av-caf/media/libstagefright/codecs/common/Config.mk
 
 LOCAL_SRC_FILES:=                         \
         ACodec.cpp                        \
@@ -86,8 +86,8 @@ LOCAL_SRC_FILES:=                         \
         ExtendedStats.cpp                 \
 
 LOCAL_C_INCLUDES:= \
-        $(TOP)/frameworks/av/include/media/ \
-        $(TOP)/frameworks/av/include/media/stagefright/timedtext \
+        $(TOP)/frameworks/av-caf/include/media/ \
+        $(TOP)/frameworks/av-caf/include/media/stagefright/timedtext \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax \
         $(TOP)/external/flac/include \
@@ -162,7 +162,7 @@ ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
 else
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 endif
-       LOCAL_C_INCLUDES += $(TOP)/frameworks/av/media/libstagefright/include
+       LOCAL_C_INCLUDES += $(TOP)/frameworks/av-caf/media/libstagefright/include
        LOCAL_SRC_FILES  += ExtendedMediaDefs.cpp
        LOCAL_SRC_FILES  += ExtendedWriter.cpp
        LOCAL_SRC_FILES  += FMA2DPWriter.cpp

@@ -33,7 +33,7 @@ LOCAL_MODULE:= libmediandk
 LOCAL_C_INCLUDES := \
     bionic/libc/private \
     frameworks/base/core/jni \
-    frameworks/av/include/ndk
+    frameworks/av-caf/include/ndk
 
 LOCAL_CFLAGS += -fvisibility=hidden -D EXPORT='__attribute__ ((visibility ("default")))'
 

@@ -12,8 +12,8 @@ LOCAL_SHARED_LIBRARIES := \
         libjpeg libgui libcutils liblog
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
-	frameworks/av/media/libstagefright/include \
+	frameworks/av-caf/media/libstagefright \
+	frameworks/av-caf/media/libstagefright/include \
 	$(TOP)/frameworks/native/include/media/openmax \
 	external/jpeg \
 
@@ -37,7 +37,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libstagefright liblog libutils libbinder libstagefright_foundation
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
+	frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar
@@ -60,7 +60,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libstagefright liblog libutils libbinder libstagefright_foundation
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
+	frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar
@@ -84,7 +84,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libstagefright liblog libutils libbinder libstagefright_foundation
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
+	frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar
@@ -107,7 +107,7 @@ LOCAL_SHARED_LIBRARIES := \
         libstagefright_foundation libmedia libcutils
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
+	frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar
@@ -130,7 +130,7 @@ LOCAL_SHARED_LIBRARIES := \
         libmedia libgui libcutils libui
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
+	frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar
@@ -154,7 +154,7 @@ LOCAL_SHARED_LIBRARIES := \
         libmedia libgui libcutils libui
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
+	frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar
@@ -177,7 +177,7 @@ LOCAL_SHARED_LIBRARIES := \
         libmedia libgui libcutils libui libc
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
+	frameworks/av-caf/media/libstagefright \
 	$(TOP)/frameworks/native/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar
