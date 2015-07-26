@@ -14,3 +14,6 @@
 ifneq ($(BOARD_USES_QCOM_HARDWARE),true)
 include $(call all-subdir-makefiles)
 endif
+ifeq ($(BOARD_NO_USES_AV-CAF),true)
+include $(call all-subdir-makefiles)
+endif
