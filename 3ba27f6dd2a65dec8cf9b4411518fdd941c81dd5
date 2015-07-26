@@ -1,0 +1,38 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "f8eba960_9b024377",
+        "filename": "services/camera/libcameraservice/CameraService.h",
+        "patchSetId": 1
+      },
+      "lineNbr": 26,
+      "author": {
+        "id": 1000094
+      },
+      "writtenOn": "2015-07-26T20:33:32Z",
+      "side": 1,
+      "message": "Adding a ifdef here wont hurt much i think",
+      "revId": "3ba27f6dd2a65dec8cf9b4411518fdd941c81dd5",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "f8eba960_7b077f88",
+        "filename": "services/camera/libcameraservice/device1/CameraHardwareInterface.h",
+        "patchSetId": 1
+      },
+      "lineNbr": 28,
+      "author": {
+        "id": 1000094
+      },
+      "writtenOn": "2015-07-26T20:33:32Z",
+      "side": 1,
+      "message": "adding an ifdef here wont hurt i think",
+      "revId": "3ba27f6dd2a65dec8cf9b4411518fdd941c81dd5",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
