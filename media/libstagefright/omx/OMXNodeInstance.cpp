@@ -980,6 +980,12 @@ status_t OMXNodeInstance::emptyBuffer(
     Mutex::Autolock autoLock(mLock);
 
     OMX_BUFFERHEADERTYPE *header = findBufferHeader(buffer);
+    // rangeLength and rangeOffset must be a subset of the allocated data in the buffer.
+    // corner case: we permit rangeOffset == end-of-buffer with rangeLength == 0.
+    if (rangeOffset > header->nAllocLen
+            || rangeLength > header->nAllocLen - rangeOffset) {
+        return BAD_VALUE;
+    }
     header->nFilledLen = rangeLength;
     header->nOffset = rangeOffset;
 
@@ -1355,8 +1361,6 @@ void OMXNodeInstance::freeActiveBuffers() {
     }
 }
 
-#ifdef __LP64__
-
 OMX::buffer_id OMXNodeInstance::makeBufferID(OMX_BUFFERHEADERTYPE *bufferHeader) {
     if (bufferHeader == NULL) {
         return 0;
@@ -1398,24 +1402,5 @@ void OMXNodeInstance::invalidateBufferID(OMX::buffer_id buffer) {
     mBufferHeaderToBufferID.removeItem(mBufferIDToBufferHeader.valueFor(buffer));
     mBufferIDToBufferHeader.removeItem(buffer);
 }
-
-#else
-
-OMX::buffer_id OMXNodeInstance::makeBufferID(OMX_BUFFERHEADERTYPE *bufferHeader) {
-    return (OMX::buffer_id)bufferHeader;
-}
-
-OMX_BUFFERHEADERTYPE *OMXNodeInstance::findBufferHeader(OMX::buffer_id buffer) {
-    return (OMX_BUFFERHEADERTYPE *)buffer;
-}
-
-OMX::buffer_id OMXNodeInstance::findBufferID(OMX_BUFFERHEADERTYPE *bufferHeader) {
-    return (OMX::buffer_id)bufferHeader;
-}
-
-void OMXNodeInstance::invalidateBufferID(OMX::buffer_id buffer __unused) {
-}
-
-#endif
 
 }  // namespace android
