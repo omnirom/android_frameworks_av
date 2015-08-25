@@ -35,6 +35,7 @@
 #include <camera/ICamera.h>
 #include <media/mediarecorder.h>
 #include <media/IOMX.h>
+#include "ESQueue.h"
 
 namespace android {
 
@@ -78,6 +79,8 @@ struct AVFactory {
             bool disconnectAtHighwatermark = false);
     virtual MediaHTTP* createMediaHTTP(
             const sp<IMediaHTTPConnection> &conn);
+    virtual ElementaryStreamQueue* createESQueue(
+            ElementaryStreamQueue::Mode mode, uint32_t flags = 0);
 
     virtual AudioSource* createAudioSource(
             audio_source_t inputSource,
@@ -206,6 +209,9 @@ struct AVUtils {
     virtual void setIntraPeriod(
                 int nPFrames, int nBFrames, const sp<IOMX> OMXhandle,
                 IOMX::node_id nodeID);
+
+    // Used by ATSParser
+    virtual bool IsHevcIDR(const sp<ABuffer> &accessUnit);
 
 private:
     HEVCMuxer mHEVCMuxer;
