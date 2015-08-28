@@ -53,7 +53,7 @@ const int64_t LiveSession::kResumeThresholdUs = 100000ll;
 // default buffer underflow mark
 static const int kUnderflowMarkMs = 1000;  // 1 second
 
-struct LiveSession::BandwidthEstimator : public RefBase {
+struct LiveSession::BandwidthEstimator : public LiveSession::BandwidthBaseEstimator {
     BandwidthEstimator();
 
     void addBandwidthMeasurement(size_t numBytes, int64_t delayUs);
