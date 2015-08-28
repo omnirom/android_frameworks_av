@@ -19,6 +19,8 @@
 #define ES_QUEUE_H_
 
 #include <media/stagefright/foundation/ABase.h>
+#include <media/stagefright/foundation/ABuffer.h>
+#include <media/stagefright/MetaData.h>
 #include <utils/Errors.h>
 #include <utils/List.h>
 #include <utils/RefBase.h>
@@ -28,11 +30,13 @@ namespace android {
 
 struct ABuffer;
 class MetaData;
+struct AVUtils;
 
 struct ElementaryStreamQueue {
     enum Mode {
         INVALID = 0,
         H264,
+        H265,
         AAC,
         AC3,
         MPEG_AUDIO,
@@ -48,6 +52,7 @@ struct ElementaryStreamQueue {
         kFlag_ScrambledData = 2,
     };
     explicit ElementaryStreamQueue(Mode mode, uint32_t flags = 0);
+    virtual ~ElementaryStreamQueue() {};
 
     status_t appendData(const void *data, size_t size,
             int64_t timeUs, int32_t payloadOffset = 0,
@@ -111,6 +116,9 @@ protected:
     sp<ABuffer> dequeueAccessUnitMPEG4Video();
     sp<ABuffer> dequeueAccessUnitPCMAudio();
     sp<ABuffer> dequeueAccessUnitMetadata();
+    virtual sp<ABuffer> dequeueAccessUnitH265() {
+        return NULL;
+    };
 
     // consume a logical (compressed) access unit of size "size",
     // returns its timestamp in us (or -1 if no time information).
@@ -120,6 +128,7 @@ protected:
 
     sp<ABuffer> dequeueScrambledAccessUnit();
 
+private:
     DISALLOW_EVIL_CONSTRUCTORS(ElementaryStreamQueue);
 };
 

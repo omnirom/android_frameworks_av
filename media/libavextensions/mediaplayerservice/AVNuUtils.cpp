@@ -76,6 +76,10 @@ audio_format_t AVNuUtils::getPCMFormat(const sp<AMessage> &) {
     return AUDIO_FORMAT_PCM_16_BIT;
 }
 
+void AVNuUtils::checkFormatChange(bool * /*formatChange*/,
+        const sp<ABuffer> & /*accessUnit*/) {
+}
+
 // ----- NO TRESSPASSING BEYOND THIS LINE ------
 AVNuUtils::AVNuUtils() {}
 

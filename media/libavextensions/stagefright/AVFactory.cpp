@@ -96,6 +96,11 @@ MPEG4Writer* AVFactory::CreateMPEG4Writer(int fd) {
     return new MPEG4Writer(fd);
 }
 
+ElementaryStreamQueue* AVFactory::createESQueue(
+         ElementaryStreamQueue::Mode , uint32_t ) {
+    return NULL;
+}
+
 AudioSource* AVFactory::createAudioSource(
             audio_source_t inputSource,
             const String16 &opPackageName,
