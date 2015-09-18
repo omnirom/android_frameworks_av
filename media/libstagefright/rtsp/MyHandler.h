@@ -33,6 +33,7 @@
 #include "ASessionDescription.h"
 
 #include <ctype.h>
+#include <cutils/properties.h>
 
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -40,6 +41,7 @@
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/Utils.h>
+#include <mediaplayerservice/AVMediaServiceExtensions.h>
 
 #include <mediaplayerservice/AVMediaServiceExtensions.h>
 
@@ -70,6 +72,7 @@ static int64_t kPauseDelayUs = 3000000ll;
 // The allowed maximum number of stale access units at the beginning of
 // a new sequence.
 static int32_t kMaxAllowedStaleAccessUnits = 20;
+static int64_t kTearDownTimeoutUs = 3000000ll;
 
 namespace android {
 
@@ -112,6 +115,7 @@ struct MyHandler : public AHandler {
         kWhatEOS                        = 'eos!',
         kWhatSeekDiscontinuity          = 'seeD',
         kWhatNormalPlayTimeMapping      = 'nptM',
+        kWhatByeReceived                = 'byeR',
     };
 
     MyHandler(
@@ -711,6 +715,7 @@ struct MyHandler : public AHandler {
                                      timeoutSecs);
                             }
                         }
+                        AVMediaServiceUtils::get()->setServerTimeoutUs(mKeepAliveTimeoutUs);
 
                         i = mSessionID.find(";");
                         if (i >= 0) {
@@ -730,16 +735,19 @@ struct MyHandler : public AHandler {
 
                                 // We are going to continue even if we were
                                 // unable to poke a hole into the firewall...
-                                pokeAHole(
+                                AVMediaServiceUtils::get()->pokeAHole(
+                                        this,
                                         track->mRTPSocket,
                                         track->mRTCPSocket,
-                                        transport);
+                                        transport,
+                                        mSessionHost);
                             }
 
                             mRTPConn->addStream(
                                     track->mRTPSocket, track->mRTCPSocket,
                                     mSessionDesc, index,
-                                    notify, track->mUsingInterleavedTCP);
+                                    notify, track->mUsingInterleavedTCP,
+                                    mConn->isIPV6());
 
                             mSetupTracksSuccessful = true;
                         } else {
@@ -782,6 +790,7 @@ struct MyHandler : public AHandler {
                     request.append(mSessionID);
                     request.append("\r\n");
 
+                    AVMediaServiceUtils::get()->appendRange(&request);
                     request.append("\r\n");
 
                     sp<AMessage> reply = new AMessage('play', this);
@@ -926,6 +935,15 @@ struct MyHandler : public AHandler {
                 request.append("\r\n");
 
                 mConn->sendRequest(request.c_str(), reply);
+
+                // If the response of teardown hasn't been received in 3 seconds,
+                // post 'tear' message to avoid ANR.
+                if (!msg->findInt32("reconnect", &reconnect) || !reconnect) {
+                    sp<AMessage> teardown = new AMessage('tear', this);
+                    teardown->setInt32("result", -ECONNABORTED);
+                    teardown->post(kTearDownTimeoutUs);
+                }
+
                 break;
             }
 
@@ -1029,6 +1047,13 @@ struct MyHandler : public AHandler {
                 int32_t eos;
                 if (msg->findInt32("eos", &eos)) {
                     ALOGI("received BYE on track index %zu", trackIndex);
+                    char value[PROPERTY_VALUE_MAX] = {0};
+                    if (property_get("rtcp.bye.notify", value, "false")
+                            && !strcasecmp(value, "true")) {
+                        sp<AMessage> msg = mNotify->dup();
+                        msg->setInt32("what", kWhatByeReceived);
+                        msg->post();
+                    }
                     if (!mAllTracksHaveTime && dataReceivedOnAllChannels()) {
                         ALOGI("No time established => fake existing data");
 
@@ -1477,7 +1502,9 @@ struct MyHandler : public AHandler {
 
             size_t trackIndex = 0;
             while (trackIndex < mTracks.size()
-                    && !(val == mTracks.editItemAt(trackIndex).mURL)) {
+                    && !(AVMediaServiceUtils::get()->parseTrackURL(
+                    mTracks.editItemAt(trackIndex).mURL, val)
+                    || val == mTracks.editItemAt(trackIndex).mURL)) {
                 ++trackIndex;
             }
             CHECK_LT(trackIndex, mTracks.size());
@@ -1657,8 +1684,9 @@ private:
             request.append(interleaveIndex + 1);
         } else {
             unsigned rtpPort;
-            ARTPConnection::MakePortPair(
-                    &info->mRTPSocket, &info->mRTCPSocket, &rtpPort);
+            AVMediaServiceUtils::get()->makePortPair(
+                    &info->mRTPSocket, &info->mRTCPSocket, &rtpPort,
+                    mConn->isIPV6());
 
             if (mUIDValid) {
                 HTTPBase::RegisterSocketUserTag(info->mRTPSocket, mUID,
@@ -1908,7 +1936,7 @@ private:
             mLastMediaTimeUs = mediaTimeUs;
         }
 
-        if (mediaTimeUs < 0) {
+        if (mediaTimeUs < 0 && !mSeekable) {
             ALOGV("dropping early accessUnit.");
             return false;
         }
