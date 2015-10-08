@@ -45,6 +45,8 @@
 #include "AudioFlinger.h"
 #include "ServiceUtilities.h"
 
+#include <media/AudioResamplerPublic.h>
+
 #include <media/EffectsFactoryApi.h>
 #include <audio_effects/effect_visualizer.h>
 #include <audio_effects/effect_ns.h>
@@ -179,13 +181,14 @@ AudioFlinger::AudioFlinger()
       mIsLowRamDevice(true),
       mIsDeviceTypeKnown(false),
       mGlobalEffectEnableTime(0),
-      mPrimaryOutputSampleRate(0)
+      mSystemReady(false)
 {
     getpid_cached = getpid();
     char value[PROPERTY_VALUE_MAX];
     bool doLog = (property_get("ro.test_harness", value, "0") > 0) && (atoi(value) == 1);
     if (doLog) {
-        mLogMemoryDealer = new MemoryDealer(kLogMemorySize, "LogWriters", MemoryHeapBase::READ_ONLY);
+        mLogMemoryDealer = new MemoryDealer(kLogMemorySize, "LogWriters",
+                MemoryHeapBase::READ_ONLY);
     }
 
 #ifdef TEE_SINK
@@ -271,7 +274,7 @@ static const char * const audio_interfaces[] = {
 };
 #define ARRAY_SIZE(x) (sizeof((x))/sizeof(((x)[0])))
 
-AudioFlinger::AudioHwDevice* AudioFlinger::findSuitableHwDev_l(
+AudioHwDevice* AudioFlinger::findSuitableHwDev_l(
         audio_module_handle_t module,
         audio_devices_t devices)
 {
@@ -401,6 +404,9 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
             String8 result(kClientLockedString);
             write(fd, result.string(), result.size());
         }
+
+        EffectDumpEffects(fd);
+
         dumpClients(fd, args);
         if (clientLocked) {
             mClientLock.unlock();
@@ -751,8 +757,12 @@ status_t AudioFlinger::setMasterVolume(float value)
     // assigned to HALs which do not have master volume support will apply
     // master volume during the mix operation.  Threads with HALs which do
     // support master volume will simply ignore the setting.
-    for (size_t i = 0; i < mPlaybackThreads.size(); i++)
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        if (mPlaybackThreads.valueAt(i)->isDuplicating()) {
+            continue;
+        }
         mPlaybackThreads.valueAt(i)->setMasterVolume(value);
+    }
 
     return NO_ERROR;
 }
@@ -822,14 +832,20 @@ bool AudioFlinger::getMicMute() const
     if (ret != NO_ERROR) {
         return false;
     }
-
+    bool mute = true;
     bool state = AUDIO_MODE_INVALID;
     AutoMutex lock(mHardwareLock);
-    audio_hw_device_t *dev = mPrimaryHardwareDev->hwDevice();
     mHardwareStatus = AUDIO_HW_GET_MIC_MUTE;
-    dev->get_mic_mute(dev, &state);
+    for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
+        audio_hw_device_t *dev = mAudioHwDevs.valueAt(i)->hwDevice();
+        status_t result = dev->get_mic_mute(dev, &state);
+        if (result == NO_ERROR) {
+            mute = mute && state;
+        }
+    }
     mHardwareStatus = AUDIO_HW_IDLE;
-    return state;
+
+    return mute;
 }
 
 status_t AudioFlinger::setMasterMute(bool muted)
@@ -863,8 +879,12 @@ status_t AudioFlinger::setMasterMute(bool muted)
     // assigned to HALs which do not have master mute support will apply master
     // mute during the mix operation.  Threads with HALs which do support master
     // mute will simply ignore the setting.
-    for (size_t i = 0; i < mPlaybackThreads.size(); i++)
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        if (mPlaybackThreads.valueAt(i)->isDuplicating()) {
+            continue;
+        }
         mPlaybackThreads.valueAt(i)->setMasterMute(muted);
+    }
 
     return NO_ERROR;
 }
@@ -1001,6 +1021,14 @@ bool AudioFlinger::streamMute(audio_stream_type_t stream) const
     return streamMute_l(stream);
 }
 
+
+void AudioFlinger::broacastParametersToRecordThreads_l(const String8& keyValuePairs)
+{
+    for (size_t i = 0; i < mRecordThreads.size(); i++) {
+        mRecordThreads.valueAt(i)->setParameters(keyValuePairs);
+    }
+}
+
 status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& keyValuePairs)
 {
     ALOGV("setParameters(): io %d, keyvalue %s, calling pid %d",
@@ -1075,9 +1103,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             int value;
             if ((param.getInt(String8(AudioParameter::keyRouting), value) == NO_ERROR) &&
                     (value != 0)) {
-                for (size_t i = 0; i < mRecordThreads.size(); i++) {
-                    mRecordThreads.valueAt(i)->setParameters(keyValuePairs);
-                }
+                broacastParametersToRecordThreads_l(keyValuePairs);
             }
         }
     }
@@ -1130,19 +1156,46 @@ size_t AudioFlinger::getInputBufferSize(uint32_t sampleRate, audio_format_t form
     if (ret != NO_ERROR) {
         return 0;
     }
+    if (!audio_is_valid_format(format) || !audio_is_linear_pcm(format)) {
+        return 0;
+    }
 
     AutoMutex lock(mHardwareLock);
     mHardwareStatus = AUDIO_HW_GET_INPUT_BUFFER_SIZE;
-    audio_config_t config;
-    memset(&config, 0, sizeof(config));
-    config.sample_rate = sampleRate;
-    config.channel_mask = channelMask;
-    config.format = format;
+    audio_config_t config, proposed;
+    memset(&proposed, 0, sizeof(proposed));
+    proposed.sample_rate = sampleRate;
+    proposed.channel_mask = channelMask;
+    proposed.format = format;
 
     audio_hw_device_t *dev = mPrimaryHardwareDev->hwDevice();
-    size_t size = dev->get_input_buffer_size(dev, &config);
+    size_t frames;
+    for (;;) {
+        // Note: config is currently a const parameter for get_input_buffer_size()
+        // but we use a copy from proposed in case config changes from the call.
+        config = proposed;
+        frames = dev->get_input_buffer_size(dev, &config);
+        if (frames != 0) {
+            break; // hal success, config is the result
+        }
+        // change one parameter of the configuration each iteration to a more "common" value
+        // to see if the device will support it.
+        if (proposed.format != AUDIO_FORMAT_PCM_16_BIT) {
+            proposed.format = AUDIO_FORMAT_PCM_16_BIT;
+        } else if (proposed.sample_rate != 44100) { // 44.1 is claimed as must in CDD as well as
+            proposed.sample_rate = 44100;           // legacy AudioRecord.java. TODO: Query hw?
+        } else {
+            ALOGW("getInputBufferSize failed with minimum buffer size sampleRate %u, "
+                    "format %#x, channelMask 0x%X",
+                    sampleRate, format, channelMask);
+            break; // retries failed, break out of loop with frames == 0.
+        }
+    }
     mHardwareStatus = AUDIO_HW_IDLE;
-    return size;
+    if (frames > 0 && config.sample_rate != sampleRate) {
+        frames = destinationFramesPossible(frames, sampleRate, config.sample_rate);
+    }
+    return frames; // may be converted to bytes at the Java level.
 }
 
 uint32_t AudioFlinger::getInputFramesLost(audio_io_handle_t ioHandle) const
@@ -1198,11 +1251,9 @@ void AudioFlinger::registerClient(const sp<IAudioFlingerClient>& client)
     if (client == 0) {
         return;
     }
-    bool clientAdded = false;
+    pid_t pid = IPCThreadState::self()->getCallingPid();
     {
         Mutex::Autolock _cl(mClientLock);
-
-        pid_t pid = IPCThreadState::self()->getCallingPid();
         if (mNotificationClients.indexOfKey(pid) < 0) {
             sp<NotificationClient> notificationClient = new NotificationClient(this,
                                                                                 client,
@@ -1211,24 +1262,21 @@ void AudioFlinger::registerClient(const sp<IAudioFlingerClient>& client)
 
             mNotificationClients.add(pid, notificationClient);
 
-            sp<IBinder> binder = client->asBinder();
+            sp<IBinder> binder = IInterface::asBinder(client);
             binder->linkToDeath(notificationClient);
-            clientAdded = true;
         }
     }
 
     // mClientLock should not be held here because ThreadBase::sendIoConfigEvent() will lock the
     // ThreadBase mutex and the locking order is ThreadBase::mLock then AudioFlinger::mClientLock.
-    if (clientAdded) {
-        // the config change is always sent from playback or record threads to avoid deadlock
-        // with AudioSystem::gLock
-        for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
-            mPlaybackThreads.valueAt(i)->sendIoConfigEvent(AudioSystem::OUTPUT_OPENED);
-        }
+    // the config change is always sent from playback or record threads to avoid deadlock
+    // with AudioSystem::gLock
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        mPlaybackThreads.valueAt(i)->sendIoConfigEvent(AUDIO_OUTPUT_OPENED, pid);
+    }
 
-        for (size_t i = 0; i < mRecordThreads.size(); i++) {
-            mRecordThreads.valueAt(i)->sendIoConfigEvent(AudioSystem::INPUT_OPENED);
-        }
+    for (size_t i = 0; i < mRecordThreads.size(); i++) {
+        mRecordThreads.valueAt(i)->sendIoConfigEvent(AUDIO_INPUT_OPENED, pid);
     }
 }
 
@@ -1261,14 +1309,16 @@ void AudioFlinger::removeNotificationClient(pid_t pid)
     }
 }
 
-void AudioFlinger::audioConfigChanged(int event, audio_io_handle_t ioHandle, const void *param2)
+void AudioFlinger::ioConfigChanged(audio_io_config_event event,
+                                   const sp<AudioIoDescriptor>& ioDesc,
+                                   pid_t pid)
 {
     Mutex::Autolock _l(mClientLock);
     size_t size = mNotificationClients.size();
     for (size_t i = 0; i < size; i++) {
-        mNotificationClients.valueAt(i)->audioFlingerClient()->ioConfigChanged(event,
-                                                                              ioHandle,
-                                                                              param2);
+        if ((pid == 0) || (mNotificationClients.keyAt(i) == pid)) {
+            mNotificationClients.valueAt(i)->audioFlingerClient()->ioConfigChanged(event, ioDesc);
+        }
     }
 }
 
@@ -1377,9 +1427,11 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         uint32_t sampleRate,
         audio_format_t format,
         audio_channel_mask_t channelMask,
+        const String16& opPackageName,
         size_t *frameCount,
         IAudioFlinger::track_flags_t *flags,
         pid_t tid,
+        int clientUid,
         int *sessionId,
         size_t *notificationFrames,
         sp<IMemory>& cblk,
@@ -1396,7 +1448,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
     buffers.clear();
 
     // check calling permissions
-    if (!recordingAllowed()) {
+    if (!recordingAllowed(opPackageName)) {
         ALOGE("openRecord() permission denied: recording not allowed");
         lStatus = PERMISSION_DENIED;
         goto Exit;
@@ -1409,9 +1461,8 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         goto Exit;
     }
 
-    // we don't yet support anything other than 16-bit PCM
-    if (!(audio_is_valid_format(format) &&
-            audio_is_linear_pcm(format) && format == AUDIO_FORMAT_PCM_16_BIT)) {
+    // we don't yet support anything other than linear PCM
+    if (!audio_is_valid_format(format) || !audio_is_linear_pcm(format)) {
         ALOGE("openRecord() invalid format %#x", format);
         lStatus = BAD_VALUE;
         goto Exit;
@@ -1450,8 +1501,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         // TODO: the uid should be passed in as a parameter to openRecord
         recordTrack = thread->createRecordTrack_l(client, sampleRate, format, channelMask,
                                                   frameCount, lSessionId, notificationFrames,
-                                                  IPCThreadState::self()->getCallingUid(),
-                                                  flags, tid, &lStatus);
+                                                  clientUid, flags, tid, &lStatus);
         LOG_ALWAYS_FATAL_IF((lStatus == NO_ERROR) && (recordTrack == 0));
 
         if (lStatus == NO_ERROR) {
@@ -1670,6 +1720,26 @@ audio_hw_sync_t AudioFlinger::getAudioHwSyncForSession(audio_session_t sessionId
     return (audio_hw_sync_t)value;
 }
 
+status_t AudioFlinger::systemReady()
+{
+    Mutex::Autolock _l(mLock);
+    ALOGI("%s", __FUNCTION__);
+    if (mSystemReady) {
+        ALOGW("%s called twice", __FUNCTION__);
+        return NO_ERROR;
+    }
+    mSystemReady = true;
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        ThreadBase *thread = (ThreadBase *)mPlaybackThreads.valueAt(i).get();
+        thread->systemReady();
+    }
+    for (size_t i = 0; i < mRecordThreads.size(); i++) {
+        ThreadBase *thread = (ThreadBase *)mRecordThreads.valueAt(i).get();
+        thread->systemReady();
+    }
+    return NO_ERROR;
+}
+
 // setAudioHwSyncForSession_l() must be called with AudioFlinger::mLock held
 void AudioFlinger::setAudioHwSyncForSession_l(PlaybackThread *thread, audio_session_t sessionId)
 {
@@ -1706,8 +1776,6 @@ sp<AudioFlinger::PlaybackThread> AudioFlinger::openOutput_l(audio_module_handle_
 
     mHardwareStatus = AUDIO_HW_OUTPUT_OPEN;
 
-    audio_stream_out_t *outStream = NULL;
-
     // FOR TESTING ONLY:
     // This if statement allows overriding the audio policy settings
     // and forcing a specific format or channel mask to the HAL/Sink device for testing.
@@ -1729,37 +1797,30 @@ sp<AudioFlinger::PlaybackThread> AudioFlinger::openOutput_l(audio_module_handle_
         }
     }
 
-    status_t status = hwDevHal->open_output_stream(hwDevHal,
-                                                   *output,
-                                                   devices,
-                                                   flags,
-                                                   config,
-                                                   &outStream,
-                                                   address.string());
+    AudioStreamOut *outputStream = NULL;
+    status_t status = outHwDev->openOutputStream(
+            &outputStream,
+            *output,
+            devices,
+            flags,
+            config,
+            address.string());
 
     mHardwareStatus = AUDIO_HW_IDLE;
-    ALOGV("openOutput_l() openOutputStream returned output %p, sampleRate %d, Format %#x, "
-            "channelMask %#x, status %d",
-            outStream,
-            config->sample_rate,
-            config->format,
-            config->channel_mask,
-            status);
 
-    if (status == NO_ERROR && outStream != NULL) {
-        AudioStreamOut *outputStream = new AudioStreamOut(outHwDev, outStream, flags);
+    if (status == NO_ERROR) {
 
         PlaybackThread *thread;
         if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-            thread = new OffloadThread(this, outputStream, *output, devices);
+            thread = new OffloadThread(this, outputStream, *output, devices, mSystemReady);
             ALOGV("openOutput_l() created offload output: ID %d thread %p", *output, thread);
         } else if ((flags & AUDIO_OUTPUT_FLAG_DIRECT)
                 || !isValidPcmSinkFormat(config->format)
                 || !isValidPcmSinkChannelMask(config->channel_mask)) {
-            thread = new DirectOutputThread(this, outputStream, *output, devices);
+            thread = new DirectOutputThread(this, outputStream, *output, devices, mSystemReady);
             ALOGV("openOutput_l() created direct output: ID %d thread %p", *output, thread);
         } else {
-            thread = new MixerThread(this, outputStream, *output, devices);
+            thread = new MixerThread(this, outputStream, *output, devices, mSystemReady);
             ALOGV("openOutput_l() created mixer output: ID %d thread %p", *output, thread);
         }
         mPlaybackThreads.add(*output, thread);
@@ -1777,7 +1838,7 @@ status_t AudioFlinger::openOutput(audio_module_handle_t module,
                                   uint32_t *latencyMs,
                                   audio_output_flags_t flags)
 {
-    ALOGV("openOutput(), module %d Device %x, SamplingRate %d, Format %#08x, Channels %x, flags %x",
+    ALOGI("openOutput(), module %d Device %x, SamplingRate %d, Format %#08x, Channels %x, flags %x",
               module,
               (devices != NULL) ? *devices : 0,
               config->sample_rate,
@@ -1796,7 +1857,7 @@ status_t AudioFlinger::openOutput(audio_module_handle_t module,
         *latencyMs = thread->latency();
 
         // notify client processes of the new output creation
-        thread->audioConfigChanged(AudioSystem::OUTPUT_OPENED);
+        thread->ioConfigChanged(AUDIO_OUTPUT_OPENED);
 
         // the first primary output opened designates the primary hw device
         if ((mPrimaryHardwareDev == NULL) && (flags & AUDIO_OUTPUT_FLAG_PRIMARY)) {
@@ -1807,8 +1868,6 @@ status_t AudioFlinger::openOutput(audio_module_handle_t module,
             mHardwareStatus = AUDIO_HW_SET_MODE;
             mPrimaryHardwareDev->hwDevice()->set_mode(mPrimaryHardwareDev->hwDevice(), mMode);
             mHardwareStatus = AUDIO_HW_IDLE;
-
-            mPrimaryOutputSampleRate = config->sample_rate;
         }
         return NO_ERROR;
     }
@@ -1830,11 +1889,11 @@ audio_io_handle_t AudioFlinger::openDuplicateOutput(audio_io_handle_t output1,
     }
 
     audio_io_handle_t id = nextUniqueId();
-    DuplicatingThread *thread = new DuplicatingThread(this, thread1, id);
+    DuplicatingThread *thread = new DuplicatingThread(this, thread1, id, mSystemReady);
     thread->addOutputTrack(thread2);
     mPlaybackThreads.add(id, thread);
     // notify client processes of the new output creation
-    thread->audioConfigChanged(AudioSystem::OUTPUT_OPENED);
+    thread->ioConfigChanged(AUDIO_OUTPUT_OPENED);
     return id;
 }
 
@@ -1859,11 +1918,10 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
 
         if (thread->type() == ThreadBase::MIXER) {
             for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
-                if (mPlaybackThreads.valueAt(i)->type() == ThreadBase::DUPLICATING) {
+                if (mPlaybackThreads.valueAt(i)->isDuplicating()) {
                     DuplicatingThread *dupThread =
                             (DuplicatingThread *)mPlaybackThreads.valueAt(i).get();
                     dupThread->removeOutputTrack((MixerThread *)thread.get());
-
                 }
             }
         }
@@ -1884,13 +1942,15 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
                 }
             }
         }
-        audioConfigChanged(AudioSystem::OUTPUT_CLOSED, output, NULL);
+        const sp<AudioIoDescriptor> ioDesc = new AudioIoDescriptor();
+        ioDesc->mIoHandle = output;
+        ioConfigChanged(AUDIO_OUTPUT_CLOSED, ioDesc);
     }
     thread->exit();
     // The thread entity (active unit of execution) is no longer running here,
     // but the ThreadBase container still exists.
 
-    if (thread->type() != ThreadBase::DUPLICATING) {
+    if (!thread->isDuplicating()) {
         closeOutputFinish(thread);
     }
 
@@ -1947,22 +2007,22 @@ status_t AudioFlinger::restoreOutput(audio_io_handle_t output)
 status_t AudioFlinger::openInput(audio_module_handle_t module,
                                           audio_io_handle_t *input,
                                           audio_config_t *config,
-                                          audio_devices_t *device,
+                                          audio_devices_t *devices,
                                           const String8& address,
                                           audio_source_t source,
                                           audio_input_flags_t flags)
 {
     Mutex::Autolock _l(mLock);
 
-    if (*device == AUDIO_DEVICE_NONE) {
+    if (*devices == AUDIO_DEVICE_NONE) {
         return BAD_VALUE;
     }
 
-    sp<RecordThread> thread = openInput_l(module, input, config, *device, address, source, flags);
+    sp<RecordThread> thread = openInput_l(module, input, config, *devices, address, source, flags);
 
     if (thread != 0) {
         // notify client processes of the new input creation
-        thread->audioConfigChanged(AudioSystem::INPUT_OPENED);
+        thread->ioConfigChanged(AUDIO_INPUT_OPENED);
         return NO_ERROR;
     }
     return NO_INIT;
@@ -1971,12 +2031,12 @@ status_t AudioFlinger::openInput(audio_module_handle_t module,
 sp<AudioFlinger::RecordThread> AudioFlinger::openInput_l(audio_module_handle_t module,
                                                          audio_io_handle_t *input,
                                                          audio_config_t *config,
-                                                         audio_devices_t device,
+                                                         audio_devices_t devices,
                                                          const String8& address,
                                                          audio_source_t source,
                                                          audio_input_flags_t flags)
 {
-    AudioHwDevice *inHwDev = findSuitableHwDev_l(module, device);
+    AudioHwDevice *inHwDev = findSuitableHwDev_l(module, devices);
     if (inHwDev == NULL) {
         *input = AUDIO_IO_HANDLE_NONE;
         return 0;
@@ -1989,7 +2049,7 @@ sp<AudioFlinger::RecordThread> AudioFlinger::openInput_l(audio_module_handle_t m
     audio_config_t halconfig = *config;
     audio_hw_device_t *inHwHal = inHwDev->hwDevice();
     audio_stream_in_t *inStream = NULL;
-    status_t status = inHwHal->open_input_stream(inHwHal, *input, device, &halconfig,
+    status_t status = inHwHal->open_input_stream(inHwHal, *input, devices, &halconfig,
                                         &inStream, flags, address.string(), source);
     ALOGV("openInput_l() openInputStream returned input %p, SamplingRate %d"
            ", Format %#x, Channels %x, flags %#x, status %d addr %s",
@@ -2001,17 +2061,17 @@ sp<AudioFlinger::RecordThread> AudioFlinger::openInput_l(audio_module_handle_t m
             status, address.string());
 
     // If the input could not be opened with the requested parameters and we can handle the
-    // conversion internally, try to open again with the proposed parameters. The AudioFlinger can
-    // resample the input and do mono to stereo or stereo to mono conversions on 16 bit PCM inputs.
+    // conversion internally, try to open again with the proposed parameters.
     if (status == BAD_VALUE &&
-            config->format == halconfig.format && halconfig.format == AUDIO_FORMAT_PCM_16_BIT &&
-        (halconfig.sample_rate <= 2 * config->sample_rate) &&
+        audio_is_linear_pcm(config->format) &&
+        audio_is_linear_pcm(halconfig.format) &&
+        (halconfig.sample_rate <= AUDIO_RESAMPLER_DOWN_RATIO_MAX * config->sample_rate) &&
         (audio_channel_count_from_in_mask(halconfig.channel_mask) <= FCC_2) &&
         (audio_channel_count_from_in_mask(config->channel_mask) <= FCC_2)) {
         // FIXME describe the change proposed by HAL (save old values so we can log them here)
         ALOGV("openInput_l() reopening with proposed sampling rate and channel mask");
         inStream = NULL;
-        status = inHwHal->open_input_stream(inHwHal, *input, device, &halconfig,
+        status = inHwHal->open_input_stream(inHwHal, *input, devices, &halconfig,
                                             &inStream, flags, address.string(), source);
         // FIXME log this new status; HAL should not propose any further changes
     }
@@ -2076,7 +2136,8 @@ sp<AudioFlinger::RecordThread> AudioFlinger::openInput_l(audio_module_handle_t m
                                   inputStream,
                                   *input,
                                   primaryOutputDevice_l(),
-                                  device
+                                  devices,
+                                  mSystemReady
 #ifdef TEE_SINK
                                   , teeSink
 #endif
@@ -2145,7 +2206,9 @@ status_t AudioFlinger::closeInput_nonvirtual(audio_io_handle_t input)
                 putOrphanEffectChain_l(chain);
             }
         }
-        audioConfigChanged(AudioSystem::INPUT_CLOSED, input, NULL);
+        const sp<AudioIoDescriptor> ioDesc = new AudioIoDescriptor();
+        ioDesc->mIoHandle = input;
+        ioConfigChanged(AUDIO_INPUT_CLOSED, ioDesc);
         mRecordThreads.removeItem(input);
     }
     // FIXME: calling thread->exit() without mLock held should not be needed anymore now that
@@ -2336,6 +2399,9 @@ AudioFlinger::PlaybackThread *AudioFlinger::primaryPlaybackThread_l() const
 {
     for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
         PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+        if(thread->isDuplicating()) {
+            continue;
+        }
         AudioStreamOut *output = thread->getOutput();
         if (output != NULL && output->audioHwDev == mPrimaryHardwareDev) {
             return thread;
@@ -2418,6 +2484,7 @@ sp<IEffect> AudioFlinger::createEffect(
         int32_t priority,
         audio_io_handle_t io,
         int sessionId,
+        const String16& opPackageName,
         status_t *status,
         int *id,
         int *enabled)
@@ -2514,7 +2581,7 @@ sp<IEffect> AudioFlinger::createEffect(
 
         // check recording permission for visualizer
         if ((memcmp(&desc.type, SL_IID_VISUALIZATION, sizeof(effect_uuid_t)) == 0) &&
-            !recordingAllowed()) {
+            !recordingAllowed(opPackageName)) {
             lStatus = PERMISSION_DENIED;
             goto Exit;
         }
@@ -2649,7 +2716,7 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
     // Check whether the destination thread has a channel count of FCC_2, which is
     // currently required for (most) effects. Prevent moving the effect chain here rather
     // than disabling the addEffect_l() call in dstThread below.
-    if ((dstThread->type() == ThreadBase::MIXER || dstThread->type() == ThreadBase::DUPLICATING) &&
+    if ((dstThread->type() == ThreadBase::MIXER || dstThread->isDuplicating()) &&
             dstThread->mChannelCount != FCC_2) {
         ALOGW("moveEffectChain_l() effect chain failed because"
                 " destination thread %p channel count(%u) != %u",
@@ -2799,13 +2866,13 @@ bool AudioFlinger::updateOrphanEffectChains(const sp<AudioFlinger::EffectModule>
 
 
 struct Entry {
-#define MAX_NAME 32     // %Y%m%d%H%M%S_%d.wav
-    char mName[MAX_NAME];
+#define TEE_MAX_FILENAME 32 // %Y%m%d%H%M%S_%d.wav = 4+2+2+2+2+2+1+1+4+1 = 21
+    char mFileName[TEE_MAX_FILENAME];
 };
 
 int comparEntry(const void *p1, const void *p2)
 {
-    return strcmp(((const Entry *) p1)->mName, ((const Entry *) p2)->mName);
+    return strcmp(((const Entry *) p1)->mFileName, ((const Entry *) p2)->mFileName);
 }
 
 #ifdef TEE_SINK
@@ -2824,11 +2891,11 @@ void AudioFlinger::dumpTee(int fd, const sp<NBAIO_Source>& source, audio_io_hand
         DIR *dir = opendir(teePath);
         teePath[teePathLen++] = '/';
         if (dir != NULL) {
-#define MAX_SORT 20 // number of entries to sort
-#define MAX_KEEP 10 // number of entries to keep
-            struct Entry entries[MAX_SORT];
+#define TEE_MAX_SORT 20 // number of entries to sort
+#define TEE_MAX_KEEP 10 // number of entries to keep
+            struct Entry entries[TEE_MAX_SORT];
             size_t entryCount = 0;
-            while (entryCount < MAX_SORT) {
+            while (entryCount < TEE_MAX_SORT) {
                 struct dirent de;
                 struct dirent *result = NULL;
                 int rc = readdir_r(dir, &de, &result);
@@ -2845,17 +2912,17 @@ void AudioFlinger::dumpTee(int fd, const sp<NBAIO_Source>& source, audio_io_hand
                 }
                 // ignore non .wav file entries
                 size_t nameLen = strlen(de.d_name);
-                if (nameLen <= 4 || nameLen >= MAX_NAME ||
+                if (nameLen <= 4 || nameLen >= TEE_MAX_FILENAME ||
                         strcmp(&de.d_name[nameLen - 4], ".wav")) {
                     continue;
                 }
-                strcpy(entries[entryCount++].mName, de.d_name);
+                strcpy(entries[entryCount++].mFileName, de.d_name);
             }
             (void) closedir(dir);
-            if (entryCount > MAX_KEEP) {
+            if (entryCount > TEE_MAX_KEEP) {
                 qsort(entries, entryCount, sizeof(Entry), comparEntry);
-                for (size_t i = 0; i < entryCount - MAX_KEEP; ++i) {
-                    strcpy(&teePath[teePathLen], entries[i].mName);
+                for (size_t i = 0; i < entryCount - TEE_MAX_KEEP; ++i) {
+                    strcpy(&teePath[teePathLen], entries[i].mFileName);
                     (void) unlink(teePath);
                 }
             }
@@ -2939,4 +3006,4 @@ status_t AudioFlinger::onTransact(
     return BnAudioFlinger::onTransact(code, data, reply, flags);
 }
 
-}; // namespace android
+} // namespace android

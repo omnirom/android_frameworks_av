@@ -19,6 +19,7 @@
 
 #include <camera/camera2/ICameraDeviceUser.h>
 #include <camera/camera2/ICameraDeviceCallbacks.h>
+#include <camera/camera2/OutputConfiguration.h>
 
 #include "CameraService.h"
 #include "common/FrameProcessorBase.h"
@@ -26,8 +27,7 @@
 
 namespace android {
 
-struct CameraDeviceClientBase :
-        public CameraService::BasicClient, public BnCameraDeviceUser
+struct CameraDeviceClientBase : public CameraService::BasicClient, public BnCameraDeviceUser
 {
     typedef ICameraDeviceCallbacks TCamCallbacks;
 
@@ -78,16 +78,19 @@ public:
 
     virtual status_t beginConfigure();
 
-    virtual status_t endConfigure();
+    virtual status_t endConfigure(bool isConstrainedHighSpeed = false);
 
     // Returns -EBUSY if device is not idle
     virtual status_t      deleteStream(int streamId);
 
-    virtual status_t      createStream(
-            int width,
-            int height,
-            int format,
-            const sp<IGraphicBufferProducer>& bufferProducer);
+    virtual status_t      createStream(const OutputConfiguration &outputConfiguration);
+
+    // Create an input stream of width, height, and format.
+    virtual status_t      createInputStream(int width, int height, int format);
+
+    // Get the buffer producer of the input stream
+    virtual status_t      getInputBufferProducer(
+                                /*out*/sp<IGraphicBufferProducer> *producer);
 
     // Create a request object from a template.
     virtual status_t      createDefaultRequest(int templateId,
@@ -105,6 +108,12 @@ public:
     virtual status_t      flush(/*out*/
                                 int64_t* lastFrameNumber = NULL);
 
+    // Prepare stream by preallocating its buffers
+    virtual status_t      prepare(int streamId);
+
+    // Tear down stream resources by freeing its unused buffers
+    virtual status_t      tearDown(int streamId);
+
     /**
      * Interface used by CameraService
      */
@@ -119,7 +128,7 @@ public:
             int servicePid);
     virtual ~CameraDeviceClient();
 
-    virtual status_t      initialize(camera_module_t *module);
+    virtual status_t      initialize(CameraModule *module);
 
     virtual status_t      dump(int fd, const Vector<String16>& args);
 
@@ -131,6 +140,7 @@ public:
     virtual void notifyError(ICameraDeviceCallbacks::CameraErrorCode errorCode,
                              const CaptureResultExtras& resultExtras);
     virtual void notifyShutter(const CaptureResultExtras& resultExtras, nsecs_t timestamp);
+    virtual void notifyPrepared(int streamId);
 
     /**
      * Interface used by independent components of CameraDeviceClient.
@@ -159,14 +169,23 @@ private:
 
     // Find the closest dimensions for a given format in available stream configurations with
     // a width <= ROUNDING_WIDTH_CAP
-    static const int32_t ROUNDING_WIDTH_CAP = 1080;
+    static const int32_t ROUNDING_WIDTH_CAP = 1920;
     static bool roundBufferDimensionNearest(int32_t width, int32_t height, int32_t format,
-            const CameraMetadata& info, /*out*/int32_t* outWidth, /*out*/int32_t* outHeight);
+            android_dataspace dataSpace, const CameraMetadata& info,
+            /*out*/int32_t* outWidth, /*out*/int32_t* outHeight);
 
-    // IGraphicsBufferProducer binder -> Stream ID
+    // IGraphicsBufferProducer binder -> Stream ID for output streams
     KeyedVector<sp<IBinder>, int> mStreamMap;
 
-    // Stream ID
+    struct InputStreamConfiguration {
+        bool configured;
+        int32_t width;
+        int32_t height;
+        int32_t format;
+        int32_t id;
+    } mInputStream;
+
+    // Request ID
     Vector<int> mStreamingRequestList;
 
     int32_t mRequestIdCounter;

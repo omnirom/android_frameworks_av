@@ -32,8 +32,10 @@
 namespace android {
 
 struct AMessage;
-struct Parcel;
+class Parcel;
 struct CodecCapabilities;
+
+typedef KeyedVector<AString, AString> CodecSettings;
 
 struct MediaCodecInfo : public RefBase {
     struct ProfileLevel {
@@ -104,6 +106,7 @@ private:
     MediaCodecInfo(AString name, bool encoder, const char *mime);
     void addQuirk(const char *name);
     status_t addMime(const char *mime);
+    status_t updateMime(const char *mime);
     status_t initializeCapabilities(const CodecCapabilities &caps);
     void addDetail(const AString &key, const AString &value);
     void addFeature(const AString &key, int32_t value);
@@ -114,6 +117,7 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(MediaCodecInfo);
 
     friend class MediaCodecList;
+    friend class MediaCodecListOverridesTest;
 };
 
 }  // namespace android

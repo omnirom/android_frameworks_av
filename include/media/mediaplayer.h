@@ -20,6 +20,8 @@
 #include <arpa/inet.h>
 
 #include <binder/IMemory.h>
+
+#include <media/AudioResamplerPublic.h>
 #include <media/IMediaPlayerClient.h>
 #include <media/IMediaPlayer.h>
 #include <media/IMediaDeathNotifier.h>
@@ -32,8 +34,9 @@ class ANativeWindow;
 
 namespace android {
 
-class Surface;
+struct AVSyncSettings;
 class IGraphicBufferProducer;
+class Surface;
 
 enum media_event_type {
     MEDIA_NOP               = 0, // interface test message
@@ -50,6 +53,7 @@ enum media_event_type {
     MEDIA_ERROR             = 100,
     MEDIA_INFO              = 200,
     MEDIA_SUBTITLE_DATA     = 201,
+    MEDIA_META_DATA         = 202,
 };
 
 // Generic error codes for the media player framework.  Errors are fatal, the
@@ -183,6 +187,7 @@ enum media_track_type {
     MEDIA_TRACK_TYPE_AUDIO = 2,
     MEDIA_TRACK_TYPE_TIMEDTEXT = 3,
     MEDIA_TRACK_TYPE_SUBTITLE = 4,
+    MEDIA_TRACK_TYPE_METADATA = 5,
 };
 
 // ----------------------------------------------------------------------------
@@ -211,6 +216,7 @@ public:
 
             status_t        setDataSource(int fd, int64_t offset, int64_t length);
             status_t        setDataSource(const sp<IStreamSource> &source);
+            status_t        setDataSource(const sp<IDataSource> &source);
             status_t        setVideoSurfaceTexture(
                                     const sp<IGraphicBufferProducer>& bufferProducer);
             status_t        setListener(const sp<MediaPlayerListener>& listener);
@@ -220,6 +226,12 @@ public:
             status_t        stop();
             status_t        pause();
             bool            isPlaying();
+            status_t        setPlaybackSettings(const AudioPlaybackRate& rate);
+            status_t        getPlaybackSettings(AudioPlaybackRate* rate /* nonnull */);
+            status_t        setSyncSettings(const AVSyncSettings& sync, float videoFpsHint);
+            status_t        getSyncSettings(
+                                    AVSyncSettings* sync /* nonnull */,
+                                    float* videoFps /* nonnull */);
             status_t        getVideoWidth(int *w);
             status_t        getVideoHeight(int *h);
             status_t        seekTo(int msec);
@@ -232,17 +244,6 @@ public:
             bool            isLooping();
             status_t        setVolume(float leftVolume, float rightVolume);
             void            notify(int msg, int ext1, int ext2, const Parcel *obj = NULL);
-    static  status_t        decode(
-            const sp<IMediaHTTPService> &httpService,
-            const char* url,
-            uint32_t *pSampleRate,
-            int* pNumChannels,
-            audio_format_t* pFormat,
-            const sp<IMemoryHeap>& heap,
-            size_t *pSize);
-    static  status_t        decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate,
-                                   int* pNumChannels, audio_format_t* pFormat,
-                                   const sp<IMemoryHeap>& heap, size_t *pSize);
             status_t        invoke(const Parcel& request, Parcel *reply);
             status_t        setMetadataFilter(const Parcel& filter);
             status_t        getMetadata(bool update_only, bool apply_filter, Parcel *metadata);

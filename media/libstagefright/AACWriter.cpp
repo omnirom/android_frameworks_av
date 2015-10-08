@@ -36,33 +36,19 @@
 
 namespace android {
 
-AACWriter::AACWriter(const char *filename)
-    : mFd(-1),
-      mInitCheck(NO_INIT),
-      mStarted(false),
-      mPaused(false),
-      mResumed(false),
-      mChannelCount(-1),
-      mSampleRate(-1),
-      mAACProfile(OMX_AUDIO_AACObjectLC) {
-
-    ALOGV("AACWriter Constructor");
-
-    mFd = open(filename, O_CREAT | O_LARGEFILE | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
-    if (mFd >= 0) {
-        mInitCheck = OK;
-    }
-}
-
 AACWriter::AACWriter(int fd)
     : mFd(dup(fd)),
       mInitCheck(mFd < 0? NO_INIT: OK),
       mStarted(false),
       mPaused(false),
       mResumed(false),
+      mThread(0),
+      mEstimatedSizeBytes(0),
+      mEstimatedDurationUs(0),
       mChannelCount(-1),
       mSampleRate(-1),
-      mAACProfile(OMX_AUDIO_AACObjectLC) {
+      mAACProfile(OMX_AUDIO_AACObjectLC),
+      mFrameDurationUs(0) {
 }
 
 AACWriter::~AACWriter() {
@@ -78,10 +64,6 @@ AACWriter::~AACWriter() {
 
 status_t AACWriter::initCheck() const {
     return mInitCheck;
-}
-
-static int writeInt8(int fd, uint8_t x) {
-    return ::write(fd, &x, 1);
 }
 
 

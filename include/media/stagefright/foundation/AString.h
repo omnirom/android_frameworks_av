@@ -23,8 +23,8 @@
 
 namespace android {
 
-struct String8;
-struct Parcel;
+class String8;
+class Parcel;
 
 struct AString {
     AString();
@@ -102,7 +102,7 @@ private:
     void makeMutable();
 };
 
-AString StringPrintf(const char *format, ...);
+AString AStringPrintf(const char *format, ...);
 
 }  // namespace android
 

@@ -21,14 +21,16 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <hardware/audio_effect.h>
+#include <media/AudioBufferProvider.h>
+#include <media/AudioResamplerPublic.h>
+#include <media/nbaio/NBLog.h>
+#include <system/audio.h>
+#include <utils/Compat.h>
 #include <utils/threads.h>
 
-#include <media/AudioBufferProvider.h>
 #include "AudioResampler.h"
-
-#include <hardware/audio_effect.h>
-#include <system/audio.h>
-#include <media/nbaio/NBLog.h>
+#include "BufferProviders.h"
 
 // FIXME This is actually unity gain, which might not be max in future, expressed in U.12
 #define MAX_GAIN_INT AudioMixer::UNITY_GAIN_INT
@@ -58,7 +60,7 @@ public:
     static const uint32_t MAX_NUM_CHANNELS_TO_DOWNMIX = AUDIO_CHANNEL_COUNT_MAX;
 
     static const uint16_t UNITY_GAIN_INT = 0x1000;
-    static const float    UNITY_GAIN_FLOAT = 1.0f;
+    static const CONSTEXPR float UNITY_GAIN_FLOAT = 1.0f;
 
     enum { // names
 
@@ -72,6 +74,7 @@ public:
         RESAMPLE        = 0x3001,
         RAMP_VOLUME     = 0x3002, // ramp to new volume
         VOLUME          = 0x3003, // don't ramp
+        TIMESTRETCH     = 0x3004,
 
         // set Parameter names
         // for target TRACK
@@ -99,6 +102,9 @@ public:
         VOLUME0         = 0x4200,
         VOLUME1         = 0x4201,
         AUXLEVEL        = 0x4210,
+        // for target TIMESTRETCH
+        PLAYBACK_RATE   = 0x4300, // Configure timestretch on this track name;
+                                  // parameter 'value' is a pointer to the new playback rate.
     };
 
 
@@ -127,10 +133,16 @@ public:
     size_t      getUnreleasedFrames(int name) const;
 
     static inline bool isValidPcmTrackFormat(audio_format_t format) {
-        return format == AUDIO_FORMAT_PCM_16_BIT ||
-                format == AUDIO_FORMAT_PCM_24_BIT_PACKED ||
-                format == AUDIO_FORMAT_PCM_32_BIT ||
-                format == AUDIO_FORMAT_PCM_FLOAT;
+        switch (format) {
+        case AUDIO_FORMAT_PCM_8_BIT:
+        case AUDIO_FORMAT_PCM_16_BIT:
+        case AUDIO_FORMAT_PCM_24_BIT_PACKED:
+        case AUDIO_FORMAT_PCM_32_BIT:
+        case AUDIO_FORMAT_PCM_FLOAT:
+            return true;
+        default:
+            return false;
+        }
     }
 
 private:
@@ -153,7 +165,6 @@ private:
 
     struct state_t;
     struct track_t;
-    class CopyBufferProvider;
 
     typedef void (*hook_t)(track_t* t, int32_t* output, size_t numOutFrames, int32_t* temp,
                            int32_t* aux);
@@ -205,17 +216,38 @@ private:
         int32_t*           auxBuffer;
 
         // 16-byte boundary
+
+        /* Buffer providers are constructed to translate the track input data as needed.
+         *
+         * TODO: perhaps make a single PlaybackConverterProvider class to move
+         * all pre-mixer track buffer conversions outside the AudioMixer class.
+         *
+         * 1) mInputBufferProvider: The AudioTrack buffer provider.
+         * 2) mReformatBufferProvider: If not NULL, performs the audio reformat to
+         *    match either mMixerInFormat or mDownmixRequiresFormat, if the downmixer
+         *    requires reformat. For example, it may convert floating point input to
+         *    PCM_16_bit if that's required by the downmixer.
+         * 3) downmixerBufferProvider: If not NULL, performs the channel remixing to match
+         *    the number of channels required by the mixer sink.
+         * 4) mPostDownmixReformatBufferProvider: If not NULL, performs reformatting from
+         *    the downmixer requirements to the mixer engine input requirements.
+         * 5) mTimestretchBufferProvider: Adds timestretching for playback rate
+         */
         AudioBufferProvider*     mInputBufferProvider;    // externally provided buffer provider.
-        CopyBufferProvider*      mReformatBufferProvider; // provider wrapper for reformatting.
-        CopyBufferProvider*      downmixerBufferProvider; // wrapper for channel conversion.
+        PassthruBufferProvider*  mReformatBufferProvider; // provider wrapper for reformatting.
+        PassthruBufferProvider*  downmixerBufferProvider; // wrapper for channel conversion.
+        PassthruBufferProvider*  mPostDownmixReformatBufferProvider;
+        PassthruBufferProvider*  mTimestretchBufferProvider;
 
         int32_t     sessionId;
 
-        // 16-byte boundary
         audio_format_t mMixerFormat;     // output mix format: AUDIO_FORMAT_PCM_(FLOAT|16_BIT)
         audio_format_t mFormat;          // input track format
         audio_format_t mMixerInFormat;   // mix internal format AUDIO_FORMAT_PCM_(FLOAT|16_BIT)
                                          // each track must be converted to this format.
+        audio_format_t mDownmixRequiresFormat;  // required downmixer format
+                                                // AUDIO_FORMAT_PCM_16_BIT if 16 bit necessary
+                                                // AUDIO_FORMAT_INVALID if no required format
 
         float          mVolume[MAX_NUM_VOLUMES];     // floating point set volume
         float          mPrevVolume[MAX_NUM_VOLUMES]; // floating point previous volume
@@ -225,9 +257,10 @@ private:
         float          mPrevAuxLevel;                 // floating point prev aux level
         float          mAuxInc;                       // floating point aux increment
 
-        // 16-byte boundary
         audio_channel_mask_t mMixerChannelMask;
         uint32_t             mMixerChannelCount;
+
+        AudioPlaybackRate    mPlaybackRate;
 
         bool        needsRamp() { return (volumeInc[0] | volumeInc[1] | auxInc) != 0; }
         bool        setResampler(uint32_t trackSampleRate, uint32_t devSampleRate);
@@ -236,6 +269,13 @@ private:
         void        adjustVolumeRamp(bool aux, bool useFloat = false);
         size_t      getUnreleasedFrames() const { return resampler != NULL ?
                                                     resampler->getUnreleasedFrames() : 0; };
+
+        status_t    prepareForDownmix();
+        void        unprepareForDownmix();
+        status_t    prepareForReformat();
+        void        unprepareForReformat();
+        bool        setPlaybackRate(const AudioPlaybackRate &playbackRate);
+        void        reconfigureBufferProviders();
     };
 
     typedef void (*process_hook_t)(state_t* state, int64_t pts);
@@ -252,112 +292,6 @@ private:
         int32_t         reserved[1];
         // FIXME allocate dynamically to save some memory when maxNumTracks < MAX_NUM_TRACKS
         track_t         tracks[MAX_NUM_TRACKS] __attribute__((aligned(32)));
-    };
-
-    // Base AudioBufferProvider class used for DownMixerBufferProvider, RemixBufferProvider,
-    // and ReformatBufferProvider.
-    // It handles a private buffer for use in converting format or channel masks from the
-    // input data to a form acceptable by the mixer.
-    // TODO: Make a ResamplerBufferProvider when integers are entirely removed from the
-    // processing pipeline.
-    class CopyBufferProvider : public AudioBufferProvider {
-    public:
-        // Use a private buffer of bufferFrameCount frames (each frame is outputFrameSize bytes).
-        // If bufferFrameCount is 0, no private buffer is created and in-place modification of
-        // the upstream buffer provider's buffers is performed by copyFrames().
-        CopyBufferProvider(size_t inputFrameSize, size_t outputFrameSize,
-                size_t bufferFrameCount);
-        virtual ~CopyBufferProvider();
-
-        // Overrides AudioBufferProvider methods
-        virtual status_t getNextBuffer(Buffer* buffer, int64_t pts);
-        virtual void releaseBuffer(Buffer* buffer);
-
-        // Other public methods
-
-        // call this to release the buffer to the upstream provider.
-        // treat it as an audio discontinuity for future samples.
-        virtual void reset();
-
-        // this function should be supplied by the derived class.  It converts
-        // #frames in the *src pointer to the *dst pointer.  It is public because
-        // some providers will allow this to work on arbitrary buffers outside
-        // of the internal buffers.
-        virtual void copyFrames(void *dst, const void *src, size_t frames) = 0;
-
-        // set the upstream buffer provider. Consider calling "reset" before this function.
-        void setBufferProvider(AudioBufferProvider *p) {
-            mTrackBufferProvider = p;
-        }
-
-    protected:
-        AudioBufferProvider* mTrackBufferProvider;
-        const size_t         mInputFrameSize;
-        const size_t         mOutputFrameSize;
-    private:
-        AudioBufferProvider::Buffer mBuffer;
-        const size_t         mLocalBufferFrameCount;
-        void*                mLocalBufferData;
-        size_t               mConsumed;
-    };
-
-    // DownmixerBufferProvider wraps a track AudioBufferProvider to provide
-    // position dependent downmixing by an Audio Effect.
-    class DownmixerBufferProvider : public CopyBufferProvider {
-    public:
-        DownmixerBufferProvider(audio_channel_mask_t inputChannelMask,
-                audio_channel_mask_t outputChannelMask, audio_format_t format,
-                uint32_t sampleRate, int32_t sessionId, size_t bufferFrameCount);
-        virtual ~DownmixerBufferProvider();
-        virtual void copyFrames(void *dst, const void *src, size_t frames);
-        bool isValid() const { return mDownmixHandle != NULL; }
-
-        static status_t init();
-        static bool isMultichannelCapable() { return sIsMultichannelCapable; }
-
-    protected:
-        effect_handle_t    mDownmixHandle;
-        effect_config_t    mDownmixConfig;
-
-        // effect descriptor for the downmixer used by the mixer
-        static effect_descriptor_t sDwnmFxDesc;
-        // indicates whether a downmix effect has been found and is usable by this mixer
-        static bool                sIsMultichannelCapable;
-        // FIXME: should we allow effects outside of the framework?
-        // We need to here. A special ioId that must be <= -2 so it does not map to a session.
-        static const int32_t SESSION_ID_INVALID_AND_IGNORED = -2;
-    };
-
-    // RemixBufferProvider wraps a track AudioBufferProvider to perform an
-    // upmix or downmix to the proper channel count and mask.
-    class RemixBufferProvider : public CopyBufferProvider {
-    public:
-        RemixBufferProvider(audio_channel_mask_t inputChannelMask,
-                audio_channel_mask_t outputChannelMask, audio_format_t format,
-                size_t bufferFrameCount);
-        virtual void copyFrames(void *dst, const void *src, size_t frames);
-
-    protected:
-        const audio_format_t mFormat;
-        const size_t         mSampleSize;
-        const size_t         mInputChannels;
-        const size_t         mOutputChannels;
-        int8_t               mIdxAry[sizeof(uint32_t)*8]; // 32 bits => channel indices
-    };
-
-    // ReformatBufferProvider wraps a track AudioBufferProvider to convert the input data
-    // to an acceptable mixer input format type.
-    class ReformatBufferProvider : public CopyBufferProvider {
-    public:
-        ReformatBufferProvider(int32_t channels,
-                audio_format_t inputFormat, audio_format_t outputFormat,
-                size_t bufferFrameCount);
-        virtual void copyFrames(void *dst, const void *src, size_t frames);
-
-    protected:
-        const int32_t        mChannels;
-        const audio_format_t mInputFormat;
-        const audio_format_t mOutputFormat;
     };
 
     // bitmask of allocated track names, where bit 0 corresponds to TRACK0 etc.
@@ -381,14 +315,6 @@ private:
 
     bool setChannelMasks(int name,
             audio_channel_mask_t trackChannelMask, audio_channel_mask_t mixerChannelMask);
-
-    // TODO: remove unused trackName/trackNum from functions below.
-    static status_t initTrackDownmix(track_t* pTrack, int trackName);
-    static status_t prepareTrackForDownmix(track_t* pTrack, int trackNum);
-    static void unprepareTrackForDownmix(track_t* pTrack, int trackName);
-    static status_t prepareTrackForReformat(track_t* pTrack, int trackNum);
-    static void unprepareTrackForReformat(track_t* pTrack, int trackName);
-    static void reconfigureBufferProviders(track_t* pTrack);
 
     static void track__genericResample(track_t* t, int32_t* out, size_t numFrames, int32_t* temp,
             int32_t* aux);
@@ -465,6 +391,6 @@ private:
 };
 
 // ----------------------------------------------------------------------------
-}; // namespace android
+} // namespace android
 
 #endif // ANDROID_AUDIO_MIXER_H

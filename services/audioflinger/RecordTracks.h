@@ -34,6 +34,7 @@ public:
                                 IAudioFlinger::track_flags_t flags,
                                 track_type type);
     virtual             ~RecordTrack();
+    virtual status_t    initCheck() const;
 
     virtual status_t    start(AudioSystem::sync_event_t event, int triggerSession);
     virtual void        stop();
@@ -66,21 +67,6 @@ private:
 
     bool                mOverflow;  // overflow on most recent attempt to fill client buffer
 
-           // updated by RecordThread::readInputParameters_l()
-            AudioResampler                      *mResampler;
-
-            // interleaved stereo pairs of fixed-point Q4.27
-            int32_t                             *mRsmpOutBuffer;
-            // current allocated frame count for the above, which may be larger than needed
-            size_t                              mRsmpOutFrameCount;
-
-            size_t                              mRsmpInUnrel;   // unreleased frames remaining from
-                                                                // most recent getNextBuffer
-                                                                // for debug only
-
-            // rolling counter that is never cleared
-            int32_t                             mRsmpInFront;   // next available frame
-
             AudioBufferProvider::Buffer mSink;  // references client's buffer sink in shared memory
 
             // sync event triggering actual audio capture. Frames read before this event will
@@ -93,7 +79,10 @@ private:
             ssize_t                             mFramesToDrop;
 
             // used by resampler to find source frames
-            ResamplerBufferProvider *mResamplerBufferProvider;
+            ResamplerBufferProvider            *mResamplerBufferProvider;
+
+            // used by the record thread to convert frames to proper destination format
+            RecordBufferConverter              *mRecordBufferConverter;
 };
 
 // playback track, used by PatchPanel

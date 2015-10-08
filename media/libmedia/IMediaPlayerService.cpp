@@ -39,8 +39,6 @@ namespace android {
 
 enum {
     CREATE = IBinder::FIRST_CALL_TRANSACTION,
-    DECODE_URL,
-    DECODE_FD,
     CREATE_MEDIA_RECORDER,
     CREATE_METADATA_RETRIEVER,
     GET_OMX,
@@ -73,72 +71,20 @@ public:
             const sp<IMediaPlayerClient>& client, int audioSessionId) {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
-        data.writeStrongBinder(client->asBinder());
+        data.writeStrongBinder(IInterface::asBinder(client));
         data.writeInt32(audioSessionId);
 
         remote()->transact(CREATE, data, &reply);
         return interface_cast<IMediaPlayer>(reply.readStrongBinder());
     }
 
-    virtual sp<IMediaRecorder> createMediaRecorder()
+    virtual sp<IMediaRecorder> createMediaRecorder(const String16 &opPackageName)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
+        data.writeString16(opPackageName);
         remote()->transact(CREATE_MEDIA_RECORDER, data, &reply);
         return interface_cast<IMediaRecorder>(reply.readStrongBinder());
-    }
-
-    virtual status_t decode(
-            const sp<IMediaHTTPService> &httpService,
-            const char* url,
-            uint32_t *pSampleRate,
-            int* pNumChannels,
-            audio_format_t* pFormat,
-            const sp<IMemoryHeap>& heap,
-            size_t *pSize)
-    {
-        Parcel data, reply;
-        data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
-        data.writeInt32(httpService != NULL);
-        if (httpService != NULL) {
-            data.writeStrongBinder(httpService->asBinder());
-        }
-        data.writeCString(url);
-        data.writeStrongBinder(heap->asBinder());
-        status_t status = remote()->transact(DECODE_URL, data, &reply);
-        if (status == NO_ERROR) {
-            status = (status_t)reply.readInt32();
-            if (status == NO_ERROR) {
-                *pSampleRate = uint32_t(reply.readInt32());
-                *pNumChannels = reply.readInt32();
-                *pFormat = (audio_format_t)reply.readInt32();
-                *pSize = (size_t)reply.readInt32();
-            }
-        }
-        return status;
-    }
-
-    virtual status_t decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate,
-                               int* pNumChannels, audio_format_t* pFormat,
-                               const sp<IMemoryHeap>& heap, size_t *pSize)
-    {
-        Parcel data, reply;
-        data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
-        data.writeFileDescriptor(fd);
-        data.writeInt64(offset);
-        data.writeInt64(length);
-        data.writeStrongBinder(heap->asBinder());
-        status_t status = remote()->transact(DECODE_FD, data, &reply);
-        if (status == NO_ERROR) {
-            status = (status_t)reply.readInt32();
-            if (status == NO_ERROR) {
-                *pSampleRate = uint32_t(reply.readInt32());
-                *pNumChannels = reply.readInt32();
-                *pFormat = (audio_format_t)reply.readInt32();
-                *pSize = (size_t)reply.readInt32();
-            }
-        }
-        return status;
     }
 
     virtual sp<IOMX> getOMX() {
@@ -183,12 +129,13 @@ public:
         return remote()->transact(PULL_BATTERY_DATA, data, reply);
     }
 
-    virtual sp<IRemoteDisplay> listenForRemoteDisplay(const sp<IRemoteDisplayClient>& client,
-            const String8& iface)
+    virtual sp<IRemoteDisplay> listenForRemoteDisplay(const String16 &opPackageName,
+            const sp<IRemoteDisplayClient>& client, const String8& iface)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
-        data.writeStrongBinder(client->asBinder());
+        data.writeString16(opPackageName);
+        data.writeStrongBinder(IInterface::asBinder(client));
         data.writeString8(iface);
         remote()->transact(LISTEN_FOR_REMOTE_DISPLAY, data, &reply);
         return interface_cast<IRemoteDisplay>(reply.readStrongBinder());
@@ -216,95 +163,45 @@ status_t BnMediaPlayerService::onTransact(
                 interface_cast<IMediaPlayerClient>(data.readStrongBinder());
             int audioSessionId = data.readInt32();
             sp<IMediaPlayer> player = create(client, audioSessionId);
-            reply->writeStrongBinder(player->asBinder());
-            return NO_ERROR;
-        } break;
-        case DECODE_URL: {
-            CHECK_INTERFACE(IMediaPlayerService, data, reply);
-            sp<IMediaHTTPService> httpService;
-            if (data.readInt32()) {
-                httpService =
-                    interface_cast<IMediaHTTPService>(data.readStrongBinder());
-            }
-            const char* url = data.readCString();
-            sp<IMemoryHeap> heap = interface_cast<IMemoryHeap>(data.readStrongBinder());
-            uint32_t sampleRate;
-            int numChannels;
-            audio_format_t format;
-            size_t size;
-            status_t status =
-                decode(httpService,
-                       url,
-                       &sampleRate,
-                       &numChannels,
-                       &format,
-                       heap,
-                       &size);
-            reply->writeInt32(status);
-            if (status == NO_ERROR) {
-                reply->writeInt32(sampleRate);
-                reply->writeInt32(numChannels);
-                reply->writeInt32((int32_t)format);
-                reply->writeInt32((int32_t)size);
-            }
-            return NO_ERROR;
-        } break;
-        case DECODE_FD: {
-            CHECK_INTERFACE(IMediaPlayerService, data, reply);
-            int fd = dup(data.readFileDescriptor());
-            int64_t offset = data.readInt64();
-            int64_t length = data.readInt64();
-            sp<IMemoryHeap> heap = interface_cast<IMemoryHeap>(data.readStrongBinder());
-            uint32_t sampleRate;
-            int numChannels;
-            audio_format_t format;
-            size_t size;
-            status_t status = decode(fd, offset, length, &sampleRate, &numChannels, &format,
-                                     heap, &size);
-            reply->writeInt32(status);
-            if (status == NO_ERROR) {
-                reply->writeInt32(sampleRate);
-                reply->writeInt32(numChannels);
-                reply->writeInt32((int32_t)format);
-                reply->writeInt32((int32_t)size);
-            }
+            reply->writeStrongBinder(IInterface::asBinder(player));
             return NO_ERROR;
         } break;
         case CREATE_MEDIA_RECORDER: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
-            sp<IMediaRecorder> recorder = createMediaRecorder();
-            reply->writeStrongBinder(recorder->asBinder());
+            const String16 opPackageName = data.readString16();
+            sp<IMediaRecorder> recorder = createMediaRecorder(opPackageName);
+            reply->writeStrongBinder(IInterface::asBinder(recorder));
             return NO_ERROR;
         } break;
         case CREATE_METADATA_RETRIEVER: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
             sp<IMediaMetadataRetriever> retriever = createMetadataRetriever();
-            reply->writeStrongBinder(retriever->asBinder());
+            reply->writeStrongBinder(IInterface::asBinder(retriever));
             return NO_ERROR;
         } break;
         case GET_OMX: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
             sp<IOMX> omx = getOMX();
-            reply->writeStrongBinder(omx->asBinder());
+            reply->writeStrongBinder(IInterface::asBinder(omx));
             return NO_ERROR;
         } break;
         case MAKE_CRYPTO: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
             sp<ICrypto> crypto = makeCrypto();
-            reply->writeStrongBinder(crypto->asBinder());
+            reply->writeStrongBinder(IInterface::asBinder(crypto));
             return NO_ERROR;
         } break;
         case MAKE_DRM: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
             sp<IDrm> drm = makeDrm();
-            reply->writeStrongBinder(drm->asBinder());
+            reply->writeStrongBinder(IInterface::asBinder(drm));
             return NO_ERROR;
         } break;
         case MAKE_HDCP: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
             bool createEncryptionModule = data.readInt32();
             sp<IHDCP> hdcp = makeHDCP(createEncryptionModule);
-            reply->writeStrongBinder(hdcp->asBinder());
+            reply->writeStrongBinder(IInterface::asBinder(hdcp));
             return NO_ERROR;
         } break;
         case ADD_BATTERY_DATA: {
@@ -320,17 +217,18 @@ status_t BnMediaPlayerService::onTransact(
         } break;
         case LISTEN_FOR_REMOTE_DISPLAY: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
+            const String16 opPackageName = data.readString16();
             sp<IRemoteDisplayClient> client(
                     interface_cast<IRemoteDisplayClient>(data.readStrongBinder()));
             String8 iface(data.readString8());
-            sp<IRemoteDisplay> display(listenForRemoteDisplay(client, iface));
-            reply->writeStrongBinder(display->asBinder());
+            sp<IRemoteDisplay> display(listenForRemoteDisplay(opPackageName, client, iface));
+            reply->writeStrongBinder(IInterface::asBinder(display));
             return NO_ERROR;
         } break;
         case GET_CODEC_LIST: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
             sp<IMediaCodecList> mcl = getCodecList();
-            reply->writeStrongBinder(mcl->asBinder());
+            reply->writeStrongBinder(IInterface::asBinder(mcl));
             return NO_ERROR;
         } break;
         default:
@@ -340,4 +238,4 @@ status_t BnMediaPlayerService::onTransact(
 
 // ----------------------------------------------------------------------------
 
-}; // namespace android
+} // namespace android

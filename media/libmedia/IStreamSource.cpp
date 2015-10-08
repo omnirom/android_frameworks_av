@@ -35,6 +35,9 @@ const char *const IStreamListener::kKeyDiscontinuityMask = "discontinuity-mask";
 // static
 const char *const IStreamListener::kKeyMediaTimeUs = "media-time-us";
 
+// static
+const char *const IStreamListener::kKeyRecentMediaTimeUs = "recent-media-time-us";
+
 enum {
     // IStreamSource
     SET_LISTENER = IBinder::FIRST_CALL_TRANSACTION,
@@ -55,7 +58,7 @@ struct BpStreamSource : public BpInterface<IStreamSource> {
     virtual void setListener(const sp<IStreamListener> &listener) {
         Parcel data, reply;
         data.writeInterfaceToken(IStreamSource::getInterfaceDescriptor());
-        data.writeStrongBinder(listener->asBinder());
+        data.writeStrongBinder(IInterface::asBinder(listener));
         remote()->transact(SET_LISTENER, data, &reply);
     }
 
@@ -64,7 +67,7 @@ struct BpStreamSource : public BpInterface<IStreamSource> {
         data.writeInterfaceToken(IStreamSource::getInterfaceDescriptor());
         data.writeInt64(static_cast<int64_t>(buffers.size()));
         for (size_t i = 0; i < buffers.size(); ++i) {
-            data.writeStrongBinder(buffers.itemAt(i)->asBinder());
+            data.writeStrongBinder(IInterface::asBinder(buffers.itemAt(i)));
         }
         remote()->transact(SET_BUFFERS, data, &reply);
     }

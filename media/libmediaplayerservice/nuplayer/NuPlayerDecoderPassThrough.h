@@ -29,10 +29,6 @@ struct NuPlayer::DecoderPassThrough : public DecoderBase {
                        const sp<Source> &source,
                        const sp<Renderer> &renderer);
 
-    virtual void getStats(
-            int64_t *mNumFramesTotal,
-            int64_t *mNumFramesDropped) const;
-
 protected:
 
     virtual ~DecoderPassThrough();
@@ -40,12 +36,13 @@ protected:
     virtual void onMessageReceived(const sp<AMessage> &msg);
 
     virtual void onConfigure(const sp<AMessage> &format);
+    virtual void onSetParameters(const sp<AMessage> &params);
     virtual void onSetRenderer(const sp<Renderer> &renderer);
     virtual void onGetInputBuffers(Vector<sp<ABuffer> > *dstBuffers);
     virtual void onResume(bool notifyComplete);
-    virtual void onFlush(bool notifyComplete);
+    virtual void onFlush();
     virtual void onShutdown(bool notifyComplete);
-    virtual void doRequestBuffers();
+    virtual bool doRequestBuffers();
 
 private:
     enum {
@@ -77,6 +74,7 @@ private:
     status_t dequeueAccessUnit(sp<ABuffer> *accessUnit);
     sp<ABuffer> aggregateBuffer(const sp<ABuffer> &accessUnit);
     status_t fetchInputData(sp<AMessage> &reply);
+    void doFlush(bool notifyComplete);
 
     void onInputBufferFetched(const sp<AMessage> &msg);
     void onBufferConsumed(int32_t size);

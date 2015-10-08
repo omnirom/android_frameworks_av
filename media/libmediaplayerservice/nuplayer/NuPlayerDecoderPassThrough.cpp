@@ -59,12 +59,6 @@ NuPlayer::DecoderPassThrough::DecoderPassThrough(
 NuPlayer::DecoderPassThrough::~DecoderPassThrough() {
 }
 
-void NuPlayer::DecoderPassThrough::getStats(
-        int64_t *numFramesTotal, int64_t *numFramesDropped) const {
-    *numFramesTotal = 0;
-    *numFramesDropped = 0;
-}
-
 void NuPlayer::DecoderPassThrough::onConfigure(const sp<AMessage> &format) {
     ALOGV("[%s] onConfigure", mComponentName.c_str());
     mCachedBytes = 0;
@@ -74,15 +68,22 @@ void NuPlayer::DecoderPassThrough::onConfigure(const sp<AMessage> &format) {
 
     onRequestInputBuffers();
 
+    int32_t hasVideo = 0;
+    format->findInt32("has-video", &hasVideo);
+
     // The audio sink is already opened before the PassThrough decoder is created.
     // Opening again might be relevant if decoder is instantiated after shutdown and
     // format is different.
     status_t err = mRenderer->openAudioSink(
-            format, true /* offloadOnly */, false /* hasVideo */,
+            format, true /* offloadOnly */, hasVideo,
             AUDIO_OUTPUT_FLAG_NONE /* flags */, NULL /* isOffloaded */);
     if (err != OK) {
         handleError(err);
     }
+}
+
+void NuPlayer::DecoderPassThrough::onSetParameters(const sp<AMessage> &/*params*/) {
+    ALOGW("onSetParameters() called unexpectedly");
 }
 
 void NuPlayer::DecoderPassThrough::onSetRenderer(
@@ -110,7 +111,10 @@ bool NuPlayer::DecoderPassThrough::isDoneFetching() const {
     return mCachedBytes >= kMaxCachedBytes || mReachedEOS || mPaused;
 }
 
-void NuPlayer::DecoderPassThrough::doRequestBuffers() {
+/*
+ * returns true if we should request more data
+ */
+bool NuPlayer::DecoderPassThrough::doRequestBuffers() {
     status_t err = OK;
     while (!isDoneFetching()) {
         sp<AMessage> msg = new AMessage();
@@ -123,10 +127,8 @@ void NuPlayer::DecoderPassThrough::doRequestBuffers() {
         onInputBufferFetched(msg);
     }
 
-    if (err == -EWOULDBLOCK
-            && mSource->feedMoreTSData() == OK) {
-        scheduleRequestBuffers();
-    }
+    return err == -EWOULDBLOCK
+            && mSource->feedMoreTSData() == OK;
 }
 
 status_t NuPlayer::DecoderPassThrough::dequeueAccessUnit(sp<ABuffer> *accessUnit) {
@@ -247,7 +249,7 @@ status_t NuPlayer::DecoderPassThrough::fetchInputData(sp<AMessage> &reply) {
                 }
 
                 if (timeChange) {
-                    onFlush(false /* notifyComplete */);
+                    doFlush(false /* notifyComplete */);
                     err = OK;
                 } else if (formatChange) {
                     // do seamless format change
@@ -333,7 +335,7 @@ void NuPlayer::DecoderPassThrough::onInputBufferFetched(
         return;
     }
 
-    sp<AMessage> reply = new AMessage(kWhatBufferConsumed, id());
+    sp<AMessage> reply = new AMessage(kWhatBufferConsumed, this);
     reply->setInt32("generation", mBufferGeneration);
     reply->setInt32("size", bufferSize);
 
@@ -364,7 +366,7 @@ void NuPlayer::DecoderPassThrough::onResume(bool notifyComplete) {
     }
 }
 
-void NuPlayer::DecoderPassThrough::onFlush(bool notifyComplete) {
+void NuPlayer::DecoderPassThrough::doFlush(bool notifyComplete) {
     ++mBufferGeneration;
     mSkipRenderingUntilMediaTimeUs = -1;
     mPendingAudioAccessUnit.clear();
@@ -376,16 +378,19 @@ void NuPlayer::DecoderPassThrough::onFlush(bool notifyComplete) {
         mRenderer->signalTimeDiscontinuity();
     }
 
-    if (notifyComplete) {
-        mPaused = true;
-        sp<AMessage> notify = mNotify->dup();
-        notify->setInt32("what", kWhatFlushCompleted);
-        notify->post();
-    }
-
     mPendingBuffersToDrain = 0;
     mCachedBytes = 0;
     mReachedEOS = false;
+}
+
+void NuPlayer::DecoderPassThrough::onFlush() {
+    doFlush(true /* notifyComplete */);
+
+    mPaused = true;
+    sp<AMessage> notify = mNotify->dup();
+    notify->setInt32("what", kWhatFlushCompleted);
+    notify->post();
+
 }
 
 void NuPlayer::DecoderPassThrough::onShutdown(bool notifyComplete) {

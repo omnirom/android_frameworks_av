@@ -24,10 +24,12 @@
 
 #include <cutils/misc.h>
 #include <cutils/config_utils.h>
+#include <cutils/properties.h>
 #include <audio_effects/audio_effects_conf.h>
 
 static list_elem_t *gEffectList; // list of effect_entry_t: all currently created effects
 static list_elem_t *gLibraryList; // list of lib_entry_t: all currently loaded libraries
+static list_elem_t *gSkippedEffects; // list of effects skipped because of duplicate uuid
 // list of effect_descriptor and list of sub effects : all currently loaded
 // It does not contain effects without sub effects.
 static list_sub_elem_t *gSubEffectList;
@@ -63,10 +65,10 @@ static int findEffect(const effect_uuid_t *type,
                lib_entry_t **lib,
                effect_descriptor_t **desc);
 // To search a subeffect in the gSubEffectList
-int findSubEffect(const effect_uuid_t *uuid,
+static int findSubEffect(const effect_uuid_t *uuid,
                lib_entry_t **lib,
                effect_descriptor_t **desc);
-static void dumpEffectDescriptor(effect_descriptor_t *desc, char *str, size_t len);
+static void dumpEffectDescriptor(effect_descriptor_t *desc, char *str, size_t len, int indent);
 static int stringToUuid(const char *str, effect_uuid_t *uuid);
 static int uuidToString(const effect_uuid_t *uuid, char *str, size_t maxLen);
 
@@ -237,8 +239,8 @@ int EffectQueryEffect(uint32_t index, effect_descriptor_t *pDescriptor)
     }
 
 #if (LOG_NDEBUG == 0)
-    char str[256];
-    dumpEffectDescriptor(pDescriptor, str, 256);
+    char str[512];
+    dumpEffectDescriptor(pDescriptor, str, sizeof(str), 0 /* indent */);
     ALOGV("EffectQueryEffect() desc:%s", str);
 #endif
     pthread_mutex_unlock(&gLibLock);
@@ -446,12 +448,19 @@ int init() {
         return 0;
     }
 
+    // ignore effects or not?
+    const bool ignoreFxConfFiles = property_get_bool(PROPERTY_IGNORE_EFFECTS, false);
+
     pthread_mutex_init(&gLibLock, NULL);
 
-    if (access(AUDIO_EFFECT_VENDOR_CONFIG_FILE, R_OK) == 0) {
-        loadEffectConfigFile(AUDIO_EFFECT_VENDOR_CONFIG_FILE);
-    } else if (access(AUDIO_EFFECT_DEFAULT_CONFIG_FILE, R_OK) == 0) {
-        loadEffectConfigFile(AUDIO_EFFECT_DEFAULT_CONFIG_FILE);
+    if (ignoreFxConfFiles) {
+        ALOGI("Audio effects in configuration files will be ignored");
+    } else {
+        if (access(AUDIO_EFFECT_VENDOR_CONFIG_FILE, R_OK) == 0) {
+            loadEffectConfigFile(AUDIO_EFFECT_VENDOR_CONFIG_FILE);
+        } else if (access(AUDIO_EFFECT_DEFAULT_CONFIG_FILE, R_OK) == 0) {
+            loadEffectConfigFile(AUDIO_EFFECT_DEFAULT_CONFIG_FILE);
+        }
     }
 
     updateNumEffects();
@@ -503,15 +512,31 @@ int loadLibrary(cnode *root, const char *name)
     audio_effect_library_t *desc;
     list_elem_t *e;
     lib_entry_t *l;
+    char path[PATH_MAX];
+    char *str;
+    size_t len;
 
     node = config_find(root, PATH_TAG);
     if (node == NULL) {
         return -EINVAL;
     }
+    // audio_effects.conf always specifies 32 bit lib path: convert to 64 bit path if needed
+    strlcpy(path, node->value, PATH_MAX);
+#ifdef __LP64__
+    str = strstr(path, "/lib/");
+    if (str == NULL)
+        return -EINVAL;
+    len = str - path;
+    path[len] = '\0';
+    strlcat(path, "/lib64/", PATH_MAX);
+    strlcat(path, node->value + len + strlen("/lib/"), PATH_MAX);
+#endif
+    if (strlen(path) >= PATH_MAX - 1)
+        return -EINVAL;
 
-    hdl = dlopen(node->value, RTLD_NOW);
+    hdl = dlopen(path, RTLD_NOW);
     if (hdl == NULL) {
-        ALOGW("loadLibrary() failed to open %s", node->value);
+        ALOGW("loadLibrary() failed to open %s", path);
         goto error;
     }
 
@@ -535,7 +560,7 @@ int loadLibrary(cnode *root, const char *name)
     // add entry for library in gLibraryList
     l = malloc(sizeof(lib_entry_t));
     l->name = strndup(name, PATH_MAX);
-    l->path = strndup(node->value, PATH_MAX);
+    l->path = strndup(path, PATH_MAX);
     l->handle = hdl;
     l->desc = desc;
     l->effects = NULL;
@@ -547,7 +572,7 @@ int loadLibrary(cnode *root, const char *name)
     e->next = gLibraryList;
     gLibraryList = e;
     pthread_mutex_unlock(&gLibLock);
-    ALOGV("getLibrary() linked library %p for path %s", l, node->value);
+    ALOGV("getLibrary() linked library %p for path %s", l, path);
 
     return 0;
 
@@ -595,8 +620,8 @@ int addSubEffect(cnode *root)
         return -EINVAL;
     }
 #if (LOG_NDEBUG==0)
-    char s[256];
-    dumpEffectDescriptor(d, s, 256);
+    char s[512];
+    dumpEffectDescriptor(d, s, sizeof(s), 0 /* indent */);
     ALOGV("addSubEffect() read descriptor %p:%s",d, s);
 #endif
     if (EFFECT_API_VERSION_MAJOR(d->apiVersion) !=
@@ -660,6 +685,13 @@ int loadEffect(cnode *root)
         ALOGW("loadEffect() invalid uuid %s", node->value);
         return -EINVAL;
     }
+    lib_entry_t *tmp;
+    bool skip = false;
+    if (findEffect(NULL, &uuid, &tmp, NULL) == 0) {
+        ALOGW("skipping duplicate uuid %s %s", node->value,
+                node->next ? "and its sub-effects" : "");
+        skip = true;
+    }
 
     d = malloc(sizeof(effect_descriptor_t));
     if (l->desc->get_descriptor(&uuid, d) != 0) {
@@ -670,8 +702,8 @@ int loadEffect(cnode *root)
         return -EINVAL;
     }
 #if (LOG_NDEBUG==0)
-    char s[256];
-    dumpEffectDescriptor(d, s, 256);
+    char s[512];
+    dumpEffectDescriptor(d, s, sizeof(s), 0 /* indent */);
     ALOGV("loadEffect() read descriptor %p:%s",d, s);
 #endif
     if (EFFECT_API_VERSION_MAJOR(d->apiVersion) !=
@@ -682,8 +714,14 @@ int loadEffect(cnode *root)
     }
     e = malloc(sizeof(list_elem_t));
     e->object = d;
-    e->next = l->effects;
-    l->effects = e;
+    if (skip) {
+        e->next = gSkippedEffects;
+        gSkippedEffects = e;
+        return -EINVAL;
+    } else {
+        e->next = l->effects;
+        l->effects = e;
+    }
 
     // After the UUID node in the config_tree, if node->next is valid,
     // that would be sub effect node.
@@ -876,22 +914,30 @@ int findEffect(const effect_uuid_t *type,
     return ret;
 }
 
-void dumpEffectDescriptor(effect_descriptor_t *desc, char *str, size_t len) {
+void dumpEffectDescriptor(effect_descriptor_t *desc, char *str, size_t len, int indent) {
     char s[256];
+    char ss[256];
+    char idt[indent + 1];
 
-    snprintf(str, len, "\nEffect Descriptor %p:\n", desc);
-    strncat(str, "- TYPE: ", len);
-    uuidToString(&desc->uuid, s, 256);
-    snprintf(str, len, "- UUID: %s\n", s);
-    uuidToString(&desc->type, s, 256);
-    snprintf(str, len, "- TYPE: %s\n", s);
-    sprintf(s, "- apiVersion: %08X\n- flags: %08X\n",
-            desc->apiVersion, desc->flags);
-    strncat(str, s, len);
-    sprintf(s, "- name: %s\n", desc->name);
-    strncat(str, s, len);
-    sprintf(s, "- implementor: %s\n", desc->implementor);
-    strncat(str, s, len);
+    memset(idt, ' ', indent);
+    idt[indent] = 0;
+
+    str[0] = 0;
+
+    snprintf(s, sizeof(s), "%s%s / %s\n", idt, desc->name, desc->implementor);
+    strlcat(str, s, len);
+
+    uuidToString(&desc->uuid, s, sizeof(s));
+    snprintf(ss, sizeof(ss), "%s  UUID: %s\n", idt, s);
+    strlcat(str, ss, len);
+
+    uuidToString(&desc->type, s, sizeof(s));
+    snprintf(ss, sizeof(ss), "%s  TYPE: %s\n", idt, s);
+    strlcat(str, ss, len);
+
+    sprintf(s, "%s  apiVersion: %08X\n%s  flags: %08X\n", idt,
+            desc->apiVersion, idt, desc->flags);
+    strlcat(str, s, len);
 }
 
 int stringToUuid(const char *str, effect_uuid_t *uuid)
@@ -932,5 +978,42 @@ int uuidToString(const effect_uuid_t *uuid, char *str, size_t maxLen)
             uuid->node[5]);
 
     return 0;
+}
+
+int EffectDumpEffects(int fd) {
+    char s[512];
+    list_elem_t *e = gLibraryList;
+    lib_entry_t *l = NULL;
+    effect_descriptor_t *d = NULL;
+    int found = 0;
+    int ret = 0;
+
+    while (e) {
+        l = (lib_entry_t *)e->object;
+        list_elem_t *efx = l->effects;
+        dprintf(fd, "Library %s\n", l->name);
+        if (!efx) {
+            dprintf(fd, "  (no effects)\n");
+        }
+        while (efx) {
+            d = (effect_descriptor_t *)efx->object;
+            dumpEffectDescriptor(d, s, sizeof(s), 2);
+            dprintf(fd, "%s", s);
+            efx = efx->next;
+        }
+        e = e->next;
+    }
+
+    e = gSkippedEffects;
+    if (e) {
+        dprintf(fd, "Skipped effects\n");
+        while(e) {
+            d = (effect_descriptor_t *)e->object;
+            dumpEffectDescriptor(d, s, sizeof(s), 2 /* indent */);
+            dprintf(fd, "%s", s);
+            e = e->next;
+        }
+    }
+    return ret;
 }
 

@@ -23,8 +23,10 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES:=               \
     CameraService.cpp \
     CameraDeviceFactory.cpp \
+    CameraFlashlight.cpp \
     common/Camera2ClientBase.cpp \
     common/CameraDeviceBase.cpp \
+    common/CameraModule.cpp \
     common/FrameProcessorBase.cpp \
     api1/CameraClient.cpp \
     api1/Camera2Client.cpp \
@@ -40,7 +42,6 @@ LOCAL_SRC_FILES:=               \
     api1/client2/CaptureSequencer.cpp \
     api1/client2/ZslProcessor3.cpp \
     api2/CameraDeviceClient.cpp \
-    api_pro/ProCamera2Client.cpp \
     device2/Camera2Device.cpp \
     device3/Camera3Device.cpp \
     device3/Camera3Stream.cpp \
@@ -52,6 +53,7 @@ LOCAL_SRC_FILES:=               \
     device3/StatusTracker.cpp \
     gui/RingBufferConsumer.cpp \
     utils/CameraTraces.cpp \
+    utils/AutoConditionLock.cpp \
 
 LOCAL_SHARED_LIBRARIES:= \
     libui \
@@ -60,6 +62,7 @@ LOCAL_SHARED_LIBRARIES:= \
     libbinder \
     libcutils \
     libmedia \
+    libmediautils \
     libcamera_client \
     libgui \
     libhardware \
@@ -70,6 +73,7 @@ LOCAL_SHARED_LIBRARIES:= \
 LOCAL_C_INCLUDES += \
     system/media/camera/include \
     system/media/private/camera/include \
+    frameworks/native/include/media/openmax \
     external/jpeg
 
 

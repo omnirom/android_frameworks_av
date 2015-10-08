@@ -35,13 +35,14 @@ namespace android {
 
 // ---------------------------------------------------------------------------
 
-AudioEffect::AudioEffect()
-    : mStatus(NO_INIT)
+AudioEffect::AudioEffect(const String16& opPackageName)
+    : mStatus(NO_INIT), mOpPackageName(opPackageName)
 {
 }
 
 
 AudioEffect::AudioEffect(const effect_uuid_t *type,
+                const String16& opPackageName,
                 const effect_uuid_t *uuid,
                 int32_t priority,
                 effect_callback_t cbf,
@@ -49,12 +50,13 @@ AudioEffect::AudioEffect(const effect_uuid_t *type,
                 int sessionId,
                 audio_io_handle_t io
                 )
-    : mStatus(NO_INIT)
+    : mStatus(NO_INIT), mOpPackageName(opPackageName)
 {
     mStatus = set(type, uuid, priority, cbf, user, sessionId, io);
 }
 
 AudioEffect::AudioEffect(const char *typeStr,
+                const String16& opPackageName,
                 const char *uuidStr,
                 int32_t priority,
                 effect_callback_t cbf,
@@ -62,7 +64,7 @@ AudioEffect::AudioEffect(const char *typeStr,
                 int sessionId,
                 audio_io_handle_t io
                 )
-    : mStatus(NO_INIT)
+    : mStatus(NO_INIT), mOpPackageName(opPackageName)
 {
     effect_uuid_t type;
     effect_uuid_t *pType = NULL;
@@ -128,16 +130,18 @@ status_t AudioEffect::set(const effect_uuid_t *type,
     mIEffectClient = new EffectClient(this);
 
     iEffect = audioFlinger->createEffect((effect_descriptor_t *)&mDescriptor,
-            mIEffectClient, priority, io, mSessionId, &mStatus, &mId, &enabled);
+            mIEffectClient, priority, io, mSessionId, mOpPackageName, &mStatus, &mId, &enabled);
 
     if (iEffect == 0 || (mStatus != NO_ERROR && mStatus != ALREADY_EXISTS)) {
         ALOGE("set(): AudioFlinger could not create effect, status: %d", mStatus);
+        if (iEffect == 0) {
+            mStatus = NO_INIT;
+        }
         return mStatus;
     }
 
     mEnabled = (volatile int32_t)enabled;
 
-    mIEffect = iEffect;
     cblk = iEffect->getCblk();
     if (cblk == 0) {
         mStatus = NO_INIT;
@@ -145,12 +149,13 @@ status_t AudioEffect::set(const effect_uuid_t *type,
         return mStatus;
     }
 
+    mIEffect = iEffect;
     mCblkMemory = cblk;
     mCblk = static_cast<effect_param_cblk_t*>(cblk->pointer());
     int bufOffset = ((sizeof(effect_param_cblk_t) - 1) / sizeof(int) + 1) * sizeof(int);
     mCblk->buffer = (uint8_t *)mCblk + bufOffset;
 
-    iEffect->asBinder()->linkToDeath(mIEffectClient);
+    IInterface::asBinder(iEffect)->linkToDeath(mIEffectClient);
     mClientPid = IPCThreadState::self()->getCallingPid();
     ALOGV("set() %p OK effect: %s id: %d status %d enabled %d pid %d", this, mDescriptor.name, mId,
             mStatus, mEnabled, mClientPid);
@@ -173,13 +178,13 @@ AudioEffect::~AudioEffect()
         }
         if (mIEffect != NULL) {
             mIEffect->disconnect();
-            mIEffect->asBinder()->unlinkToDeath(mIEffectClient);
+            IInterface::asBinder(mIEffect)->unlinkToDeath(mIEffectClient);
         }
+        mIEffect.clear();
+        mCblkMemory.clear();
+        mIEffectClient.clear();
         IPCThreadState::self()->flushCommands();
     }
-    mIEffect.clear();
-    mIEffectClient.clear();
-    mCblkMemory.clear();
 }
 
 
@@ -486,4 +491,4 @@ status_t AudioEffect::guidToString(const effect_uuid_t *guid, char *str, size_t 
 }
 
 
-}; // namespace android
+} // namespace android

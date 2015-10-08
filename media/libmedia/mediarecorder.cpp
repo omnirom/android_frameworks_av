@@ -27,6 +27,7 @@
 #include <media/IMediaPlayerService.h>
 #include <media/IMediaRecorder.h>
 #include <media/mediaplayer.h>  // for MEDIA_ERROR_SERVER_DIED
+#include <media/stagefright/PersistentSurface.h>
 #include <gui/IGraphicBufferProducer.h>
 
 namespace android {
@@ -264,32 +265,6 @@ status_t MediaRecorder::setAudioEncoder(int ae)
     return ret;
 }
 
-status_t MediaRecorder::setOutputFile(const char* path)
-{
-    ALOGV("setOutputFile(%s)", path);
-    if (mMediaRecorder == NULL) {
-        ALOGE("media recorder is not initialized yet");
-        return INVALID_OPERATION;
-    }
-    if (mIsOutputFileSet) {
-        ALOGE("output file has already been set");
-        return INVALID_OPERATION;
-    }
-    if (!(mCurrentState & MEDIA_RECORDER_DATASOURCE_CONFIGURED)) {
-        ALOGE("setOutputFile called in an invalid state(%d)", mCurrentState);
-        return INVALID_OPERATION;
-    }
-
-    status_t ret = mMediaRecorder->setOutputFile(path);
-    if (OK != ret) {
-        ALOGV("setOutputFile failed: %d", ret);
-        mCurrentState = MEDIA_RECORDER_ERROR;
-        return ret;
-    }
-    mIsOutputFileSet = true;
-    return ret;
-}
-
 status_t MediaRecorder::setOutputFile(int fd, int64_t offset, int64_t length)
 {
     ALOGV("setOutputFile(%d, %" PRId64 ", %" PRId64 ")", fd, offset, length);
@@ -369,6 +344,24 @@ sp<IGraphicBufferProducer> MediaRecorder::
 }
 
 
+
+status_t MediaRecorder::setInputSurface(const sp<PersistentSurface>& surface)
+{
+    ALOGV("setInputSurface");
+    if (mMediaRecorder == NULL) {
+        ALOGE("media recorder is not initialized yet");
+        return INVALID_OPERATION;
+    }
+    bool isInvalidState = (mCurrentState &
+                           (MEDIA_RECORDER_PREPARED |
+                            MEDIA_RECORDER_RECORDING));
+    if (isInvalidState) {
+        ALOGE("setInputSurface is called in an invalid state: %d", mCurrentState);
+        return INVALID_OPERATION;
+    }
+
+    return mMediaRecorder->setInputSurface(surface->getBufferConsumer());
+}
 
 status_t MediaRecorder::setVideoFrameRate(int frames_per_second)
 {
@@ -620,13 +613,13 @@ status_t MediaRecorder::release()
     return INVALID_OPERATION;
 }
 
-MediaRecorder::MediaRecorder() : mSurfaceMediaSource(NULL)
+MediaRecorder::MediaRecorder(const String16& opPackageName) : mSurfaceMediaSource(NULL)
 {
     ALOGV("constructor");
 
     const sp<IMediaPlayerService>& service(getMediaPlayerService());
     if (service != NULL) {
-        mMediaRecorder = service->createMediaRecorder();
+        mMediaRecorder = service->createMediaRecorder(opPackageName);
     }
     if (mMediaRecorder != NULL) {
         mCurrentState = MEDIA_RECORDER_IDLE;
@@ -706,4 +699,4 @@ void MediaRecorder::died()
     notify(MEDIA_RECORDER_EVENT_ERROR, MEDIA_ERROR_SERVER_DIED, 0);
 }
 
-}; // namespace android
+} // namespace android

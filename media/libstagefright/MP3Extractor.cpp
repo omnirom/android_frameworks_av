@@ -82,7 +82,7 @@ static bool Resync(
             *inout_pos += len;
 
             ALOGV("skipped ID3 tag, new starting offset is %lld (0x%016llx)",
-                 *inout_pos, *inout_pos);
+                    (long long)*inout_pos, (long long)*inout_pos);
         }
 
         if (post_id3_pos != NULL) {
@@ -103,9 +103,9 @@ static bool Resync(
     uint8_t *tmp = buf;
 
     do {
-        if (pos >= *inout_pos + kMaxBytesChecked) {
+        if (pos >= (off64_t)(*inout_pos + kMaxBytesChecked)) {
             // Don't scan forever.
-            ALOGV("giving up at offset %lld", pos);
+            ALOGV("giving up at offset %lld", (long long)pos);
             break;
         }
 
@@ -155,7 +155,7 @@ static bool Resync(
             continue;
         }
 
-        ALOGV("found possible 1st frame at %lld (header = 0x%08x)", pos, header);
+        ALOGV("found possible 1st frame at %lld (header = 0x%08x)", (long long)pos, header);
 
         // We found what looks like a valid frame,
         // now find its successors.
@@ -186,7 +186,7 @@ static bool Resync(
                 break;
             }
 
-            ALOGV("found subsequent frame #%d at %lld", j + 2, test_pos);
+            ALOGV("found subsequent frame #%d at %lld", j + 2, (long long)test_pos);
 
             test_pos += test_frame_size;
         }
@@ -282,6 +282,41 @@ MP3Extractor::MP3Extractor(
 
     mFirstFramePos = pos;
     mFixedHeader = header;
+    mMeta = new MetaData;
+    sp<XINGSeeker> seeker = XINGSeeker::CreateFromSource(mDataSource, mFirstFramePos);
+
+    if (seeker == NULL) {
+        mSeeker = VBRISeeker::CreateFromSource(mDataSource, post_id3_pos);
+    } else {
+        mSeeker = seeker;
+        int encd = seeker->getEncoderDelay();
+        int encp = seeker->getEncoderPadding();
+        if (encd != 0 || encp != 0) {
+            mMeta->setInt32(kKeyEncoderDelay, encd);
+            mMeta->setInt32(kKeyEncoderPadding, encp);
+        }
+    }
+
+    if (mSeeker != NULL) {
+        // While it is safe to send the XING/VBRI frame to the decoder, this will
+        // result in an extra 1152 samples being output. In addition, the bitrate
+        // of the Xing header might not match the rest of the file, which could
+        // lead to problems when seeking. The real first frame to decode is after
+        // the XING/VBRI frame, so skip there.
+        size_t frame_size;
+        int sample_rate;
+        int num_channels;
+        int bitrate;
+        GetMPEGAudioFrameSize(
+                header, &frame_size, &sample_rate, &num_channels, &bitrate);
+        pos += frame_size;
+        if (!Resync(mDataSource, 0, &pos, &post_id3_pos, &header)) {
+            // mInitCheck will remain NO_INIT
+            return;
+        }
+        mFirstFramePos = pos;
+        mFixedHeader = header;
+    }
 
     size_t frame_size;
     int sample_rate;
@@ -291,8 +326,6 @@ MP3Extractor::MP3Extractor(
             header, &frame_size, &sample_rate, &num_channels, &bitrate);
 
     unsigned layer = 4 - ((header >> 17) & 3);
-
-    mMeta = new MetaData;
 
     switch (layer) {
         case 1:
@@ -311,27 +344,6 @@ MP3Extractor::MP3Extractor(
     mMeta->setInt32(kKeySampleRate, sample_rate);
     mMeta->setInt32(kKeyBitRate, bitrate * 1000);
     mMeta->setInt32(kKeyChannelCount, num_channels);
-
-    sp<XINGSeeker> seeker = XINGSeeker::CreateFromSource(mDataSource, mFirstFramePos);
-
-    if (seeker == NULL) {
-        mSeeker = VBRISeeker::CreateFromSource(mDataSource, post_id3_pos);
-    } else {
-        mSeeker = seeker;
-        int encd = seeker->getEncoderDelay();
-        int encp = seeker->getEncoderPadding();
-        if (encd != 0 || encp != 0) {
-            mMeta->setInt32(kKeyEncoderDelay, encd);
-            mMeta->setInt32(kKeyEncoderPadding, encp);
-        }
-    }
-
-    if (mSeeker != NULL) {
-        // While it is safe to send the XING/VBRI frame to the decoder, this will
-        // result in an extra 1152 samples being output. The real first frame to
-        // decode is after the XING/VBRI frame, so skip there.
-        mFirstFramePos += frame_size;
-    }
 
     int64_t durationUs;
 

@@ -20,22 +20,11 @@
 #include "FastThread.h"
 #include "StateQueue.h"
 #include "FastCaptureState.h"
+#include "FastCaptureDumpState.h"
 
 namespace android {
 
 typedef StateQueue<FastCaptureState> FastCaptureStateQueue;
-
-struct FastCaptureDumpState : FastThreadDumpState {
-    FastCaptureDumpState();
-    /*virtual*/ ~FastCaptureDumpState();
-
-    // FIXME by renaming, could pull up many of these to FastThreadDumpState
-    uint32_t mReadSequence;     // incremented before and after each read()
-    uint32_t mFramesRead;       // total number of frames read successfully
-    uint32_t mReadErrors;       // total number of read() errors
-    uint32_t mSampleRate;
-    size_t   mFrameCount;
-};
 
 class FastCapture : public FastThread {
 
@@ -57,19 +46,21 @@ private:
     virtual void onStateChange();
     virtual void onWork();
 
-    static const FastCaptureState initial;
-    FastCaptureState preIdle; // copy of state before we went into idle
+    static const FastCaptureState sInitial;
+
+    FastCaptureState    mPreIdle;   // copy of state before we went into idle
     // FIXME by renaming, could pull up many of these to FastThread
-    NBAIO_Source *inputSource;
-    int inputSourceGen;
-    NBAIO_Sink *pipeSink;
-    int pipeSinkGen;
-    short *readBuffer;
-    ssize_t readBufferState;    // number of initialized frames in readBuffer, or -1 to clear
-    NBAIO_Format format;
-    unsigned sampleRate;
-    FastCaptureDumpState dummyDumpState;
-    uint32_t totalNativeFramesRead; // copied to dumpState->mFramesRead
+    NBAIO_Source*       mInputSource;
+    int                 mInputSourceGen;
+    NBAIO_Sink*         mPipeSink;
+    int                 mPipeSinkGen;
+    void*               mReadBuffer;
+    ssize_t             mReadBufferState;   // number of initialized frames in readBuffer,
+                                            // or -1 to clear
+    NBAIO_Format        mFormat;
+    unsigned            mSampleRate;
+    FastCaptureDumpState mDummyFastCaptureDumpState;
+    uint32_t            mTotalNativeFramesRead; // copied to dumpState->mFramesRead
 
 };  // class FastCapture
 

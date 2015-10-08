@@ -21,6 +21,7 @@
 #include <media/AudioSystem.h>
 #include <media/AudioTimestamp.h>
 #include <media/IAudioTrack.h>
+#include <media/AudioResamplerPublic.h>
 #include <utils/threads.h>
 
 namespace android {
@@ -42,28 +43,38 @@ public:
      */
     enum event_type {
         EVENT_MORE_DATA = 0,        // Request to write more data to buffer.
+                                    // This event only occurs for TRANSFER_CALLBACK.
                                     // If this event is delivered but the callback handler
-                                    // does not want to write more data, the handler must explicitly
+                                    // does not want to write more data, the handler must
                                     // ignore the event by setting frameCount to zero.
-        EVENT_UNDERRUN = 1,         // Buffer underrun occurred.
+                                    // This might occur, for example, if the application is
+                                    // waiting for source data or is at the end of stream.
+                                    //
+                                    // For data filling, it is preferred that the callback
+                                    // does not block and instead returns a short count on
+                                    // the amount of data actually delivered
+                                    // (or 0, if no data is currently available).
+        EVENT_UNDERRUN = 1,         // Buffer underrun occurred. This will not occur for
+                                    // static tracks.
         EVENT_LOOP_END = 2,         // Sample loop end was reached; playback restarted from
-                                    // loop start if loop count was not 0.
+                                    // loop start if loop count was not 0 for a static track.
         EVENT_MARKER = 3,           // Playback head is at the specified marker position
                                     // (See setMarkerPosition()).
         EVENT_NEW_POS = 4,          // Playback head is at a new position
                                     // (See setPositionUpdatePeriod()).
-        EVENT_BUFFER_END = 5,       // Playback head is at the end of the buffer.
-                                    // Not currently used by android.media.AudioTrack.
+        EVENT_BUFFER_END = 5,       // Playback has completed for a static track.
         EVENT_NEW_IAUDIOTRACK = 6,  // IAudioTrack was re-created, either due to re-routing and
                                     // voluntary invalidation by mediaserver, or mediaserver crash.
         EVENT_STREAM_END = 7,       // Sent after all the buffers queued in AF and HW are played
-                                    // back (after stop is called)
+                                    // back (after stop is called) for an offloaded track.
+#if 0   // FIXME not yet implemented
         EVENT_NEW_TIMESTAMP = 8,    // Delivered periodically and when there's a significant change
                                     // in the mapping from frame position to presentation time.
                                     // See AudioTimestamp for the information included with event.
+#endif
     };
 
-    /* Client should declare Buffer on the stack and pass address to obtainBuffer()
+    /* Client should declare a Buffer and pass the address to obtainBuffer()
      * and releaseBuffer().  See also callback_t for EVENT_MORE_DATA.
      */
 
@@ -72,22 +83,26 @@ public:
     public:
         // FIXME use m prefix
         size_t      frameCount;   // number of sample frames corresponding to size;
-                                  // on input it is the number of frames desired,
-                                  // on output is the number of frames actually filled
-                                  // (currently ignored, but will make the primary field in future)
+                                  // on input to obtainBuffer() it is the number of frames desired,
+                                  // on output from obtainBuffer() it is the number of available
+                                  //    [empty slots for] frames to be filled
+                                  // on input to releaseBuffer() it is currently ignored
 
         size_t      size;         // input/output in bytes == frameCount * frameSize
-                                  // on input it is unused
-                                  // on output is the number of bytes actually filled
-                                  // FIXME this is redundant with respect to frameCount,
-                                  // and TRANSFER_OBTAIN mode is broken for 8-bit data
-                                  // since we don't define the frame format
+                                  // on input to obtainBuffer() it is ignored
+                                  // on output from obtainBuffer() it is the number of available
+                                  //    [empty slots for] bytes to be filled,
+                                  //    which is frameCount * frameSize
+                                  // on input to releaseBuffer() it is the number of bytes to
+                                  //    release
+                                  // FIXME This is redundant with respect to frameCount.  Consider
+                                  //    removing size and making frameCount the primary field.
 
         union {
             void*       raw;
             short*      i16;      // signed 16-bit
             int8_t*     i8;       // unsigned 8-bit, offset by 0x80
-        };                        // input: unused, output: pointer to buffer
+        };                        // input to obtainBuffer(): unused, output: pointer to buffer
     };
 
     /* As a convenience, if a callback is supplied, a handler thread
@@ -121,6 +136,7 @@ public:
      *  - BAD_VALUE: unsupported configuration
      * frameCount is guaranteed to be non-zero if status is NO_ERROR,
      * and is undefined otherwise.
+     * FIXME This API assumes a route, and so should be deprecated.
      */
 
     static status_t getMinFrameCount(size_t* frameCount,
@@ -132,7 +148,7 @@ public:
     enum transfer_type {
         TRANSFER_DEFAULT,   // not specified explicitly; determine from the other parameters
         TRANSFER_CALLBACK,  // callback EVENT_MORE_DATA
-        TRANSFER_OBTAIN,    // FIXME deprecated: call obtainBuffer() and releaseBuffer()
+        TRANSFER_OBTAIN,    // call obtainBuffer() and releaseBuffer()
         TRANSFER_SYNC,      // synchronous write()
         TRANSFER_SHARED,    // shared memory
     };
@@ -145,18 +161,15 @@ public:
     /* Creates an AudioTrack object and registers it with AudioFlinger.
      * Once created, the track needs to be started before it can be used.
      * Unspecified values are set to appropriate default values.
-     * With this constructor, the track is configured for streaming mode.
-     * Data to be rendered is supplied by write() or by the callback EVENT_MORE_DATA.
-     * Intermixing a combination of write() and non-ignored EVENT_MORE_DATA is not allowed.
      *
      * Parameters:
      *
      * streamType:         Select the type of audio stream this track is attached to
      *                     (e.g. AUDIO_STREAM_MUSIC).
      * sampleRate:         Data source sampling rate in Hz.
-     * format:             Audio format.  For mixed tracks, any PCM format supported by server is OK
-     *                     or AUDIO_FORMAT_PCM_8_BIT which is handled on client side.  For direct
-     *                     and offloaded tracks, the possible format(s) depends on the output sink.
+     * format:             Audio format. For mixed tracks, any PCM format supported by server is OK.
+     *                     For direct and offloaded tracks, the possible format(s) depends on the
+     *                     output sink.
      * channelMask:        Channel mask, such that audio_is_output_channel(channelMask) is true.
      * frameCount:         Minimum size of track PCM buffer in frames. This defines the
      *                     application's contribution to the
@@ -165,20 +178,32 @@ public:
      *                     configuration.  Zero means to use a default value.
      * flags:              See comments on audio_output_flags_t in <system/audio.h>.
      * cbf:                Callback function. If not null, this function is called periodically
-     *                     to provide new data and inform of marker, position updates, etc.
+     *                     to provide new data in TRANSFER_CALLBACK mode
+     *                     and inform of marker, position updates, etc.
      * user:               Context for use by the callback receiver.
      * notificationFrames: The callback function is called each time notificationFrames PCM
      *                     frames have been consumed from track input buffer.
      *                     This is expressed in units of frames at the initial source sample rate.
      * sessionId:          Specific session ID, or zero to use default.
      * transferType:       How data is transferred to AudioTrack.
+     * offloadInfo:        If not NULL, provides offload parameters for
+     *                     AudioSystem::getOutputForAttr().
+     * uid:                User ID of the app which initially requested this AudioTrack
+     *                     for power management tracking, or -1 for current user ID.
+     * pid:                Process ID of the app which initially requested this AudioTrack
+     *                     for power management tracking, or -1 for current process ID.
+     * pAttributes:        If not NULL, supersedes streamType for use case selection.
+     * doNotReconnect:     If set to true, AudioTrack won't automatically recreate the IAudioTrack
+                           binder to AudioFlinger.
+                           It will return an error instead.  The application will recreate
+                           the track based on offloading or different channel configuration, etc.
      * threadCanCallJava:  Not present in parameter list, and so is fixed at false.
      */
 
                         AudioTrack( audio_stream_type_t streamType,
                                     uint32_t sampleRate,
                                     audio_format_t format,
-                                    audio_channel_mask_t,
+                                    audio_channel_mask_t channelMask,
                                     size_t frameCount    = 0,
                                     audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
                                     callback_t cbf       = NULL,
@@ -189,13 +214,15 @@ public:
                                     const audio_offload_info_t *offloadInfo = NULL,
                                     int uid = -1,
                                     pid_t pid = -1,
-                                    const audio_attributes_t* pAttributes = NULL);
+                                    const audio_attributes_t* pAttributes = NULL,
+                                    bool doNotReconnect = false);
 
     /* Creates an audio track and registers it with AudioFlinger.
      * With this constructor, the track is configured for static buffer mode.
-     * The format must not be 8-bit linear PCM.
      * Data to be rendered is passed in a shared memory buffer
-     * identified by the argument sharedBuffer, which must be non-0.
+     * identified by the argument sharedBuffer, which should be non-0.
+     * If sharedBuffer is zero, this constructor is equivalent to the previous constructor
+     * but without the ability to specify a non-zero value for the frameCount parameter.
      * The memory should be initialized to the desired data before calling start().
      * The write() method is not supported in this case.
      * It is recommended to pass a callback function to be notified of playback end by an
@@ -216,7 +243,8 @@ public:
                                     const audio_offload_info_t *offloadInfo = NULL,
                                     int uid = -1,
                                     pid_t pid = -1,
-                                    const audio_attributes_t* pAttributes = NULL);
+                                    const audio_attributes_t* pAttributes = NULL,
+                                    bool doNotReconnect = false);
 
     /* Terminates the AudioTrack and unregisters it from AudioFlinger.
      * Also destroys all resources associated with the AudioTrack.
@@ -227,6 +255,7 @@ public:
 
     /* Initialize an AudioTrack that was created using the AudioTrack() constructor.
      * Don't call set() more than once, or after the AudioTrack() constructors that take parameters.
+     * set() is not multi-thread safe.
      * Returned status (from utils/Errors.h) can be:
      *  - NO_ERROR: successful initialization
      *  - INVALID_OPERATION: AudioTrack is already initialized
@@ -259,7 +288,8 @@ public:
                             const audio_offload_info_t *offloadInfo = NULL,
                             int uid = -1,
                             pid_t pid = -1,
-                            const audio_attributes_t* pAttributes = NULL);
+                            const audio_attributes_t* pAttributes = NULL,
+                            bool doNotReconnect = false);
 
     /* Result of constructing the AudioTrack. This must be checked for successful initialization
      * before using any AudioTrack API (except for set()), because using
@@ -346,6 +376,26 @@ public:
 
     /* Return current source sample rate in Hz */
             uint32_t    getSampleRate() const;
+
+    /* Return the original source sample rate in Hz. This corresponds to the sample rate
+     * if playback rate had normal speed and pitch.
+     */
+            uint32_t    getOriginalSampleRate() const;
+
+    /* Set source playback rate for timestretch
+     * 1.0 is normal speed: < 1.0 is slower, > 1.0 is faster
+     * 1.0 is normal pitch: < 1.0 is lower pitch, > 1.0 is higher pitch
+     *
+     * AUDIO_TIMESTRETCH_SPEED_MIN <= speed <= AUDIO_TIMESTRETCH_SPEED_MAX
+     * AUDIO_TIMESTRETCH_PITCH_MIN <= pitch <= AUDIO_TIMESTRETCH_PITCH_MAX
+     *
+     * Speed increases the playback rate of media, but does not alter pitch.
+     * Pitch increases the "tonal frequency" of media, but does not affect the playback rate.
+     */
+            status_t    setPlaybackRate(const AudioPlaybackRate &playbackRate);
+
+    /* Return current playback rate */
+            const AudioPlaybackRate& getPlaybackRate() const;
 
     /* Enables looping and sets the start and end points of looping.
      * Only supported for static buffer mode.
@@ -461,7 +511,38 @@ public:
      *  handle on audio hardware output, or AUDIO_IO_HANDLE_NONE if the
      *  track needed to be re-created but that failed
      */
+private:
             audio_io_handle_t    getOutput() const;
+public:
+
+    /* Selects the audio device to use for output of this AudioTrack. A value of
+     * AUDIO_PORT_HANDLE_NONE indicates default (AudioPolicyManager) routing.
+     *
+     * Parameters:
+     *  The device ID of the selected device (as returned by the AudioDevicesManager API).
+     *
+     * Returned value:
+     *  - NO_ERROR: successful operation
+     *    TODO: what else can happen here?
+     */
+            status_t    setOutputDevice(audio_port_handle_t deviceId);
+
+    /* Returns the ID of the audio device selected for this AudioTrack.
+     * A value of AUDIO_PORT_HANDLE_NONE indicates default (AudioPolicyManager) routing.
+     *
+     * Parameters:
+     *  none.
+     */
+     audio_port_handle_t getOutputDevice();
+
+     /* Returns the ID of the audio device actually used by the output to which this AudioTrack is
+      * attached.
+      * A value of AUDIO_PORT_HANDLE_NONE indicates the audio track is not attached to any output.
+      *
+      * Parameters:
+      *  none.
+      */
+     audio_port_handle_t getRoutedDeviceId();
 
     /* Returns the unique session ID associated with this track.
      *
@@ -487,10 +568,18 @@ public:
      */
             status_t    attachAuxEffect(int effectId);
 
-    /* Obtains a buffer of up to "audioBuffer->frameCount" empty slots for frames.
+    /* Public API for TRANSFER_OBTAIN mode.
+     * Obtains a buffer of up to "audioBuffer->frameCount" empty slots for frames.
      * After filling these slots with data, the caller should release them with releaseBuffer().
      * If the track buffer is not full, obtainBuffer() returns as many contiguous
      * [empty slots for] frames as are available immediately.
+     *
+     * If nonContig is non-NULL, it is an output parameter that will be set to the number of
+     * additional non-contiguous frames that are predicted to be available immediately,
+     * if the client were to release the first frames and then call obtainBuffer() again.
+     * This value is only a prediction, and needs to be confirmed.
+     * It will be set to zero for an error return.
+     *
      * If the track buffer is full and track is stopped, obtainBuffer() returns WOULD_BLOCK
      * regardless of the value of waitCount.
      * If the track buffer is full and track is not stopped, obtainBuffer() blocks with a
@@ -499,10 +588,6 @@ public:
      * is exhausted, at which point obtainBuffer() will either block
      * or return WOULD_BLOCK depending on the value of the "waitCount"
      * parameter.
-     * Each sample is 16-bit signed PCM.
-     *
-     * obtainBuffer() and releaseBuffer() are deprecated for direct use by applications,
-     * which should use write() or callback EVENT_MORE_DATA instead.
      *
      * Interpretation of waitCount:
      *  +n  limits wait time to n * WAIT_PERIOD_MS,
@@ -511,24 +596,27 @@ public:
      *
      * Buffer fields
      * On entry:
-     *  frameCount  number of frames requested
+     *  frameCount  number of [empty slots for] frames requested
+     *  size        ignored
+     *  raw         ignored
      * After error return:
      *  frameCount  0
      *  size        0
      *  raw         undefined
      * After successful return:
-     *  frameCount  actual number of frames available, <= number requested
+     *  frameCount  actual number of [empty slots for] frames available, <= number requested
      *  size        actual number of bytes available
      *  raw         pointer to the buffer
      */
-
-    /* FIXME Deprecated public API for TRANSFER_OBTAIN mode */
-            status_t    obtainBuffer(Buffer* audioBuffer, int32_t waitCount)
-                                __attribute__((__deprecated__));
+            status_t    obtainBuffer(Buffer* audioBuffer, int32_t waitCount,
+                                size_t *nonContig = NULL);
 
 private:
     /* If nonContig is non-NULL, it is an output parameter that will be set to the number of
-     * additional non-contiguous frames that are available immediately.
+     * additional non-contiguous frames that are predicted to be available immediately,
+     * if the client were to release the first frames and then call obtainBuffer() again.
+     * This value is only a prediction, and needs to be confirmed.
+     * It will be set to zero for an error return.
      * FIXME We could pass an array of Buffers instead of only one Buffer to obtainBuffer(),
      * in case the requested amount of frames is in two or more non-contiguous regions.
      * FIXME requested and elapsed are both relative times.  Consider changing to absolute time.
@@ -537,9 +625,15 @@ private:
                                      struct timespec *elapsed = NULL, size_t *nonContig = NULL);
 public:
 
-    /* Release a filled buffer of "audioBuffer->frameCount" frames for AudioFlinger to process. */
-    // FIXME make private when obtainBuffer() for TRANSFER_OBTAIN is removed
-            void        releaseBuffer(Buffer* audioBuffer);
+    /* Public API for TRANSFER_OBTAIN mode.
+     * Release a filled buffer of frames for AudioFlinger to process.
+     *
+     * Buffer fields:
+     *  frameCount  currently ignored but recommend to set to actual number of frames filled
+     *  size        actual number of bytes filled, must be multiple of frameSize
+     *  raw         ignored
+     */
+            void        releaseBuffer(const Buffer* audioBuffer);
 
     /* As a convenience we provide a write() interface to the audio buffer.
      * Input parameter 'size' is in byte units.
@@ -550,8 +644,14 @@ public:
      *      BAD_VALUE           size is invalid
      *      WOULD_BLOCK         when obtainBuffer() returns same, or
      *                          AudioTrack was stopped during the write
+     *      DEAD_OBJECT         when AudioFlinger dies or the output device changes and
+     *                          the track cannot be automatically restored.
+     *                          The application needs to recreate the AudioTrack
+     *                          because the audio device changed or AudioFlinger died.
+     *                          This typically occurs for direct or offload tracks
+     *                          or if mDoNotReconnect is true.
      *      or any other error code returned by IAudioTrack::start() or restoreTrack_l().
-     * Default behavior is to only return until all data has been transferred. Set 'blocking' to
+     * Default behavior is to only return when all data has been transferred. Set 'blocking' to
      * false for the method to return immediately without waiting to try multiple times to write
      * the full content of the buffer.
      */
@@ -559,6 +659,7 @@ public:
 
     /*
      * Dumps the state of an audio track.
+     * Not a general-purpose API; intended only for use by media player service to dump its tracks.
      */
             status_t    dump(int fd, const Vector<String16>& args) const;
 
@@ -589,18 +690,44 @@ public:
      *                     overall hardware latency to physical output. In WOULD_BLOCK cases,
      *                     one might poll again, or use getPosition(), or use 0 position and
      *                     current time for the timestamp.
+     *         DEAD_OBJECT if AudioFlinger dies or the output device changes and
+     *                     the track cannot be automatically restored.
+     *                     The application needs to recreate the AudioTrack
+     *                     because the audio device changed or AudioFlinger died.
+     *                     This typically occurs for direct or offload tracks
+     *                     or if mDoNotReconnect is true.
      *         INVALID_OPERATION  if called on a FastTrack, wrong state, or some other error.
      *
      * The timestamp parameter is undefined on return, if status is not NO_ERROR.
      */
             status_t    getTimestamp(AudioTimestamp& timestamp);
 
+    /* Add an AudioDeviceCallback. The caller will be notified when the audio device to which this
+     * AudioTrack is routed is updated.
+     * Replaces any previously installed callback.
+     * Parameters:
+     *  callback:  The callback interface
+     * Returns NO_ERROR if successful.
+     *         INVALID_OPERATION if the same callback is already installed.
+     *         NO_INIT or PREMISSION_DENIED if AudioFlinger service is not reachable
+     *         BAD_VALUE if the callback is NULL
+     */
+            status_t addAudioDeviceCallback(const sp<AudioSystem::AudioDeviceCallback>& callback);
+
+    /* remove an AudioDeviceCallback.
+     * Parameters:
+     *  callback:  The callback interface
+     * Returns NO_ERROR if successful.
+     *         INVALID_OPERATION if the callback is not installed
+     *         BAD_VALUE if the callback is NULL
+     */
+            status_t removeAudioDeviceCallback(
+                    const sp<AudioSystem::AudioDeviceCallback>& callback);
+
 protected:
     /* copying audio tracks is not allowed */
                         AudioTrack(const AudioTrack& other);
             AudioTrack& operator = (const AudioTrack& other);
-
-            void        setAttributesFromStreamType(audio_stream_type_t streamType);
 
     /* a small internal class to handle the callback */
     class AudioTrackThread : public Thread
@@ -614,6 +741,7 @@ protected:
 
                 void        pause();    // suspend thread from execution at next loop boundary
                 void        resume();   // allow thread to execute, if not requested to exit
+                void        wake();     // wake to handle changed notification conditions.
 
     private:
                 void        pauseInternal(nsecs_t ns = 0LL);
@@ -628,7 +756,9 @@ protected:
         bool                mPaused;    // whether thread is requested to pause at next loop entry
         bool                mPausedInt; // whether thread internally requests pause
         nsecs_t             mPausedNs;  // if mPausedInt then associated timeout, otherwise ignored
-        bool                mIgnoreNextPausedInt;   // whether to ignore next mPausedInt request
+        bool                mIgnoreNextPausedInt;   // skip any internal pause and go immediately
+                                        // to processAudioBuffer() as state may have changed
+                                        // since pause time calculated.
     };
 
             // body of AudioTrackThread::threadLoop()
@@ -641,10 +771,6 @@ protected:
             static const nsecs_t NS_WHENEVER = -1, NS_INACTIVE = -2, NS_NEVER = -3;
             nsecs_t processAudioBuffer();
 
-            bool     isOffloaded() const;
-            bool     isDirect() const;
-            bool     isOffloadedOrDirect() const;
-
             // caller must hold lock on mLock for all _l methods
 
             status_t createTrack_l();
@@ -656,6 +782,10 @@ protected:
 
             // FIXME enum is faster than strcmp() for parameter 'from'
             status_t restoreTrack_l(const char *from);
+
+            bool     isOffloaded() const;
+            bool     isDirect() const;
+            bool     isOffloadedOrDirect() const;
 
             bool     isOffloaded_l() const
                 { return (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0; }
@@ -670,6 +800,9 @@ protected:
             // increment mPosition by the delta of mServer, and return new value of mPosition
             uint32_t updateAndGetPosition_l();
 
+            // check sample rate and speed is compatible with AudioTrack
+            bool     isSampleRateSpeedAllowed_l(uint32_t sampleRate, float speed) const;
+
     // Next 4 fields may be changed if IAudioTrack is re-created, but always != 0
     sp<IAudioTrack>         mAudioTrack;
     sp<IMemory>             mCblkMemory;
@@ -680,11 +813,20 @@ protected:
 
     float                   mVolume[2];
     float                   mSendLevel;
-    mutable uint32_t        mSampleRate;            // mutable because getSampleRate() can update it.
+    mutable uint32_t        mSampleRate;            // mutable because getSampleRate() can update it
+    uint32_t                mOriginalSampleRate;
+    AudioPlaybackRate       mPlaybackRate;
     size_t                  mFrameCount;            // corresponds to current IAudioTrack, value is
                                                     // reported back by AudioFlinger to the client
     size_t                  mReqFrameCount;         // frame count to request the first or next time
                                                     // a new IAudioTrack is needed, non-decreasing
+
+    // The following AudioFlinger server-side values are cached in createAudioTrack_l().
+    // These values can be used for informational purposes until the track is invalidated,
+    // whereupon restoreTrack_l() calls createTrack_l() to update the values.
+    uint32_t                mAfLatency;             // AudioFlinger latency in ms
+    size_t                  mAfFrameCount;          // AudioFlinger frame count
+    uint32_t                mAfSampleRate;          // AudioFlinger sample rate
 
     // constant after constructor or set()
     audio_format_t          mFormat;                // as requested by client, not forced to 16-bit
@@ -698,10 +840,7 @@ protected:
     const audio_offload_info_t* mOffloadInfo;
     audio_attributes_t      mAttributes;
 
-    // mFrameSize is equal to mFrameSizeAF for non-PCM or 16-bit PCM data.  For 8-bit PCM data, it's
-    // twice as large as mFrameSize because data is expanded to 16-bit before it's stored in buffer.
-    size_t                  mFrameSize;             // app-level frame size
-    size_t                  mFrameSizeAF;           // AudioFlinger frame size
+    size_t                  mFrameSize;             // frame size in bytes
 
     status_t                mStatus;
 
@@ -732,17 +871,25 @@ protected:
     bool                    mRefreshRemaining;      // processAudioBuffer() should refresh
                                                     // mRemainingFrames and mRetryOnPartialBuffer
 
+                                                    // used for static track cbf and restoration
+    int32_t                 mLoopCount;             // last setLoop loopCount; zero means disabled
+    uint32_t                mLoopStart;             // last setLoop loopStart
+    uint32_t                mLoopEnd;               // last setLoop loopEnd
+    int32_t                 mLoopCountNotified;     // the last loopCount notified by callback.
+                                                    // mLoopCountNotified counts down, matching
+                                                    // the remaining loop count for static track
+                                                    // playback.
+
     // These are private to processAudioBuffer(), and are not protected by a lock
     uint32_t                mRemainingFrames;       // number of frames to request in obtainBuffer()
     bool                    mRetryOnPartialBuffer;  // sleep and retry after partial obtainBuffer()
     uint32_t                mObservedSequence;      // last observed value of mSequence
 
-    uint32_t                mLoopPeriod;            // in frames, zero means looping is disabled
-
     uint32_t                mMarkerPosition;        // in wrapping (overflow) frame units
     bool                    mMarkerReached;
     uint32_t                mNewPosition;           // in frames
     uint32_t                mUpdatePeriod;          // in frames, zero means no EVENT_NEW_POS
+
     uint32_t                mServer;                // in frames, last known mProxy->getPosition()
                                                     // which is count of frames consumed by server,
                                                     // reset by new IAudioTrack,
@@ -758,9 +905,16 @@ protected:
     int64_t                 mStartUs;               // the start time after flush or stop.
                                                     // only used for offloaded and direct tracks.
 
+    bool                    mPreviousTimestampValid;// true if mPreviousTimestamp is valid
+    bool                    mTimestampStartupGlitchReported; // reduce log spam
+    bool                    mRetrogradeMotionReported; // reduce log spam
+    AudioTimestamp          mPreviousTimestamp;     // used to detect retrograde motion
+
     audio_output_flags_t    mFlags;
         // const after set(), except for bits AUDIO_OUTPUT_FLAG_FAST and AUDIO_OUTPUT_FLAG_OFFLOAD.
         // mLock must be held to read or write those bits reliably.
+
+    bool                    mDoNotReconnect;
 
     int                     mSessionId;
     int                     mAuxEffectId;
@@ -783,6 +937,10 @@ protected:
     bool                    mInUnderrun;            // whether track is currently in underrun state
     uint32_t                mPausedPosition;
 
+    // For Device Selection API
+    //  a value of AUDIO_PORT_HANDLE_NONE indicated default (AudioPolicyManager) routing.
+    audio_port_handle_t     mSelectedDeviceId;
+
 private:
     class DeathNotifier : public IBinder::DeathRecipient {
     public:
@@ -797,6 +955,8 @@ private:
     uint32_t                mSequence;              // incremented for each new IAudioTrack attempt
     int                     mClientUid;
     pid_t                   mClientPid;
+
+    sp<AudioSystem::AudioDeviceCallback> mDeviceCallback;
 };
 
 class TimedAudioTrack : public AudioTrack

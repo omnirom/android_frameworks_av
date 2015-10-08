@@ -78,7 +78,7 @@ status_t Camera2ClientBase<TClientBase>::checkPid(const char* checkLocation)
 }
 
 template <typename TClientBase>
-status_t Camera2ClientBase<TClientBase>::initialize(camera_module_t *module) {
+status_t Camera2ClientBase<TClientBase>::initialize(CameraModule *module) {
     ATRACE_CALL();
     ALOGV("%s: Initializing client for camera %d", __FUNCTION__,
           TClientBase::mCameraId);
@@ -128,7 +128,8 @@ status_t Camera2ClientBase<TClientBase>::dump(int fd,
     String8 result;
     result.appendFormat("Camera2ClientBase[%d] (%p) PID: %d, dump:\n",
             TClientBase::mCameraId,
-            TClientBase::getRemoteCallback()->asBinder().get(),
+            (TClientBase::getRemoteCallback() != NULL ?
+                    IInterface::asBinder(TClientBase::getRemoteCallback()).get() : NULL),
             TClientBase::mClientPid);
     result.append("  State: ");
 
@@ -279,6 +280,14 @@ void Camera2ClientBase<TClientBase>::notifyAutoWhitebalance(uint8_t newState,
 }
 
 template <typename TClientBase>
+void Camera2ClientBase<TClientBase>::notifyPrepared(int streamId) {
+    (void)streamId;
+
+    ALOGV("%s: Stream %d now prepared",
+            __FUNCTION__, streamId);
+}
+
+template <typename TClientBase>
 int Camera2ClientBase<TClientBase>::getCameraId() const {
     return TClientBase::mCameraId;
 }
@@ -336,7 +345,6 @@ void Camera2ClientBase<TClientBase>::SharedCameraCallbacks::clear() {
     mRemoteCallback.clear();
 }
 
-template class Camera2ClientBase<CameraService::ProClient>;
 template class Camera2ClientBase<CameraService::Client>;
 template class Camera2ClientBase<CameraDeviceClientBase>;
 

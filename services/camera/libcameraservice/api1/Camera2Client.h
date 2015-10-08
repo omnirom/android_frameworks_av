@@ -77,6 +77,8 @@ public:
     virtual status_t        setParameters(const String8& params);
     virtual String8         getParameters() const;
     virtual status_t        sendCommand(int32_t cmd, int32_t arg1, int32_t arg2);
+    virtual void            notifyError(ICameraDeviceCallbacks::CameraErrorCode errorCode,
+                                        const CaptureResultExtras& resultExtras);
 
     /**
      * Interface used by CameraService
@@ -94,7 +96,7 @@ public:
 
     virtual ~Camera2Client();
 
-    status_t initialize(camera_module_t *module);
+    status_t initialize(CameraModule *module);
 
     virtual status_t dump(int fd, const Vector<String16>& args);
 
@@ -104,6 +106,8 @@ public:
 
     virtual void notifyAutoFocus(uint8_t newState, int triggerId);
     virtual void notifyAutoExposure(uint8_t newState, int triggerId);
+    virtual void notifyShutter(const CaptureResultExtras& resultExtras,
+                               nsecs_t timestamp);
 
     /**
      * Interface used by independent components of Camera2Client.
@@ -125,6 +129,9 @@ public:
 
     status_t stopStream();
 
+    // For the slowJpegMode to create jpeg stream when precapture sequence is done
+    status_t createJpegStreamL(camera2::Parameters &params);
+
     static size_t calculateBufferSize(int width, int height,
             int format, int stride);
 
@@ -141,12 +148,15 @@ public:
     static const char* kAutofocusLabel;
     static const char* kTakepictureLabel;
 
+    // Used with stream IDs
+    static const int NO_STREAM = -1;
+
 private:
     /** ICamera interface-related private members */
     typedef camera2::Parameters Parameters;
 
     status_t setPreviewWindowL(const sp<IBinder>& binder,
-            sp<ANativeWindow> window);
+            sp<Surface> window);
     status_t startPreviewL(Parameters &params, bool restart);
     void     stopPreviewL();
     status_t startRecordingL(Parameters &params, bool restart);
@@ -163,6 +173,7 @@ private:
     status_t commandEnableFocusMoveMsgL(bool enable);
     status_t commandPingL();
     status_t commandSetVideoBufferCountL(size_t count);
+    status_t commandSetVideoFormatL(int format, android_dataspace dataSpace);
 
     // Current camera device configuration
     camera2::SharedParameters mParameters;
@@ -171,9 +182,6 @@ private:
 
     void     setPreviewCallbackFlagL(Parameters &params, int flag);
     status_t updateRequests(Parameters &params);
-
-    // Used with stream IDs
-    static const int NO_STREAM = -1;
 
     template <typename ProcessorT>
     status_t updateProcessorStream(sp<ProcessorT> processor, Parameters params);

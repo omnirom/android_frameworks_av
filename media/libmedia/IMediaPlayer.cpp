@@ -21,6 +21,10 @@
 
 #include <binder/Parcel.h>
 
+#include <media/AudioResamplerPublic.h>
+#include <media/AVSyncSettings.h>
+
+#include <media/IDataSource.h>
 #include <media/IMediaHTTPService.h>
 #include <media/IMediaPlayer.h>
 #include <media/IStreamSource.h>
@@ -35,10 +39,15 @@ enum {
     SET_DATA_SOURCE_URL,
     SET_DATA_SOURCE_FD,
     SET_DATA_SOURCE_STREAM,
+    SET_DATA_SOURCE_CALLBACK,
     PREPARE_ASYNC,
     START,
     STOP,
     IS_PLAYING,
+    SET_PLAYBACK_SETTINGS,
+    GET_PLAYBACK_SETTINGS,
+    SET_SYNC_SETTINGS,
+    GET_SYNC_SETTINGS,
     PAUSE,
     SEEK_TO,
     GET_CURRENT_POSITION,
@@ -85,7 +94,7 @@ public:
         data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
         data.writeInt32(httpService != NULL);
         if (httpService != NULL) {
-            data.writeStrongBinder(httpService->asBinder());
+            data.writeStrongBinder(IInterface::asBinder(httpService));
         }
         data.writeCString(url);
         if (headers == NULL) {
@@ -115,8 +124,16 @@ public:
     status_t setDataSource(const sp<IStreamSource> &source) {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
-        data.writeStrongBinder(source->asBinder());
+        data.writeStrongBinder(IInterface::asBinder(source));
         remote()->transact(SET_DATA_SOURCE_STREAM, data, &reply);
+        return reply.readInt32();
+    }
+
+    status_t setDataSource(const sp<IDataSource> &source) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        data.writeStrongBinder(IInterface::asBinder(source));
+        remote()->transact(SET_DATA_SOURCE_CALLBACK, data, &reply);
         return reply.readInt32();
     }
 
@@ -125,7 +142,7 @@ public:
     {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
-        sp<IBinder> b(bufferProducer->asBinder());
+        sp<IBinder> b(IInterface::asBinder(bufferProducer));
         data.writeStrongBinder(b);
         remote()->transact(SET_VIDEO_SURFACETEXTURE, data, &reply);
         return reply.readInt32();
@@ -162,6 +179,63 @@ public:
         remote()->transact(IS_PLAYING, data, &reply);
         *state = reply.readInt32();
         return reply.readInt32();
+    }
+
+    status_t setPlaybackSettings(const AudioPlaybackRate& rate)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        data.writeFloat(rate.mSpeed);
+        data.writeFloat(rate.mPitch);
+        data.writeInt32((int32_t)rate.mFallbackMode);
+        data.writeInt32((int32_t)rate.mStretchMode);
+        remote()->transact(SET_PLAYBACK_SETTINGS, data, &reply);
+        return reply.readInt32();
+    }
+
+    status_t getPlaybackSettings(AudioPlaybackRate* rate /* nonnull */)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        remote()->transact(GET_PLAYBACK_SETTINGS, data, &reply);
+        status_t err = reply.readInt32();
+        if (err == OK) {
+            *rate = AUDIO_PLAYBACK_RATE_DEFAULT;
+            rate->mSpeed = reply.readFloat();
+            rate->mPitch = reply.readFloat();
+            rate->mFallbackMode = (AudioTimestretchFallbackMode)reply.readInt32();
+            rate->mStretchMode = (AudioTimestretchStretchMode)reply.readInt32();
+        }
+        return err;
+    }
+
+    status_t setSyncSettings(const AVSyncSettings& sync, float videoFpsHint)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        data.writeInt32((int32_t)sync.mSource);
+        data.writeInt32((int32_t)sync.mAudioAdjustMode);
+        data.writeFloat(sync.mTolerance);
+        data.writeFloat(videoFpsHint);
+        remote()->transact(SET_SYNC_SETTINGS, data, &reply);
+        return reply.readInt32();
+    }
+
+    status_t getSyncSettings(AVSyncSettings* sync /* nonnull */, float* videoFps /* nonnull */)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        remote()->transact(GET_SYNC_SETTINGS, data, &reply);
+        status_t err = reply.readInt32();
+        if (err == OK) {
+            AVSyncSettings settings;
+            settings.mSource = (AVSyncSource)reply.readInt32();
+            settings.mAudioAdjustMode = (AVSyncAudioAdjustMode)reply.readInt32();
+            settings.mTolerance = reply.readFloat();
+            *sync = settings;
+            *videoFps = reply.readFloat();
+        }
+        return err;
     }
 
     status_t pause()
@@ -323,7 +397,7 @@ public:
     status_t setNextPlayer(const sp<IMediaPlayer>& player) {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
-        sp<IBinder> b(player->asBinder());
+        sp<IBinder> b(IInterface::asBinder(player));
         data.writeStrongBinder(b);
         remote()->transact(SET_NEXT_PLAYER, data, &reply);
         return reply.readInt32();
@@ -396,6 +470,13 @@ status_t BnMediaPlayer::onTransact(
             reply->writeInt32(setDataSource(source));
             return NO_ERROR;
         }
+        case SET_DATA_SOURCE_CALLBACK: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            sp<IDataSource> source =
+                interface_cast<IDataSource>(data.readStrongBinder());
+            reply->writeInt32(setDataSource(source));
+            return NO_ERROR;
+        }
         case SET_VIDEO_SURFACETEXTURE: {
             CHECK_INTERFACE(IMediaPlayer, data, reply);
             sp<IGraphicBufferProducer> bufferProducer =
@@ -424,6 +505,53 @@ status_t BnMediaPlayer::onTransact(
             status_t ret = isPlaying(&state);
             reply->writeInt32(state);
             reply->writeInt32(ret);
+            return NO_ERROR;
+        } break;
+        case SET_PLAYBACK_SETTINGS: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            AudioPlaybackRate rate = AUDIO_PLAYBACK_RATE_DEFAULT;
+            rate.mSpeed = data.readFloat();
+            rate.mPitch = data.readFloat();
+            rate.mFallbackMode = (AudioTimestretchFallbackMode)data.readInt32();
+            rate.mStretchMode = (AudioTimestretchStretchMode)data.readInt32();
+            reply->writeInt32(setPlaybackSettings(rate));
+            return NO_ERROR;
+        } break;
+        case GET_PLAYBACK_SETTINGS: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            AudioPlaybackRate rate = AUDIO_PLAYBACK_RATE_DEFAULT;
+            status_t err = getPlaybackSettings(&rate);
+            reply->writeInt32(err);
+            if (err == OK) {
+                reply->writeFloat(rate.mSpeed);
+                reply->writeFloat(rate.mPitch);
+                reply->writeInt32((int32_t)rate.mFallbackMode);
+                reply->writeInt32((int32_t)rate.mStretchMode);
+            }
+            return NO_ERROR;
+        } break;
+        case SET_SYNC_SETTINGS: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            AVSyncSettings sync;
+            sync.mSource = (AVSyncSource)data.readInt32();
+            sync.mAudioAdjustMode = (AVSyncAudioAdjustMode)data.readInt32();
+            sync.mTolerance = data.readFloat();
+            float videoFpsHint = data.readFloat();
+            reply->writeInt32(setSyncSettings(sync, videoFpsHint));
+            return NO_ERROR;
+        } break;
+        case GET_SYNC_SETTINGS: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            AVSyncSettings sync;
+            float videoFps;
+            status_t err = getSyncSettings(&sync, &videoFps);
+            reply->writeInt32(err);
+            if (err == OK) {
+                reply->writeInt32((int32_t)sync.mSource);
+                reply->writeInt32((int32_t)sync.mAudioAdjustMode);
+                reply->writeFloat(sync.mTolerance);
+                reply->writeFloat(videoFps);
+            }
             return NO_ERROR;
         } break;
         case PAUSE: {
@@ -525,6 +653,7 @@ status_t BnMediaPlayer::onTransact(
             CHECK_INTERFACE(IMediaPlayer, data, reply);
 
             struct sockaddr_in endpoint;
+            memset(&endpoint, 0, sizeof(endpoint));
             int amt = data.readInt32();
             if (amt == sizeof(endpoint)) {
                 data.read(&endpoint, sizeof(struct sockaddr_in));
@@ -539,6 +668,7 @@ status_t BnMediaPlayer::onTransact(
             CHECK_INTERFACE(IMediaPlayer, data, reply);
 
             struct sockaddr_in endpoint;
+            memset(&endpoint, 0, sizeof(endpoint));
             status_t res = getRetransmitEndpoint(&endpoint);
 
             reply->writeInt32(res);
@@ -559,4 +689,4 @@ status_t BnMediaPlayer::onTransact(
 
 // ----------------------------------------------------------------------------
 
-}; // namespace android
+} // namespace android

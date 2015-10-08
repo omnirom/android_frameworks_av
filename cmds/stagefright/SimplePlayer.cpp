@@ -21,6 +21,7 @@
 #include "SimplePlayer.h"
 
 #include <gui/Surface.h>
+
 #include <media/AudioTrack.h>
 #include <media/ICrypto.h>
 #include <media/IMediaHTTPService.h>
@@ -29,7 +30,6 @@
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/MediaCodec.h>
 #include <media/stagefright/MediaErrors.h>
-#include <media/stagefright/NativeWindowWrapper.h>
 #include <media/stagefright/NuMediaExtractor.h>
 
 namespace android {
@@ -59,47 +59,46 @@ status_t PostAndAwaitResponse(
     return err;
 }
 status_t SimplePlayer::setDataSource(const char *path) {
-    sp<AMessage> msg = new AMessage(kWhatSetDataSource, id());
+    sp<AMessage> msg = new AMessage(kWhatSetDataSource, this);
     msg->setString("path", path);
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
 
 status_t SimplePlayer::setSurface(const sp<IGraphicBufferProducer> &bufferProducer) {
-    sp<AMessage> msg = new AMessage(kWhatSetSurface, id());
+    sp<AMessage> msg = new AMessage(kWhatSetSurface, this);
 
     sp<Surface> surface;
     if (bufferProducer != NULL) {
         surface = new Surface(bufferProducer);
     }
 
-    msg->setObject(
-            "native-window", new NativeWindowWrapper(surface));
+    msg->setObject("surface", surface);
 
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
 
 status_t SimplePlayer::prepare() {
-    sp<AMessage> msg = new AMessage(kWhatPrepare, id());
+    sp<AMessage> msg = new AMessage(kWhatPrepare, this);
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
 
 status_t SimplePlayer::start() {
-    sp<AMessage> msg = new AMessage(kWhatStart, id());
+    sp<AMessage> msg = new AMessage(kWhatStart, this);
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
 
 status_t SimplePlayer::stop() {
-    sp<AMessage> msg = new AMessage(kWhatStop, id());
+    sp<AMessage> msg = new AMessage(kWhatStop, this);
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
 
 status_t SimplePlayer::reset() {
-    sp<AMessage> msg = new AMessage(kWhatReset, id());
+    sp<AMessage> msg = new AMessage(kWhatReset, this);
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
@@ -116,7 +115,7 @@ void SimplePlayer::onMessageReceived(const sp<AMessage> &msg) {
                 mState = UNPREPARED;
             }
 
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             sp<AMessage> response = new AMessage;
@@ -132,14 +131,12 @@ void SimplePlayer::onMessageReceived(const sp<AMessage> &msg) {
                 err = INVALID_OPERATION;
             } else {
                 sp<RefBase> obj;
-                CHECK(msg->findObject("native-window", &obj));
-
-                mNativeWindow = static_cast<NativeWindowWrapper *>(obj.get());
-
+                CHECK(msg->findObject("surface", &obj));
+                mSurface = static_cast<Surface *>(obj.get());
                 err = OK;
             }
 
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             sp<AMessage> response = new AMessage;
@@ -161,7 +158,7 @@ void SimplePlayer::onMessageReceived(const sp<AMessage> &msg) {
                 }
             }
 
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             sp<AMessage> response = new AMessage;
@@ -194,7 +191,7 @@ void SimplePlayer::onMessageReceived(const sp<AMessage> &msg) {
                 }
             }
 
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             sp<AMessage> response = new AMessage;
@@ -217,7 +214,7 @@ void SimplePlayer::onMessageReceived(const sp<AMessage> &msg) {
                 }
             }
 
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             sp<AMessage> response = new AMessage;
@@ -240,7 +237,7 @@ void SimplePlayer::onMessageReceived(const sp<AMessage> &msg) {
                 mState = UNINITIALIZED;
             }
 
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             sp<AMessage> response = new AMessage;
@@ -324,7 +321,7 @@ status_t SimplePlayer::onPrepare() {
 
         err = state->mCodec->configure(
                 format,
-                isVideo ? mNativeWindow->getSurfaceTextureClient() : NULL,
+                isVideo ? mSurface : NULL,
                 NULL /* crypto */,
                 0 /* flags */);
 
@@ -332,7 +329,7 @@ status_t SimplePlayer::onPrepare() {
 
         size_t j = 0;
         sp<ABuffer> buffer;
-        while (format->findBuffer(StringPrintf("csd-%d", j).c_str(), &buffer)) {
+        while (format->findBuffer(AStringPrintf("csd-%d", j).c_str(), &buffer)) {
             state->mCSD.push_back(buffer);
 
             ++j;
@@ -382,7 +379,7 @@ status_t SimplePlayer::onStart() {
 
     mStartTimeRealUs = -1ll;
 
-    sp<AMessage> msg = new AMessage(kWhatDoMoreStuff, id());
+    sp<AMessage> msg = new AMessage(kWhatDoMoreStuff, this);
     msg->setInt32("generation", ++mDoMoreStuffGeneration);
     msg->post();
 
@@ -411,7 +408,7 @@ status_t SimplePlayer::onReset() {
     mStateByTrackIndex.clear();
     mCodecLooper.clear();
     mExtractor.clear();
-    mNativeWindow.clear();
+    mSurface.clear();
     mPath.clear();
 
     return OK;
@@ -428,12 +425,12 @@ status_t SimplePlayer::onDoMoreStuff() {
             err = state->mCodec->dequeueInputBuffer(&index);
 
             if (err == OK) {
-                ALOGV("dequeued input buffer on track %d",
+                ALOGV("dequeued input buffer on track %zu",
                       mStateByTrackIndex.keyAt(i));
 
                 state->mAvailInputBufferIndices.push_back(index);
             } else {
-                ALOGV("dequeueInputBuffer on track %d returned %d",
+                ALOGV("dequeueInputBuffer on track %zu returned %d",
                       mStateByTrackIndex.keyAt(i), err);
             }
         } while (err == OK);
@@ -448,7 +445,7 @@ status_t SimplePlayer::onDoMoreStuff() {
                     &info.mFlags);
 
             if (err == OK) {
-                ALOGV("dequeued output buffer on track %d",
+                ALOGV("dequeued output buffer on track %zu",
                       mStateByTrackIndex.keyAt(i));
 
                 state->mAvailOutputBufferInfos.push_back(info);
@@ -459,7 +456,7 @@ status_t SimplePlayer::onDoMoreStuff() {
                 err = state->mCodec->getOutputBuffers(&state->mBuffers[1]);
                 CHECK_EQ(err, (status_t)OK);
             } else {
-                ALOGV("dequeueOutputBuffer on track %d returned %d",
+                ALOGV("dequeueOutputBuffer on track %zu returned %d",
                       mStateByTrackIndex.keyAt(i), err);
             }
         } while (err == OK
@@ -502,7 +499,7 @@ status_t SimplePlayer::onDoMoreStuff() {
                     0);
             CHECK_EQ(err, (status_t)OK);
 
-            ALOGV("enqueued input data on track %d", trackIndex);
+            ALOGV("enqueued input data on track %zu", trackIndex);
 
             err = mExtractor->advance();
             CHECK_EQ(err, (status_t)OK);
@@ -528,8 +525,8 @@ status_t SimplePlayer::onDoMoreStuff() {
                 bool release = true;
 
                 if (lateByUs > 30000ll) {
-                    ALOGI("track %d buffer late by %lld us, dropping.",
-                          mStateByTrackIndex.keyAt(i), lateByUs);
+                    ALOGI("track %zu buffer late by %lld us, dropping.",
+                          mStateByTrackIndex.keyAt(i), (long long)lateByUs);
                     state->mCodec->releaseOutputBuffer(info->mIndex);
                 } else {
                     if (state->mAudioTrack != NULL) {
@@ -558,8 +555,8 @@ status_t SimplePlayer::onDoMoreStuff() {
                     break;
                 }
             } else {
-                ALOGV("track %d buffer early by %lld us.",
-                      mStateByTrackIndex.keyAt(i), -lateByUs);
+                ALOGV("track %zu buffer early by %lld us.",
+                      mStateByTrackIndex.keyAt(i), (long long)-lateByUs);
                 break;
             }
         }
@@ -569,7 +566,7 @@ status_t SimplePlayer::onDoMoreStuff() {
 }
 
 status_t SimplePlayer::onOutputFormatChanged(
-        size_t trackIndex, CodecState *state) {
+        size_t trackIndex __unused, CodecState *state) {
     sp<AMessage> format;
     status_t err = state->mCodec->getOutputFormat(&format);
 
@@ -640,7 +637,7 @@ void SimplePlayer::renderAudio(
     if (delayUs > 2000ll) {
         ALOGW("AudioTrack::write took %lld us, numFramesAvailableToWrite=%u, "
               "numFramesWritten=%u",
-              delayUs, numFramesAvailableToWrite, numFramesWritten);
+              (long long)delayUs, numFramesAvailableToWrite, numFramesWritten);
     }
 
     info->mOffset += nbytes;

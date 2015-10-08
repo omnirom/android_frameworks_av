@@ -19,6 +19,7 @@
 #include <utils/Log.h>
 
 #include <binder/Parcel.h>
+#include <binder/IMemory.h>
 #include <media/ICrypto.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -34,6 +35,7 @@ enum {
     REQUIRES_SECURE_COMPONENT,
     DECRYPT,
     NOTIFY_RESOLUTION,
+    SET_MEDIADRM_SESSION,
 };
 
 struct BpCrypto : public BpInterface<ICrypto> {
@@ -97,7 +99,7 @@ struct BpCrypto : public BpInterface<ICrypto> {
             const uint8_t key[16],
             const uint8_t iv[16],
             CryptoPlugin::Mode mode,
-            const void *srcPtr,
+            const sp<IMemory> &sharedBuffer, size_t offset,
             const CryptoPlugin::SubSample *subSamples, size_t numSubSamples,
             void *dstPtr,
             AString *errorDetailMsg) {
@@ -126,7 +128,8 @@ struct BpCrypto : public BpInterface<ICrypto> {
         }
 
         data.writeInt32(totalSize);
-        data.write(srcPtr, totalSize);
+        data.writeStrongBinder(IInterface::asBinder(sharedBuffer));
+        data.writeInt32(offset);
 
         data.writeInt32(numSubSamples);
         data.write(subSamples, sizeof(CryptoPlugin::SubSample) * numSubSamples);
@@ -139,7 +142,7 @@ struct BpCrypto : public BpInterface<ICrypto> {
 
         ssize_t result = reply.readInt32();
 
-        if (result >= ERROR_DRM_VENDOR_MIN && result <= ERROR_DRM_VENDOR_MAX) {
+        if (isCryptoError(result)) {
             errorDetailMsg->setTo(reply.readCString());
         }
 
@@ -159,13 +162,45 @@ struct BpCrypto : public BpInterface<ICrypto> {
         remote()->transact(NOTIFY_RESOLUTION, data, &reply);
     }
 
+    virtual status_t setMediaDrmSession(const Vector<uint8_t> &sessionId) {
+        Parcel data, reply;
+        data.writeInterfaceToken(ICrypto::getInterfaceDescriptor());
+
+        writeVector(data, sessionId);
+        remote()->transact(SET_MEDIADRM_SESSION, data, &reply);
+
+        return reply.readInt32();
+    }
+
 private:
+    void readVector(Parcel &reply, Vector<uint8_t> &vector) const {
+        uint32_t size = reply.readInt32();
+        vector.insertAt((size_t)0, size);
+        reply.read(vector.editArray(), size);
+    }
+
+    void writeVector(Parcel &data, Vector<uint8_t> const &vector) const {
+        data.writeInt32(vector.size());
+        data.write(vector.array(), vector.size());
+    }
+
     DISALLOW_EVIL_CONSTRUCTORS(BpCrypto);
 };
 
 IMPLEMENT_META_INTERFACE(Crypto, "android.hardware.ICrypto");
 
 ////////////////////////////////////////////////////////////////////////////////
+
+void BnCrypto::readVector(const Parcel &data, Vector<uint8_t> &vector) const {
+    uint32_t size = data.readInt32();
+    vector.insertAt((size_t)0, size);
+    data.read(vector.editArray(), size);
+}
+
+void BnCrypto::writeVector(Parcel *reply, Vector<uint8_t> const &vector) const {
+    reply->writeInt32(vector.size());
+    reply->write(vector.array(), vector.size());
+}
 
 status_t BnCrypto::onTransact(
     uint32_t code, const Parcel &data, Parcel *reply, uint32_t flags) {
@@ -245,8 +280,9 @@ status_t BnCrypto::onTransact(
             data.read(iv, sizeof(iv));
 
             size_t totalSize = data.readInt32();
-            void *srcData = malloc(totalSize);
-            data.read(srcData, totalSize);
+            sp<IMemory> sharedBuffer =
+                interface_cast<IMemory>(data.readStrongBinder());
+            int32_t offset = data.readInt32();
 
             int32_t numSubSamples = data.readInt32();
 
@@ -257,28 +293,33 @@ status_t BnCrypto::onTransact(
                     subSamples,
                     sizeof(CryptoPlugin::SubSample) * numSubSamples);
 
-            void *dstPtr;
+            void *secureBufferId, *dstPtr;
             if (secure) {
-                dstPtr = reinterpret_cast<void *>(static_cast<uintptr_t>(data.readInt64()));
+                secureBufferId = reinterpret_cast<void *>(static_cast<uintptr_t>(data.readInt64()));
             } else {
                 dstPtr = malloc(totalSize);
             }
 
             AString errorDetailMsg;
-            ssize_t result = decrypt(
+            ssize_t result;
+
+            if (offset + totalSize > sharedBuffer->size()) {
+                result = -EINVAL;
+            } else {
+                result = decrypt(
                     secure,
                     key,
                     iv,
                     mode,
-                    srcData,
+                    sharedBuffer, offset,
                     subSamples, numSubSamples,
-                    dstPtr,
+                    secure ? secureBufferId : dstPtr,
                     &errorDetailMsg);
+            }
 
             reply->writeInt32(result);
 
-            if (result >= ERROR_DRM_VENDOR_MIN
-                && result <= ERROR_DRM_VENDOR_MAX) {
+            if (isCryptoError(result)) {
                 reply->writeCString(errorDetailMsg.c_str());
             }
 
@@ -294,9 +335,6 @@ status_t BnCrypto::onTransact(
             delete[] subSamples;
             subSamples = NULL;
 
-            free(srcData);
-            srcData = NULL;
-
             return OK;
         }
 
@@ -308,6 +346,15 @@ status_t BnCrypto::onTransact(
             int32_t height = data.readInt32();
             notifyResolution(width, height);
 
+            return OK;
+        }
+
+        case SET_MEDIADRM_SESSION:
+        {
+            CHECK_INTERFACE(IDrm, data, reply);
+            Vector<uint8_t> sessionId;
+            readVector(data, sessionId);
+            reply->writeInt32(setMediaDrmSession(sessionId));
             return OK;
         }
 

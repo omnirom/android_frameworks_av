@@ -250,7 +250,11 @@ M3UParser::M3UParser(
       mIsVariantPlaylist(false),
       mIsComplete(false),
       mIsEvent(false),
+      mFirstSeqNumber(-1),
+      mLastSeqNumber(-1),
+      mTargetDurationUs(-1ll),
       mDiscontinuitySeq(0),
+      mDiscontinuityCount(0),
       mSelectedIndex(-1) {
     mInitCheck = parse(data, size);
 }
@@ -280,6 +284,19 @@ bool M3UParser::isEvent() const {
 
 size_t M3UParser::getDiscontinuitySeq() const {
     return mDiscontinuitySeq;
+}
+
+int64_t M3UParser::getTargetDuration() const {
+    return mTargetDurationUs;
+}
+
+int32_t M3UParser::getFirstSeqNumber() const {
+    return mFirstSeqNumber;
+}
+
+void M3UParser::getSeqNumberRange(int32_t *firstSeq, int32_t *lastSeq) const {
+    *firstSeq = mFirstSeqNumber;
+    *lastSeq = mLastSeqNumber;
 }
 
 sp<AMessage> M3UParser::meta() {
@@ -394,7 +411,9 @@ ssize_t M3UParser::getSelectedTrack(media_track_type type) const {
 
 bool M3UParser::getTypeURI(size_t index, const char *key, AString *uri) const {
     if (!mIsVariantPlaylist) {
-        *uri = mBaseURI;
+        if (uri != NULL) {
+            *uri = mBaseURI;
+        }
 
         // Assume media without any more specific attribute contains
         // audio and video, but no subtitles.
@@ -407,7 +426,9 @@ bool M3UParser::getTypeURI(size_t index, const char *key, AString *uri) const {
 
     AString groupID;
     if (!meta->findString(key, &groupID)) {
-        *uri = mItems.itemAt(index).mURI;
+        if (uri != NULL) {
+            *uri = mItems.itemAt(index).mURI;
+        }
 
         AString codecs;
         if (!meta->findString("codecs", &codecs)) {
@@ -433,16 +454,24 @@ bool M3UParser::getTypeURI(size_t index, const char *key, AString *uri) const {
         }
     }
 
-    sp<MediaGroup> group = mMediaGroups.valueFor(groupID);
-    if (!group->getActiveURI(uri)) {
-        return false;
-    }
+    // if uri == NULL, we're only checking if the type is present,
+    // don't care about the active URI (or if there is an active one)
+    if (uri != NULL) {
+        sp<MediaGroup> group = mMediaGroups.valueFor(groupID);
+        if (!group->getActiveURI(uri)) {
+            return false;
+        }
 
-    if ((*uri).empty()) {
-        *uri = mItems.itemAt(index).mURI;
+        if ((*uri).empty()) {
+            *uri = mItems.itemAt(index).mURI;
+        }
     }
 
     return true;
+}
+
+bool M3UParser::hasType(size_t index, const char *key) const {
+    return getTypeURI(index, key, NULL /* uri */);
 }
 
 static bool MakeURL(const char *baseURL, const char *url, AString *out) {
@@ -582,6 +611,7 @@ status_t M3UParser::parse(const void *_data, size_t size) {
                     itemMeta = new AMessage;
                 }
                 itemMeta->setInt32("discontinuity", true);
+                ++mDiscontinuityCount;
             } else if (line.startsWith("#EXT-X-STREAM-INF")) {
                 if (mMeta != NULL) {
                     return ERROR_MALFORMED;
@@ -609,6 +639,9 @@ status_t M3UParser::parse(const void *_data, size_t size) {
             } else if (line.startsWith("#EXT-X-MEDIA")) {
                 err = parseMedia(line);
             } else if (line.startsWith("#EXT-X-DISCONTINUITY-SEQUENCE")) {
+                if (mIsVariantPlaylist) {
+                    return ERROR_MALFORMED;
+                }
                 size_t seq;
                 err = parseDiscontinuitySequence(line, &seq);
                 if (err == OK) {
@@ -628,6 +661,8 @@ status_t M3UParser::parse(const void *_data, size_t size) {
                         || !itemMeta->findInt64("durationUs", &durationUs)) {
                     return ERROR_MALFORMED;
                 }
+                itemMeta->setInt32("discontinuity-sequence",
+                        mDiscontinuitySeq + mDiscontinuityCount);
             }
 
             mItems.push();
@@ -642,6 +677,25 @@ status_t M3UParser::parse(const void *_data, size_t size) {
 
         offset = offsetLF + 1;
         ++lineNo;
+    }
+
+    // error checking of all fields that's required to appear once
+    // (currently only checking "target-duration"), and
+    // initialization of playlist properties (eg. mTargetDurationUs)
+    if (!mIsVariantPlaylist) {
+        int32_t targetDurationSecs;
+        if (mMeta == NULL || !mMeta->findInt32(
+                "target-duration", &targetDurationSecs)) {
+            ALOGE("Media playlist missing #EXT-X-TARGETDURATION");
+            return ERROR_MALFORMED;
+        }
+        mTargetDurationUs = targetDurationSecs * 1000000ll;
+
+        mFirstSeqNumber = 0;
+        if (mMeta != NULL) {
+            mMeta->findInt32("media-sequence", &mFirstSeqNumber);
+        }
+        mLastSeqNumber = mFirstSeqNumber + mItems.size() - 1;
     }
 
     return OK;
@@ -781,6 +835,29 @@ status_t M3UParser::parseStreamInf(
                 *meta = new AMessage;
             }
             (*meta)->setString(key.c_str(), codecs.c_str());
+        } else if (!strcasecmp("resolution", key.c_str())) {
+            const char *s = val.c_str();
+            char *end;
+            unsigned long width = strtoul(s, &end, 10);
+
+            if (end == s || *end != 'x') {
+                // malformed
+                continue;
+            }
+
+            s = end + 1;
+            unsigned long height = strtoul(s, &end, 10);
+
+            if (end == s || *end != '\0') {
+                // malformed
+                continue;
+            }
+
+            if (meta->get() == NULL) {
+                *meta = new AMessage;
+            }
+            (*meta)->setInt32("width", width);
+            (*meta)->setInt32("height", height);
         } else if (!strcasecmp("audio", key.c_str())
                 || !strcasecmp("video", key.c_str())
                 || !strcasecmp("subtitles", key.c_str())) {

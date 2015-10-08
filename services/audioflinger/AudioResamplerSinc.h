@@ -39,7 +39,7 @@ public:
 
     virtual ~AudioResamplerSinc();
 
-    virtual void resample(int32_t* out, size_t outFrameCount,
+    virtual size_t resample(int32_t* out, size_t outFrameCount,
             AudioBufferProvider* provider);
 private:
     void init();
@@ -47,7 +47,7 @@ private:
     virtual void setVolume(float left, float right);
 
     template<int CHANNELS>
-    void resample(int32_t* out, size_t outFrameCount,
+    size_t resample(int32_t* out, size_t outFrameCount,
             AudioBufferProvider* provider);
 
     template<int CHANNELS>
@@ -95,6 +95,6 @@ private:
 };
 
 // ----------------------------------------------------------------------------
-}; // namespace android
+} // namespace android
 
 #endif /*ANDROID_AUDIO_RESAMPLER_SINC_H*/

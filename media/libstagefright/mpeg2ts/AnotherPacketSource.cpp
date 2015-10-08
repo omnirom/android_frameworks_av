@@ -19,6 +19,8 @@
 
 #include "AnotherPacketSource.h"
 
+#include "include/avc_utils.h"
+
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
@@ -27,6 +29,7 @@
 #include <media/stagefright/MediaBuffer.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MetaData.h>
+#include <media/stagefright/Utils.h>
 #include <utils/Vector.h>
 
 #include <inttypes.h>
@@ -38,17 +41,22 @@ const int64_t kNearEOSMarkUs = 2000000ll; // 2 secs
 AnotherPacketSource::AnotherPacketSource(const sp<MetaData> &meta)
     : mIsAudio(false),
       mIsVideo(false),
+      mEnabled(true),
       mFormat(NULL),
       mLastQueuedTimeUs(0),
       mEOSResult(OK),
       mLatestEnqueuedMeta(NULL),
-      mLatestDequeuedMeta(NULL),
-      mQueuedDiscontinuityCount(0) {
+      mLatestDequeuedMeta(NULL) {
     setFormat(meta);
+
+    mDiscontinuitySegments.push_back(DiscontinuitySegment());
 }
 
 void AnotherPacketSource::setFormat(const sp<MetaData> &meta) {
-    CHECK(mFormat == NULL);
+    if (mFormat != NULL) {
+        // Only allowed to be set once. Requires explicit clear to reset.
+        return;
+    }
 
     mIsAudio = false;
     mIsVideo = false;
@@ -66,7 +74,7 @@ void AnotherPacketSource::setFormat(const sp<MetaData> &meta) {
     } else  if (!strncasecmp("video/", mime, 6)) {
         mIsVideo = true;
     } else {
-        CHECK(!strncasecmp("text/", mime, 5));
+        CHECK(!strncasecmp("text/", mime, 5) || !strncasecmp("application/", mime, 12));
     }
 }
 
@@ -91,13 +99,12 @@ sp<MetaData> AnotherPacketSource::getFormat() {
     while (it != mBuffers.end()) {
         sp<ABuffer> buffer = *it;
         int32_t discontinuity;
-        if (buffer->meta()->findInt32("discontinuity", &discontinuity)) {
-            break;
-        }
-
-        sp<RefBase> object;
-        if (buffer->meta()->findObject("format", &object)) {
-            return mFormat = static_cast<MetaData*>(object.get());
+        if (!buffer->meta()->findInt32("discontinuity", &discontinuity)) {
+            sp<RefBase> object;
+            if (buffer->meta()->findObject("format", &object)) {
+                setFormat(static_cast<MetaData*>(object.get()));
+                return mFormat;
+            }
         }
 
         ++it;
@@ -123,21 +130,36 @@ status_t AnotherPacketSource::dequeueAccessUnit(sp<ABuffer> *buffer) {
                 mFormat.clear();
             }
 
-            --mQueuedDiscontinuityCount;
+            mDiscontinuitySegments.erase(mDiscontinuitySegments.begin());
+            // CHECK(!mDiscontinuitySegments.empty());
             return INFO_DISCONTINUITY;
         }
 
+        // CHECK(!mDiscontinuitySegments.empty());
+        DiscontinuitySegment &seg = *mDiscontinuitySegments.begin();
+
+        int64_t timeUs;
         mLatestDequeuedMeta = (*buffer)->meta()->dup();
+        CHECK(mLatestDequeuedMeta->findInt64("timeUs", &timeUs));
+        if (timeUs > seg.mMaxDequeTimeUs) {
+            seg.mMaxDequeTimeUs = timeUs;
+        }
 
         sp<RefBase> object;
         if ((*buffer)->meta()->findObject("format", &object)) {
-            mFormat = static_cast<MetaData*>(object.get());
+            setFormat(static_cast<MetaData*>(object.get()));
         }
 
         return OK;
     }
 
     return mEOSResult;
+}
+
+void AnotherPacketSource::requeueAccessUnit(const sp<ABuffer> &buffer) {
+    // TODO: update corresponding book keeping info.
+    Mutex::Autolock autoLock(mLock);
+    mBuffers.push_front(buffer);
 }
 
 status_t AnotherPacketSource::read(
@@ -153,7 +175,6 @@ status_t AnotherPacketSource::read(
 
         const sp<ABuffer> buffer = *mBuffers.begin();
         mBuffers.erase(mBuffers.begin());
-        mLatestDequeuedMeta = buffer->meta()->dup();
 
         int32_t discontinuity;
         if (buffer->meta()->findInt32("discontinuity", &discontinuity)) {
@@ -161,20 +182,39 @@ status_t AnotherPacketSource::read(
                 mFormat.clear();
             }
 
+            mDiscontinuitySegments.erase(mDiscontinuitySegments.begin());
+            // CHECK(!mDiscontinuitySegments.empty());
             return INFO_DISCONTINUITY;
         }
 
+        mLatestDequeuedMeta = buffer->meta()->dup();
+
         sp<RefBase> object;
         if (buffer->meta()->findObject("format", &object)) {
-            mFormat = static_cast<MetaData*>(object.get());
+            setFormat(static_cast<MetaData*>(object.get()));
         }
 
         int64_t timeUs;
         CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
+        // CHECK(!mDiscontinuitySegments.empty());
+        DiscontinuitySegment &seg = *mDiscontinuitySegments.begin();
+        if (timeUs > seg.mMaxDequeTimeUs) {
+            seg.mMaxDequeTimeUs = timeUs;
+        }
 
         MediaBuffer *mediaBuffer = new MediaBuffer(buffer);
 
         mediaBuffer->meta_data()->setInt64(kKeyTime, timeUs);
+
+        int32_t isSync;
+        if (buffer->meta()->findInt32("isSync", &isSync)) {
+            mediaBuffer->meta_data()->setInt32(kKeyIsSyncFrame, isSync);
+        }
+
+        sp<ABuffer> sei;
+        if (buffer->meta()->findBuffer("sei", &sei) && sei != NULL) {
+            mediaBuffer->meta_data()->setData(kKeySEI, 0, sei->data(), sei->size());
+        }
 
         *out = mediaBuffer;
         return OK;
@@ -203,18 +243,35 @@ void AnotherPacketSource::queueAccessUnit(const sp<ABuffer> &buffer) {
         return;
     }
 
-    int64_t lastQueuedTimeUs;
-    CHECK(buffer->meta()->findInt64("timeUs", &lastQueuedTimeUs));
-    mLastQueuedTimeUs = lastQueuedTimeUs;
-    ALOGV("queueAccessUnit timeUs=%" PRIi64 " us (%.2f secs)", mLastQueuedTimeUs, mLastQueuedTimeUs / 1E6);
-
     Mutex::Autolock autoLock(mLock);
     mBuffers.push_back(buffer);
     mCondition.signal();
 
     int32_t discontinuity;
-    if (buffer->meta()->findInt32("discontinuity", &discontinuity)) {
-        ++mQueuedDiscontinuityCount;
+    if (buffer->meta()->findInt32("discontinuity", &discontinuity)){
+        ALOGV("queueing a discontinuity with queueAccessUnit");
+
+        mLastQueuedTimeUs = 0ll;
+        mEOSResult = OK;
+        mLatestEnqueuedMeta = NULL;
+
+        mDiscontinuitySegments.push_back(DiscontinuitySegment());
+        return;
+    }
+
+    int64_t lastQueuedTimeUs;
+    CHECK(buffer->meta()->findInt64("timeUs", &lastQueuedTimeUs));
+    mLastQueuedTimeUs = lastQueuedTimeUs;
+    ALOGV("queueAccessUnit timeUs=%" PRIi64 " us (%.2f secs)",
+            mLastQueuedTimeUs, mLastQueuedTimeUs / 1E6);
+
+    // CHECK(!mDiscontinuitySegments.empty());
+    DiscontinuitySegment &tailSeg = *(--mDiscontinuitySegments.end());
+    if (lastQueuedTimeUs > tailSeg.mMaxEnqueTimeUs) {
+        tailSeg.mMaxEnqueTimeUs = lastQueuedTimeUs;
+    }
+    if (tailSeg.mMaxDequeTimeUs == -1) {
+        tailSeg.mMaxDequeTimeUs = lastQueuedTimeUs;
     }
 
     if (mLatestEnqueuedMeta == NULL) {
@@ -240,7 +297,9 @@ void AnotherPacketSource::clear() {
 
     mBuffers.clear();
     mEOSResult = OK;
-    mQueuedDiscontinuityCount = 0;
+
+    mDiscontinuitySegments.clear();
+    mDiscontinuitySegments.push_back(DiscontinuitySegment());
 
     mFormat = NULL;
     mLatestEnqueuedMeta = NULL;
@@ -267,6 +326,14 @@ void AnotherPacketSource::queueDiscontinuity(
 
             ++it;
         }
+
+        for (List<DiscontinuitySegment>::iterator it2 = mDiscontinuitySegments.begin();
+                it2 != mDiscontinuitySegments.end();
+                ++it2) {
+            DiscontinuitySegment &seg = *it2;
+            seg.clear();
+        }
+
     }
 
     mEOSResult = OK;
@@ -277,7 +344,8 @@ void AnotherPacketSource::queueDiscontinuity(
         return;
     }
 
-    ++mQueuedDiscontinuityCount;
+    mDiscontinuitySegments.push_back(DiscontinuitySegment());
+
     sp<ABuffer> buffer = new ABuffer(0);
     buffer->meta()->setInt32("discontinuity", static_cast<int32_t>(type));
     buffer->meta()->setMessage("extra", extra);
@@ -296,6 +364,10 @@ void AnotherPacketSource::signalEOS(status_t result) {
 
 bool AnotherPacketSource::hasBufferAvailable(status_t *finalResult) {
     Mutex::Autolock autoLock(mLock);
+    *finalResult = OK;
+    if (!mEnabled) {
+        return false;
+    }
     if (!mBuffers.empty()) {
         return true;
     }
@@ -304,86 +376,53 @@ bool AnotherPacketSource::hasBufferAvailable(status_t *finalResult) {
     return false;
 }
 
+bool AnotherPacketSource::hasDataBufferAvailable(status_t *finalResult) {
+    Mutex::Autolock autoLock(mLock);
+    *finalResult = OK;
+    if (!mEnabled) {
+        return false;
+    }
+    List<sp<ABuffer> >::iterator it;
+    for (it = mBuffers.begin(); it != mBuffers.end(); it++) {
+        int32_t discontinuity;
+        if (!(*it)->meta()->findInt32("discontinuity", &discontinuity)) {
+            return true;
+        }
+    }
+
+    *finalResult = mEOSResult;
+    return false;
+}
+
+size_t AnotherPacketSource::getAvailableBufferCount(status_t *finalResult) {
+    Mutex::Autolock autoLock(mLock);
+
+    *finalResult = OK;
+    if (!mEnabled) {
+        return 0;
+    }
+    if (!mBuffers.empty()) {
+        return mBuffers.size();
+    }
+    *finalResult = mEOSResult;
+    return 0;
+}
+
 int64_t AnotherPacketSource::getBufferedDurationUs(status_t *finalResult) {
     Mutex::Autolock autoLock(mLock);
-    return getBufferedDurationUs_l(finalResult);
-}
-
-int64_t AnotherPacketSource::getBufferedDurationUs_l(status_t *finalResult) {
     *finalResult = mEOSResult;
 
-    if (mBuffers.empty()) {
-        return 0;
-    }
-
-    int64_t time1 = -1;
-    int64_t time2 = -1;
     int64_t durationUs = 0;
-
-    List<sp<ABuffer> >::iterator it = mBuffers.begin();
-    while (it != mBuffers.end()) {
-        const sp<ABuffer> &buffer = *it;
-
-        int64_t timeUs;
-        if (buffer->meta()->findInt64("timeUs", &timeUs)) {
-            if (time1 < 0 || timeUs < time1) {
-                time1 = timeUs;
-            }
-
-            if (time2 < 0 || timeUs > time2) {
-                time2 = timeUs;
-            }
-        } else {
-            // This is a discontinuity, reset everything.
-            durationUs += time2 - time1;
-            time1 = time2 = -1;
-        }
-
-        ++it;
+    for (List<DiscontinuitySegment>::iterator it = mDiscontinuitySegments.begin();
+            it != mDiscontinuitySegments.end();
+            ++it) {
+        const DiscontinuitySegment &seg = *it;
+        // dequeued access units should be a subset of enqueued access units
+        // CHECK(seg.maxEnqueTimeUs >= seg.mMaxDequeTimeUs);
+        durationUs += (seg.mMaxEnqueTimeUs - seg.mMaxDequeTimeUs);
     }
 
-    return durationUs + (time2 - time1);
-}
-
-// A cheaper but less precise version of getBufferedDurationUs that we would like to use in
-// LiveSession::dequeueAccessUnit to trigger downwards adaptation.
-int64_t AnotherPacketSource::getEstimatedDurationUs() {
-    Mutex::Autolock autoLock(mLock);
-    if (mBuffers.empty()) {
-        return 0;
-    }
-
-    if (mQueuedDiscontinuityCount > 0) {
-        status_t finalResult;
-        return getBufferedDurationUs_l(&finalResult);
-    }
-
-    List<sp<ABuffer> >::iterator it = mBuffers.begin();
-    sp<ABuffer> buffer = *it;
-
-    int64_t startTimeUs;
-    buffer->meta()->findInt64("timeUs", &startTimeUs);
-    if (startTimeUs < 0) {
-        return 0;
-    }
-
-    it = mBuffers.end();
-    --it;
-    buffer = *it;
-
-    int64_t endTimeUs;
-    buffer->meta()->findInt64("timeUs", &endTimeUs);
-    if (endTimeUs < 0) {
-        return 0;
-    }
-
-    int64_t diffUs;
-    if (endTimeUs > startTimeUs) {
-        diffUs = endTimeUs - startTimeUs;
-    } else {
-        diffUs = startTimeUs - endTimeUs;
-    }
-    return diffUs;
+    return durationUs;
 }
 
 status_t AnotherPacketSource::nextBufferTime(int64_t *timeUs) {
@@ -420,6 +459,173 @@ sp<AMessage> AnotherPacketSource::getLatestEnqueuedMeta() {
 sp<AMessage> AnotherPacketSource::getLatestDequeuedMeta() {
     Mutex::Autolock autoLock(mLock);
     return mLatestDequeuedMeta;
+}
+
+void AnotherPacketSource::enable(bool enable) {
+    Mutex::Autolock autoLock(mLock);
+    mEnabled = enable;
+}
+
+/*
+ * returns the sample meta that's delayUs after queue head
+ * (NULL if such sample is unavailable)
+ */
+sp<AMessage> AnotherPacketSource::getMetaAfterLastDequeued(int64_t delayUs) {
+    Mutex::Autolock autoLock(mLock);
+    int64_t firstUs = -1;
+    int64_t lastUs = -1;
+    int64_t durationUs = 0;
+
+    List<sp<ABuffer> >::iterator it;
+    for (it = mBuffers.begin(); it != mBuffers.end(); ++it) {
+        const sp<ABuffer> &buffer = *it;
+        int32_t discontinuity;
+        if (buffer->meta()->findInt32("discontinuity", &discontinuity)) {
+            durationUs += lastUs - firstUs;
+            firstUs = -1;
+            lastUs = -1;
+            continue;
+        }
+        int64_t timeUs;
+        if (buffer->meta()->findInt64("timeUs", &timeUs)) {
+            if (firstUs < 0) {
+                firstUs = timeUs;
+            }
+            if (lastUs < 0 || timeUs > lastUs) {
+                lastUs = timeUs;
+            }
+            if (durationUs + (lastUs - firstUs) >= delayUs) {
+                return buffer->meta();
+            }
+        }
+    }
+    return NULL;
+}
+
+/*
+ * removes samples with time equal or after meta
+ */
+void AnotherPacketSource::trimBuffersAfterMeta(
+        const sp<AMessage> &meta) {
+    if (meta == NULL) {
+        ALOGW("trimming with NULL meta, ignoring");
+        return;
+    }
+
+    Mutex::Autolock autoLock(mLock);
+    if (mBuffers.empty()) {
+        return;
+    }
+
+    HLSTime stopTime(meta);
+    ALOGV("trimBuffersAfterMeta: discontinuitySeq %d, timeUs %lld",
+            stopTime.mSeq, (long long)stopTime.mTimeUs);
+
+    List<sp<ABuffer> >::iterator it;
+    List<DiscontinuitySegment >::iterator it2;
+    sp<AMessage> newLatestEnqueuedMeta = NULL;
+    int64_t newLastQueuedTimeUs = 0;
+    for (it = mBuffers.begin(), it2 = mDiscontinuitySegments.begin(); it != mBuffers.end(); ++it) {
+        const sp<ABuffer> &buffer = *it;
+        int32_t discontinuity;
+        if (buffer->meta()->findInt32("discontinuity", &discontinuity)) {
+            // CHECK(it2 != mDiscontinuitySegments.end());
+            ++it2;
+            continue;
+        }
+
+        HLSTime curTime(buffer->meta());
+        if (!(curTime < stopTime)) {
+            ALOGV("trimming from %lld (inclusive) to end",
+                    (long long)curTime.mTimeUs);
+            break;
+        }
+        newLatestEnqueuedMeta = buffer->meta();
+        newLastQueuedTimeUs = curTime.mTimeUs;
+    }
+
+    mBuffers.erase(it, mBuffers.end());
+    mLatestEnqueuedMeta = newLatestEnqueuedMeta;
+    mLastQueuedTimeUs = newLastQueuedTimeUs;
+
+    DiscontinuitySegment &seg = *it2;
+    if (newLatestEnqueuedMeta != NULL) {
+        seg.mMaxEnqueTimeUs = newLastQueuedTimeUs;
+    } else {
+        seg.clear();
+    }
+    mDiscontinuitySegments.erase(++it2, mDiscontinuitySegments.end());
+}
+
+/*
+ * removes samples with time equal or before meta;
+ * returns first sample left in the queue.
+ *
+ * (for AVC, if trim happens, the samples left will always start
+ * at next IDR.)
+ */
+sp<AMessage> AnotherPacketSource::trimBuffersBeforeMeta(
+        const sp<AMessage> &meta) {
+    HLSTime startTime(meta);
+    ALOGV("trimBuffersBeforeMeta: discontinuitySeq %d, timeUs %lld",
+            startTime.mSeq, (long long)startTime.mTimeUs);
+
+    sp<AMessage> firstMeta;
+    int64_t firstTimeUs = -1;
+    Mutex::Autolock autoLock(mLock);
+    if (mBuffers.empty()) {
+        return NULL;
+    }
+
+    sp<MetaData> format;
+    bool isAvc = false;
+
+    List<sp<ABuffer> >::iterator it;
+    for (it = mBuffers.begin(); it != mBuffers.end(); ++it) {
+        const sp<ABuffer> &buffer = *it;
+        int32_t discontinuity;
+        if (buffer->meta()->findInt32("discontinuity", &discontinuity)) {
+            mDiscontinuitySegments.erase(mDiscontinuitySegments.begin());
+            // CHECK(!mDiscontinuitySegments.empty());
+            format = NULL;
+            isAvc = false;
+            continue;
+        }
+        if (format == NULL) {
+            sp<RefBase> object;
+            if (buffer->meta()->findObject("format", &object)) {
+                const char* mime;
+                format = static_cast<MetaData*>(object.get());
+                isAvc = format != NULL
+                        && format->findCString(kKeyMIMEType, &mime)
+                        && !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC);
+            }
+        }
+        if (isAvc && !IsIDR(buffer)) {
+            continue;
+        }
+
+        HLSTime curTime(buffer->meta());
+        if (startTime < curTime) {
+            ALOGV("trimming from beginning to %lld (not inclusive)",
+                    (long long)curTime.mTimeUs);
+            firstMeta = buffer->meta();
+            firstTimeUs = curTime.mTimeUs;
+            break;
+        }
+    }
+    mBuffers.erase(mBuffers.begin(), it);
+    mLatestDequeuedMeta = NULL;
+
+    // CHECK(!mDiscontinuitySegments.empty());
+    DiscontinuitySegment &seg = *mDiscontinuitySegments.begin();
+    if (firstTimeUs >= 0) {
+        seg.mMaxDequeTimeUs = firstTimeUs;
+    } else {
+        seg.clear();
+    }
+
+    return firstMeta;
 }
 
 }  // namespace android

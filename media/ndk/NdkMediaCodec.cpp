@@ -116,7 +116,7 @@ void CodecHandler::onMessageReceived(const sp<AMessage> &msg) {
 
         case kWhatStopActivityNotifications:
         {
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             msg->senderAwaitsResponse(&replyID);
 
             mCodec->mGeneration++;
@@ -136,7 +136,7 @@ void CodecHandler::onMessageReceived(const sp<AMessage> &msg) {
 
 
 static void requestActivityNotification(AMediaCodec *codec) {
-    (new AMessage(kWhatRequestActivityNotifications, codec->mHandler->id()))->post();
+    (new AMessage(kWhatRequestActivityNotifications, codec->mHandler))->post();
 }
 
 extern "C" {
@@ -153,6 +153,10 @@ static AMediaCodec * createAMediaCodec(const char *name, bool name_is_type, bool
         mData->mCodec = android::MediaCodec::CreateByType(mData->mLooper, name, encoder);
     } else {
         mData->mCodec = android::MediaCodec::CreateByComponentName(mData->mLooper, name);
+    }
+    if (mData->mCodec == NULL) {  // failed to create codec
+        AMediaCodec_delete(mData);
+        return NULL;
     }
     mData->mHandler = new CodecHandler(mData);
     mData->mLooper->registerHandler(mData->mHandler);
@@ -180,17 +184,21 @@ AMediaCodec* AMediaCodec_createEncoderByType(const char *name) {
 
 EXPORT
 media_status_t AMediaCodec_delete(AMediaCodec *mData) {
-    if (mData->mCodec != NULL) {
-        mData->mCodec->release();
-        mData->mCodec.clear();
-    }
+    if (mData != NULL) {
+        if (mData->mCodec != NULL) {
+            mData->mCodec->release();
+            mData->mCodec.clear();
+        }
 
-    if (mData->mLooper != NULL) {
-        mData->mLooper->unregisterHandler(mData->mHandler->id());
-        mData->mLooper->stop();
-        mData->mLooper.clear();
+        if (mData->mLooper != NULL) {
+            if (mData->mHandler != NULL) {
+                mData->mLooper->unregisterHandler(mData->mHandler->id());
+            }
+            mData->mLooper->stop();
+            mData->mLooper.clear();
+        }
+        delete mData;
     }
-    delete mData;
     return AMEDIA_OK;
 }
 
@@ -219,7 +227,7 @@ media_status_t AMediaCodec_start(AMediaCodec *mData) {
     if (ret != OK) {
         return translate_error(ret);
     }
-    mData->mActivityNotification = new AMessage(kWhatActivityNotify, mData->mHandler->id());
+    mData->mActivityNotification = new AMessage(kWhatActivityNotify, mData->mHandler);
     mData->mActivityNotification->setInt32("generation", mData->mGeneration);
     requestActivityNotification(mData);
     return AMEDIA_OK;
@@ -229,7 +237,7 @@ EXPORT
 media_status_t AMediaCodec_stop(AMediaCodec *mData) {
     media_status_t ret = translate_error(mData->mCodec->stop());
 
-    sp<AMessage> msg = new AMessage(kWhatStopActivityNotifications, mData->mHandler->id());
+    sp<AMessage> msg = new AMessage(kWhatStopActivityNotifications, mData->mHandler);
     sp<AMessage> response;
     msg->postAndAwaitResponse(&response);
     mData->mActivityNotification.clear();
@@ -352,7 +360,8 @@ media_status_t AMediaCodec_releaseOutputBufferAtTime(
 }
 
 //EXPORT
-media_status_t AMediaCodec_setNotificationCallback(AMediaCodec *mData, OnCodecEvent callback, void *userdata) {
+media_status_t AMediaCodec_setNotificationCallback(AMediaCodec *mData, OnCodecEvent callback,
+        void *userdata) {
     mData->mCallback = callback;
     mData->mCallbackUserData = userdata;
     return AMEDIA_OK;

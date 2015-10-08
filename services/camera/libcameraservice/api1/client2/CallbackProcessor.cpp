@@ -55,7 +55,7 @@ void CallbackProcessor::onFrameAvailable(const BufferItem& /*item*/) {
 }
 
 status_t CallbackProcessor::setCallbackWindow(
-        sp<ANativeWindow> callbackWindow) {
+        sp<Surface> callbackWindow) {
     ATRACE_CALL();
     status_t res;
 
@@ -115,7 +115,7 @@ status_t CallbackProcessor::updateStream(const Parameters &params) {
         BufferQueue::createBufferQueue(&producer, &consumer);
         mCallbackConsumer = new CpuConsumer(consumer, kCallbackHeapCount);
         mCallbackConsumer->setFrameAvailableListener(this);
-        mCallbackConsumer->setName(String8("Camera2Client::CallbackConsumer"));
+        mCallbackConsumer->setName(String8("Camera2-CallbackConsumer"));
         mCallbackWindow = new Surface(producer);
     }
 
@@ -123,7 +123,7 @@ status_t CallbackProcessor::updateStream(const Parameters &params) {
         // Check if stream parameters have to change
         uint32_t currentWidth, currentHeight, currentFormat;
         res = device->getStreamInfo(mCallbackStreamId,
-                &currentWidth, &currentHeight, &currentFormat);
+                &currentWidth, &currentHeight, &currentFormat, 0);
         if (res != OK) {
             ALOGE("%s: Camera %d: Error querying callback output stream info: "
                     "%s (%d)", __FUNCTION__, mId,
@@ -154,8 +154,8 @@ status_t CallbackProcessor::updateStream(const Parameters &params) {
                 params.previewWidth, params.previewHeight,
                 callbackFormat, params.previewFormat);
         res = device->createStream(mCallbackWindow,
-                params.previewWidth, params.previewHeight,
-                callbackFormat, &mCallbackStreamId);
+                params.previewWidth, params.previewHeight, callbackFormat,
+                HAL_DATASPACE_JFIF, CAMERA3_STREAM_ROTATION_0, &mCallbackStreamId);
         if (res != OK) {
             ALOGE("%s: Camera %d: Can't create output stream for callbacks: "
                     "%s (%d)", __FUNCTION__, mId,
@@ -395,7 +395,7 @@ status_t CallbackProcessor::processNewCallback(sp<Camera2Client> &client) {
 
         heapIdx = mCallbackHeapHead;
 
-        mCallbackHeapHead = (mCallbackHeapHead + 1) & kCallbackHeapCount;
+        mCallbackHeapHead = (mCallbackHeapHead + 1) % kCallbackHeapCount;
         mCallbackHeapFree--;
 
         // TODO: Get rid of this copy by passing the gralloc queue all the way

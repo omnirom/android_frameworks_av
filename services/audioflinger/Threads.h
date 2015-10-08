@@ -32,8 +32,11 @@ public:
         OFFLOAD             // Thread class is OffloadThread
     };
 
+    static const char *threadTypeToString(type_t type);
+
     ThreadBase(const sp<AudioFlinger>& audioFlinger, audio_io_handle_t id,
-                audio_devices_t outDevice, audio_devices_t inDevice, type_t type);
+                audio_devices_t outDevice, audio_devices_t inDevice, type_t type,
+                bool systemReady);
     virtual             ~ThreadBase();
 
     virtual status_t    readyToRun();
@@ -90,30 +93,33 @@ public:
         Condition mCond; // condition for status return
         status_t mStatus; // status communicated to sender
         bool mWaitStatus; // true if sender is waiting for status
+        bool mRequiresSystemReady; // true if must wait for system ready to enter event queue
         sp<ConfigEventData> mData;     // event specific parameter data
 
     protected:
-        ConfigEvent(int type) : mType(type), mStatus(NO_ERROR), mWaitStatus(false), mData(NULL) {}
+        ConfigEvent(int type, bool requiresSystemReady = false) :
+            mType(type), mStatus(NO_ERROR), mWaitStatus(false),
+            mRequiresSystemReady(requiresSystemReady), mData(NULL) {}
     };
 
     class IoConfigEventData : public ConfigEventData {
     public:
-        IoConfigEventData(int event, int param) :
-            mEvent(event), mParam(param) {}
+        IoConfigEventData(audio_io_config_event event, pid_t pid) :
+            mEvent(event), mPid(pid) {}
 
         virtual  void dump(char *buffer, size_t size) {
-            snprintf(buffer, size, "IO event: event %d, param %d\n", mEvent, mParam);
+            snprintf(buffer, size, "IO event: event %d\n", mEvent);
         }
 
-        const int mEvent;
-        const int mParam;
+        const audio_io_config_event mEvent;
+        const pid_t                 mPid;
     };
 
     class IoConfigEvent : public ConfigEvent {
     public:
-        IoConfigEvent(int event, int param) :
+        IoConfigEvent(audio_io_config_event event, pid_t pid) :
             ConfigEvent(CFG_EVENT_IO) {
-            mData = new IoConfigEventData(event, param);
+            mData = new IoConfigEventData(event, pid);
         }
         virtual ~IoConfigEvent() {}
     };
@@ -135,7 +141,7 @@ public:
     class PrioConfigEvent : public ConfigEvent {
     public:
         PrioConfigEvent(pid_t pid, pid_t tid, int32_t prio) :
-            ConfigEvent(CFG_EVENT_PRIO) {
+            ConfigEvent(CFG_EVENT_PRIO, true) {
             mData = new PrioConfigEventData(pid, tid, prio);
         }
         virtual ~PrioConfigEvent() {}
@@ -229,6 +235,8 @@ public:
 
                 // static externally-visible
                 type_t      type() const { return mType; }
+                bool isDuplicating() const { return (mType == DUPLICATING); }
+
                 audio_io_handle_t id() const { return mId;}
 
                 // dynamic externally-visible
@@ -248,13 +256,14 @@ public:
                                                     status_t& status) = 0;
     virtual     status_t    setParameters(const String8& keyValuePairs);
     virtual     String8     getParameters(const String8& keys) = 0;
-    virtual     void        audioConfigChanged(int event, int param = 0) = 0;
+    virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0) = 0;
                 // sendConfigEvent_l() must be called with ThreadBase::mLock held
                 // Can temporarily release the lock if waiting for a reply from
                 // processConfigEvents_l().
                 status_t    sendConfigEvent_l(sp<ConfigEvent>& event);
-                void        sendIoConfigEvent(int event, int param = 0);
-                void        sendIoConfigEvent_l(int event, int param = 0);
+                void        sendIoConfigEvent(audio_io_config_event event, pid_t pid = 0);
+                void        sendIoConfigEvent_l(audio_io_config_event event, pid_t pid = 0);
+                void        sendPrioConfigEvent(pid_t pid, pid_t tid, int32_t prio);
                 void        sendPrioConfigEvent_l(pid_t pid, pid_t tid, int32_t prio);
                 status_t    sendSetParameterConfigEvent_l(const String8& keyValuePair);
                 status_t    sendCreateAudioPatchConfigEvent(const struct audio_patch *patch,
@@ -356,6 +365,8 @@ public:
 
                 virtual sp<IMemory> pipeMemory() const { return 0; }
 
+                        void systemReady();
+
     mutable     Mutex                   mLock;
 
 protected:
@@ -406,6 +417,7 @@ protected:
                 audio_channel_mask_t    mChannelMask;
                 uint32_t                mChannelCount;
                 size_t                  mFrameSize;
+                // not HAL frame size, this is for output sink (to pipe to fast mixer)
                 audio_format_t          mFormat;           // Source format for Recording and
                                                            // Sink format for Playback.
                                                            // Sink format may be different than
@@ -414,6 +426,7 @@ protected:
                 size_t                  mBufferSize;       // HAL buffer size for read() or write()
 
                 Vector< sp<ConfigEvent> >     mConfigEvents;
+                Vector< sp<ConfigEvent> >     mPendingConfigEvents; // events awaiting system ready
 
                 // These fields are written and read by thread itself without lock or barrier,
                 // and read by other threads without lock or barrier via standby(), outDevice()
@@ -424,13 +437,16 @@ protected:
                 bool                    mStandby;     // Whether thread is currently in standby.
                 audio_devices_t         mOutDevice;   // output device
                 audio_devices_t         mInDevice;    // input device
-                audio_source_t          mAudioSource; // (see audio.h, audio_source_t)
+                audio_devices_t         mPrevOutDevice;   // previous output device
+                audio_devices_t         mPrevInDevice;    // previous input device
+                struct audio_patch      mPatch;
+                audio_source_t          mAudioSource;
 
                 const audio_io_handle_t mId;
                 Vector< sp<EffectChain> > mEffectChains;
 
-                static const int        kNameLength = 16;   // prctl(PR_SET_NAME) limit
-                char                    mName[kNameLength];
+                static const int        kThreadNameLength = 16; // prctl(PR_SET_NAME) limit
+                char                    mThreadName[kThreadNameLength]; // guaranteed NUL-terminated
                 sp<IPowerManager>       mPowerManager;
                 sp<IBinder>             mWakeLockToken;
                 const sp<PMDeathRecipient> mDeathRecipient;
@@ -440,6 +456,7 @@ protected:
                                         mSuspendedSessions;
                 static const size_t     kLogSize = 4 * 1024;
                 sp<NBLog::Writer>       mNBLogWriter;
+                bool                    mSystemReady;
 };
 
 // --- PlaybackThread ---
@@ -465,7 +482,7 @@ public:
     static const int8_t kMaxTrackRetriesOffload = 20;
 
     PlaybackThread(const sp<AudioFlinger>& audioFlinger, AudioStreamOut* output,
-                   audio_io_handle_t id, audio_devices_t device, type_t type);
+                   audio_io_handle_t id, audio_devices_t device, type_t type, bool systemReady);
     virtual             ~PlaybackThread();
 
                 void        dump(int fd, const Vector<String16>& args);
@@ -557,7 +574,7 @@ public:
                                 { return android_atomic_acquire_load(&mSuspended) > 0; }
 
     virtual     String8     getParameters(const String8& keys);
-    virtual     void        audioConfigChanged(int event, int param = 0);
+    virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0);
                 status_t    getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames);
                 // FIXME rename mixBuffer() to sinkBuffer() and remove int16_t* dependency.
                 // Consider also removing and passing an explicit mMainBuffer initialization
@@ -598,6 +615,11 @@ public:
 protected:
     // updated by readOutputParameters_l()
     size_t                          mNormalFrameCount;  // normal mixer and effects
+
+    bool                            mThreadThrottle;     // throttle the thread processing
+    uint32_t                        mThreadThrottleTimeMs; // throttle time for MIXER threads
+    uint32_t                        mThreadThrottleEndMs;  // notify once per throttling
+    uint32_t                        mHalfBufferMs;       // half the buffer size in milliseconds
 
     void*                           mSinkBuffer;         // frame size aligned sink buffer
 
@@ -710,8 +732,9 @@ protected:
                                    audio_patch_handle_t *handle);
     virtual     status_t    releaseAudioPatch_l(const audio_patch_handle_t handle);
 
-                bool        usesHwAvSync() const { return (mType == DIRECT) && (mOutput != NULL) &&
-                                                (mOutput->flags & AUDIO_OUTPUT_FLAG_HW_AV_SYNC); }
+                bool        usesHwAvSync() const { return (mType == DIRECT) && (mOutput != NULL)
+                                    && mHwSupportsPause
+                                    && (mOutput->flags & AUDIO_OUTPUT_FLAG_HW_AV_SYNC); }
 
 private:
 
@@ -740,14 +763,14 @@ private:
     bool                            mInWrite;
 
     // FIXME rename these former local variables of threadLoop to standard "m" names
-    nsecs_t                         standbyTime;
+    nsecs_t                         mStandbyTimeNs;
     size_t                          mSinkBufferSize;
 
     // cached copies of activeSleepTimeUs() and idleSleepTimeUs() made by cacheParameters_l()
-    uint32_t                        activeSleepTime;
-    uint32_t                        idleSleepTime;
+    uint32_t                        mActiveSleepTimeUs;
+    uint32_t                        mIdleSleepTimeUs;
 
-    uint32_t                        sleepTime;
+    uint32_t                        mSleepTimeUs;
 
     // mixer status returned by prepareTracks_l()
     mixer_state                     mMixerStatus; // current cycle
@@ -760,7 +783,7 @@ private:
     uint32_t                        sleepTimeShift;
 
     // same as AudioFlinger::mStandbyTimeInNsecs except for DIRECT which uses a shorter value
-    nsecs_t                         standbyDelay;
+    nsecs_t                         mStandbyDelayNs;
 
     // MIXER only
     nsecs_t                         maxPeriod;
@@ -836,6 +859,7 @@ public:
                 AudioStreamOut* output,
                 audio_io_handle_t id,
                 audio_devices_t device,
+                bool systemReady,
                 type_t type = MIXER);
     virtual             ~MixerThread();
 
@@ -861,6 +885,10 @@ protected:
     virtual     void        threadLoop_sleepTime();
     virtual     void        threadLoop_removeTracks(const Vector< sp<Track> >& tracksToRemove);
     virtual     uint32_t    correctLatency_l(uint32_t latency) const;
+
+    virtual     status_t    createAudioPatch_l(const struct audio_patch *patch,
+                                   audio_patch_handle_t *handle);
+    virtual     status_t    releaseAudioPatch_l(const audio_patch_handle_t handle);
 
                 AudioMixer* mAudioMixer;    // normal mixer
 private:
@@ -893,7 +921,7 @@ class DirectOutputThread : public PlaybackThread {
 public:
 
     DirectOutputThread(const sp<AudioFlinger>& audioFlinger, AudioStreamOut* output,
-                       audio_io_handle_t id, audio_devices_t device);
+                       audio_io_handle_t id, audio_devices_t device, bool systemReady);
     virtual                 ~DirectOutputThread();
 
     // Thread virtuals
@@ -918,16 +946,22 @@ protected:
     virtual     void        threadLoop_exit();
     virtual     bool        shouldStandby_l();
 
+    virtual     void        onAddNewTrack_l();
+
     // volumes last sent to audio HAL with stream->set_volume()
     float mLeftVolFloat;
     float mRightVolFloat;
 
     DirectOutputThread(const sp<AudioFlinger>& audioFlinger, AudioStreamOut* output,
-                        audio_io_handle_t id, uint32_t device, ThreadBase::type_t type);
+                        audio_io_handle_t id, uint32_t device, ThreadBase::type_t type,
+                        bool systemReady);
     void processVolume_l(Track *track, bool lastTrack);
 
     // prepareTracks_l() tells threadLoop_mix() the name of the single active track
     sp<Track>               mActiveTrack;
+
+    wp<Track>               mPreviousTrack;         // used to detect track switch
+
 public:
     virtual     bool        hasFastMixer() const { return false; }
 };
@@ -936,7 +970,7 @@ class OffloadThread : public DirectOutputThread {
 public:
 
     OffloadThread(const sp<AudioFlinger>& audioFlinger, AudioStreamOut* output,
-                        audio_io_handle_t id, uint32_t device);
+                        audio_io_handle_t id, uint32_t device, bool systemReady);
     virtual                 ~OffloadThread() {};
     virtual     void        flushHw_l();
 
@@ -947,12 +981,10 @@ protected:
 
     virtual     bool        waitingAsyncCallback();
     virtual     bool        waitingAsyncCallback_l();
-    virtual     void        onAddNewTrack_l();
 
 private:
     size_t      mPausedWriteLength;     // length in bytes of write interrupted by pause
     size_t      mPausedBytesRemaining;  // bytes still waiting in mixbuffer after resume
-    wp<Track>   mPreviousTrack;         // used to detect track switch
 };
 
 class AsyncCallbackThread : public Thread {
@@ -991,7 +1023,7 @@ private:
 class DuplicatingThread : public MixerThread {
 public:
     DuplicatingThread(const sp<AudioFlinger>& audioFlinger, MixerThread* mainThread,
-                      audio_io_handle_t id);
+                      audio_io_handle_t id, bool systemReady);
     virtual                 ~DuplicatingThread();
 
     // Thread virtuals
@@ -1033,17 +1065,132 @@ class RecordThread : public ThreadBase
 public:
 
     class RecordTrack;
+
+    /* The ResamplerBufferProvider is used to retrieve recorded input data from the
+     * RecordThread.  It maintains local state on the relative position of the read
+     * position of the RecordTrack compared with the RecordThread.
+     */
     class ResamplerBufferProvider : public AudioBufferProvider
-                        // derives from AudioBufferProvider interface for use by resampler
     {
     public:
-        ResamplerBufferProvider(RecordTrack* recordTrack) : mRecordTrack(recordTrack) { }
+        ResamplerBufferProvider(RecordTrack* recordTrack) :
+            mRecordTrack(recordTrack),
+            mRsmpInUnrel(0), mRsmpInFront(0) { }
         virtual ~ResamplerBufferProvider() { }
+
+        // called to set the ResamplerBufferProvider to head of the RecordThread data buffer,
+        // skipping any previous data read from the hal.
+        virtual void reset();
+
+        /* Synchronizes RecordTrack position with the RecordThread.
+         * Calculates available frames and handle overruns if the RecordThread
+         * has advanced faster than the ResamplerBufferProvider has retrieved data.
+         * TODO: why not do this for every getNextBuffer?
+         *
+         * Parameters
+         * framesAvailable:  pointer to optional output size_t to store record track
+         *                   frames available.
+         *      hasOverrun:  pointer to optional boolean, returns true if track has overrun.
+         */
+
+        virtual void sync(size_t *framesAvailable = NULL, bool *hasOverrun = NULL);
+
         // AudioBufferProvider interface
         virtual status_t    getNextBuffer(AudioBufferProvider::Buffer* buffer, int64_t pts);
         virtual void        releaseBuffer(AudioBufferProvider::Buffer* buffer);
     private:
         RecordTrack * const mRecordTrack;
+        size_t              mRsmpInUnrel;   // unreleased frames remaining from
+                                            // most recent getNextBuffer
+                                            // for debug only
+        int32_t             mRsmpInFront;   // next available frame
+                                            // rolling counter that is never cleared
+    };
+
+    /* The RecordBufferConverter is used for format, channel, and sample rate
+     * conversion for a RecordTrack.
+     *
+     * TODO: Self contained, so move to a separate file later.
+     *
+     * RecordBufferConverter uses the convert() method rather than exposing a
+     * buffer provider interface; this is to save a memory copy.
+     */
+    class RecordBufferConverter
+    {
+    public:
+        RecordBufferConverter(
+                audio_channel_mask_t srcChannelMask, audio_format_t srcFormat,
+                uint32_t srcSampleRate,
+                audio_channel_mask_t dstChannelMask, audio_format_t dstFormat,
+                uint32_t dstSampleRate);
+
+        ~RecordBufferConverter();
+
+        /* Converts input data from an AudioBufferProvider by format, channelMask,
+         * and sampleRate to a destination buffer.
+         *
+         * Parameters
+         *      dst:  buffer to place the converted data.
+         * provider:  buffer provider to obtain source data.
+         *   frames:  number of frames to convert
+         *
+         * Returns the number of frames converted.
+         */
+        size_t convert(void *dst, AudioBufferProvider *provider, size_t frames);
+
+        // returns NO_ERROR if constructor was successful
+        status_t initCheck() const {
+            // mSrcChannelMask set on successful updateParameters
+            return mSrcChannelMask != AUDIO_CHANNEL_INVALID ? NO_ERROR : NO_INIT;
+        }
+
+        // allows dynamic reconfigure of all parameters
+        status_t updateParameters(
+                audio_channel_mask_t srcChannelMask, audio_format_t srcFormat,
+                uint32_t srcSampleRate,
+                audio_channel_mask_t dstChannelMask, audio_format_t dstFormat,
+                uint32_t dstSampleRate);
+
+        // called to reset resampler buffers on record track discontinuity
+        void reset() {
+            if (mResampler != NULL) {
+                mResampler->reset();
+            }
+        }
+
+    private:
+        // format conversion when not using resampler
+        void convertNoResampler(void *dst, const void *src, size_t frames);
+
+        // format conversion when using resampler; modifies src in-place
+        void convertResampler(void *dst, /*not-a-const*/ void *src, size_t frames);
+
+        // user provided information
+        audio_channel_mask_t mSrcChannelMask;
+        audio_format_t       mSrcFormat;
+        uint32_t             mSrcSampleRate;
+        audio_channel_mask_t mDstChannelMask;
+        audio_format_t       mDstFormat;
+        uint32_t             mDstSampleRate;
+
+        // derived information
+        uint32_t             mSrcChannelCount;
+        uint32_t             mDstChannelCount;
+        size_t               mDstFrameSize;
+
+        // format conversion buffer
+        void                *mBuf;
+        size_t               mBufFrames;
+        size_t               mBufFrameSize;
+
+        // resampler info
+        AudioResampler      *mResampler;
+
+        bool                 mIsLegacyDownmix;  // legacy stereo to mono conversion needed
+        bool                 mIsLegacyUpmix;    // legacy mono to stereo conversion needed
+        bool                 mRequiresFloat;    // data processing requires float (e.g. resampler)
+        PassthruBufferProvider *mInputConverterProvider;    // converts input to float
+        int8_t               mIdxAry[sizeof(uint32_t) * 8]; // used for channel mask conversion
     };
 
 #include "RecordTracks.h"
@@ -1052,7 +1199,8 @@ public:
                     AudioStreamIn *input,
                     audio_io_handle_t id,
                     audio_devices_t outDevice,
-                    audio_devices_t inDevice
+                    audio_devices_t inDevice,
+                    bool systemReady
 #ifdef TEE_SINK
                     , const sp<NBAIO_Sink>& teeSink
 #endif
@@ -1108,7 +1256,7 @@ public:
                                                status_t& status);
     virtual void        cacheParameters_l() {}
     virtual String8     getParameters(const String8& keys);
-    virtual void        audioConfigChanged(int event, int param = 0);
+    virtual void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0);
     virtual status_t    createAudioPatch_l(const struct audio_patch *patch,
                                            audio_patch_handle_t *handle);
     virtual status_t    releaseAudioPatch_l(const audio_patch_handle_t handle);
@@ -1154,7 +1302,7 @@ private:
             Condition                           mStartStopCond;
 
             // resampler converts input at HAL Hz to output at AudioRecord client Hz
-            int16_t                             *mRsmpInBuffer; // see new[] for details on the size
+            void                               *mRsmpInBuffer; //
             size_t                              mRsmpInFrames;  // size of resampler input in frames
             size_t                              mRsmpInFramesP2;// size rounded up to a power-of-2
 
@@ -1167,7 +1315,9 @@ private:
             const sp<MemoryDealer>              mReadOnlyHeap;
 
             // one-time initialization, no locks required
-            sp<FastCapture>                     mFastCapture;   // non-0 if there is also a fast capture
+            sp<FastCapture>                     mFastCapture;   // non-0 if there is also
+                                                                // a fast capture
+
             // FIXME audio watchdog thread
 
             // contents are not guaranteed to be consistent, no locks required

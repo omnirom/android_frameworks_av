@@ -32,10 +32,11 @@ namespace android {
 namespace camera3 {
 
 Camera3OutputStream::Camera3OutputStream(int id,
-        sp<ANativeWindow> consumer,
-        uint32_t width, uint32_t height, int format) :
+        sp<Surface> consumer,
+        uint32_t width, uint32_t height, int format,
+        android_dataspace dataSpace, camera3_stream_rotation_t rotation) :
         Camera3IOStreamBase(id, CAMERA3_STREAM_OUTPUT, width, height,
-                            /*maxSize*/0, format),
+                            /*maxSize*/0, format, dataSpace, rotation),
         mConsumer(consumer),
         mTransform(0),
         mTraceFirstBuffer(true) {
@@ -47,10 +48,11 @@ Camera3OutputStream::Camera3OutputStream(int id,
 }
 
 Camera3OutputStream::Camera3OutputStream(int id,
-        sp<ANativeWindow> consumer,
-        uint32_t width, uint32_t height, size_t maxSize, int format) :
+        sp<Surface> consumer,
+        uint32_t width, uint32_t height, size_t maxSize, int format,
+        android_dataspace dataSpace, camera3_stream_rotation_t rotation) :
         Camera3IOStreamBase(id, CAMERA3_STREAM_OUTPUT, width, height, maxSize,
-                            format),
+                            format, dataSpace, rotation),
         mConsumer(consumer),
         mTransform(0),
         mTraceFirstBuffer(true) {
@@ -69,10 +71,12 @@ Camera3OutputStream::Camera3OutputStream(int id,
 
 Camera3OutputStream::Camera3OutputStream(int id, camera3_stream_type_t type,
                                          uint32_t width, uint32_t height,
-                                         int format) :
+                                         int format,
+                                         android_dataspace dataSpace,
+                                         camera3_stream_rotation_t rotation) :
         Camera3IOStreamBase(id, type, width, height,
                             /*maxSize*/0,
-                            format),
+                            format, dataSpace, rotation),
         mTransform(0) {
 
     // Subclasses expected to initialize mConsumer themselves
@@ -153,33 +157,9 @@ status_t Camera3OutputStream::returnBufferCheckedLocked(
     ALOG_ASSERT(output, "Expected output to be true");
 
     status_t res;
-    sp<Fence> releaseFence;
 
-    /**
-     * Fence management - calculate Release Fence
-     */
-    if (buffer.status == CAMERA3_BUFFER_STATUS_ERROR) {
-        if (buffer.release_fence != -1) {
-            ALOGE("%s: Stream %d: HAL should not set release_fence(%d) when "
-                  "there is an error", __FUNCTION__, mId, buffer.release_fence);
-            close(buffer.release_fence);
-        }
-
-        /**
-         * Reassign release fence as the acquire fence in case of error
-         */
-        releaseFence = new Fence(buffer.acquire_fence);
-    } else {
-        res = native_window_set_buffers_timestamp(mConsumer.get(), timestamp);
-        if (res != OK) {
-            ALOGE("%s: Stream %d: Error setting timestamp: %s (%d)",
-                  __FUNCTION__, mId, strerror(-res), res);
-            return res;
-        }
-
-        releaseFence = new Fence(buffer.release_fence);
-    }
-
+    // Fence management - always honor release fence from HAL
+    sp<Fence> releaseFence = new Fence(buffer.release_fence);
     int anwReleaseFence = releaseFence->dup();
 
     /**
@@ -213,6 +193,13 @@ status_t Camera3OutputStream::returnBufferCheckedLocked(
             mTraceFirstBuffer = false;
         }
 
+        res = native_window_set_buffers_timestamp(mConsumer.get(), timestamp);
+        if (res != OK) {
+            ALOGE("%s: Stream %d: Error setting timestamp: %s (%d)",
+                  __FUNCTION__, mId, strerror(-res), res);
+            return res;
+        }
+
         res = currentConsumer->queueBuffer(currentConsumer.get(),
                 container_of(buffer.buffer, ANativeWindowBuffer, handle),
                 anwReleaseFence);
@@ -222,6 +209,13 @@ status_t Camera3OutputStream::returnBufferCheckedLocked(
         }
     }
     mLock.lock();
+
+    // Once a valid buffer has been returned to the queue, can no longer
+    // dequeue all buffers for preallocation.
+    if (buffer.status != CAMERA3_BUFFER_STATUS_ERROR) {
+        mStreamUnpreparable = true;
+    }
+
     if (res != OK) {
         close(anwReleaseFence);
     }
@@ -235,6 +229,7 @@ void Camera3OutputStream::dump(int fd, const Vector<String16> &args) const {
     (void) args;
     String8 lines;
     lines.appendFormat("    Stream[%d]: Output\n", mId);
+    lines.appendFormat("      Consumer name: %s\n", mConsumerName.string());
     write(fd, lines.string(), lines.size());
 
     Camera3IOStreamBase::dump(fd, args);
@@ -284,6 +279,8 @@ status_t Camera3OutputStream::configureQueueLocked() {
         return res;
     }
 
+    mConsumerName = mConsumer->getConsumerName();
+
     res = native_window_set_usage(mConsumer.get(), camera3_stream::usage);
     if (res != OK) {
         ALOGE("%s: Unable to configure usage %08x for stream %d",
@@ -323,8 +320,17 @@ status_t Camera3OutputStream::configureQueueLocked() {
         return res;
     }
 
+    res = native_window_set_buffers_data_space(mConsumer.get(),
+            camera3_stream::data_space);
+    if (res != OK) {
+        ALOGE("%s: Unable to configure stream dataspace %#x for stream %d",
+                __FUNCTION__, camera3_stream::data_space, mId);
+        return res;
+    }
+
     int maxConsumerBuffers;
-    res = mConsumer->query(mConsumer.get(),
+    res = static_cast<ANativeWindow*>(mConsumer.get())->query(
+            mConsumer.get(),
             NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS, &maxConsumerBuffers);
     if (res != OK) {
         ALOGE("%s: Unable to query consumer undequeued"
@@ -395,14 +401,28 @@ status_t Camera3OutputStream::disconnectLocked() {
     return OK;
 }
 
-status_t Camera3OutputStream::getEndpointUsage(uint32_t *usage) {
+status_t Camera3OutputStream::getEndpointUsage(uint32_t *usage) const {
 
     status_t res;
     int32_t u = 0;
-    res = mConsumer->query(mConsumer.get(),
+    res = static_cast<ANativeWindow*>(mConsumer.get())->query(mConsumer.get(),
             NATIVE_WINDOW_CONSUMER_USAGE_BITS, &u);
-    *usage = u;
 
+    // If an opaque output stream's endpoint is ImageReader, add
+    // GRALLOC_USAGE_HW_CAMERA_ZSL to the usage so HAL knows it will be used
+    // for the ZSL use case.
+    // Assume it's for ImageReader if the consumer usage doesn't have any of these bits set:
+    //     1. GRALLOC_USAGE_HW_TEXTURE
+    //     2. GRALLOC_USAGE_HW_RENDER
+    //     3. GRALLOC_USAGE_HW_COMPOSER
+    //     4. GRALLOC_USAGE_HW_VIDEO_ENCODER
+    if (camera3_stream::format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED &&
+            (u & (GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_COMPOSER |
+            GRALLOC_USAGE_HW_VIDEO_ENCODER)) == 0) {
+        u |= GRALLOC_USAGE_HW_CAMERA_ZSL;
+    }
+
+    *usage = u;
     return res;
 }
 

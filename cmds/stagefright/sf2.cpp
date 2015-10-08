@@ -38,10 +38,10 @@
 #include <media/stagefright/MediaExtractor.h>
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
-#include <media/stagefright/NativeWindowWrapper.h>
 #include <media/stagefright/Utils.h>
 
 #include <gui/SurfaceComposerClient.h>
+#include <gui/Surface.h>
 
 #include "include/ESDS.h"
 
@@ -72,7 +72,7 @@ struct Controller : public AHandler {
     }
 
     void startAsync() {
-        (new AMessage(kWhatStart, id()))->post();
+        (new AMessage(kWhatStart, this))->post();
     }
 
 protected:
@@ -100,7 +100,7 @@ protected:
         if (ctrlc) {
             printf("\n");
             printStatistics();
-            (new AMessage(kWhatStop, id()))->post();
+            (new AMessage(kWhatStop, this))->post();
             ctrlc = false;
         }
         switch (msg->what()) {
@@ -149,13 +149,12 @@ protected:
                 mDecodeLooper->registerHandler(mCodec);
 
                 mCodec->setNotificationMessage(
-                        new AMessage(kWhatCodecNotify, id()));
+                        new AMessage(kWhatCodecNotify, this));
 
                 sp<AMessage> format = makeFormat(mSource->getFormat());
 
                 if (mSurface != NULL) {
-                    format->setObject(
-                            "native-window", new NativeWindowWrapper(mSurface));
+                    format->setObject("surface", mSurface);
                 }
 
                 mCodec->initiateSetup(format);
@@ -168,7 +167,7 @@ protected:
                 mFinalResult = OK;
                 mSeekState = SEEK_NONE;
 
-                // (new AMessage(kWhatSeek, id()))->post(5000000ll);
+                // (new AMessage(kWhatSeek, this))->post(5000000ll);
                 break;
             }
 
@@ -225,12 +224,12 @@ protected:
                     printf((what == CodecBase::kWhatEOS) ? "$\n" : "E\n");
 
                     printStatistics();
-                    (new AMessage(kWhatStop, id()))->post();
+                    (new AMessage(kWhatStop, this))->post();
                 } else if (what == CodecBase::kWhatFlushCompleted) {
                     mSeekState = SEEK_FLUSH_COMPLETED;
                     mCodec->signalResume();
 
-                    (new AMessage(kWhatSeek, id()))->post(5000000ll);
+                    (new AMessage(kWhatSeek, this))->post(5000000ll);
                 } else if (what == CodecBase::kWhatOutputFormatChanged) {
                 } else if (what == CodecBase::kWhatShutdownCompleted) {
                     mDecodeLooper->unregisterHandler(mCodec->id());
@@ -328,14 +327,14 @@ private:
 
             CHECK(size >= 7);
             CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
-            uint8_t profile = ptr[1];
-            uint8_t level = ptr[3];
+            uint8_t profile __unused = ptr[1];
+            uint8_t level __unused = ptr[3];
 
             // There is decodable content out there that fails the following
             // assertion, let's be lenient for now...
             // CHECK((ptr[4] >> 2) == 0x3f);  // reserved
 
-            size_t lengthSize = 1 + (ptr[4] & 3);
+            size_t lengthSize __unused = 1 + (ptr[4] & 3);
 
             // commented out check below as H264_QVGA_500_NO_AUDIO.3gp
             // violates it...
@@ -491,7 +490,7 @@ private:
 
                 if (sizeNeeded > sizeLeft) {
                     if (outBuffer->size() == 0) {
-                        ALOGE("Unable to fit even a single input buffer of size %d.",
+                        ALOGE("Unable to fit even a single input buffer of size %zu.",
                              sizeNeeded);
                     }
                     CHECK_GT(outBuffer->size(), 0u);

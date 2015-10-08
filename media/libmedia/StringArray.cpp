@@ -16,7 +16,7 @@
 
 //
 // Sortable array of strings.  STL-ish, but STL-free.
-//  
+//
 
 #include <stdlib.h>
 #include <string.h>
@@ -110,4 +110,4 @@ void StringArray::setEntry(int idx, const char* str) {
 }
 
 
-}; // namespace android
+} // namespace android

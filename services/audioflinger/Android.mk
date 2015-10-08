@@ -33,19 +33,24 @@ LOCAL_SRC_FILES:=               \
     AudioFlinger.cpp            \
     Threads.cpp                 \
     Tracks.cpp                  \
+    AudioHwDevice.cpp           \
+    AudioStreamOut.cpp          \
+    SpdifStreamOut.cpp          \
     Effects.cpp                 \
     AudioMixer.cpp.arm          \
-    PatchPanel.cpp
-
-LOCAL_SRC_FILES += StateQueue.cpp
+    BufferProviders.cpp         \
+    PatchPanel.cpp              \
+    StateQueue.cpp
 
 LOCAL_C_INCLUDES := \
     $(TOPDIR)frameworks/av/services/audiopolicy \
+    $(TOPDIR)external/sonic \
     $(call include-path-for, audio-effects) \
     $(call include-path-for, audio-utils)
 
 LOCAL_SHARED_LIBRARIES := \
     libaudioresampler \
+    libaudiospdif \
     libaudioutils \
     libcommon_time_client \
     libcutils \
@@ -58,7 +63,8 @@ LOCAL_SHARED_LIBRARIES := \
     libhardware_legacy \
     libeffects \
     libpowermanager \
-    libserviceutility
+    libserviceutility \
+    libsonic
 
 LOCAL_STATIC_LIBRARIES := \
     libscheduling_policy \
@@ -68,18 +74,19 @@ LOCAL_STATIC_LIBRARIES := \
 LOCAL_MODULE:= libaudioflinger
 LOCAL_32_BIT_ONLY := true
 
-LOCAL_SRC_FILES += FastMixer.cpp FastMixerState.cpp AudioWatchdog.cpp
-LOCAL_SRC_FILES += FastThread.cpp FastThreadState.cpp
-LOCAL_SRC_FILES += FastCapture.cpp FastCaptureState.cpp
+LOCAL_SRC_FILES += \
+    AudioWatchdog.cpp        \
+    FastCapture.cpp          \
+    FastCaptureDumpState.cpp \
+    FastCaptureState.cpp     \
+    FastMixer.cpp            \
+    FastMixerDumpState.cpp   \
+    FastMixerState.cpp       \
+    FastThread.cpp           \
+    FastThreadDumpState.cpp  \
+    FastThreadState.cpp
 
 LOCAL_CFLAGS += -DSTATE_QUEUE_INSTANTIATIONS='"StateQueueInstantiations.cpp"'
-
-# Define ANDROID_SMP appropriately. Used to get inline tracing fast-path.
-ifeq ($(TARGET_CPU_SMP),true)
-    LOCAL_CFLAGS += -DANDROID_SMP=1
-else
-    LOCAL_CFLAGS += -DANDROID_SMP=0
-endif
 
 LOCAL_CFLAGS += -fvisibility=hidden
 

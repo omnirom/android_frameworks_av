@@ -20,9 +20,11 @@
 
 #include <stdint.h>
 #include <android/native_window.h>
+#include <media/hardware/MetadataBufferType.h>
 #include <media/IOMX.h>
 #include <media/stagefright/foundation/AHierarchicalStateMachine.h>
 #include <media/stagefright/CodecBase.h>
+#include <media/stagefright/FrameRenderTracker.h>
 #include <media/stagefright/SkipCutBuffer.h>
 #include <OMX_Audio.h>
 
@@ -44,8 +46,11 @@ struct ACodec : public AHierarchicalStateMachine, public CodecBase {
     virtual void initiateAllocateComponent(const sp<AMessage> &msg);
     virtual void initiateConfigureComponent(const sp<AMessage> &msg);
     virtual void initiateCreateInputSurface();
+    virtual void initiateSetInputSurface(const sp<PersistentSurface> &surface);
     virtual void initiateStart();
     virtual void initiateShutdown(bool keepComponentAllocated = false);
+
+    virtual status_t setSurface(const sp<Surface> &surface);
 
     virtual void signalFlush();
     virtual void signalResume();
@@ -105,6 +110,10 @@ private:
     enum {
         kWhatSetup                   = 'setu',
         kWhatOMXMessage              = 'omx ',
+        // same as kWhatOMXMessage - but only used with
+        // handleMessage during OMX message-list handling
+        kWhatOMXMessageItem          = 'omxI',
+        kWhatOMXMessageList          = 'omxL',
         kWhatInputBufferFilled       = 'inpF',
         kWhatOutputBufferDrained     = 'outD',
         kWhatShutdown                = 'shut',
@@ -113,12 +122,14 @@ private:
         kWhatDrainDeferredMessages   = 'drai',
         kWhatAllocateComponent       = 'allo',
         kWhatConfigureComponent      = 'conf',
+        kWhatSetSurface              = 'setS',
         kWhatCreateInputSurface      = 'cisf',
+        kWhatSetInputSurface         = 'sisf',
         kWhatSignalEndOfInputStream  = 'eois',
         kWhatStart                   = 'star',
         kWhatRequestIDRFrame         = 'ridr',
         kWhatSetParameters           = 'setP',
-        kWhatSubmitOutputMetaDataBufferIfEOS = 'subm',
+        kWhatSubmitOutputMetadataBufferIfEOS = 'subm',
         kWhatOMXDied                 = 'OMXd',
         kWhatReleaseCodecInstance    = 'relC',
     };
@@ -134,6 +145,12 @@ private:
         kFlagIsGrallocUsageProtected                  = 4,
     };
 
+    enum {
+        kVideoGrallocUsage = (GRALLOC_USAGE_HW_TEXTURE
+                            | GRALLOC_USAGE_HW_COMPOSER
+                            | GRALLOC_USAGE_EXTERNAL_DISP),
+    };
+
     struct BufferInfo {
         enum Status {
             OWNED_BY_US,
@@ -141,7 +158,12 @@ private:
             OWNED_BY_UPSTREAM,
             OWNED_BY_DOWNSTREAM,
             OWNED_BY_NATIVE_WINDOW,
+            UNRECOGNIZED,            // not a tracked buffer
         };
+
+        static inline Status getSafeStatus(BufferInfo *info) {
+            return info == NULL ? UNRECOGNIZED : info->mStatus;
+        }
 
         IOMX::buffer_id mBufferID;
         Status mStatus;
@@ -149,7 +171,25 @@ private:
 
         sp<ABuffer> mData;
         sp<GraphicBuffer> mGraphicBuffer;
+        int mFenceFd;
+        FrameRenderTracker::Info *mRenderInfo;
+
+        // The following field and 4 methods are used for debugging only
+        bool mIsReadFence;
+        // Store |fenceFd| and set read/write flag. Log error, if there is already a fence stored.
+        void setReadFence(int fenceFd, const char *dbg);
+        void setWriteFence(int fenceFd, const char *dbg);
+        // Log error, if the current fence is not a read/write fence.
+        void checkReadFence(const char *dbg);
+        void checkWriteFence(const char *dbg);
     };
+
+    static const char *_asString(BufferInfo::Status s);
+    void dumpBuffers(OMX_U32 portIndex);
+
+    // If |fd| is non-negative, waits for fence with |fd| and logs an error if it fails. Returns
+    // the error code or OK on success. If |fd| is negative, it returns OK
+    status_t waitForFence(int fd, const char *dbg);
 
 #if TRACK_BUFFER_TIMING
     struct BufferStats {
@@ -181,10 +221,12 @@ private:
     sp<MemoryDealer> mDealer[2];
 
     sp<ANativeWindow> mNativeWindow;
+    int mNativeWindowUsageBits;
     sp<AMessage> mInputFormat;
     sp<AMessage> mOutputFormat;
     sp<AMessage> mBaseOutputFormat;
 
+    FrameRenderTracker mRenderTracker; // render information for buffers rendered by ACodec
     Vector<BufferInfo> mBuffers[2];
     bool mPortEOS[2];
     status_t mInputEOSResult;
@@ -192,8 +234,9 @@ private:
     List<sp<AMessage> > mDeferredQueue;
 
     bool mSentFormat;
+    bool mIsVideo;
     bool mIsEncoder;
-    bool mUseMetadataOnEncoderOutput;
+    bool mFatalError;
     bool mShutdownInProgress;
     bool mExplicitShutdown;
 
@@ -208,12 +251,15 @@ private:
     bool mChannelMaskPresent;
     int32_t mChannelMask;
     unsigned mDequeueCounter;
-    bool mStoreMetaDataInOutputBuffers;
-    int32_t mMetaDataBuffersToSubmit;
+    MetadataBufferType mInputMetadataType;
+    MetadataBufferType mOutputMetadataType;
+    bool mLegacyAdaptiveExperiment;
+    int32_t mMetadataBuffersToSubmit;
     size_t mNumUndequeuedBuffers;
 
     int64_t mRepeatFrameDelayUs;
     int64_t mMaxPtsGapUs;
+    float mMaxFps;
 
     int64_t mTimePerFrameUs;
     int64_t mTimePerCaptureUs;
@@ -227,16 +273,28 @@ private:
     status_t freeBuffersOnPort(OMX_U32 portIndex);
     status_t freeBuffer(OMX_U32 portIndex, size_t i);
 
+    status_t handleSetSurface(const sp<Surface> &surface);
+    status_t setupNativeWindowSizeFormatAndUsage(
+            ANativeWindow *nativeWindow /* nonnull */, int *finalUsage /* nonnull */);
+
     status_t configureOutputBuffersFromNativeWindow(
             OMX_U32 *nBufferCount, OMX_U32 *nBufferSize,
             OMX_U32 *nMinUndequeuedBuffers);
-    status_t allocateOutputMetaDataBuffers();
-    status_t submitOutputMetaDataBuffer();
-    void signalSubmitOutputMetaDataBufferIfEOS_workaround();
+    status_t allocateOutputMetadataBuffers();
+    status_t submitOutputMetadataBuffer();
+    void signalSubmitOutputMetadataBufferIfEOS_workaround();
     status_t allocateOutputBuffersFromNativeWindow();
     status_t cancelBufferToNativeWindow(BufferInfo *info);
     status_t freeOutputBuffersNotOwnedByComponent();
     BufferInfo *dequeueBufferFromNativeWindow();
+
+    inline bool storingMetadataInDecodedBuffers() {
+        return mOutputMetadataType >= 0 && !mIsEncoder;
+    }
+
+    inline bool usingMetadataOnEncoderOutput() {
+        return mOutputMetadataType >= 0 && mIsEncoder;
+    }
 
     BufferInfo *findBufferByID(
             uint32_t portIndex, IOMX::buffer_id bufferID,
@@ -290,13 +348,16 @@ private:
             OMX_U32 portIndex, OMX_AUDIO_CODINGTYPE desiredFormat);
 
     status_t setupAMRCodec(bool encoder, bool isWAMR, int32_t bitRate);
-    status_t setupG711Codec(bool encoder, int32_t numChannels);
+    status_t setupG711Codec(bool encoder, int32_t sampleRate, int32_t numChannels);
 
     status_t setupFlacCodec(
             bool encoder, int32_t numChannels, int32_t sampleRate, int32_t compressionLevel);
 
     status_t setupRawAudioFormat(
             OMX_U32 portIndex, int32_t sampleRate, int32_t numChannels);
+
+    status_t setPriority(int32_t priority);
+    status_t setOperatingRate(float rateFloat, bool isVideo);
 
     status_t setMinBufferSize(OMX_U32 portIndex, size_t size);
 
@@ -315,8 +376,6 @@ private:
 
     status_t initNativeWindow();
 
-    status_t pushBlankBuffersToNativeWindow();
-
     // Returns true iff all buffers on the given port have status
     // OWNED_BY_US or OWNED_BY_NATIVE_WINDOW.
     bool allYourBuffersAreBelongToUs(OMX_U32 portIndex);
@@ -330,6 +389,23 @@ private:
 
     void deferMessage(const sp<AMessage> &msg);
     void processDeferredMessages();
+
+    void onFrameRendered(int64_t mediaTimeUs, nsecs_t systemNano);
+    // called when we have dequeued a buffer |buf| from the native window to track render info.
+    // |fenceFd| is the dequeue fence, and |info| points to the buffer info where this buffer is
+    // stored.
+    void updateRenderInfoForDequeuedBuffer(
+            ANativeWindowBuffer *buf, int fenceFd, BufferInfo *info);
+
+    // Checks to see if any frames have rendered up until |until|, and to notify client
+    // (MediaCodec) of rendered frames up-until the frame pointed to by |until| or the first
+    // unrendered frame. These frames are removed from the render queue.
+    // If |dropIncomplete| is true, unrendered frames up-until |until| will be dropped from the
+    // queue, allowing all rendered framed up till then to be notified of.
+    // (This will effectively clear the render queue up-until (and including) |until|.)
+    // If |until| is NULL, or is not in the rendered queue, this method will check all frames.
+    void notifyOfRenderedFrames(
+            bool dropIncomplete = false, FrameRenderTracker::Info *until = NULL);
 
     void sendFormatChange(const sp<AMessage> &reply);
     status_t getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify);

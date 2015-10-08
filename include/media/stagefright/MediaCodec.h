@@ -20,17 +20,25 @@
 
 #include <gui/IGraphicBufferProducer.h>
 #include <media/hardware/CryptoAPI.h>
+#include <media/MediaResource.h>
 #include <media/stagefright/foundation/AHandler.h>
+#include <media/stagefright/FrameRenderTracker.h>
 #include <utils/Vector.h>
 
 namespace android {
 
 struct ABuffer;
 struct AMessage;
+struct AReplyToken;
 struct AString;
 struct CodecBase;
-struct ICrypto;
 struct IBatteryStats;
+struct ICrypto;
+class IMemory;
+struct MemoryDealer;
+class IResourceManagerClient;
+class IResourceManagerService;
+struct PersistentSurface;
 struct SoftwareRenderer;
 struct Surface;
 
@@ -50,15 +58,20 @@ struct MediaCodec : public AHandler {
         CB_OUTPUT_AVAILABLE = 2,
         CB_ERROR = 3,
         CB_OUTPUT_FORMAT_CHANGED = 4,
+        CB_RESOURCE_RECLAIMED = 5,
     };
 
-    struct BatteryNotifier;
+    static const pid_t kNoPid = -1;
 
     static sp<MediaCodec> CreateByType(
-            const sp<ALooper> &looper, const char *mime, bool encoder, status_t *err = NULL);
+            const sp<ALooper> &looper, const char *mime, bool encoder, status_t *err = NULL,
+            pid_t pid = kNoPid);
 
     static sp<MediaCodec> CreateByComponentName(
-            const sp<ALooper> &looper, const char *name, status_t *err = NULL);
+            const sp<ALooper> &looper, const char *name, status_t *err = NULL,
+            pid_t pid = kNoPid);
+
+    static sp<PersistentSurface> CreatePersistentInputSurface();
 
     status_t configure(
             const sp<AMessage> &format,
@@ -68,7 +81,11 @@ struct MediaCodec : public AHandler {
 
     status_t setCallback(const sp<AMessage> &callback);
 
+    status_t setOnFrameRenderedNotification(const sp<AMessage> &notify);
+
     status_t createInputSurface(sp<IGraphicBufferProducer>* bufferProducer);
+
+    status_t setInputSurface(const sp<PersistentSurface> &surface);
 
     status_t start();
 
@@ -125,12 +142,16 @@ struct MediaCodec : public AHandler {
     status_t getOutputFormat(sp<AMessage> *format) const;
     status_t getInputFormat(sp<AMessage> *format) const;
 
+    status_t getWidevineLegacyBuffers(Vector<sp<ABuffer> > *buffers) const;
+
     status_t getInputBuffers(Vector<sp<ABuffer> > *buffers) const;
     status_t getOutputBuffers(Vector<sp<ABuffer> > *buffers) const;
 
     status_t getOutputBuffer(size_t index, sp<ABuffer> *buffer);
     status_t getOutputFormat(size_t index, sp<AMessage> *format);
     status_t getInputBuffer(size_t index, sp<ABuffer> *buffer);
+
+    status_t setSurface(const sp<Surface> &nativeWindow);
 
     status_t requestIDRFrame();
 
@@ -143,9 +164,20 @@ struct MediaCodec : public AHandler {
 
     status_t setParameters(const sp<AMessage> &params);
 
+    // Create a MediaCodec notification message from a list of rendered or dropped render infos
+    // by adding rendered frame information to a base notification message. Returns the number
+    // of frames that were rendered.
+    static size_t CreateFramesRenderedMessage(
+            std::list<FrameRenderTracker::Info> done, sp<AMessage> &msg);
+
 protected:
     virtual ~MediaCodec();
     virtual void onMessageReceived(const sp<AMessage> &msg);
+
+private:
+    // used by ResourceManagerClient
+    status_t reclaim();
+    friend struct ResourceManagerClient;
 
 private:
     enum State {
@@ -170,7 +202,9 @@ private:
     enum {
         kWhatInit                           = 'init',
         kWhatConfigure                      = 'conf',
+        kWhatSetSurface                     = 'sSur',
         kWhatCreateInputSurface             = 'cisf',
+        kWhatSetInputSurface                = 'sisf',
         kWhatStart                          = 'strt',
         kWhatStop                           = 'stop',
         kWhatRelease                        = 'rele',
@@ -191,6 +225,7 @@ private:
         kWhatGetName                        = 'getN',
         kWhatSetParameters                  = 'setP',
         kWhatSetCallback                    = 'setC',
+        kWhatSetNotification                = 'setN',
     };
 
     enum {
@@ -206,38 +241,77 @@ private:
         kFlagGatherCodecSpecificData    = 512,
         kFlagIsAsync                    = 1024,
         kFlagIsComponentAllocated       = 2048,
+        kFlagPushBlankBuffersOnShutdown = 4096,
     };
 
     struct BufferInfo {
         uint32_t mBufferID;
         sp<ABuffer> mData;
         sp<ABuffer> mEncryptedData;
+        sp<IMemory> mSharedEncryptedBuffer;
         sp<AMessage> mNotify;
         sp<AMessage> mFormat;
         bool mOwnedByClient;
     };
 
+    struct ResourceManagerServiceProxy : public IBinder::DeathRecipient {
+        ResourceManagerServiceProxy(pid_t pid);
+        ~ResourceManagerServiceProxy();
+
+        void init();
+
+        // implements DeathRecipient
+        virtual void binderDied(const wp<IBinder>& /*who*/);
+
+        void addResource(
+                int64_t clientId,
+                const sp<IResourceManagerClient> client,
+                const Vector<MediaResource> &resources);
+
+        void removeResource(int64_t clientId);
+
+        bool reclaimResource(const Vector<MediaResource> &resources);
+
+    private:
+        Mutex mLock;
+        sp<IResourceManagerService> mService;
+        pid_t mPid;
+    };
+
     State mState;
+    bool mReleasedByResourceManager;
     sp<ALooper> mLooper;
     sp<ALooper> mCodecLooper;
     sp<CodecBase> mCodec;
     AString mComponentName;
-    uint32_t mReplyID;
+    sp<AReplyToken> mReplyID;
     uint32_t mFlags;
     status_t mStickyError;
-    sp<Surface> mNativeWindow;
+    sp<Surface> mSurface;
     SoftwareRenderer *mSoftRenderer;
+
     sp<AMessage> mOutputFormat;
     sp<AMessage> mInputFormat;
     sp<AMessage> mCallback;
+    sp<AMessage> mOnFrameRenderedNotification;
+    sp<MemoryDealer> mDealer;
+
+    sp<IResourceManagerClient> mResourceManagerClient;
+    sp<ResourceManagerServiceProxy> mResourceManagerService;
 
     bool mBatteryStatNotified;
     bool mIsVideo;
+    int32_t mVideoWidth;
+    int32_t mVideoHeight;
+    int32_t mRotationDegrees;
 
     // initial create parameters
     AString mInitName;
     bool mInitNameIsType;
     bool mInitIsEncoder;
+
+    // configure parameter
+    sp<AMessage> mConfigureMsg;
 
     // Used only to synchronize asynchronous getBufferAndFormat
     // across all the other (synchronous) buffer state change
@@ -249,10 +323,10 @@ private:
     Vector<BufferInfo> mPortBuffers[2];
 
     int32_t mDequeueInputTimeoutGeneration;
-    uint32_t mDequeueInputReplyID;
+    sp<AReplyToken> mDequeueInputReplyID;
 
     int32_t mDequeueOutputTimeoutGeneration;
-    uint32_t mDequeueOutputReplyID;
+    sp<AReplyToken> mDequeueOutputReplyID;
 
     sp<ICrypto> mCrypto;
 
@@ -261,13 +335,14 @@ private:
     sp<AMessage> mActivityNotify;
 
     bool mHaveInputSurface;
+    bool mHavePendingInputBuffers;
 
-    MediaCodec(const sp<ALooper> &looper);
+    MediaCodec(const sp<ALooper> &looper, pid_t pid);
 
     static status_t PostAndAwaitResponse(
             const sp<AMessage> &msg, sp<AMessage> *response);
 
-    static void PostReplyWithError(int32_t replyID, int32_t err);
+    void PostReplyWithError(const sp<AReplyToken> &replyID, int32_t err);
 
     status_t init(const AString &name, bool nameIsType, bool encoder);
 
@@ -283,15 +358,16 @@ private:
             size_t portIndex, size_t index,
             sp<ABuffer> *buffer, sp<AMessage> *format);
 
-    bool handleDequeueInputBuffer(uint32_t replyID, bool newRequest = false);
-    bool handleDequeueOutputBuffer(uint32_t replyID, bool newRequest = false);
+    bool handleDequeueInputBuffer(const sp<AReplyToken> &replyID, bool newRequest = false);
+    bool handleDequeueOutputBuffer(const sp<AReplyToken> &replyID, bool newRequest = false);
     void cancelPendingDequeueOperations();
 
     void extractCSD(const sp<AMessage> &format);
     status_t queueCSDInputBuffer(size_t bufferIndex);
 
-    status_t setNativeWindow(
-            const sp<Surface> &surface);
+    status_t handleSetSurface(const sp<Surface> &surface);
+    status_t connectToSurface(const sp<Surface> &surface);
+    status_t disconnectFromSurface();
 
     void postActivityNotificationIfPossible();
 
@@ -305,6 +381,9 @@ private:
     status_t amendOutputFormatWithCodecSpecificData(const sp<ABuffer> &buffer);
     void updateBatteryStat();
     bool isExecuting() const;
+
+    uint64_t getGraphicBufferSize();
+    void addResource(const String8 &type, const String8 &subtype, uint64_t value);
 
     /* called to get the last codec error when the sticky flag is set.
      * if no such codec error is found, returns UNKNOWN_ERROR.

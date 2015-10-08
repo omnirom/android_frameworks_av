@@ -34,7 +34,10 @@
 
 namespace android {
 
+struct AudioPlaybackRate;
 class AudioTrack;
+struct AVSyncSettings;
+class IDataSource;
 class IMediaRecorder;
 class IMediaMetadataRetriever;
 class IOMX;
@@ -77,7 +80,6 @@ class MediaPlayerService : public BnMediaPlayerService
         virtual                 ~AudioOutput();
 
         virtual bool            ready() const { return mTrack != 0; }
-        virtual bool            realtime() const { return true; }
         virtual ssize_t         bufferSize() const;
         virtual ssize_t         frameCount() const;
         virtual ssize_t         channelCount() const;
@@ -95,21 +97,24 @@ class MediaPlayerService : public BnMediaPlayerService
                 audio_format_t format, int bufferCount,
                 AudioCallback cb, void *cookie,
                 audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
-                const audio_offload_info_t *offloadInfo = NULL);
+                const audio_offload_info_t *offloadInfo = NULL,
+                bool doNotReconnect = false,
+                uint32_t suggestedFrameCount = 0);
 
         virtual status_t        start();
-        virtual ssize_t         write(const void* buffer, size_t size);
+        virtual ssize_t         write(const void* buffer, size_t size, bool blocking = true);
         virtual void            stop();
         virtual void            flush();
         virtual void            pause();
         virtual void            close();
-                void            setAudioStreamType(audio_stream_type_t streamType) {
-                                                                        mStreamType = streamType; }
+                void            setAudioStreamType(audio_stream_type_t streamType);
         virtual audio_stream_type_t getAudioStreamType() const { return mStreamType; }
                 void            setAudioAttributes(const audio_attributes_t * attributes);
 
                 void            setVolume(float left, float right);
-        virtual status_t        setPlaybackRatePermille(int32_t ratePermille);
+        virtual status_t        setPlaybackRate(const AudioPlaybackRate& rate);
+        virtual status_t        getPlaybackRate(AudioPlaybackRate* rate /* nonnull */);
+
                 status_t        setAuxEffectSendLevel(float level);
                 status_t        attachAuxEffect(int effectId);
         virtual status_t        dump(int fd, const Vector<String16>& args) const;
@@ -126,7 +131,8 @@ class MediaPlayerService : public BnMediaPlayerService
         static void             setMinBufferCount();
         static void             CallbackWrapper(
                 int event, void *me, void *info);
-               void             deleteRecycledTrack();
+               void             deleteRecycledTrack_l();
+               void             close_l();
 
         sp<AudioTrack>          mTrack;
         sp<AudioTrack>          mRecycledTrack;
@@ -136,38 +142,53 @@ class MediaPlayerService : public BnMediaPlayerService
         CallbackData *          mCallbackData;
         uint64_t                mBytesWritten;
         audio_stream_type_t     mStreamType;
-        const audio_attributes_t *mAttributes;
+        audio_attributes_t *    mAttributes;
         float                   mLeftVolume;
         float                   mRightVolume;
-        int32_t                 mPlaybackRatePermille;
+        AudioPlaybackRate       mPlaybackRate;
         uint32_t                mSampleRateHz; // sample rate of the content, as set in open()
         float                   mMsecsPerFrame;
+        size_t                  mFrameSize;
         int                     mSessionId;
         int                     mUid;
         int                     mPid;
         float                   mSendLevel;
         int                     mAuxEffectId;
+        audio_output_flags_t    mFlags;
+        mutable Mutex           mLock;
+
+        // static variables below not protected by mutex
         static bool             mIsOnEmulator;
         static int              mMinBufferCount;  // 12 for emulator; otherwise 4
-        audio_output_flags_t    mFlags;
 
         // CallbackData is what is passed to the AudioTrack as the "user" data.
         // We need to be able to target this to a different Output on the fly,
         // so we can't use the Output itself for this.
         class CallbackData {
+            friend AudioOutput;
         public:
             CallbackData(AudioOutput *cookie) {
                 mData = cookie;
                 mSwitching = false;
             }
-            AudioOutput *   getOutput() { return mData;}
+            AudioOutput *   getOutput() const { return mData; }
             void            setOutput(AudioOutput* newcookie) { mData = newcookie; }
             // lock/unlock are used by the callback before accessing the payload of this object
-            void            lock() { mLock.lock(); }
-            void            unlock() { mLock.unlock(); }
-            // beginTrackSwitch/endTrackSwitch are used when this object is being handed over
+            void            lock() const { mLock.lock(); }
+            void            unlock() const { mLock.unlock(); }
+
+            // tryBeginTrackSwitch/endTrackSwitch are used when the CallbackData is handed over
             // to the next sink.
-            void            beginTrackSwitch() { mLock.lock(); mSwitching = true; }
+
+            // tryBeginTrackSwitch() returns true only if it obtains the lock.
+            bool            tryBeginTrackSwitch() {
+                LOG_ALWAYS_FATAL_IF(mSwitching, "tryBeginTrackSwitch() already called");
+                if (mLock.tryLock() != OK) {
+                    return false;
+                }
+                mSwitching = true;
+                return true;
+            }
             void            endTrackSwitch() {
                 if (mSwitching) {
                     mLock.unlock();
@@ -176,7 +197,7 @@ class MediaPlayerService : public BnMediaPlayerService
             }
         private:
             AudioOutput *   mData;
-            mutable Mutex   mLock;
+            mutable Mutex   mLock; // a recursive mutex might make this unnecessary.
             bool            mSwitching;
             DISALLOW_EVIL_CONSTRUCTORS(CallbackData);
         };
@@ -184,106 +205,24 @@ class MediaPlayerService : public BnMediaPlayerService
     }; // AudioOutput
 
 
-    class AudioCache : public MediaPlayerBase::AudioSink
-    {
-    public:
-                                AudioCache(const sp<IMemoryHeap>& heap);
-        virtual                 ~AudioCache() {}
-
-        virtual bool            ready() const { return (mChannelCount > 0) && (mHeap->getHeapID() > 0); }
-        virtual bool            realtime() const { return false; }
-        virtual ssize_t         bufferSize() const { return frameSize() * mFrameCount; }
-        virtual ssize_t         frameCount() const { return mFrameCount; }
-        virtual ssize_t         channelCount() const { return (ssize_t)mChannelCount; }
-        virtual ssize_t         frameSize() const { return (ssize_t)mFrameSize; }
-        virtual uint32_t        latency() const;
-        virtual float           msecsPerFrame() const;
-        virtual status_t        getPosition(uint32_t *position) const;
-        virtual status_t        getTimestamp(AudioTimestamp &ts) const;
-        virtual status_t        getFramesWritten(uint32_t *frameswritten) const;
-        virtual int             getSessionId() const;
-        virtual uint32_t        getSampleRate() const;
-
-        virtual status_t        open(
-                uint32_t sampleRate, int channelCount, audio_channel_mask_t channelMask,
-                audio_format_t format, int bufferCount = 1,
-                AudioCallback cb = NULL, void *cookie = NULL,
-                audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
-                const audio_offload_info_t *offloadInfo = NULL);
-
-        virtual status_t        start();
-        virtual ssize_t         write(const void* buffer, size_t size);
-        virtual void            stop();
-        virtual void            flush() {}
-        virtual void            pause() {}
-        virtual void            close() {}
-                void            setAudioStreamType(audio_stream_type_t streamType __unused) {}
-                // stream type is not used for AudioCache
-        virtual audio_stream_type_t getAudioStreamType() const { return AUDIO_STREAM_DEFAULT; }
-
-                void            setVolume(float left __unused, float right __unused) {}
-        virtual status_t        setPlaybackRatePermille(int32_t ratePermille __unused) { return INVALID_OPERATION; }
-                uint32_t        sampleRate() const { return mSampleRate; }
-                audio_format_t  format() const { return mFormat; }
-                size_t          size() const { return mSize; }
-                status_t        wait();
-
-                sp<IMemoryHeap> getHeap() const { return mHeap; }
-
-        static  void            notify(void* cookie, int msg,
-                                       int ext1, int ext2, const Parcel *obj);
-        virtual status_t        dump(int fd, const Vector<String16>& args) const;
-
-    private:
-                                AudioCache();
-
-        Mutex               mLock;
-        Condition           mSignal;
-        sp<IMemoryHeap>     mHeap;
-        float               mMsecsPerFrame;
-        uint16_t            mChannelCount;
-        audio_format_t      mFormat;
-        ssize_t             mFrameCount;
-        uint32_t            mSampleRate;
-        uint32_t            mSize;
-        size_t              mFrameSize;
-        int                 mError;
-        bool                mCommandComplete;
-
-        sp<Thread>          mCallbackThread;
-    }; // AudioCache
-
 public:
     static  void                instantiate();
 
     // IMediaPlayerService interface
-    virtual sp<IMediaRecorder>  createMediaRecorder();
+    virtual sp<IMediaRecorder>  createMediaRecorder(const String16 &opPackageName);
     void    removeMediaRecorderClient(wp<MediaRecorderClient> client);
     virtual sp<IMediaMetadataRetriever> createMetadataRetriever();
 
     virtual sp<IMediaPlayer>    create(const sp<IMediaPlayerClient>& client, int audioSessionId);
 
-    virtual status_t            decode(
-            const sp<IMediaHTTPService> &httpService,
-            const char* url,
-            uint32_t *pSampleRate,
-            int* pNumChannels,
-            audio_format_t* pFormat,
-            const sp<IMemoryHeap>& heap,
-            size_t *pSize);
-
-    virtual status_t            decode(int fd, int64_t offset, int64_t length,
-                                       uint32_t *pSampleRate, int* pNumChannels,
-                                       audio_format_t* pFormat,
-                                       const sp<IMemoryHeap>& heap, size_t *pSize);
     virtual sp<IMediaCodecList> getCodecList() const;
     virtual sp<IOMX>            getOMX();
     virtual sp<ICrypto>         makeCrypto();
     virtual sp<IDrm>            makeDrm();
     virtual sp<IHDCP>           makeHDCP(bool createEncryptionModule);
 
-    virtual sp<IRemoteDisplay> listenForRemoteDisplay(const sp<IRemoteDisplayClient>& client,
-            const String8& iface);
+    virtual sp<IRemoteDisplay> listenForRemoteDisplay(const String16 &opPackageName,
+            const sp<IRemoteDisplayClient>& client, const String8& iface);
     virtual status_t            dump(int fd, const Vector<String16>& args);
 
             void                removeClient(wp<Client> client);
@@ -344,6 +283,11 @@ private:
         virtual status_t        stop();
         virtual status_t        pause();
         virtual status_t        isPlaying(bool* state);
+        virtual status_t        setPlaybackSettings(const AudioPlaybackRate& rate);
+        virtual status_t        getPlaybackSettings(AudioPlaybackRate* rate /* nonnull */);
+        virtual status_t        setSyncSettings(const AVSyncSettings& rate, float videoFpsHint);
+        virtual status_t        getSyncSettings(AVSyncSettings* rate /* nonnull */,
+                                                float* videoFps /* nonnull */);
         virtual status_t        seekTo(int msec);
         virtual status_t        getCurrentPosition(int* msec);
         virtual status_t        getDuration(int* msec);
@@ -374,6 +318,8 @@ private:
         virtual status_t        setDataSource(int fd, int64_t offset, int64_t length);
 
         virtual status_t        setDataSource(const sp<IStreamSource> &source);
+        virtual status_t        setDataSource(const sp<IDataSource> &source);
+
 
         sp<MediaPlayerBase>     setDataSource_pre(player_type playerType);
         void                    setDataSource_post(const sp<MediaPlayerBase>& p,
@@ -383,7 +329,7 @@ private:
                                        int ext1, int ext2, const Parcel *obj);
 
                 pid_t           pid() const { return mPid; }
-        virtual status_t        dump(int fd, const Vector<String16>& args) const;
+        virtual status_t        dump(int fd, const Vector<String16>& args);
 
                 int             getAudioSessionId() { return mAudioSessionId; }
 

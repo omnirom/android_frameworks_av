@@ -26,7 +26,6 @@
 namespace android {
 
 struct CodecProfileLevel;
-struct MediaBuffer;
 
 struct SoftMPEG4Encoder : public SoftVideoEncoderOMXComponent {
     SoftMPEG4Encoder(

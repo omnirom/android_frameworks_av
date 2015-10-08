@@ -53,7 +53,7 @@ int Camera2Device::getId() const {
     return mId;
 }
 
-status_t Camera2Device::initialize(camera_module_t *module)
+status_t Camera2Device::initialize(CameraModule *module)
 {
     ATRACE_CALL();
     ALOGV("%s: Initializing device for camera %d", __FUNCTION__, mId);
@@ -68,8 +68,7 @@ status_t Camera2Device::initialize(camera_module_t *module)
 
     camera2_device_t *device;
 
-    res = CameraService::filterOpenErrorCode(module->common.methods->open(
-        &module->common, name, reinterpret_cast<hw_device_t**>(&device)));
+    res = module->open(name, reinterpret_cast<hw_device_t**>(&device));
 
     if (res != OK) {
         ALOGE("%s: Could not open camera %d: %s (%d)", __FUNCTION__,
@@ -87,7 +86,7 @@ status_t Camera2Device::initialize(camera_module_t *module)
     }
 
     camera_info info;
-    res = module->get_camera_info(mId, &info);
+    res = module->getCameraInfo(mId, &info);
     if (res != OK ) return res;
 
     if (info.device_version != device->common.version) {
@@ -241,8 +240,9 @@ status_t Camera2Device::waitUntilRequestReceived(int32_t requestId, nsecs_t time
     return mRequestQueue.waitForDequeue(requestId, timeout);
 }
 
-status_t Camera2Device::createStream(sp<ANativeWindow> consumer,
-        uint32_t width, uint32_t height, int format, int *id) {
+status_t Camera2Device::createStream(sp<Surface> consumer,
+        uint32_t width, uint32_t height, int format,
+        android_dataspace /*dataSpace*/, camera3_stream_rotation_t rotation, int *id) {
     ATRACE_CALL();
     status_t res;
     ALOGV("%s: E", __FUNCTION__);
@@ -315,7 +315,8 @@ status_t Camera2Device::createReprocessStreamFromStream(int outputId, int *id) {
 
 
 status_t Camera2Device::getStreamInfo(int id,
-        uint32_t *width, uint32_t *height, uint32_t *format) {
+        uint32_t *width, uint32_t *height,
+        uint32_t *format, android_dataspace *dataSpace) {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
     bool found = false;
@@ -336,6 +337,7 @@ status_t Camera2Device::getStreamInfo(int id,
     if (width) *width = (*streamI)->getWidth();
     if (height) *height = (*streamI)->getHeight();
     if (format) *format = (*streamI)->getFormat();
+    if (dataSpace) *dataSpace = HAL_DATASPACE_UNKNOWN;
 
     return OK;
 }
@@ -415,7 +417,7 @@ status_t Camera2Device::deleteReprocessStream(int id) {
     return OK;
 }
 
-status_t Camera2Device::configureStreams() {
+status_t Camera2Device::configureStreams(bool isConstrainedHighSpeed) {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
 
@@ -616,6 +618,18 @@ status_t Camera2Device::flush(int64_t* /*lastFrameNumber*/) {
 
     mRequestQueue.clear();
     return waitUntilDrained();
+}
+
+status_t Camera2Device::prepare(int streamId) {
+    ATRACE_CALL();
+    ALOGE("%s: Camera %d: unimplemented", __FUNCTION__, mId);
+    return NO_INIT;
+}
+
+status_t Camera2Device::tearDown(int streamId) {
+    ATRACE_CALL();
+    ALOGE("%s: Camera %d: unimplemented", __FUNCTION__, mId);
+    return NO_INIT;
 }
 
 uint32_t Camera2Device::getDeviceVersion() {
@@ -1579,6 +1593,20 @@ int Camera2Device::ReprocessStreamAdapter::release_buffer(
     stream->mInFlightQueue.erase(s);
 
     return OK;
+}
+
+// camera 2 devices don't support reprocessing
+status_t Camera2Device::createInputStream(
+    uint32_t width, uint32_t height, int format, int *id) {
+    ALOGE("%s: camera 2 devices don't support reprocessing", __FUNCTION__);
+    return INVALID_OPERATION;
+}
+
+// camera 2 devices don't support reprocessing
+status_t Camera2Device::getInputBufferProducer(
+        sp<IGraphicBufferProducer> *producer) {
+    ALOGE("%s: camera 2 devices don't support reprocessing", __FUNCTION__);
+    return INVALID_OPERATION;
 }
 
 }; // namespace android

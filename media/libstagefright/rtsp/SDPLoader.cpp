@@ -51,7 +51,7 @@ SDPLoader::SDPLoader(
 void SDPLoader::load(const char *url, const KeyedVector<String8, String8> *headers) {
     mNetLooper->registerHandler(this);
 
-    sp<AMessage> msg = new AMessage(kWhatLoad, id());
+    sp<AMessage> msg = new AMessage(kWhatLoad, this);
     msg->setString("url", url);
 
     if (headers != NULL) {
@@ -105,7 +105,7 @@ void SDPLoader::onLoad(const sp<AMessage> &msg) {
         headers = NULL;
     }
 
-    off64_t sdpSize;
+    off64_t sdpSize = 0;
     if (err == OK && !mCancelled) {
         err = mHTTPDataSource->getSize(&sdpSize);
 

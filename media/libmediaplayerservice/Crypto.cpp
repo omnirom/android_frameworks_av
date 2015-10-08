@@ -22,6 +22,7 @@
 
 #include "Crypto.h"
 
+#include <binder/IMemory.h>
 #include <media/hardware/CryptoAPI.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AString.h>
@@ -88,7 +89,7 @@ void Crypto::findFactoryForScheme(const uint8_t uuid[16]) {
 
     // first check cache
     Vector<uint8_t> uuidVector;
-    uuidVector.appendArray(uuid, sizeof(uuid));
+    uuidVector.appendArray(uuid, sizeof(uuid[0]) * 16);
     ssize_t index = mUUIDToLibraryPathMap.indexOfKey(uuidVector);
     if (index >= 0) {
         if (loadLibraryForScheme(mUUIDToLibraryPathMap[index], uuid)) {
@@ -238,7 +239,7 @@ ssize_t Crypto::decrypt(
         const uint8_t key[16],
         const uint8_t iv[16],
         CryptoPlugin::Mode mode,
-        const void *srcPtr,
+        const sp<IMemory> &sharedBuffer, size_t offset,
         const CryptoPlugin::SubSample *subSamples, size_t numSubSamples,
         void *dstPtr,
         AString *errorDetailMsg) {
@@ -252,6 +253,8 @@ ssize_t Crypto::decrypt(
         return -EINVAL;
     }
 
+    const void *srcPtr = static_cast<uint8_t *>(sharedBuffer->pointer()) + offset;
+
     return mPlugin->decrypt(
             secure, key, iv, mode, srcPtr, subSamples, numSubSamples, dstPtr,
             errorDetailMsg);
@@ -263,6 +266,16 @@ void Crypto::notifyResolution(uint32_t width, uint32_t height) {
     if (mInitCheck == OK && mPlugin != NULL) {
         mPlugin->notifyResolution(width, height);
     }
+}
+
+status_t Crypto::setMediaDrmSession(const Vector<uint8_t> &sessionId) {
+    Mutex::Autolock autoLock(mLock);
+
+    status_t result = NO_INIT;
+    if (mInitCheck == OK && mPlugin != NULL) {
+        result = mPlugin->setMediaDrmSession(sessionId);
+    }
+    return result;
 }
 
 }  // namespace android

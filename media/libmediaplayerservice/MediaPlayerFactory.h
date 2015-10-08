@@ -43,7 +43,11 @@ class MediaPlayerFactory {
                                    const sp<IStreamSource> &/*source*/,
                                    float /*curScore*/) { return 0.0; }
 
-        virtual sp<MediaPlayerBase> createPlayer() = 0;
+        virtual float scoreFactory(const sp<IMediaPlayer>& /*client*/,
+                                   const sp<DataSource> &/*source*/,
+                                   float /*curScore*/) { return 0.0; }
+
+        virtual sp<MediaPlayerBase> createPlayer(pid_t pid) = 0;
     };
 
     static status_t registerFactory(IFactory* factory,
@@ -57,10 +61,13 @@ class MediaPlayerFactory {
                                      int64_t length);
     static player_type getPlayerType(const sp<IMediaPlayer>& client,
                                      const sp<IStreamSource> &source);
+    static player_type getPlayerType(const sp<IMediaPlayer>& client,
+                                     const sp<DataSource> &source);
 
     static sp<MediaPlayerBase> createPlayer(player_type playerType,
                                             void* cookie,
-                                            notify_callback_f notifyFunc);
+                                            notify_callback_f notifyFunc,
+                                            pid_t pid);
 
     static void registerBuiltinFactories();
 

@@ -32,7 +32,9 @@
 
 #include "OMXMaster.h"
 
+#include <OMX_AsString.h>
 #include <OMX_Component.h>
+#include <OMX_VideoExt.h>
 
 namespace android {
 
@@ -60,7 +62,11 @@ private:
 struct OMX::CallbackDispatcher : public RefBase {
     CallbackDispatcher(OMXNodeInstance *owner);
 
-    void post(const omx_message &msg);
+    // Posts |msg| to the listener's queue. If |realTime| is true, the listener thread is notified
+    // that a new message is available on the queue. Otherwise, the message stays on the queue, but
+    // the listener is not notified of it. It will process this message when a subsequent message
+    // is posted with |realTime| set to true.
+    void post(const omx_message &msg, bool realTime = true);
 
     bool loop();
 
@@ -73,11 +79,11 @@ private:
     OMXNodeInstance *mOwner;
     bool mDone;
     Condition mQueueChanged;
-    List<omx_message> mQueue;
+    std::list<omx_message> mQueue;
 
     sp<CallbackDispatcherThread> mThread;
 
-    void dispatch(const omx_message &msg);
+    void dispatch(std::list<omx_message> &messages);
 
     CallbackDispatcher(const CallbackDispatcher &);
     CallbackDispatcher &operator=(const CallbackDispatcher &);
@@ -108,24 +114,26 @@ OMX::CallbackDispatcher::~CallbackDispatcher() {
     }
 }
 
-void OMX::CallbackDispatcher::post(const omx_message &msg) {
+void OMX::CallbackDispatcher::post(const omx_message &msg, bool realTime) {
     Mutex::Autolock autoLock(mLock);
 
     mQueue.push_back(msg);
-    mQueueChanged.signal();
+    if (realTime) {
+        mQueueChanged.signal();
+    }
 }
 
-void OMX::CallbackDispatcher::dispatch(const omx_message &msg) {
+void OMX::CallbackDispatcher::dispatch(std::list<omx_message> &messages) {
     if (mOwner == NULL) {
         ALOGV("Would have dispatched a message to a node that's already gone.");
         return;
     }
-    mOwner->onMessage(msg);
+    mOwner->onMessages(messages);
 }
 
 bool OMX::CallbackDispatcher::loop() {
     for (;;) {
-        omx_message msg;
+        std::list<omx_message> messages;
 
         {
             Mutex::Autolock autoLock(mLock);
@@ -137,11 +145,10 @@ bool OMX::CallbackDispatcher::loop() {
                 break;
             }
 
-            msg = *mQueue.begin();
-            mQueue.erase(mQueue.begin());
+            messages.swap(mQueue);
         }
 
-        dispatch(msg);
+        dispatch(messages);
     }
 
     return false;
@@ -233,11 +240,11 @@ status_t OMX::allocateNode(
             instance, &handle);
 
     if (err != OMX_ErrorNone) {
-        ALOGE("FAILED to allocate omx component '%s'", name);
+        ALOGE("FAILED to allocate omx component '%s' err=%s(%#x)", name, asString(err), err);
 
         instance->onGetHandleFailed();
 
-        return UNKNOWN_ERROR;
+        return StatusFromOMXError(err);
     }
 
     *node = makeNodeID(instance);
@@ -245,8 +252,8 @@ status_t OMX::allocateNode(
 
     instance->setHandle(*node, handle);
 
-    mLiveNodes.add(observer->asBinder(), instance);
-    observer->asBinder()->linkToDeath(this);
+    mLiveNodes.add(IInterface::asBinder(observer), instance);
+    IInterface::asBinder(observer)->linkToDeath(this);
 
     return OK;
 }
@@ -256,7 +263,7 @@ status_t OMX::freeNode(node_id node) {
 
     {
         Mutex::Autolock autoLock(mLock);
-        ssize_t index = mLiveNodes.indexOfKey(instance->observer()->asBinder());
+        ssize_t index = mLiveNodes.indexOfKey(IInterface::asBinder(instance->observer()));
         if (index < 0) {
             // This could conceivably happen if the observer dies at roughly the
             // same time that a client attempts to free the node explicitly.
@@ -265,7 +272,7 @@ status_t OMX::freeNode(node_id node) {
         mLiveNodes.removeItemsAt(index);
     }
 
-    instance->observer()->asBinder()->unlinkToDeath(this);
+    IInterface::asBinder(instance->observer())->unlinkToDeath(this);
 
     status_t err = instance->freeNode(mMaster);
 
@@ -331,8 +338,8 @@ status_t OMX::getGraphicBufferUsage(
 }
 
 status_t OMX::storeMetaDataInBuffers(
-        node_id node, OMX_U32 port_index, OMX_BOOL enable) {
-    return findInstance(node)->storeMetaDataInBuffers(port_index, enable);
+        node_id node, OMX_U32 port_index, OMX_BOOL enable, MetadataBufferType *type) {
+    return findInstance(node)->storeMetaDataInBuffers(port_index, enable, type);
 }
 
 status_t OMX::prepareForAdaptivePlayback(
@@ -351,9 +358,9 @@ status_t OMX::configureVideoTunnelMode(
 
 status_t OMX::useBuffer(
         node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-        buffer_id *buffer) {
+        buffer_id *buffer, OMX_U32 allottedSize) {
     return findInstance(node)->useBuffer(
-            port_index, params, buffer);
+            port_index, params, buffer, allottedSize);
 }
 
 status_t OMX::useGraphicBuffer(
@@ -372,10 +379,24 @@ status_t OMX::updateGraphicBufferInMeta(
 
 status_t OMX::createInputSurface(
         node_id node, OMX_U32 port_index,
-        sp<IGraphicBufferProducer> *bufferProducer) {
+        sp<IGraphicBufferProducer> *bufferProducer, MetadataBufferType *type) {
     return findInstance(node)->createInputSurface(
-            port_index, bufferProducer);
+            port_index, bufferProducer, type);
 }
+
+status_t OMX::createPersistentInputSurface(
+        sp<IGraphicBufferProducer> *bufferProducer,
+        sp<IGraphicBufferConsumer> *bufferConsumer) {
+    return OMXNodeInstance::createPersistentInputSurface(
+            bufferProducer, bufferConsumer);
+}
+
+status_t OMX::setInputSurface(
+        node_id node, OMX_U32 port_index,
+        const sp<IGraphicBufferConsumer> &bufferConsumer, MetadataBufferType *type) {
+    return findInstance(node)->setInputSurface(port_index, bufferConsumer, type);
+}
+
 
 status_t OMX::signalEndOfInputStream(node_id node) {
     return findInstance(node)->signalEndOfInputStream();
@@ -390,9 +411,9 @@ status_t OMX::allocateBuffer(
 
 status_t OMX::allocateBufferWithBackup(
         node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-        buffer_id *buffer) {
+        buffer_id *buffer, OMX_U32 allottedSize) {
     return findInstance(node)->allocateBufferWithBackup(
-            port_index, params, buffer);
+            port_index, params, buffer, allottedSize);
 }
 
 status_t OMX::freeBuffer(node_id node, OMX_U32 port_index, buffer_id buffer) {
@@ -400,17 +421,17 @@ status_t OMX::freeBuffer(node_id node, OMX_U32 port_index, buffer_id buffer) {
             port_index, buffer);
 }
 
-status_t OMX::fillBuffer(node_id node, buffer_id buffer) {
-    return findInstance(node)->fillBuffer(buffer);
+status_t OMX::fillBuffer(node_id node, buffer_id buffer, int fenceFd) {
+    return findInstance(node)->fillBuffer(buffer, fenceFd);
 }
 
 status_t OMX::emptyBuffer(
         node_id node,
         buffer_id buffer,
         OMX_U32 range_offset, OMX_U32 range_length,
-        OMX_U32 flags, OMX_TICKS timestamp) {
+        OMX_U32 flags, OMX_TICKS timestamp, int fenceFd) {
     return findInstance(node)->emptyBuffer(
-            buffer, range_offset, range_length, flags, timestamp);
+            buffer, range_offset, range_length, flags, timestamp, fenceFd);
 }
 
 status_t OMX::getExtensionIndex(
@@ -435,31 +456,56 @@ OMX_ERRORTYPE OMX::OnEvent(
         OMX_IN OMX_EVENTTYPE eEvent,
         OMX_IN OMX_U32 nData1,
         OMX_IN OMX_U32 nData2,
-        OMX_IN OMX_PTR /* pEventData */) {
+        OMX_IN OMX_PTR pEventData) {
     ALOGV("OnEvent(%d, %" PRIu32", %" PRIu32 ")", eEvent, nData1, nData2);
 
     // Forward to OMXNodeInstance.
     findInstance(node)->onEvent(eEvent, nData1, nData2);
 
+    sp<OMX::CallbackDispatcher> dispatcher = findDispatcher(node);
+
+    // output rendered events are not processed as regular events until they hit the observer
+    if (eEvent == OMX_EventOutputRendered) {
+        if (pEventData == NULL) {
+            return OMX_ErrorBadParameter;
+        }
+
+        // process data from array
+        OMX_VIDEO_RENDEREVENTTYPE *renderData = (OMX_VIDEO_RENDEREVENTTYPE *)pEventData;
+        for (size_t i = 0; i < nData1; ++i) {
+            omx_message msg;
+            msg.type = omx_message::FRAME_RENDERED;
+            msg.node = node;
+            msg.fenceFd = -1;
+            msg.u.render_data.timestamp = renderData[i].nMediaTimeUs;
+            msg.u.render_data.nanoTime = renderData[i].nSystemTimeNs;
+
+            dispatcher->post(msg, false /* realTime */);
+        }
+        return OMX_ErrorNone;
+    }
+
     omx_message msg;
     msg.type = omx_message::EVENT;
     msg.node = node;
+    msg.fenceFd = -1;
     msg.u.event_data.event = eEvent;
     msg.u.event_data.data1 = nData1;
     msg.u.event_data.data2 = nData2;
 
-    findDispatcher(node)->post(msg);
+    dispatcher->post(msg, true /* realTime */);
 
     return OMX_ErrorNone;
 }
 
 OMX_ERRORTYPE OMX::OnEmptyBufferDone(
-        node_id node, buffer_id buffer, OMX_IN OMX_BUFFERHEADERTYPE *pBuffer) {
+        node_id node, buffer_id buffer, OMX_IN OMX_BUFFERHEADERTYPE *pBuffer, int fenceFd) {
     ALOGV("OnEmptyBufferDone buffer=%p", pBuffer);
 
     omx_message msg;
     msg.type = omx_message::EMPTY_BUFFER_DONE;
     msg.node = node;
+    msg.fenceFd = fenceFd;
     msg.u.buffer_data.buffer = buffer;
 
     findDispatcher(node)->post(msg);
@@ -468,12 +514,13 @@ OMX_ERRORTYPE OMX::OnEmptyBufferDone(
 }
 
 OMX_ERRORTYPE OMX::OnFillBufferDone(
-        node_id node, buffer_id buffer, OMX_IN OMX_BUFFERHEADERTYPE *pBuffer) {
+        node_id node, buffer_id buffer, OMX_IN OMX_BUFFERHEADERTYPE *pBuffer, int fenceFd) {
     ALOGV("OnFillBufferDone buffer=%p", pBuffer);
 
     omx_message msg;
     msg.type = omx_message::FILL_BUFFER_DONE;
     msg.node = node;
+    msg.fenceFd = fenceFd;
     msg.u.extended_buffer_data.buffer = buffer;
     msg.u.extended_buffer_data.range_offset = pBuffer->nOffset;
     msg.u.extended_buffer_data.range_length = pBuffer->nFilledLen;

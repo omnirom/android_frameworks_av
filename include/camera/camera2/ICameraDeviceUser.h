@@ -27,9 +27,9 @@ namespace android {
 
 class ICameraDeviceUserClient;
 class IGraphicBufferProducer;
-class Surface;
 class CaptureRequest;
 class CameraMetadata;
+class OutputConfiguration;
 
 enum {
     NO_IN_FLIGHT_REPEATING_FRAMES = -1,
@@ -97,12 +97,24 @@ public:
      * must be called before any requests can be submitted.
      * <p>
      */
-    virtual status_t        endConfigure() = 0;
+    virtual status_t        endConfigure(bool isConstrainedHighSpeed = false) = 0;
 
     virtual status_t        deleteStream(int streamId) = 0;
-    virtual status_t        createStream(
-            int width, int height, int format,
-            const sp<IGraphicBufferProducer>& bufferProducer) = 0;
+
+    virtual status_t        createStream(const OutputConfiguration& outputConfiguration) = 0;
+
+    /**
+     * Create an input stream of width, height, and format (one of
+     * HAL_PIXEL_FORMAT_*)
+     *
+     * Return stream ID if it's a non-negative value. status_t if it's a
+     * negative value.
+     */
+    virtual status_t        createInputStream(int width, int height, int format) = 0;
+
+    // get the buffer producer of the input stream
+    virtual status_t        getInputBufferProducer(
+            sp<IGraphicBufferProducer> *producer) = 0;
 
     // Create a request object from a template.
     virtual status_t        createDefaultRequest(int templateId,
@@ -121,6 +133,17 @@ public:
      */
     virtual status_t        flush(/*out*/
                                   int64_t* lastFrameNumber = NULL) = 0;
+
+    /**
+     * Preallocate buffers for a given output stream asynchronously.
+     */
+    virtual status_t        prepare(int streamId) = 0;
+
+    /**
+     * Free all unused buffers for a given output stream.
+     */
+    virtual status_t        tearDown(int streamId) = 0;
+
 };
 
 // ----------------------------------------------------------------------------

@@ -139,7 +139,7 @@ status_t ZslProcessor::updateStream(const Parameters &params) {
             GRALLOC_USAGE_HW_CAMERA_ZSL,
             kZslBufferDepth);
         mZslConsumer->setFrameAvailableListener(this);
-        mZslConsumer->setName(String8("Camera2Client::ZslConsumer"));
+        mZslConsumer->setName(String8("Camera2-ZslConsumer"));
         mZslWindow = new Surface(producer);
     }
 
@@ -147,7 +147,7 @@ status_t ZslProcessor::updateStream(const Parameters &params) {
         // Check if stream parameters have to change
         uint32_t currentWidth, currentHeight;
         res = device->getStreamInfo(mZslStreamId,
-                &currentWidth, &currentHeight, 0);
+                &currentWidth, &currentHeight, 0, 0);
         if (res != OK) {
             ALOGE("%s: Camera %d: Error querying capture output stream info: "
                     "%s (%d)", __FUNCTION__,
@@ -185,8 +185,8 @@ status_t ZslProcessor::updateStream(const Parameters &params) {
                 (int)CAMERA2_HAL_PIXEL_FORMAT_ZSL :
                 (int)HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
         res = device->createStream(mZslWindow,
-                params.fastInfo.arrayWidth, params.fastInfo.arrayHeight,
-                streamType, &mZslStreamId);
+                params.fastInfo.arrayWidth, params.fastInfo.arrayHeight, streamType,
+                HAL_DATASPACE_UNKNOWN, CAMERA3_STREAM_ROTATION_0, &mZslStreamId);
         if (res != OK) {
             ALOGE("%s: Camera %d: Can't create output stream for ZSL: "
                     "%s (%d)", __FUNCTION__, mId,
@@ -440,7 +440,7 @@ status_t ZslProcessor::processNewZslBuffer() {
         zslConsumer = mZslConsumer;
     }
     ALOGVV("Trying to get next buffer");
-    BufferItemConsumer::BufferItem item;
+    BufferItem item;
     res = zslConsumer->acquireBuffer(&item, 0);
     if (res != OK) {
         if (res != BufferItemConsumer::NO_BUFFER_AVAILABLE) {

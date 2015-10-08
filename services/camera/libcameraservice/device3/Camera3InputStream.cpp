@@ -18,6 +18,7 @@
 #define ATRACE_TAG ATRACE_TAG_CAMERA
 //#define LOG_NDEBUG 0
 
+#include <gui/BufferItem.h>
 #include <utils/Log.h>
 #include <utils/Trace.h>
 #include "Camera3InputStream.h"
@@ -28,8 +29,8 @@ namespace camera3 {
 
 Camera3InputStream::Camera3InputStream(int id,
         uint32_t width, uint32_t height, int format) :
-        Camera3IOStreamBase(id, CAMERA3_STREAM_INPUT, width, height,
-                            /*maxSize*/0, format) {
+        Camera3IOStreamBase(id, CAMERA3_STREAM_INPUT, width, height, /*maxSize*/0,
+                            format, HAL_DATASPACE_UNKNOWN, CAMERA3_STREAM_ROTATION_0) {
 
     if (format == HAL_PIXEL_FORMAT_BLOB) {
         ALOGE("%s: Bad format, BLOB not supported", __FUNCTION__);
@@ -64,8 +65,8 @@ status_t Camera3InputStream::getInputBufferLocked(
     assert(mConsumer != 0);
 
     BufferItem bufferItem;
-    res = mConsumer->acquireBuffer(&bufferItem, /*waitForFence*/false);
 
+    res = mConsumer->acquireBuffer(&bufferItem, /*waitForFence*/false);
     if (res != OK) {
         ALOGE("%s: Stream %d: Can't acquire next output buffer: %s (%d)",
                 __FUNCTION__, mId, strerror(-res), res);
@@ -161,6 +162,21 @@ status_t Camera3InputStream::returnInputBufferLocked(
     return returnAnyBufferLocked(buffer, /*timestamp*/0, /*output*/false);
 }
 
+status_t Camera3InputStream::getInputBufferProducerLocked(
+            sp<IGraphicBufferProducer> *producer) {
+    ATRACE_CALL();
+
+    if (producer == NULL) {
+        return BAD_VALUE;
+    } else if (mProducer == NULL) {
+        ALOGE("%s: No input stream is configured");
+        return INVALID_OPERATION;
+    }
+
+    *producer = mProducer;
+    return OK;
+}
+
 status_t Camera3InputStream::disconnectLocked() {
 
     status_t res;
@@ -170,6 +186,8 @@ status_t Camera3InputStream::disconnectLocked() {
     }
 
     assert(mBuffersInFlight.size() == 0);
+
+    mConsumer->abandon();
 
     /**
      *  no-op since we can't disconnect the producer from the consumer-side
@@ -211,10 +229,17 @@ status_t Camera3InputStream::configureQueueLocked() {
         res = producer->query(NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS, &minUndequeuedBuffers);
         if (res != OK || minUndequeuedBuffers < 0) {
             ALOGE("%s: Stream %d: Could not query min undequeued buffers (error %d, bufCount %d)",
-                  __FUNCTION__, mId, res, minUndequeuedBuffers);
+                    __FUNCTION__, mId, res, minUndequeuedBuffers);
             return res;
         }
         size_t minBufs = static_cast<size_t>(minUndequeuedBuffers);
+
+        if (camera3_stream::max_buffers == 0) {
+            ALOGE("%s: %d: HAL sets max_buffer to 0. Must be at least 1.",
+                    __FUNCTION__, __LINE__);
+            return INVALID_OPERATION;
+        }
+
         /*
          * We promise never to 'acquire' more than camera3_stream::max_buffers
          * at any one time.
@@ -231,6 +256,8 @@ status_t Camera3InputStream::configureQueueLocked() {
         mConsumer = new BufferItemConsumer(consumer, camera3_stream::usage,
                                            mTotalBufferCount);
         mConsumer->setName(String8::format("Camera3-InputStream-%d", mId));
+
+        mProducer = producer;
     }
 
     res = mConsumer->setDefaultBufferSize(camera3_stream::width,
@@ -250,7 +277,7 @@ status_t Camera3InputStream::configureQueueLocked() {
     return OK;
 }
 
-status_t Camera3InputStream::getEndpointUsage(uint32_t *usage) {
+status_t Camera3InputStream::getEndpointUsage(uint32_t *usage) const {
     // Per HAL3 spec, input streams have 0 for their initial usage field.
     *usage = 0;
     return OK;

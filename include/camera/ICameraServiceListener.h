@@ -66,9 +66,35 @@ public:
         STATUS_UNKNOWN          = 0xFFFFFFFF,
     };
 
+    /**
+     * The torch mode status of a camera.
+     *
+     * Initial status will be transmitted with onTorchStatusChanged immediately
+     * after this listener is added to the service listener list.
+     *
+     * The enums should be set to values matching
+     * include/hardware/camera_common.h
+     */
+    enum TorchStatus {
+        // The camera's torch mode has become not available to use via
+        // setTorchMode().
+        TORCH_STATUS_NOT_AVAILABLE  = TORCH_MODE_STATUS_NOT_AVAILABLE,
+        // The camera's torch mode is off and available to be turned on via
+        // setTorchMode().
+        TORCH_STATUS_AVAILABLE_OFF  = TORCH_MODE_STATUS_AVAILABLE_OFF,
+        // The camera's torch mode is on and available to be turned off via
+        // setTorchMode().
+        TORCH_STATUS_AVAILABLE_ON   = TORCH_MODE_STATUS_AVAILABLE_ON,
+
+        // Use to initialize variables only
+        TORCH_STATUS_UNKNOWN        = 0xFFFFFFFF,
+    };
+
     DECLARE_META_INTERFACE(CameraServiceListener);
 
     virtual void onStatusChanged(Status status, int32_t cameraId) = 0;
+
+    virtual void onTorchStatusChanged(TorchStatus status, const String16& cameraId) = 0;
 };
 
 // ----------------------------------------------------------------------------

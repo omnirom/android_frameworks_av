@@ -98,6 +98,7 @@ struct MyHandler : public AHandler {
     enum {
         kWhatConnected                  = 'conn',
         kWhatDisconnected               = 'disc',
+        kWhatSeekPaused                 = 'spau',
         kWhatSeekDone                   = 'sdon',
 
         kWhatAccessUnit                 = 'accU',
@@ -156,7 +157,7 @@ struct MyHandler : public AHandler {
             mSessionURL.append("rtsp://");
             mSessionURL.append(host);
             mSessionURL.append(":");
-            mSessionURL.append(StringPrintf("%u", port));
+            mSessionURL.append(AStringPrintf("%u", port));
             mSessionURL.append(path);
 
             ALOGV("rewritten session url: '%s'", mSessionURL.c_str());
@@ -169,10 +170,10 @@ struct MyHandler : public AHandler {
         looper()->registerHandler(mConn);
         (1 ? mNetLooper : looper())->registerHandler(mRTPConn);
 
-        sp<AMessage> notify = new AMessage('biny', id());
+        sp<AMessage> notify = new AMessage('biny', this);
         mConn->observeBinaryData(notify);
 
-        sp<AMessage> reply = new AMessage('conn', id());
+        sp<AMessage> reply = new AMessage('conn', this);
         mConn->connect(mOriginalSessionURL.c_str(), reply);
     }
 
@@ -180,10 +181,10 @@ struct MyHandler : public AHandler {
         looper()->registerHandler(mConn);
         (1 ? mNetLooper : looper())->registerHandler(mRTPConn);
 
-        sp<AMessage> notify = new AMessage('biny', id());
+        sp<AMessage> notify = new AMessage('biny', this);
         mConn->observeBinaryData(notify);
 
-        sp<AMessage> reply = new AMessage('sdpl', id());
+        sp<AMessage> reply = new AMessage('sdpl', this);
         reply->setObject("description", desc);
         mConn->connect(mOriginalSessionURL.c_str(), reply);
     }
@@ -210,13 +211,19 @@ struct MyHandler : public AHandler {
     }
 
     void disconnect() {
-        (new AMessage('abor', id()))->post();
+        (new AMessage('abor', this))->post();
     }
 
     void seek(int64_t timeUs) {
-        sp<AMessage> msg = new AMessage('seek', id());
+        sp<AMessage> msg = new AMessage('seek', this);
         msg->setInt64("time", timeUs);
         mPauseGeneration++;
+        msg->post();
+    }
+
+    void continueSeekAfterPause(int64_t timeUs) {
+        sp<AMessage> msg = new AMessage('see1', this);
+        msg->setInt64("time", timeUs);
         msg->post();
     }
 
@@ -225,14 +232,14 @@ struct MyHandler : public AHandler {
     }
 
     void pause() {
-        sp<AMessage> msg = new AMessage('paus', id());
+        sp<AMessage> msg = new AMessage('paus', this);
         mPauseGeneration++;
         msg->setInt32("pausecheck", mPauseGeneration);
         msg->post(kPauseDelayUs);
     }
 
     void resume() {
-        sp<AMessage> msg = new AMessage('resu', id());
+        sp<AMessage> msg = new AMessage('resu', this);
         mPauseGeneration++;
         msg->post();
     }
@@ -454,10 +461,10 @@ struct MyHandler : public AHandler {
                     request.append("Accept: application/sdp\r\n");
                     request.append("\r\n");
 
-                    sp<AMessage> reply = new AMessage('desc', id());
+                    sp<AMessage> reply = new AMessage('desc', this);
                     mConn->sendRequest(request.c_str(), reply);
                 } else {
-                    (new AMessage('disc', id()))->post();
+                    (new AMessage('disc', this))->post();
                 }
                 break;
             }
@@ -468,10 +475,10 @@ struct MyHandler : public AHandler {
 
                 int32_t reconnect;
                 if (msg->findInt32("reconnect", &reconnect) && reconnect) {
-                    sp<AMessage> reply = new AMessage('conn', id());
+                    sp<AMessage> reply = new AMessage('conn', this);
                     mConn->connect(mOriginalSessionURL.c_str(), reply);
                 } else {
-                    (new AMessage('quit', id()))->post();
+                    (new AMessage('quit', this))->post();
                 }
                 break;
             }
@@ -508,13 +515,13 @@ struct MyHandler : public AHandler {
                             mSessionURL.append("rtsp://");
                             mSessionURL.append(host);
                             mSessionURL.append(":");
-                            mSessionURL.append(StringPrintf("%u", port));
+                            mSessionURL.append(AStringPrintf("%u", port));
                             mSessionURL.append(path);
 
                             ALOGI("rewritten session url: '%s'", mSessionURL.c_str());
                         }
 
-                        sp<AMessage> reply = new AMessage('conn', id());
+                        sp<AMessage> reply = new AMessage('conn', this);
                         mConn->connect(mOriginalSessionURL.c_str(), reply);
                         break;
                     }
@@ -586,7 +593,7 @@ struct MyHandler : public AHandler {
                 }
 
                 if (result != OK) {
-                    sp<AMessage> reply = new AMessage('disc', id());
+                    sp<AMessage> reply = new AMessage('disc', this);
                     mConn->disconnect(reply);
                 }
                 break;
@@ -631,7 +638,7 @@ struct MyHandler : public AHandler {
                 }
 
                 if (result != OK) {
-                    sp<AMessage> reply = new AMessage('disc', id());
+                    sp<AMessage> reply = new AMessage('disc', this);
                     mConn->disconnect(reply);
                 }
                 break;
@@ -651,7 +658,7 @@ struct MyHandler : public AHandler {
                 int32_t result;
                 CHECK(msg->findInt32("result", &result));
 
-                ALOGI("SETUP(%d) completed with result %d (%s)",
+                ALOGI("SETUP(%zu) completed with result %d (%s)",
                      index, result, strerror(-result));
 
                 if (result == OK) {
@@ -703,7 +710,7 @@ struct MyHandler : public AHandler {
                             mSessionID.erase(i, mSessionID.size() - i);
                         }
 
-                        sp<AMessage> notify = new AMessage('accu', id());
+                        sp<AMessage> notify = new AMessage('accu', this);
                         notify->setSize("track-index", trackIndex);
 
                         i = response->mHeaders.indexOfKey("transport");
@@ -769,10 +776,10 @@ struct MyHandler : public AHandler {
 
                     request.append("\r\n");
 
-                    sp<AMessage> reply = new AMessage('play', id());
+                    sp<AMessage> reply = new AMessage('play', this);
                     mConn->sendRequest(request.c_str(), reply);
                 } else {
-                    sp<AMessage> reply = new AMessage('disc', id());
+                    sp<AMessage> reply = new AMessage('disc', this);
                     mConn->disconnect(reply);
                 }
                 break;
@@ -797,7 +804,7 @@ struct MyHandler : public AHandler {
                     } else {
                         parsePlayResponse(response);
 
-                        sp<AMessage> timeout = new AMessage('tiou', id());
+                        sp<AMessage> timeout = new AMessage('tiou', this);
                         mCheckTimeoutGeneration++;
                         timeout->setInt32("tioucheck", mCheckTimeoutGeneration);
                         timeout->post(kStartupTimeoutUs);
@@ -805,7 +812,7 @@ struct MyHandler : public AHandler {
                 }
 
                 if (result != OK) {
-                    sp<AMessage> reply = new AMessage('disc', id());
+                    sp<AMessage> reply = new AMessage('disc', this);
                     mConn->disconnect(reply);
                 }
 
@@ -831,7 +838,7 @@ struct MyHandler : public AHandler {
                 request.append("\r\n");
                 request.append("\r\n");
 
-                sp<AMessage> reply = new AMessage('opts', id());
+                sp<AMessage> reply = new AMessage('opts', this);
                 reply->setInt32("generation", mKeepAliveGeneration);
                 mConn->sendRequest(request.c_str(), reply);
                 break;
@@ -894,7 +901,7 @@ struct MyHandler : public AHandler {
                 mPausing = false;
                 mSeekable = true;
 
-                sp<AMessage> reply = new AMessage('tear', id());
+                sp<AMessage> reply = new AMessage('tear', this);
 
                 int32_t reconnect;
                 if (msg->findInt32("reconnect", &reconnect) && reconnect) {
@@ -926,7 +933,7 @@ struct MyHandler : public AHandler {
                 ALOGI("TEARDOWN completed with result %d (%s)",
                      result, strerror(-result));
 
-                sp<AMessage> reply = new AMessage('disc', id());
+                sp<AMessage> reply = new AMessage('disc', this);
 
                 int32_t reconnect;
                 if (msg->findInt32("reconnect", &reconnect) && reconnect) {
@@ -958,7 +965,7 @@ struct MyHandler : public AHandler {
                 if (mNumAccessUnitsReceived == 0) {
 #if 1
                     ALOGI("stream ended? aborting.");
-                    (new AMessage('abor', id()))->post();
+                    (new AMessage('abor', this))->post();
                     break;
 #else
                     ALOGI("haven't seen an AU in a looong time.");
@@ -1012,7 +1019,7 @@ struct MyHandler : public AHandler {
 
                 int32_t eos;
                 if (msg->findInt32("eos", &eos)) {
-                    ALOGI("received BYE on track index %d", trackIndex);
+                    ALOGI("received BYE on track index %zu", trackIndex);
                     if (!mAllTracksHaveTime && dataReceivedOnAllChannels()) {
                         ALOGI("No time established => fake existing data");
 
@@ -1077,7 +1084,7 @@ struct MyHandler : public AHandler {
 
                 request.append("\r\n");
 
-                sp<AMessage> reply = new AMessage('pau2', id());
+                sp<AMessage> reply = new AMessage('pau2', this);
                 mConn->sendRequest(request.c_str(), reply);
                 break;
             }
@@ -1114,7 +1121,7 @@ struct MyHandler : public AHandler {
 
                 request.append("\r\n");
 
-                sp<AMessage> reply = new AMessage('res2', id());
+                sp<AMessage> reply = new AMessage('res2', this);
                 mConn->sendRequest(request.c_str(), reply);
                 break;
             }
@@ -1143,7 +1150,7 @@ struct MyHandler : public AHandler {
 
                         // Post new timeout in order to make sure to use
                         // fake timestamps if no new Sender Reports arrive
-                        sp<AMessage> timeout = new AMessage('tiou', id());
+                        sp<AMessage> timeout = new AMessage('tiou', this);
                         mCheckTimeoutGeneration++;
                         timeout->setInt32("tioucheck", mCheckTimeoutGeneration);
                         timeout->post(kStartupTimeoutUs);
@@ -1152,7 +1159,7 @@ struct MyHandler : public AHandler {
 
                 if (result != OK) {
                     ALOGE("resume failed, aborting.");
-                    (new AMessage('abor', id()))->post();
+                    (new AMessage('abor', this))->post();
                 }
 
                 mPausing = false;
@@ -1180,7 +1187,7 @@ struct MyHandler : public AHandler {
                 mCheckPending = true;
                 ++mCheckGeneration;
 
-                sp<AMessage> reply = new AMessage('see1', id());
+                sp<AMessage> reply = new AMessage('see0', this);
                 reply->setInt64("time", timeUs);
 
                 if (mPausing) {
@@ -1203,9 +1210,26 @@ struct MyHandler : public AHandler {
                 break;
             }
 
-            case 'see1':
+            case 'see0':
             {
                 // Session is paused now.
+                status_t err = OK;
+                msg->findInt32("result", &err);
+
+                int64_t timeUs;
+                CHECK(msg->findInt64("time", &timeUs));
+
+                sp<AMessage> notify = mNotify->dup();
+                notify->setInt32("what", kWhatSeekPaused);
+                notify->setInt32("err", err);
+                notify->setInt64("time", timeUs);
+                notify->post();
+                break;
+
+            }
+
+            case 'see1':
+            {
                 for (size_t i = 0; i < mTracks.size(); ++i) {
                     TrackInfo *info = &mTracks.editItemAt(i);
 
@@ -1221,7 +1245,7 @@ struct MyHandler : public AHandler {
 
                 // Start new timeoutgeneration to avoid getting timeout
                 // before PLAY response arrive
-                sp<AMessage> timeout = new AMessage('tiou', id());
+                sp<AMessage> timeout = new AMessage('tiou', this);
                 mCheckTimeoutGeneration++;
                 timeout->setInt32("tioucheck", mCheckTimeoutGeneration);
                 timeout->post(kStartupTimeoutUs);
@@ -1238,12 +1262,12 @@ struct MyHandler : public AHandler {
                 request.append("\r\n");
 
                 request.append(
-                        StringPrintf(
+                        AStringPrintf(
                             "Range: npt=%lld-\r\n", timeUs / 1000000ll));
 
                 request.append("\r\n");
 
-                sp<AMessage> reply = new AMessage('see2', id());
+                sp<AMessage> reply = new AMessage('see2', this);
                 mConn->sendRequest(request.c_str(), reply);
                 break;
             }
@@ -1277,7 +1301,7 @@ struct MyHandler : public AHandler {
 
                         // Post new timeout in order to make sure to use
                         // fake timestamps if no new Sender Reports arrive
-                        sp<AMessage> timeout = new AMessage('tiou', id());
+                        sp<AMessage> timeout = new AMessage('tiou', this);
                         mCheckTimeoutGeneration++;
                         timeout->setInt32("tioucheck", mCheckTimeoutGeneration);
                         timeout->post(kStartupTimeoutUs);
@@ -1293,7 +1317,7 @@ struct MyHandler : public AHandler {
 
                 if (result != OK) {
                     ALOGE("seek failed, aborting.");
-                    (new AMessage('abor', id()))->post();
+                    (new AMessage('abor', this))->post();
                 }
 
                 mPausing = false;
@@ -1343,12 +1367,12 @@ struct MyHandler : public AHandler {
 
                         mTryTCPInterleaving = true;
 
-                        sp<AMessage> msg = new AMessage('abor', id());
+                        sp<AMessage> msg = new AMessage('abor', this);
                         msg->setInt32("reconnect", true);
                         msg->post();
                     } else {
                         ALOGW("Never received any data, disconnecting.");
-                        (new AMessage('abor', id()))->post();
+                        (new AMessage('abor', this))->post();
                     }
                 } else {
                     if (!mAllTracksHaveTime) {
@@ -1369,7 +1393,7 @@ struct MyHandler : public AHandler {
     }
 
     void postKeepAlive() {
-        sp<AMessage> msg = new AMessage('aliv', id());
+        sp<AMessage> msg = new AMessage('aliv', this);
         msg->setInt32("generation", mKeepAliveGeneration);
         msg->post((mKeepAliveTimeoutUs * 9) / 10);
     }
@@ -1380,7 +1404,7 @@ struct MyHandler : public AHandler {
         }
 
         mCheckPending = true;
-        sp<AMessage> check = new AMessage('chek', id());
+        sp<AMessage> check = new AMessage('chek', this);
         check->setInt32("generation", mCheckGeneration);
         check->post(kAccessUnitTimeoutUs);
     }
@@ -1564,9 +1588,9 @@ private:
             new APacketSource(mSessionDesc, index);
 
         if (source->initCheck() != OK) {
-            ALOGW("Unsupported format. Ignoring track #%d.", index);
+            ALOGW("Unsupported format. Ignoring track #%zu.", index);
 
-            sp<AMessage> reply = new AMessage('setu', id());
+            sp<AMessage> reply = new AMessage('setu', this);
             reply->setSize("index", index);
             reply->setInt32("result", ERROR_UNSUPPORTED);
             reply->post();
@@ -1606,7 +1630,7 @@ private:
         info->mTimeScale = timescale;
         info->mEOSReceived = false;
 
-        ALOGV("track #%d URL=%s", mTracks.size(), trackURL.c_str());
+        ALOGV("track #%zu URL=%s", mTracks.size(), trackURL.c_str());
 
         AString request = "SETUP ";
         request.append(trackURL);
@@ -1652,7 +1676,7 @@ private:
 
         request.append("\r\n");
 
-        sp<AMessage> reply = new AMessage('setu', id());
+        sp<AMessage> reply = new AMessage('setu', this);
         reply->setSize("index", index);
         reply->setSize("track-index", mTracks.size() - 1);
         mConn->sendRequest(request.c_str(), reply);
@@ -1673,21 +1697,11 @@ private:
         }
 
         size_t n = strlen(baseURL);
-        if (baseURL[n - 1] == '/') {
-            out->setTo(baseURL);
-            out->append(url);
-        } else {
-            const char *slashPos = strrchr(baseURL, '/');
-
-            if (slashPos > &baseURL[6]) {
-                out->setTo(baseURL, slashPos - baseURL);
-            } else {
-                out->setTo(baseURL);
-            }
-
+        out->setTo(baseURL);
+        if (baseURL[n - 1] != '/') {
             out->append("/");
-            out->append(url);
         }
+        out->append(url);
 
         return true;
     }
@@ -1731,8 +1745,8 @@ private:
     }
 
     void onTimeUpdate(int32_t trackIndex, uint32_t rtpTime, uint64_t ntpTime) {
-        ALOGV("onTimeUpdate track %d, rtpTime = 0x%08x, ntpTime = 0x%016llx",
-             trackIndex, rtpTime, ntpTime);
+        ALOGV("onTimeUpdate track %d, rtpTime = 0x%08x, ntpTime = %#016llx",
+             trackIndex, rtpTime, (long long)ntpTime);
 
         int64_t ntpTimeUs = (int64_t)(ntpTime * 1E6 / (1ll << 32));
 
@@ -1747,7 +1761,7 @@ private:
         }
 
         if (!mAllTracksHaveTime) {
-            bool allTracksHaveTime = true;
+            bool allTracksHaveTime = (mTracks.size() > 0);
             for (size_t i = 0; i < mTracks.size(); ++i) {
                 TrackInfo *track = &mTracks.editItemAt(i);
                 if (track->mNTPAnchorUs < 0) {
@@ -1851,8 +1865,8 @@ private:
             return false;
         }
 
-        ALOGV("track %d rtpTime=%d mediaTimeUs = %lld us (%.2f secs)",
-             trackIndex, rtpTime, mediaTimeUs, mediaTimeUs / 1E6);
+        ALOGV("track %d rtpTime=%u mediaTimeUs = %lld us (%.2f secs)",
+             trackIndex, rtpTime, (long long)mediaTimeUs, mediaTimeUs / 1E6);
 
         accessUnit->meta()->setInt64("timeUs", mediaTimeUs);
 

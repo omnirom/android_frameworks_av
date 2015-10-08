@@ -42,8 +42,7 @@ public:
         EVENT_MORE_DATA = 0,        // Request to read available data from buffer.
                                     // If this event is delivered but the callback handler
                                     // does not want to read the available data, the handler must
-                                    // explicitly
-                                    // ignore the event by setting frameCount to zero.
+                                    // explicitly ignore the event by setting frameCount to zero.
         EVENT_OVERRUN = 1,          // Buffer overrun occurred.
         EVENT_MARKER = 2,           // Record head is at the specified marker position
                                     // (See setMarkerPosition()).
@@ -53,7 +52,7 @@ public:
                                     // voluntary invalidation by mediaserver, or mediaserver crash.
     };
 
-    /* Client should declare Buffer on the stack and pass address to obtainBuffer()
+    /* Client should declare a Buffer and pass address to obtainBuffer()
      * and releaseBuffer().  See also callback_t for EVENT_MORE_DATA.
      */
 
@@ -62,20 +61,25 @@ public:
     public:
         // FIXME use m prefix
         size_t      frameCount;     // number of sample frames corresponding to size;
-                                    // on input it is the number of frames available,
-                                    // on output is the number of frames actually drained
-                                    // (currently ignored but will make the primary field in future)
+                                    // on input to obtainBuffer() it is the number of frames desired
+                                    // on output from obtainBuffer() it is the number of available
+                                    //    frames to be read
+                                    // on input to releaseBuffer() it is currently ignored
 
         size_t      size;           // input/output in bytes == frameCount * frameSize
-                                    // on output is the number of bytes actually drained
-                                    // FIXME this is redundant with respect to frameCount,
-                                    // and TRANSFER_OBTAIN mode is broken for 8-bit data
-                                    // since we don't define the frame format
+                                    // on input to obtainBuffer() it is ignored
+                                    // on output from obtainBuffer() it is the number of available
+                                    //    bytes to be read, which is frameCount * frameSize
+                                    // on input to releaseBuffer() it is the number of bytes to
+                                    //    release
+                                    // FIXME This is redundant with respect to frameCount.  Consider
+                                    //    removing size and making frameCount the primary field.
 
         union {
             void*       raw;
             short*      i16;        // signed 16-bit
             int8_t*     i8;         // unsigned 8-bit, offset by 0x80
+                                    // input to obtainBuffer(): unused, output: pointer to buffer
         };
     };
 
@@ -88,8 +92,8 @@ public:
      * user:    Pointer to context for use by the callback receiver.
      * info:    Pointer to optional parameter according to event type:
      *          - EVENT_MORE_DATA: pointer to AudioRecord::Buffer struct. The callback must not read
-     *            more bytes than indicated by 'size' field and update 'size' if fewer bytes are
-     *            consumed.
+     *                             more bytes than indicated by 'size' field and update 'size' if
+     *                             fewer bytes are consumed.
      *          - EVENT_OVERRUN: unused.
      *          - EVENT_MARKER: pointer to const uint32_t containing the marker position in frames.
      *          - EVENT_NEW_POS: pointer to const uint32_t containing the new position in frames.
@@ -106,6 +110,7 @@ public:
      *  - BAD_VALUE: unsupported configuration
      * frameCount is guaranteed to be non-zero if status is NO_ERROR,
      * and is undefined otherwise.
+     * FIXME This API assumes a route, and so should be deprecated.
      */
 
      static status_t getMinFrameCount(size_t* frameCount,
@@ -118,14 +123,18 @@ public:
     enum transfer_type {
         TRANSFER_DEFAULT,   // not specified explicitly; determine from the other parameters
         TRANSFER_CALLBACK,  // callback EVENT_MORE_DATA
-        TRANSFER_OBTAIN,    // FIXME deprecated: call obtainBuffer() and releaseBuffer()
+        TRANSFER_OBTAIN,    // call obtainBuffer() and releaseBuffer()
         TRANSFER_SYNC,      // synchronous read()
     };
 
     /* Constructs an uninitialized AudioRecord. No connection with
      * AudioFlinger takes place.  Use set() after this.
+     *
+     * Parameters:
+     *
+     * opPackageName:      The package name used for app ops.
      */
-                        AudioRecord();
+                        AudioRecord(const String16& opPackageName);
 
     /* Creates an AudioRecord object and registers it with AudioFlinger.
      * Once created, the track needs to be started before it can be used.
@@ -138,27 +147,30 @@ public:
      * format:             Audio format (e.g AUDIO_FORMAT_PCM_16_BIT for signed
      *                     16 bits per sample).
      * channelMask:        Channel mask, such that audio_is_input_channel(channelMask) is true.
+     * opPackageName:      The package name used for app ops.
      * frameCount:         Minimum size of track PCM buffer in frames. This defines the
      *                     application's contribution to the
      *                     latency of the track.  The actual size selected by the AudioRecord could
      *                     be larger if the requested size is not compatible with current audio HAL
      *                     latency.  Zero means to use a default value.
      * cbf:                Callback function. If not null, this function is called periodically
-     *                     to consume new data and inform of marker, position updates, etc.
+     *                     to consume new data in TRANSFER_CALLBACK mode
+     *                     and inform of marker, position updates, etc.
      * user:               Context for use by the callback receiver.
      * notificationFrames: The callback function is called each time notificationFrames PCM
      *                     frames are ready in record track output buffer.
      * sessionId:          Not yet supported.
      * transferType:       How data is transferred from AudioRecord.
      * flags:              See comments on audio_input_flags_t in <system/audio.h>
+     * pAttributes:        If not NULL, supersedes inputSource for use case selection.
      * threadCanCallJava:  Not present in parameter list, and so is fixed at false.
-     * pAttributes:        if not NULL, supersedes inputSource for use case selection
      */
 
                         AudioRecord(audio_source_t inputSource,
                                     uint32_t sampleRate,
                                     audio_format_t format,
                                     audio_channel_mask_t channelMask,
+                                    const String16& opPackageName,
                                     size_t frameCount = 0,
                                     callback_t cbf = NULL,
                                     void* user = NULL,
@@ -166,6 +178,8 @@ public:
                                     int sessionId = AUDIO_SESSION_ALLOCATE,
                                     transfer_type transferType = TRANSFER_DEFAULT,
                                     audio_input_flags_t flags = AUDIO_INPUT_FLAG_NONE,
+                                    int uid = -1,
+                                    pid_t pid = -1,
                                     const audio_attributes_t* pAttributes = NULL);
 
     /* Terminates the AudioRecord and unregisters it from AudioFlinger.
@@ -177,6 +191,7 @@ public:
 
     /* Initialize an AudioRecord that was created using the AudioRecord() constructor.
      * Don't call set() more than once, or after an AudioRecord() constructor that takes parameters.
+     * set() is not multi-thread safe.
      * Returned status (from utils/Errors.h) can be:
      *  - NO_ERROR: successful intialization
      *  - INVALID_OPERATION: AudioRecord is already initialized or record device is already in use
@@ -201,6 +216,8 @@ public:
                             int sessionId = AUDIO_SESSION_ALLOCATE,
                             transfer_type transferType = TRANSFER_DEFAULT,
                             audio_input_flags_t flags = AUDIO_INPUT_FLAG_NONE,
+                            int uid = -1,
+                            pid_t pid = -1,
                             const audio_attributes_t* pAttributes = NULL);
 
     /* Result of constructing the AudioRecord. This must be checked for successful initialization
@@ -211,7 +228,7 @@ public:
             status_t    initCheck() const   { return mStatus; }
 
     /* Returns this track's estimated latency in milliseconds.
-     * This includes the latency due to AudioRecord buffer size,
+     * This includes the latency due to AudioRecord buffer size, resampling if applicable,
      * and audio hardware driver.
      */
             uint32_t    latency() const     { return mLatency; }
@@ -242,11 +259,6 @@ public:
      * Unlike AudioTrack, the sample rate is const after initialization, so doesn't need a lock.
      */
             uint32_t    getSampleRate() const   { return mSampleRate; }
-
-    /* Return the notification frame count.
-     * This is approximately how often the callback is invoked, for transfer type TRANSFER_CALLBACK.
-     */
-            size_t      notificationFrames() const  { return mNotificationFramesAct; }
 
     /* Sets marker position. When record reaches the number of frames specified,
      * a callback with event type EVENT_MARKER is called. Calling setMarkerPosition
@@ -309,7 +321,12 @@ public:
      * Returned value:
      *  handle on audio hardware input
      */
-            audio_io_handle_t    getInput() const;
+// FIXME The only known public caller is frameworks/opt/net/voip/src/jni/rtp/AudioGroup.cpp
+            audio_io_handle_t    getInput() const __attribute__((__deprecated__))
+                                                { return getInputPrivate(); }
+private:
+            audio_io_handle_t    getInputPrivate() const;
+public:
 
     /* Returns the audio session ID associated with this AudioRecord.
      *
@@ -323,10 +340,18 @@ public:
      */
             int    getSessionId() const { return mSessionId; }
 
-    /* Obtains a buffer of up to "audioBuffer->frameCount" full frames.
+    /* Public API for TRANSFER_OBTAIN mode.
+     * Obtains a buffer of up to "audioBuffer->frameCount" full frames.
      * After draining these frames of data, the caller should release them with releaseBuffer().
      * If the track buffer is not empty, obtainBuffer() returns as many contiguous
      * full frames as are available immediately.
+     *
+     * If nonContig is non-NULL, it is an output parameter that will be set to the number of
+     * additional non-contiguous frames that are predicted to be available immediately,
+     * if the client were to release the first frames and then call obtainBuffer() again.
+     * This value is only a prediction, and needs to be confirmed.
+     * It will be set to zero for an error return.
+     *
      * If the track buffer is empty and track is stopped, obtainBuffer() returns WOULD_BLOCK
      * regardless of the value of waitCount.
      * If the track buffer is empty and track is not stopped, obtainBuffer() blocks with a
@@ -336,9 +361,6 @@ public:
      * or return WOULD_BLOCK depending on the value of the "waitCount"
      * parameter.
      *
-     * obtainBuffer() and releaseBuffer() are deprecated for direct use by applications,
-     * which should use read() or callback EVENT_MORE_DATA instead.
-     *
      * Interpretation of waitCount:
      *  +n  limits wait time to n * WAIT_PERIOD_MS,
      *  -1  causes an (almost) infinite wait time,
@@ -347,6 +369,8 @@ public:
      * Buffer fields
      * On entry:
      *  frameCount  number of frames requested
+     *  size        ignored
+     *  raw         ignored
      * After error return:
      *  frameCount  0
      *  size        0
@@ -357,13 +381,58 @@ public:
      *  raw         pointer to the buffer
      */
 
-    /* FIXME Deprecated public API for TRANSFER_OBTAIN mode */
-            status_t    obtainBuffer(Buffer* audioBuffer, int32_t waitCount)
-                                __attribute__((__deprecated__));
+            status_t    obtainBuffer(Buffer* audioBuffer, int32_t waitCount,
+                                size_t *nonContig = NULL);
+
+            // Explicit Routing
+    /**
+     * TODO Document this method.
+     */
+            status_t setInputDevice(audio_port_handle_t deviceId);
+
+    /**
+     * TODO Document this method.
+     */
+            audio_port_handle_t getInputDevice();
+
+     /* Returns the ID of the audio device actually used by the input to which this AudioRecord
+      * is attached.
+      * A value of AUDIO_PORT_HANDLE_NONE indicates the AudioRecord is not attached to any input.
+      *
+      * Parameters:
+      *  none.
+      */
+     audio_port_handle_t getRoutedDeviceId();
+
+    /* Add an AudioDeviceCallback. The caller will be notified when the audio device
+     * to which this AudioRecord is routed is updated.
+     * Replaces any previously installed callback.
+     * Parameters:
+     *  callback:  The callback interface
+     * Returns NO_ERROR if successful.
+     *         INVALID_OPERATION if the same callback is already installed.
+     *         NO_INIT or PREMISSION_DENIED if AudioFlinger service is not reachable
+     *         BAD_VALUE if the callback is NULL
+     */
+            status_t addAudioDeviceCallback(
+                    const sp<AudioSystem::AudioDeviceCallback>& callback);
+
+    /* remove an AudioDeviceCallback.
+     * Parameters:
+     *  callback:  The callback interface
+     * Returns NO_ERROR if successful.
+     *         INVALID_OPERATION if the callback is not installed
+     *         BAD_VALUE if the callback is NULL
+     */
+            status_t removeAudioDeviceCallback(
+                    const sp<AudioSystem::AudioDeviceCallback>& callback);
 
 private:
     /* If nonContig is non-NULL, it is an output parameter that will be set to the number of
-     * additional non-contiguous frames that are available immediately.
+     * additional non-contiguous frames that are predicted to be available immediately,
+     * if the client were to release the first frames and then call obtainBuffer() again.
+     * This value is only a prediction, and needs to be confirmed.
+     * It will be set to zero for an error return.
      * FIXME We could pass an array of Buffers instead of only one Buffer to obtainBuffer(),
      * in case the requested amount of frames is in two or more non-contiguous regions.
      * FIXME requested and elapsed are both relative times.  Consider changing to absolute time.
@@ -372,9 +441,15 @@ private:
                                      struct timespec *elapsed = NULL, size_t *nonContig = NULL);
 public:
 
-    /* Release an emptied buffer of "audioBuffer->frameCount" frames for AudioFlinger to re-fill. */
-    // FIXME make private when obtainBuffer() for TRANSFER_OBTAIN is removed
-            void        releaseBuffer(Buffer* audioBuffer);
+    /* Public API for TRANSFER_OBTAIN mode.
+     * Release an emptied buffer of "audioBuffer->frameCount" frames for AudioFlinger to re-fill.
+     *
+     * Buffer fields:
+     *  frameCount  currently ignored but recommend to set to actual number of frames consumed
+     *  size        actual number of bytes consumed, must be multiple of frameSize
+     *  raw         ignored
+     */
+            void        releaseBuffer(const Buffer* audioBuffer);
 
     /* As a convenience we provide a read() interface to the audio buffer.
      * Input parameter 'size' is in byte units.
@@ -386,8 +461,11 @@ public:
      *      WOULD_BLOCK         when obtainBuffer() returns same, or
      *                          AudioRecord was stopped during the read
      *      or any other error code returned by IAudioRecord::start() or restoreRecord_l().
+     * Default behavior is to only return when all data has been transferred. Set 'blocking' to
+     * false for the method to return immediately without waiting to try multiple times to read
+     * the full content of the buffer.
      */
-            ssize_t     read(void* buffer, size_t size);
+            ssize_t     read(void* buffer, size_t size, bool blocking = true);
 
     /* Return the number of input frames lost in the audio driver since the last call of this
      * function.  Audio driver is expected to reset the value to 0 and restart counting upon
@@ -416,6 +494,7 @@ private:
 
                 void        pause();    // suspend thread from execution at next loop boundary
                 void        resume();   // allow thread to execute, if not requested to exit
+                void        wake();     // wake to handle changed notification conditions.
 
     private:
                 void        pauseInternal(nsecs_t ns = 0LL);
@@ -430,7 +509,9 @@ private:
         bool                mPaused;    // whether thread is requested to pause at next loop entry
         bool                mPausedInt; // whether thread internally requests pause
         nsecs_t             mPausedNs;  // if mPausedInt then associated timeout, otherwise ignored
-        bool                mIgnoreNextPausedInt;   // whether to ignore next mPausedInt request
+        bool                mIgnoreNextPausedInt;   // skip any internal pause and go immediately
+                                        // to processAudioBuffer() as state may have changed
+                                        // since pause time calculated.
     };
 
             // body of AudioRecordThread::threadLoop()
@@ -445,7 +526,7 @@ private:
 
             // caller must hold lock on mLock for all _l methods
 
-            status_t openRecord_l(size_t epoch);
+            status_t openRecord_l(size_t epoch, const String16& opPackageName);
 
             // FIXME enum is faster than strcmp() for parameter 'from'
             status_t restoreRecord_l(const char *from);
@@ -458,7 +539,7 @@ private:
     bool                    mActive;
 
     // for client callback handler
-    callback_t              mCbf;               // callback handler for events, or NULL
+    callback_t              mCbf;                   // callback handler for events, or NULL
     void*                   mUserData;
 
     // for notification APIs
@@ -475,12 +556,14 @@ private:
     bool                    mRetryOnPartialBuffer;  // sleep and retry after partial obtainBuffer()
     uint32_t                mObservedSequence;      // last observed value of mSequence
 
-    uint32_t                mMarkerPosition;    // in wrapping (overflow) frame units
+    uint32_t                mMarkerPosition;        // in wrapping (overflow) frame units
     bool                    mMarkerReached;
-    uint32_t                mNewPosition;       // in frames
-    uint32_t                mUpdatePeriod;      // in frames, zero means no EVENT_NEW_POS
+    uint32_t                mNewPosition;           // in frames
+    uint32_t                mUpdatePeriod;          // in frames, zero means no EVENT_NEW_POS
 
     status_t                mStatus;
+
+    String16                mOpPackageName;         // The package name used for app ops.
 
     size_t                  mFrameCount;            // corresponds to current IAudioRecord, value is
                                                     // reported back by AudioFlinger to the client
@@ -531,7 +614,14 @@ private:
 
     sp<DeathNotifier>       mDeathNotifier;
     uint32_t                mSequence;              // incremented for each new IAudioRecord attempt
+    int                     mClientUid;
+    pid_t                   mClientPid;
     audio_attributes_t      mAttributes;
+
+    // For Device Selection API
+    //  a value of AUDIO_PORT_HANDLE_NONE indicated default (AudioPolicyManager) routing.
+    audio_port_handle_t    mSelectedDeviceId;
+    sp<AudioSystem::AudioDeviceCallback> mDeviceCallback;
 };
 
 }; // namespace android

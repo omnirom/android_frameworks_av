@@ -26,6 +26,7 @@
 #include <gui/Surface.h>
 #include <camera/CameraMetadata.h>
 #include <camera/camera2/CaptureRequest.h>
+#include <camera/camera2/OutputConfiguration.h>
 
 namespace android {
 
@@ -41,10 +42,14 @@ enum {
     END_CONFIGURE,
     DELETE_STREAM,
     CREATE_STREAM,
+    CREATE_INPUT_STREAM,
+    GET_INPUT_SURFACE,
     CREATE_DEFAULT_REQUEST,
     GET_CAMERA_INFO,
     WAIT_UNTIL_IDLE,
-    FLUSH
+    FLUSH,
+    PREPARE,
+    TEAR_DOWN
 };
 
 namespace {
@@ -78,7 +83,7 @@ public:
         reply.readExceptionCode();
     }
 
-    virtual status_t submitRequest(sp<CaptureRequest> request, bool repeating,
+    virtual int submitRequest(sp<CaptureRequest> request, bool repeating,
                               int64_t *lastFrameNumber)
     {
         Parcel data, reply;
@@ -107,13 +112,13 @@ public:
             }
         }
 
-	if ((res != NO_ERROR) || (resFrameNumber != NO_ERROR)) {
+        if (res < 0 || (resFrameNumber != NO_ERROR)) {
             res = FAILED_TRANSACTION;
         }
         return res;
     }
 
-    virtual status_t submitRequestList(List<sp<CaptureRequest> > requestList, bool repeating,
+    virtual int submitRequestList(List<sp<CaptureRequest> > requestList, bool repeating,
                                   int64_t *lastFrameNumber)
     {
         Parcel data, reply;
@@ -147,7 +152,7 @@ public:
                 resFrameNumber = reply.readInt64(lastFrameNumber);
             }
         }
-        if ((res != NO_ERROR) || (resFrameNumber != NO_ERROR)) {
+        if (res < 0 || (resFrameNumber != NO_ERROR)) {
             res = FAILED_TRANSACTION;
         }
         return res;
@@ -167,7 +172,7 @@ public:
         status_t resFrameNumber = BAD_VALUE;
         if (reply.readInt32() != 0) {
             if (lastFrameNumber != NULL) {
-                res = reply.readInt64(lastFrameNumber);
+                resFrameNumber = reply.readInt64(lastFrameNumber);
             }
         }
         if ((res != NO_ERROR) || (resFrameNumber != NO_ERROR)) {
@@ -186,11 +191,13 @@ public:
         return reply.readInt32();
     }
 
-    virtual status_t endConfigure()
+    virtual status_t endConfigure(bool isConstrainedHighSpeed)
     {
         ALOGV("endConfigure");
         Parcel data, reply;
         data.writeInterfaceToken(ICameraDeviceUser::getInterfaceDescriptor());
+        data.writeInt32(isConstrainedHighSpeed);
+
         remote()->transact(END_CONFIGURE, data, &reply);
         reply.readExceptionCode();
         return reply.readInt32();
@@ -208,8 +215,23 @@ public:
         return reply.readInt32();
     }
 
-    virtual status_t createStream(int width, int height, int format,
-                          const sp<IGraphicBufferProducer>& bufferProducer)
+    virtual status_t createStream(const OutputConfiguration& outputConfiguration)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(ICameraDeviceUser::getInterfaceDescriptor());
+        if (outputConfiguration.getGraphicBufferProducer() != NULL) {
+            data.writeInt32(1); // marker that OutputConfiguration is not null. Mimic aidl behavior
+            outputConfiguration.writeToParcel(data);
+        } else {
+            data.writeInt32(0);
+        }
+        remote()->transact(CREATE_STREAM, data, &reply);
+
+        reply.readExceptionCode();
+        return reply.readInt32();
+    }
+
+    virtual status_t createInputStream(int width, int height, int format)
     {
         Parcel data, reply;
         data.writeInterfaceToken(ICameraDeviceUser::getInterfaceDescriptor());
@@ -217,15 +239,40 @@ public:
         data.writeInt32(height);
         data.writeInt32(format);
 
-        data.writeInt32(1); // marker that bufferProducer is not null
-        data.writeString16(String16("unknown_name")); // name of surface
-        sp<IBinder> b(bufferProducer->asBinder());
-        data.writeStrongBinder(b);
-
-        remote()->transact(CREATE_STREAM, data, &reply);
+        remote()->transact(CREATE_INPUT_STREAM, data, &reply);
 
         reply.readExceptionCode();
         return reply.readInt32();
+    }
+
+    // get the buffer producer of the input stream
+    virtual status_t getInputBufferProducer(
+            sp<IGraphicBufferProducer> *producer) {
+        if (producer == NULL) {
+            return BAD_VALUE;
+        }
+
+        Parcel data, reply;
+        data.writeInterfaceToken(ICameraDeviceUser::getInterfaceDescriptor());
+
+        remote()->transact(GET_INPUT_SURFACE, data, &reply);
+
+        reply.readExceptionCode();
+        status_t result = reply.readInt32() ;
+        if (result != OK) {
+            return result;
+        }
+
+        sp<IGraphicBufferProducer> bp = NULL;
+        if (reply.readInt32() != 0) {
+            String16 name = readMaybeEmptyString16(reply);
+            bp = interface_cast<IGraphicBufferProducer>(
+                    reply.readStrongBinder());
+        }
+
+        *producer = bp;
+
+        return *producer == NULL ? INVALID_OPERATION : OK;
     }
 
     // Create a request object from a template.
@@ -296,13 +343,41 @@ public:
         status_t resFrameNumber = BAD_VALUE;
         if (reply.readInt32() != 0) {
             if (lastFrameNumber != NULL) {
-                res = reply.readInt64(lastFrameNumber);
+                resFrameNumber = reply.readInt64(lastFrameNumber);
             }
         }
         if ((res != NO_ERROR) || (resFrameNumber != NO_ERROR)) {
             res = FAILED_TRANSACTION;
         }
         return res;
+    }
+
+    virtual status_t prepare(int streamId)
+    {
+        ALOGV("prepare");
+        Parcel data, reply;
+
+        data.writeInterfaceToken(ICameraDeviceUser::getInterfaceDescriptor());
+        data.writeInt32(streamId);
+
+        remote()->transact(PREPARE, data, &reply);
+
+        reply.readExceptionCode();
+        return reply.readInt32();
+    }
+
+    virtual status_t tearDown(int streamId)
+    {
+        ALOGV("tearDown");
+        Parcel data, reply;
+
+        data.writeInterfaceToken(ICameraDeviceUser::getInterfaceDescriptor());
+        data.writeInt32(streamId);
+
+        remote()->transact(TEAR_DOWN, data, &reply);
+
+        reply.readExceptionCode();
+        return reply.readInt32();
     }
 
 private:
@@ -396,30 +471,14 @@ status_t BnCameraDeviceUser::onTransact(
         } break;
         case CREATE_STREAM: {
             CHECK_INTERFACE(ICameraDeviceUser, data, reply);
-            int width, height, format;
 
-            width = data.readInt32();
-            ALOGV("%s: CREATE_STREAM: width = %d", __FUNCTION__, width);
-            height = data.readInt32();
-            ALOGV("%s: CREATE_STREAM: height = %d", __FUNCTION__, height);
-            format = data.readInt32();
-            ALOGV("%s: CREATE_STREAM: format = %d", __FUNCTION__, format);
-
-            sp<IGraphicBufferProducer> bp;
+            status_t ret = BAD_VALUE;
             if (data.readInt32() != 0) {
-                String16 name = readMaybeEmptyString16(data);
-                bp = interface_cast<IGraphicBufferProducer>(
-                        data.readStrongBinder());
-
-                ALOGV("%s: CREATE_STREAM: bp = %p, name = %s", __FUNCTION__,
-                      bp.get(), String8(name).string());
+                OutputConfiguration outputConfiguration(data);
+                ret = createStream(outputConfiguration);
             } else {
-                ALOGV("%s: CREATE_STREAM: bp = unset, name = unset",
-                      __FUNCTION__);
+                ALOGE("%s: cannot take an empty OutputConfiguration", __FUNCTION__);
             }
-
-            status_t ret;
-            ret = createStream(width, height, format, bp);
 
             reply->writeNoException();
             ALOGV("%s: CREATE_STREAM: write noException", __FUNCTION__);
@@ -428,7 +487,35 @@ status_t BnCameraDeviceUser::onTransact(
 
             return NO_ERROR;
         } break;
+        case CREATE_INPUT_STREAM: {
+            CHECK_INTERFACE(ICameraDeviceUser, data, reply);
+            int width, height, format;
 
+            width = data.readInt32();
+            height = data.readInt32();
+            format = data.readInt32();
+            status_t ret = createInputStream(width, height, format);
+
+            reply->writeNoException();
+            reply->writeInt32(ret);
+            return NO_ERROR;
+
+        } break;
+        case GET_INPUT_SURFACE: {
+            CHECK_INTERFACE(ICameraDeviceUser, data, reply);
+
+            sp<IGraphicBufferProducer> bp;
+            status_t ret = getInputBufferProducer(&bp);
+            sp<IBinder> b(IInterface::asBinder(ret == OK ? bp : NULL));
+
+            reply->writeNoException();
+            reply->writeInt32(ret);
+            reply->writeInt32(1);
+            reply->writeString16(String16("camera input")); // name of surface
+            reply->writeStrongBinder(b);
+
+            return NO_ERROR;
+        } break;
         case CREATE_DEFAULT_REQUEST: {
             CHECK_INTERFACE(ICameraDeviceUser, data, reply);
 
@@ -486,10 +573,26 @@ status_t BnCameraDeviceUser::onTransact(
         } break;
         case END_CONFIGURE: {
             CHECK_INTERFACE(ICameraDeviceUser, data, reply);
+            bool isConstrainedHighSpeed = data.readInt32();
             reply->writeNoException();
-            reply->writeInt32(endConfigure());
+            reply->writeInt32(endConfigure(isConstrainedHighSpeed));
             return NO_ERROR;
         } break;
+        case PREPARE: {
+            CHECK_INTERFACE(ICameraDeviceUser, data, reply);
+            int streamId = data.readInt32();
+            reply->writeNoException();
+            reply->writeInt32(prepare(streamId));
+            return NO_ERROR;
+        } break;
+        case TEAR_DOWN: {
+            CHECK_INTERFACE(ICameraDeviceUser, data, reply);
+            int streamId = data.readInt32();
+            reply->writeNoException();
+            reply->writeInt32(tearDown(streamId));
+            return NO_ERROR;
+        } break;
+
         default:
             return BBinder::onTransact(code, data, reply, flags);
     }

@@ -19,6 +19,7 @@
 
 #include <hardware/audio_effect.h>
 #include <media/AudioPolicy.h>
+#include <media/AudioIoDescriptor.h>
 #include <media/IAudioFlingerClient.h>
 #include <media/IAudioPolicyServiceClient.h>
 #include <system/audio.h>
@@ -29,6 +30,7 @@
 namespace android {
 
 typedef void (*audio_error_callback)(status_t err);
+typedef void (*dynamic_policy_callback)(int event, String8 regId, int val);
 
 class IAudioFlinger;
 class IAudioPolicyService;
@@ -89,6 +91,7 @@ public:
     static String8  getParameters(const String8& keys);
 
     static void setErrorCallback(audio_error_callback cb);
+    static void setDynPolicyCallback(dynamic_policy_callback cb);
 
     // helper function to obtain AudioFlinger service handle
     static const sp<IAudioFlinger> get_audio_flinger();
@@ -98,10 +101,13 @@ public:
 
     // Returned samplingRate and frameCount output values are guaranteed
     // to be non-zero if status == NO_ERROR
+    // FIXME This API assumes a route, and so should be deprecated.
     static status_t getOutputSamplingRate(uint32_t* samplingRate,
             audio_stream_type_t stream);
+    // FIXME This API assumes a route, and so should be deprecated.
     static status_t getOutputFrameCount(size_t* frameCount,
             audio_stream_type_t stream);
+    // FIXME This API assumes a route, and so should be deprecated.
     static status_t getOutputLatency(uint32_t* latency,
             audio_stream_type_t stream);
     static status_t getSamplingRate(audio_io_handle_t output,
@@ -110,19 +116,20 @@ public:
     // audio_stream->get_buffer_size()/audio_stream_out_frame_size()
     static status_t getFrameCount(audio_io_handle_t output,
                                   size_t* frameCount);
-    // returns the audio output stream latency in ms. Corresponds to
+    // returns the audio output latency in ms. Corresponds to
     // audio_stream_out->get_latency()
     static status_t getLatency(audio_io_handle_t output,
                                uint32_t* latency);
 
     // return status NO_ERROR implies *buffSize > 0
+    // FIXME This API assumes a route, and so should deprecated.
     static status_t getInputBufferSize(uint32_t sampleRate, audio_format_t format,
         audio_channel_mask_t channelMask, size_t* buffSize);
 
     static status_t setVoiceVolume(float volume);
 
     // return the number of audio frames written by AudioFlinger to audio HAL and
-    // audio dsp to DAC since the specified output I/O handle has exited standby.
+    // audio dsp to DAC since the specified output has exited standby.
     // returned status (from utils/Errors.h) can be:
     // - NO_ERROR: successful operation, halFrames and dspFrames point to valid data
     // - INVALID_OPERATION: Not supported on current hardware platform
@@ -151,32 +158,8 @@ public:
     // or no HW sync source is used.
     static audio_hw_sync_t getAudioHwSyncForSession(audio_session_t sessionId);
 
-    // types of io configuration change events received with ioConfigChanged()
-    enum io_config_event {
-        OUTPUT_OPENED,
-        OUTPUT_CLOSED,
-        OUTPUT_CONFIG_CHANGED,
-        INPUT_OPENED,
-        INPUT_CLOSED,
-        INPUT_CONFIG_CHANGED,
-        STREAM_CONFIG_CHANGED,
-        NUM_CONFIG_EVENTS
-    };
-
-    // audio output descriptor used to cache output configurations in client process to avoid
-    // frequent calls through IAudioFlinger
-    class OutputDescriptor {
-    public:
-        OutputDescriptor()
-        : samplingRate(0), format(AUDIO_FORMAT_DEFAULT), channelMask(0), frameCount(0), latency(0)
-            {}
-
-        uint32_t samplingRate;
-        audio_format_t format;
-        audio_channel_mask_t channelMask;
-        size_t frameCount;
-        uint32_t latency;
-    };
+    // Indicate JAVA services are ready (scheduling, power management ...)
+    static status_t systemReady();
 
     // Events used to synchronize actions between audio sessions.
     // For instance SYNC_EVENT_PRESENTATION_COMPLETE can be used to delay recording start until
@@ -201,7 +184,7 @@ public:
     // IAudioPolicyService interface (see AudioPolicyInterface for method descriptions)
     //
     static status_t setDeviceConnectionState(audio_devices_t device, audio_policy_dev_state_t state,
-                                                const char *device_address);
+                                             const char *device_address, const char *device_name);
     static audio_policy_dev_state_t getDeviceConnectionState(audio_devices_t device,
                                                                 const char *device_address);
     static status_t setPhoneState(audio_mode_t state);
@@ -217,14 +200,16 @@ public:
                                         audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
                                         const audio_offload_info_t *offloadInfo = NULL);
     static status_t getOutputForAttr(const audio_attributes_t *attr,
-                                        audio_io_handle_t *output,
-                                        audio_session_t session,
-                                        audio_stream_type_t *stream,
-                                        uint32_t samplingRate = 0,
-                                        audio_format_t format = AUDIO_FORMAT_DEFAULT,
-                                        audio_channel_mask_t channelMask = AUDIO_CHANNEL_OUT_STEREO,
-                                        audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
-                                        const audio_offload_info_t *offloadInfo = NULL);
+                                     audio_io_handle_t *output,
+                                     audio_session_t session,
+                                     audio_stream_type_t *stream,
+                                     uid_t uid,
+                                     uint32_t samplingRate = 0,
+                                     audio_format_t format = AUDIO_FORMAT_DEFAULT,
+                                     audio_channel_mask_t channelMask = AUDIO_CHANNEL_OUT_STEREO,
+                                     audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
+                                     audio_port_handle_t selectedDeviceId = AUDIO_PORT_HANDLE_NONE,
+                                     const audio_offload_info_t *offloadInfo = NULL);
     static status_t startOutput(audio_io_handle_t output,
                                 audio_stream_type_t stream,
                                 audio_session_t session);
@@ -240,10 +225,12 @@ public:
     static status_t getInputForAttr(const audio_attributes_t *attr,
                                     audio_io_handle_t *input,
                                     audio_session_t session,
+                                    uid_t uid,
                                     uint32_t samplingRate,
                                     audio_format_t format,
                                     audio_channel_mask_t channelMask,
-                                    audio_input_flags_t flags);
+                                    audio_input_flags_t flags,
+                                    audio_port_handle_t selectedDeviceId = AUDIO_PORT_HANDLE_NONE);
 
     static status_t startInput(audio_io_handle_t input,
                                audio_session_t session);
@@ -327,6 +314,12 @@ public:
 
     static status_t registerPolicyMixes(Vector<AudioMix> mixes, bool registration);
 
+    static status_t startAudioSource(const struct audio_port_config *source,
+                                      const audio_attributes_t *attributes,
+                                      audio_io_handle_t *handle);
+    static status_t stopAudioSource(audio_io_handle_t handle);
+
+
     // ----------------------------------------------------------------------------
 
     class AudioPortCallback : public RefBase
@@ -342,15 +335,41 @@ public:
 
     };
 
-    static void setAudioPortCallback(sp<AudioPortCallback> callBack);
+    static status_t addAudioPortCallback(const sp<AudioPortCallback>& callback);
+    static status_t removeAudioPortCallback(const sp<AudioPortCallback>& callback);
+
+    class AudioDeviceCallback : public RefBase
+    {
+    public:
+
+                AudioDeviceCallback() {}
+        virtual ~AudioDeviceCallback() {}
+
+        virtual void onAudioDeviceUpdate(audio_io_handle_t audioIo,
+                                         audio_port_handle_t deviceId) = 0;
+    };
+
+    static status_t addAudioDeviceCallback(const sp<AudioDeviceCallback>& callback,
+                                           audio_io_handle_t audioIo);
+    static status_t removeAudioDeviceCallback(const sp<AudioDeviceCallback>& callback,
+                                              audio_io_handle_t audioIo);
+
+    static audio_port_handle_t getDeviceIdForIo(audio_io_handle_t audioIo);
 
 private:
 
     class AudioFlingerClient: public IBinder::DeathRecipient, public BnAudioFlingerClient
     {
     public:
-        AudioFlingerClient() {
+        AudioFlingerClient() :
+            mInBuffSize(0), mInSamplingRate(0),
+            mInFormat(AUDIO_FORMAT_DEFAULT), mInChannelMask(AUDIO_CHANNEL_NONE) {
         }
+
+        void clearIoCache();
+        status_t getInputBufferSize(uint32_t sampleRate, audio_format_t format,
+                                    audio_channel_mask_t channelMask, size_t* buffSize);
+        sp<AudioIoDescriptor> getIoDescriptor(audio_io_handle_t ioHandle);
 
         // DeathRecipient
         virtual void binderDied(const wp<IBinder>& who);
@@ -359,7 +378,27 @@ private:
 
         // indicate a change in the configuration of an output or input: keeps the cached
         // values for output/input parameters up-to-date in client process
-        virtual void ioConfigChanged(int event, audio_io_handle_t ioHandle, const void *param2);
+        virtual void ioConfigChanged(audio_io_config_event event,
+                                     const sp<AudioIoDescriptor>& ioDesc);
+
+
+        status_t addAudioDeviceCallback(const sp<AudioDeviceCallback>& callback,
+                                               audio_io_handle_t audioIo);
+        status_t removeAudioDeviceCallback(const sp<AudioDeviceCallback>& callback,
+                                           audio_io_handle_t audioIo);
+
+        audio_port_handle_t getDeviceIdForIo(audio_io_handle_t audioIo);
+
+    private:
+        Mutex                               mLock;
+        DefaultKeyedVector<audio_io_handle_t, sp<AudioIoDescriptor> >   mIoDescriptors;
+        DefaultKeyedVector<audio_io_handle_t, Vector < sp<AudioDeviceCallback> > >
+                                                                        mAudioDeviceCallbacks;
+        // cached values for recording getInputBufferSize() queries
+        size_t                              mInBuffSize;    // zero indicates cache is invalid
+        uint32_t                            mInSamplingRate;
+        audio_format_t                      mInFormat;
+        audio_channel_mask_t                mInChannelMask;
     };
 
     class AudioPolicyServiceClient: public IBinder::DeathRecipient,
@@ -369,13 +408,24 @@ private:
         AudioPolicyServiceClient() {
         }
 
+        int addAudioPortCallback(const sp<AudioPortCallback>& callback);
+        int removeAudioPortCallback(const sp<AudioPortCallback>& callback);
+
         // DeathRecipient
         virtual void binderDied(const wp<IBinder>& who);
 
         // IAudioPolicyServiceClient
         virtual void onAudioPortListUpdate();
         virtual void onAudioPatchListUpdate();
+        virtual void onDynamicPolicyMixStateUpdate(String8 regId, int32_t state);
+
+    private:
+        Mutex                               mLock;
+        Vector <sp <AudioPortCallback> >    mAudioPortCallbacks;
     };
+
+    static const sp<AudioFlingerClient> getAudioFlingerClient();
+    static sp<AudioIoDescriptor> getIoDescriptor(audio_io_handle_t ioHandle);
 
     static sp<AudioFlingerClient> gAudioFlingerClient;
     static sp<AudioPolicyServiceClient> gAudioPolicyServiceClient;
@@ -383,12 +433,10 @@ private:
     friend class AudioPolicyServiceClient;
 
     static Mutex gLock;      // protects gAudioFlinger and gAudioErrorCallback,
-    static Mutex gLockCache; // protects gOutputs, gPrevInSamplingRate, gPrevInFormat,
-                             // gPrevInChannelMask and gInBuffSize
     static Mutex gLockAPS;   // protects gAudioPolicyService and gAudioPolicyServiceClient
-    static Mutex gLockAPC;   // protects gAudioPortCallback
     static sp<IAudioFlinger> gAudioFlinger;
     static audio_error_callback gAudioErrorCallback;
+    static dynamic_policy_callback gDynPolicyCallback;
 
     static size_t gInBuffSize;
     // previous parameters for recording buffer size queries
@@ -397,12 +445,6 @@ private:
     static audio_channel_mask_t gPrevInChannelMask;
 
     static sp<IAudioPolicyService> gAudioPolicyService;
-
-    // list of output descriptors containing cached parameters
-    // (sampling rate, framecount, channel count...)
-    static DefaultKeyedVector<audio_io_handle_t, OutputDescriptor *> gOutputs;
-
-    static sp<AudioPortCallback> gAudioPortCallback;
 };
 
 };  // namespace android

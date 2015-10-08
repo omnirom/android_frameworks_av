@@ -135,7 +135,7 @@ void MPEG2TSWriter::SourceInfo::start(const sp<AMessage> &notify) {
 
     mNotify = notify;
 
-    (new AMessage(kWhatStart, id()))->post();
+    (new AMessage(kWhatStart, this))->post();
 }
 
 void MPEG2TSWriter::SourceInfo::stop() {
@@ -361,7 +361,7 @@ bool MPEG2TSWriter::SourceInfo::flushAACFrames() {
 }
 
 void MPEG2TSWriter::SourceInfo::readMore() {
-    (new AMessage(kWhatRead, id()))->post();
+    (new AMessage(kWhatRead, this))->post();
 }
 
 void MPEG2TSWriter::SourceInfo::onMessageReceived(const sp<AMessage> &msg) {
@@ -480,19 +480,6 @@ MPEG2TSWriter::MPEG2TSWriter(int fd)
     init();
 }
 
-MPEG2TSWriter::MPEG2TSWriter(const char *filename)
-    : mFile(fopen(filename, "wb")),
-      mWriteCookie(NULL),
-      mWriteFunc(NULL),
-      mStarted(false),
-      mNumSourcesDone(0),
-      mNumTSPacketsWritten(0),
-      mNumTSPacketsBeforeMeta(0),
-      mPATContinuityCounter(0),
-      mPMTContinuityCounter(0) {
-    init();
-}
-
 MPEG2TSWriter::MPEG2TSWriter(
         void *cookie,
         ssize_t (*write)(void *cookie, const void *data, size_t size))
@@ -565,7 +552,7 @@ status_t MPEG2TSWriter::start(MetaData * /* param */) {
 
     for (size_t i = 0; i < mSources.size(); ++i) {
         sp<AMessage> notify =
-            new AMessage(kWhatSourceNotify, mReflector->id());
+            new AMessage(kWhatSourceNotify, mReflector);
 
         notify->setInt32("source-index", i);
 

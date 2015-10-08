@@ -26,24 +26,27 @@ namespace android {
 
 struct ABuffer;
 struct MediaCodec;
-struct MediaBuffer;
+class MediaBuffer;
+class Surface;
 
 struct NuPlayer::DecoderBase : public AHandler {
     DecoderBase(const sp<AMessage> &notify);
 
     void configure(const sp<AMessage> &format);
     void init();
+    void setParameters(const sp<AMessage> &params);
 
     void setRenderer(const sp<Renderer> &renderer);
+    virtual status_t setVideoSurface(const sp<Surface> &) { return INVALID_OPERATION; }
 
     status_t getInputBuffers(Vector<sp<ABuffer> > *dstBuffers) const;
     void signalFlush();
     void signalResume(bool notifyComplete);
     void initiateShutdown();
 
-    virtual void getStats(
-            int64_t *mNumFramesTotal,
-            int64_t *mNumFramesDropped) const = 0;
+    virtual sp<AMessage> getStats() const {
+        return mStats;
+    }
 
     enum {
         kWhatInputDiscontinuity  = 'inDi',
@@ -62,23 +65,25 @@ protected:
     virtual void onMessageReceived(const sp<AMessage> &msg);
 
     virtual void onConfigure(const sp<AMessage> &format) = 0;
+    virtual void onSetParameters(const sp<AMessage> &params) = 0;
     virtual void onSetRenderer(const sp<Renderer> &renderer) = 0;
     virtual void onGetInputBuffers(Vector<sp<ABuffer> > *dstBuffers) = 0;
     virtual void onResume(bool notifyComplete) = 0;
-    virtual void onFlush(bool notifyComplete) = 0;
+    virtual void onFlush() = 0;
     virtual void onShutdown(bool notifyComplete) = 0;
 
     void onRequestInputBuffers();
-    void scheduleRequestBuffers();
-    virtual void doRequestBuffers() = 0;
+    virtual bool doRequestBuffers() = 0;
     virtual void handleError(int32_t err);
 
     sp<AMessage> mNotify;
     int32_t mBufferGeneration;
+    sp<AMessage> mStats;
 
 private:
     enum {
         kWhatConfigure           = 'conf',
+        kWhatSetParameters       = 'setP',
         kWhatSetRenderer         = 'setR',
         kWhatGetInputBuffers     = 'gInB',
         kWhatRequestInputBuffers = 'reqB',

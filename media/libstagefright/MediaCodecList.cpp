@@ -18,11 +18,15 @@
 #define LOG_TAG "MediaCodecList"
 #include <utils/Log.h>
 
+#include "MediaCodecListOverrides.h"
+
 #include <binder/IServiceManager.h>
 
 #include <media/IMediaCodecList.h>
 #include <media/IMediaPlayerService.h>
+#include <media/IResourceManagerService.h>
 #include <media/MediaCodecInfo.h>
+#include <media/MediaResourcePolicy.h>
 
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
@@ -31,27 +35,100 @@
 #include <media/stagefright/OMXClient.h>
 #include <media/stagefright/OMXCodec.h>
 
+#include <sys/stat.h>
 #include <utils/threads.h>
 
+#include <cutils/properties.h>
 #include <libexpat/expat.h>
 
 namespace android {
 
+const char *kMaxEncoderInputBuffers = "max-video-encoder-input-buffers";
+
 static Mutex sInitMutex;
 
-static MediaCodecList *gCodecList = NULL;
+static bool parseBoolean(const char *s) {
+    if (!strcasecmp(s, "true") || !strcasecmp(s, "yes") || !strcasecmp(s, "y")) {
+        return true;
+    }
+    char *end;
+    unsigned long res = strtoul(s, &end, 10);
+    return *s != '\0' && *end == '\0' && res > 0;
+}
+
+static bool isProfilingNeeded() {
+    int8_t value = property_get_bool("debug.stagefright.profilecodec", 0);
+    if (value == 0) {
+        return false;
+    }
+
+    bool profilingNeeded = true;
+    FILE *resultsFile = fopen(kProfilingResults, "r");
+    if (resultsFile) {
+        AString currentVersion = getProfilingVersionString();
+        size_t currentVersionSize = currentVersion.size();
+        char *versionString = new char[currentVersionSize + 1];
+        fgets(versionString, currentVersionSize + 1, resultsFile);
+        if (strcmp(versionString, currentVersion.c_str()) == 0) {
+            // profiling result up to date
+            profilingNeeded = false;
+        }
+        fclose(resultsFile);
+        delete[] versionString;
+    }
+    return profilingNeeded;
+}
 
 // static
 sp<IMediaCodecList> MediaCodecList::sCodecList;
 
 // static
+void *MediaCodecList::profilerThreadWrapper(void * /*arg*/) {
+    ALOGV("Enter profilerThreadWrapper.");
+    remove(kProfilingResults);  // remove previous result so that it won't be loaded to
+                                // the new MediaCodecList
+    MediaCodecList *codecList = new MediaCodecList();
+    if (codecList->initCheck() != OK) {
+        ALOGW("Failed to create a new MediaCodecList, skipping codec profiling.");
+        delete codecList;
+        return NULL;
+    }
+
+    Vector<sp<MediaCodecInfo>> infos;
+    for (size_t i = 0; i < codecList->countCodecs(); ++i) {
+        infos.push_back(codecList->getCodecInfo(i));
+    }
+    ALOGV("Codec profiling started.");
+    profileCodecs(infos);
+    ALOGV("Codec profiling completed.");
+    codecList->parseTopLevelXMLFile(kProfilingResults, true /* ignore_errors */);
+
+    {
+        Mutex::Autolock autoLock(sInitMutex);
+        sCodecList = codecList;
+    }
+    return NULL;
+}
+
+// static
 sp<IMediaCodecList> MediaCodecList::getLocalInstance() {
     Mutex::Autolock autoLock(sInitMutex);
 
-    if (gCodecList == NULL) {
-        gCodecList = new MediaCodecList;
-        if (gCodecList->initCheck() == OK) {
-            sCodecList = gCodecList;
+    if (sCodecList == NULL) {
+        MediaCodecList *codecList = new MediaCodecList;
+        if (codecList->initCheck() == OK) {
+            sCodecList = codecList;
+
+            if (isProfilingNeeded()) {
+                ALOGV("Codec profiling needed, will be run in separated thread.");
+                pthread_t profiler;
+                if (pthread_create(&profiler, NULL, profilerThreadWrapper, NULL) != 0) {
+                    ALOGW("Failed to create thread for codec profiling.");
+                }
+            }
+        } else {
+            // failure to initialize may be temporary. retry on next call.
+            delete codecList;
         }
     }
 
@@ -94,11 +171,15 @@ sp<IMediaCodecList> MediaCodecList::getInstance() {
 }
 
 MediaCodecList::MediaCodecList()
-    : mInitCheck(NO_INIT) {
+    : mInitCheck(NO_INIT),
+      mUpdate(false),
+      mGlobalSettings(new AMessage()) {
     parseTopLevelXMLFile("/etc/media_codecs.xml");
+    parseTopLevelXMLFile("/etc/media_codecs_performance.xml", true/* ignore_errors */);
+    parseTopLevelXMLFile(kProfilingResults, true/* ignore_errors */);
 }
 
-void MediaCodecList::parseTopLevelXMLFile(const char *codecs_xml) {
+void MediaCodecList::parseTopLevelXMLFile(const char *codecs_xml, bool ignore_errors) {
     // get href_base
     char *href_base_end = strrchr(codecs_xml, '/');
     if (href_base_end != NULL) {
@@ -112,20 +193,49 @@ void MediaCodecList::parseTopLevelXMLFile(const char *codecs_xml) {
     OMXClient client;
     mInitCheck = client.connect();
     if (mInitCheck != OK) {
-        return;
+        return;  // this may fail if IMediaPlayerService is not available.
     }
     mOMX = client.interface();
     parseXMLFile(codecs_xml);
     mOMX.clear();
 
     if (mInitCheck != OK) {
+        if (ignore_errors) {
+            mInitCheck = OK;
+            return;
+        }
         mCodecInfos.clear();
         return;
     }
 
-    for (size_t i = mCodecInfos.size(); i-- > 0;) {
-        const MediaCodecInfo &info = *mCodecInfos.itemAt(i).get();
+    Vector<MediaResourcePolicy> policies;
+    AString value;
+    if (mGlobalSettings->findString(kPolicySupportsMultipleSecureCodecs, &value)) {
+        policies.push_back(
+                MediaResourcePolicy(
+                        String8(kPolicySupportsMultipleSecureCodecs),
+                        String8(value.c_str())));
+    }
+    if (mGlobalSettings->findString(kPolicySupportsSecureWithNonSecureCodec, &value)) {
+        policies.push_back(
+                MediaResourcePolicy(
+                        String8(kPolicySupportsSecureWithNonSecureCodec),
+                        String8(value.c_str())));
+    }
+    if (policies.size() > 0) {
+        sp<IServiceManager> sm = defaultServiceManager();
+        sp<IBinder> binder = sm->getService(String16("media.resource_manager"));
+        sp<IResourceManagerService> service = interface_cast<IResourceManagerService>(binder);
+        if (service == NULL) {
+            ALOGE("MediaCodecList: failed to get ResourceManagerService");
+        } else {
+            service->config(policies);
+        }
+    }
 
+    for (size_t i = mCodecInfos.size(); i > 0;) {
+        i--;
+        const MediaCodecInfo &info = *mCodecInfos.itemAt(i).get();
         if (info.mCaps.size() == 0) {
             // No types supported by this component???
             ALOGW("Component %s does not support any type of media?",
@@ -168,6 +278,16 @@ void MediaCodecList::parseTopLevelXMLFile(const char *codecs_xml) {
                         nice.append(pl.mLevel);
                     }
                     ALOGV("    levels=[%s]", nice.c_str());
+                }
+                {
+                    AString quirks;
+                    for (size_t ix = 0; ix < info.mQuirks.size(); ix++) {
+                        if (ix > 0) {
+                            quirks.append(", ");
+                        }
+                        quirks.append(info.mQuirks[ix]);
+                    }
+                    ALOGV("    quirks=[%s]", quirks.c_str());
                 }
             }
 #endif
@@ -328,6 +448,16 @@ void MediaCodecList::startElementHandler(
                 mCurrentSection = SECTION_DECODERS;
             } else if (!strcmp(name, "Encoders")) {
                 mCurrentSection = SECTION_ENCODERS;
+            } else if (!strcmp(name, "Settings")) {
+                mCurrentSection = SECTION_SETTINGS;
+            }
+            break;
+        }
+
+        case SECTION_SETTINGS:
+        {
+            if (!strcmp(name, "Setting")) {
+                mInitCheck = addSettingFromAttributes(attrs);
             }
             break;
         }
@@ -397,6 +527,14 @@ void MediaCodecList::endElementHandler(const char *name) {
     }
 
     switch (mCurrentSection) {
+        case SECTION_SETTINGS:
+        {
+            if (!strcmp(name, "Settings")) {
+                mCurrentSection = SECTION_TOPLEVEL;
+            }
+            break;
+        }
+
         case SECTION_DECODERS:
         {
             if (!strcmp(name, "Decoders")) {
@@ -462,10 +600,81 @@ void MediaCodecList::endElementHandler(const char *name) {
     --mDepth;
 }
 
+status_t MediaCodecList::addSettingFromAttributes(const char **attrs) {
+    const char *name = NULL;
+    const char *value = NULL;
+    const char *update = NULL;
+
+    size_t i = 0;
+    while (attrs[i] != NULL) {
+        if (!strcmp(attrs[i], "name")) {
+            if (attrs[i + 1] == NULL) {
+                return -EINVAL;
+            }
+            name = attrs[i + 1];
+            ++i;
+        } else if (!strcmp(attrs[i], "value")) {
+            if (attrs[i + 1] == NULL) {
+                return -EINVAL;
+            }
+            value = attrs[i + 1];
+            ++i;
+        } else if (!strcmp(attrs[i], "update")) {
+            if (attrs[i + 1] == NULL) {
+                return -EINVAL;
+            }
+            update = attrs[i + 1];
+            ++i;
+        } else {
+            return -EINVAL;
+        }
+
+        ++i;
+    }
+
+    if (name == NULL || value == NULL) {
+        return -EINVAL;
+    }
+
+    mUpdate = (update != NULL) && parseBoolean(update);
+    if (mUpdate != mGlobalSettings->contains(name)) {
+        return -EINVAL;
+    }
+
+    mGlobalSettings->setString(name, value);
+    return OK;
+}
+
+void MediaCodecList::setCurrentCodecInfo(bool encoder, const char *name, const char *type) {
+    for (size_t i = 0; i < mCodecInfos.size(); ++i) {
+        if (AString(name) == mCodecInfos[i]->getCodecName()) {
+            if (mCodecInfos[i]->getCapabilitiesFor(type) == NULL) {
+                ALOGW("Overrides with an unexpected mime %s", type);
+                // Create a new MediaCodecInfo (but don't add it to mCodecInfos) to hold the
+                // overrides we don't want.
+                mCurrentInfo = new MediaCodecInfo(name, encoder, type);
+            } else {
+                mCurrentInfo = mCodecInfos.editItemAt(i);
+                mCurrentInfo->updateMime(type);  // to set the current cap
+            }
+            return;
+        }
+    }
+    mCurrentInfo = new MediaCodecInfo(name, encoder, type);
+    // The next step involves trying to load the codec, which may
+    // fail.  Only list the codec if this succeeds.
+    // However, keep mCurrentInfo object around until parsing
+    // of full codec info is completed.
+    if (initializeCapabilities(type) == OK) {
+        mCodecInfos.push_back(mCurrentInfo);
+    }
+}
+
 status_t MediaCodecList::addMediaCodecFromAttributes(
         bool encoder, const char **attrs) {
     const char *name = NULL;
     const char *type = NULL;
+    const char *update = NULL;
 
     size_t i = 0;
     while (attrs[i] != NULL) {
@@ -481,6 +690,12 @@ status_t MediaCodecList::addMediaCodecFromAttributes(
             }
             type = attrs[i + 1];
             ++i;
+        } else if (!strcmp(attrs[i], "update")) {
+            if (attrs[i + 1] == NULL) {
+                return -EINVAL;
+            }
+            update = attrs[i + 1];
+            ++i;
         } else {
             return -EINVAL;
         }
@@ -492,14 +707,39 @@ status_t MediaCodecList::addMediaCodecFromAttributes(
         return -EINVAL;
     }
 
-    mCurrentInfo = new MediaCodecInfo(name, encoder, type);
-    // The next step involves trying to load the codec, which may
-    // fail.  Only list the codec if this succeeds.
-    // However, keep mCurrentInfo object around until parsing
-    // of full codec info is completed.
-    if (initializeCapabilities(type) == OK) {
-        mCodecInfos.push_back(mCurrentInfo);
+    mUpdate = (update != NULL) && parseBoolean(update);
+    ssize_t index = -1;
+    for (size_t i = 0; i < mCodecInfos.size(); ++i) {
+        if (AString(name) == mCodecInfos[i]->getCodecName()) {
+            index = i;
+        }
     }
+    if (mUpdate != (index >= 0)) {
+        return -EINVAL;
+    }
+
+    if (index >= 0) {
+        // existing codec
+        mCurrentInfo = mCodecInfos.editItemAt(index);
+        if (type != NULL) {
+            // existing type
+            if (mCodecInfos[index]->getCapabilitiesFor(type) == NULL) {
+                return -EINVAL;
+            }
+            mCurrentInfo->updateMime(type);
+        }
+    } else {
+        // new codec
+        mCurrentInfo = new MediaCodecInfo(name, encoder, type);
+        // The next step involves trying to load the codec, which may
+        // fail.  Only list the codec if this succeeds.
+        // However, keep mCurrentInfo object around until parsing
+        // of full codec info is completed.
+        if (initializeCapabilities(type) == OK) {
+            mCodecInfos.push_back(mCurrentInfo);
+        }
+    }
+
     return OK;
 }
 
@@ -553,6 +793,7 @@ status_t MediaCodecList::addQuirk(const char **attrs) {
 
 status_t MediaCodecList::addTypeFromAttributes(const char **attrs) {
     const char *name = NULL;
+    const char *update = NULL;
 
     size_t i = 0;
     while (attrs[i] != NULL) {
@@ -561,6 +802,12 @@ status_t MediaCodecList::addTypeFromAttributes(const char **attrs) {
                 return -EINVAL;
             }
             name = attrs[i + 1];
+            ++i;
+        } else if (!strcmp(attrs[i], "update")) {
+            if (attrs[i + 1] == NULL) {
+                return -EINVAL;
+            }
+            update = attrs[i + 1];
             ++i;
         } else {
             return -EINVAL;
@@ -573,14 +820,25 @@ status_t MediaCodecList::addTypeFromAttributes(const char **attrs) {
         return -EINVAL;
     }
 
-    status_t ret = mCurrentInfo->addMime(name);
+    bool isExistingType = (mCurrentInfo->getCapabilitiesFor(name) != NULL);
+    if (mUpdate != isExistingType) {
+        return -EINVAL;
+    }
+
+    status_t ret;
+    if (mUpdate) {
+        ret = mCurrentInfo->updateMime(name);
+    } else {
+        ret = mCurrentInfo->addMime(name);
+    }
+
     if (ret != OK) {
         return ret;
     }
 
     // The next step involves trying to load the codec, which may
     // fail.  Handle this gracefully (by not reporting such mime).
-    if (initializeCapabilities(name) != OK) {
+    if (!mUpdate && initializeCapabilities(name) != OK) {
         mCurrentInfo->removeMime(name);
     }
     return OK;
@@ -675,14 +933,16 @@ status_t MediaCodecList::addLimit(const char **attrs) {
         return -EINVAL;
     }
 
-    // size, blocks, bitrate, frame-rate, blocks-per-second, aspect-ratio: range
+    // size, blocks, bitrate, frame-rate, blocks-per-second, aspect-ratio,
+    // measured-frame-rate, measured-blocks-per-second: range
     // quality: range + default + [scale]
     // complexity: range + default
     bool found;
 
     if (name == "aspect-ratio" || name == "bitrate" || name == "block-count"
             || name == "blocks-per-second" || name == "complexity"
-            || name == "frame-rate" || name == "quality" || name == "size") {
+            || name == "frame-rate" || name == "quality" || name == "size"
+            || name == "measured-blocks-per-second" || name.startsWith("measured-frame-rate-")) {
         AString min, max;
         if (msg->findString("min", &min) && msg->findString("max", &max)) {
             min.append("-");
@@ -746,7 +1006,7 @@ status_t MediaCodecList::addLimit(const char **attrs) {
             return limitFoundMissingAttr(name, "default");
         } else if (msg->contains("in")) {
             return limitFoundMissingAttr(name, "in");
-        } else if ((name == "channel-count") ^
+        } else if ((name == "channel-count" || name == "concurrent-instances") ^
                 (found = msg->findString("max", &max))) {
             return limitFoundMissingAttr(name, "max", found);
         } else if (msg->contains("min")) {
@@ -778,15 +1038,6 @@ status_t MediaCodecList::addLimit(const char **attrs) {
         }
     }
     return OK;
-}
-
-static bool parseBoolean(const char *s) {
-    if (!strcasecmp(s, "true") || !strcasecmp(s, "yes") || !strcasecmp(s, "y")) {
-        return true;
-    }
-    char *end;
-    unsigned long res = strtoul(s, &end, 10);
-    return *s != '\0' && *end == '\0' && res > 0;
 }
 
 status_t MediaCodecList::addFeature(const char **attrs) {
@@ -858,6 +1109,10 @@ ssize_t MediaCodecList::findCodecByName(const char *name) const {
 
 size_t MediaCodecList::countCodecs() const {
     return mCodecInfos.size();
+}
+
+const sp<AMessage> MediaCodecList::getGlobalSettings() const {
+    return mGlobalSettings;
 }
 
 }  // namespace android

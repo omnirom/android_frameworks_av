@@ -26,13 +26,15 @@ namespace android {
 struct NuPlayer::Decoder : public DecoderBase {
     Decoder(const sp<AMessage> &notify,
             const sp<Source> &source,
+            pid_t pid,
             const sp<Renderer> &renderer = NULL,
-            const sp<NativeWindowWrapper> &nativeWindow = NULL,
+            const sp<Surface> &surface = NULL,
             const sp<CCDecoder> &ccDecoder = NULL);
 
-    virtual void getStats(
-            int64_t *mNumFramesTotal,
-            int64_t *mNumFramesDropped) const;
+    virtual sp<AMessage> getStats() const;
+
+    // sets the output surface of video decoders.
+    virtual status_t setVideoSurface(const sp<Surface> &surface);
 
 protected:
     virtual ~Decoder();
@@ -40,20 +42,22 @@ protected:
     virtual void onMessageReceived(const sp<AMessage> &msg);
 
     virtual void onConfigure(const sp<AMessage> &format);
+    virtual void onSetParameters(const sp<AMessage> &params);
     virtual void onSetRenderer(const sp<Renderer> &renderer);
     virtual void onGetInputBuffers(Vector<sp<ABuffer> > *dstBuffers);
     virtual void onResume(bool notifyComplete);
-    virtual void onFlush(bool notifyComplete);
+    virtual void onFlush();
     virtual void onShutdown(bool notifyComplete);
-    virtual void doRequestBuffers();
+    virtual bool doRequestBuffers();
 
 private:
     enum {
         kWhatCodecNotify         = 'cdcN',
         kWhatRenderBuffer        = 'rndr',
+        kWhatSetVideoSurface     = 'sSur'
     };
 
-    sp<NativeWindowWrapper> mNativeWindow;
+    sp<Surface> mSurface;
 
     sp<Source> mSource;
     sp<Renderer> mRenderer;
@@ -74,25 +78,38 @@ private:
     Vector<MediaBuffer *> mMediaBuffers;
     Vector<size_t> mDequeuedInputBuffers;
 
+    const pid_t mPid;
     int64_t mSkipRenderingUntilMediaTimeUs;
     int64_t mNumFramesTotal;
-    int64_t mNumFramesDropped;
+    int64_t mNumInputFramesDropped;
+    int64_t mNumOutputFramesDropped;
+    int32_t mVideoWidth;
+    int32_t mVideoHeight;
     bool mIsAudio;
     bool mIsVideoAVC;
     bool mIsSecure;
     bool mFormatChangePending;
+    bool mTimeChangePending;
 
     bool mPaused;
     bool mResumePending;
     AString mComponentName;
 
-    bool handleAnInputBuffer();
-    bool handleAnOutputBuffer();
+    void handleError(int32_t err);
+    bool handleAnInputBuffer(size_t index);
+    bool handleAnOutputBuffer(
+            size_t index,
+            size_t offset,
+            size_t size,
+            int64_t timeUs,
+            int32_t flags);
+    void handleOutputFormatChange(const sp<AMessage> &format);
 
     void releaseAndResetMediaBuffers();
     void requestCodecNotification();
     bool isStaleReply(const sp<AMessage> &msg);
 
+    void doFlush(bool notifyComplete);
     status_t fetchInputData(sp<AMessage> &reply);
     bool onInputBufferFetched(const sp<AMessage> &msg);
     void onRenderBuffer(const sp<AMessage> &msg);
@@ -100,6 +117,8 @@ private:
     bool supportsSeamlessFormatChange(const sp<AMessage> &to) const;
     bool supportsSeamlessAudioFormatChange(const sp<AMessage> &targetFormat) const;
     void rememberCodecSpecificData(const sp<AMessage> &format);
+    bool isDiscontinuityPending() const;
+    void finishHandleDiscontinuity(bool flushOnTimeChange);
 
     void notifyResumeCompleteIfNecessary();
 

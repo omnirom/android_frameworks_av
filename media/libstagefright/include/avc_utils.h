@@ -23,7 +23,7 @@
 
 namespace android {
 
-struct ABitReader;
+class ABitReader;
 
 enum {
     kAVCProfileBaseline      = 0x42,
@@ -34,6 +34,11 @@ enum {
     kAVCProfileHigh422       = 0x7a,
     kAVCProfileHigh444       = 0xf4,
     kAVCProfileCAVLC444Intra = 0x2c
+};
+
+struct NALPosition {
+    size_t nalOffset;
+    size_t nalSize;
 };
 
 // Optionally returns sample aspect ratio as well.
@@ -49,7 +54,7 @@ status_t getNextNALUnit(
         const uint8_t **nalStart, size_t *nalSize,
         bool startCodeFollows = false);
 
-struct MetaData;
+class MetaData;
 sp<MetaData> MakeAVCCodecSpecificData(const sp<ABuffer> &accessUnit);
 
 bool IsIDR(const sp<ABuffer> &accessUnit);

@@ -43,17 +43,23 @@
 namespace android {
 
 // static
+const int64_t WifiDisplaySource::kReaperIntervalUs;
+const int64_t WifiDisplaySource::kTeardownTriggerTimeouSecs;
+const int64_t WifiDisplaySource::kPlaybackSessionTimeoutSecs;
+const int64_t WifiDisplaySource::kPlaybackSessionTimeoutUs;
 const AString WifiDisplaySource::sUserAgent = MakeUserAgent();
 
 WifiDisplaySource::WifiDisplaySource(
+        const String16 &opPackageName,
         const sp<ANetworkSession> &netSession,
         const sp<IRemoteDisplayClient> &client,
         const char *path)
-    : mState(INITIALIZED),
+    : mOpPackageName(opPackageName),
+      mState(INITIALIZED),
       mNetSession(netSession),
       mClient(client),
       mSessionID(0),
-      mStopReplyID(0),
+      mStopReplyID(NULL),
       mChosenRTPPort(-1),
       mUsingPCMAudio(false),
       mClientSessionID(0),
@@ -102,7 +108,7 @@ static status_t PostAndAwaitResponse(
 status_t WifiDisplaySource::start(const char *iface) {
     CHECK_EQ(mState, INITIALIZED);
 
-    sp<AMessage> msg = new AMessage(kWhatStart, id());
+    sp<AMessage> msg = new AMessage(kWhatStart, this);
     msg->setString("iface", iface);
 
     sp<AMessage> response;
@@ -110,21 +116,21 @@ status_t WifiDisplaySource::start(const char *iface) {
 }
 
 status_t WifiDisplaySource::stop() {
-    sp<AMessage> msg = new AMessage(kWhatStop, id());
+    sp<AMessage> msg = new AMessage(kWhatStop, this);
 
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
 
 status_t WifiDisplaySource::pause() {
-    sp<AMessage> msg = new AMessage(kWhatPause, id());
+    sp<AMessage> msg = new AMessage(kWhatPause, this);
 
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
 
 status_t WifiDisplaySource::resume() {
-    sp<AMessage> msg = new AMessage(kWhatResume, id());
+    sp<AMessage> msg = new AMessage(kWhatResume, this);
 
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
@@ -134,7 +140,7 @@ void WifiDisplaySource::onMessageReceived(const sp<AMessage> &msg) {
     switch (msg->what()) {
         case kWhatStart:
         {
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             AString iface;
@@ -163,7 +169,7 @@ void WifiDisplaySource::onMessageReceived(const sp<AMessage> &msg) {
 
             if (err == OK) {
                 if (inet_aton(iface.c_str(), &mInterfaceAddr) != 0) {
-                    sp<AMessage> notify = new AMessage(kWhatRTSPNotify, id());
+                    sp<AMessage> notify = new AMessage(kWhatRTSPNotify, this);
 
                     err = mNetSession->createRTSPServer(
                             mInterfaceAddr, port, notify, &mSessionID);
@@ -306,7 +312,7 @@ void WifiDisplaySource::onMessageReceived(const sp<AMessage> &msg) {
                 if (err == OK) {
                     mState = AWAITING_CLIENT_TEARDOWN;
 
-                    (new AMessage(kWhatTeardownTriggerTimedOut, id()))->post(
+                    (new AMessage(kWhatTeardownTriggerTimedOut, this))->post(
                             kTeardownTriggerTimeouSecs * 1000000ll);
 
                     break;
@@ -321,7 +327,7 @@ void WifiDisplaySource::onMessageReceived(const sp<AMessage> &msg) {
 
         case kWhatPause:
         {
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             status_t err = OK;
@@ -341,7 +347,7 @@ void WifiDisplaySource::onMessageReceived(const sp<AMessage> &msg) {
 
         case kWhatResume:
         {
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             status_t err = OK;
@@ -488,7 +494,7 @@ void WifiDisplaySource::onMessageReceived(const sp<AMessage> &msg) {
             if (mState == AWAITING_CLIENT_TEARDOWN) {
                 ALOGI("TEARDOWN trigger timed out, forcing disconnection.");
 
-                CHECK_NE(mStopReplyID, 0);
+                CHECK(mStopReplyID != NULL);
                 finishStop();
                 break;
             }
@@ -525,7 +531,7 @@ void WifiDisplaySource::onMessageReceived(const sp<AMessage> &msg) {
                     // HDCPObserver::notify is completely handled before
                     // we clear the HDCP instance and unload the shared
                     // library :(
-                    (new AMessage(kWhatFinishStop2, id()))->post(300000ll);
+                    (new AMessage(kWhatFinishStop2, this))->post(300000ll);
                     break;
                 }
 
@@ -594,7 +600,7 @@ status_t WifiDisplaySource::sendM3(int32_t sessionID) {
     AppendCommonResponse(&request, mNextCSeq);
 
     request.append("Content-Type: text/parameters\r\n");
-    request.append(StringPrintf("Content-Length: %d\r\n", body.size()));
+    request.append(AStringPrintf("Content-Length: %d\r\n", body.size()));
     request.append("\r\n");
     request.append(body);
 
@@ -635,26 +641,26 @@ status_t WifiDisplaySource::sendM4(int32_t sessionID) {
 
     if (mSinkSupportsAudio) {
         body.append(
-                StringPrintf("wfd_audio_codecs: %s\r\n",
+                AStringPrintf("wfd_audio_codecs: %s\r\n",
                              (mUsingPCMAudio
                                 ? "LPCM 00000002 00" // 2 ch PCM 48kHz
                                 : "AAC 00000001 00")));  // 2 ch AAC 48kHz
     }
 
     body.append(
-            StringPrintf(
+            AStringPrintf(
                 "wfd_presentation_URL: rtsp://%s/wfd1.0/streamid=0 none\r\n",
                 mClientInfo.mLocalIP.c_str()));
 
     body.append(
-            StringPrintf(
+            AStringPrintf(
                 "wfd_client_rtp_ports: %s\r\n", mWfdClientRtpPorts.c_str()));
 
     AString request = "SET_PARAMETER rtsp://localhost/wfd1.0 RTSP/1.0\r\n";
     AppendCommonResponse(&request, mNextCSeq);
 
     request.append("Content-Type: text/parameters\r\n");
-    request.append(StringPrintf("Content-Length: %d\r\n", body.size()));
+    request.append(AStringPrintf("Content-Length: %d\r\n", body.size()));
     request.append("\r\n");
     request.append(body);
 
@@ -700,7 +706,7 @@ status_t WifiDisplaySource::sendTrigger(
     AppendCommonResponse(&request, mNextCSeq);
 
     request.append("Content-Type: text/parameters\r\n");
-    request.append(StringPrintf("Content-Length: %d\r\n", body.size()));
+    request.append(AStringPrintf("Content-Length: %d\r\n", body.size()));
     request.append("\r\n");
     request.append(body);
 
@@ -725,7 +731,7 @@ status_t WifiDisplaySource::sendM16(int32_t sessionID) {
 
     CHECK_EQ(sessionID, mClientSessionID);
     request.append(
-            StringPrintf("Session: %d\r\n", mClientInfo.mPlaybackSessionID));
+            AStringPrintf("Session: %d\r\n", mClientInfo.mPlaybackSessionID));
     request.append("\r\n");  // Empty body
 
     status_t err =
@@ -877,7 +883,7 @@ status_t WifiDisplaySource::onReceiveM3Response(
                     &framesPerSecond,
                     &interlaced));
 
-        ALOGI("Picked video resolution %u x %u %c%u",
+        ALOGI("Picked video resolution %zu x %zu %c%zu",
               width, height, interlaced ? 'i' : 'p', framesPerSecond);
 
         ALOGI("Picked AVC profile %d, level %d",
@@ -1023,7 +1029,7 @@ void WifiDisplaySource::scheduleReaper() {
     }
 
     mReaperPending = true;
-    (new AMessage(kWhatReapDeadClients, id()))->post(kReaperIntervalUs);
+    (new AMessage(kWhatReapDeadClients, this))->post(kReaperIntervalUs);
 }
 
 void WifiDisplaySource::scheduleKeepAlive(int32_t sessionID) {
@@ -1031,7 +1037,7 @@ void WifiDisplaySource::scheduleKeepAlive(int32_t sessionID) {
     // expire, make sure the timeout is greater than 5 secs to begin with.
     CHECK_GT(kPlaybackSessionTimeoutUs, 5000000ll);
 
-    sp<AMessage> msg = new AMessage(kWhatKeepAlive, id());
+    sp<AMessage> msg = new AMessage(kWhatKeepAlive, this);
     msg->setInt32("sessionID", sessionID);
     msg->post(kPlaybackSessionTimeoutUs - 5000000ll);
 }
@@ -1235,13 +1241,13 @@ status_t WifiDisplaySource::onSetupRequest(
 
     int32_t playbackSessionID = makeUniquePlaybackSessionID();
 
-    sp<AMessage> notify = new AMessage(kWhatPlaybackSessionNotify, id());
+    sp<AMessage> notify = new AMessage(kWhatPlaybackSessionNotify, this);
     notify->setInt32("playbackSessionID", playbackSessionID);
     notify->setInt32("sessionID", sessionID);
 
     sp<PlaybackSession> playbackSession =
         new PlaybackSession(
-                mNetSession, notify, mInterfaceAddr, mHDCP, mMediaPath.c_str());
+                mOpPackageName, mNetSession, notify, mInterfaceAddr, mHDCP, mMediaPath.c_str());
 
     looper()->registerHandler(playbackSession);
 
@@ -1301,7 +1307,7 @@ status_t WifiDisplaySource::onSetupRequest(
 
     if (rtpMode == RTPSender::TRANSPORT_TCP_INTERLEAVED) {
         response.append(
-                StringPrintf(
+                AStringPrintf(
                     "Transport: RTP/AVP/TCP;interleaved=%d-%d;",
                     clientRtp, clientRtcp));
     } else {
@@ -1314,14 +1320,14 @@ status_t WifiDisplaySource::onSetupRequest(
 
         if (clientRtcp >= 0) {
             response.append(
-                    StringPrintf(
+                    AStringPrintf(
                         "Transport: RTP/AVP/%s;unicast;client_port=%d-%d;"
                         "server_port=%d-%d\r\n",
                         transportString.c_str(),
                         clientRtp, clientRtcp, serverRtp, serverRtp + 1));
         } else {
             response.append(
-                    StringPrintf(
+                    AStringPrintf(
                         "Transport: RTP/AVP/%s;unicast;client_port=%d;"
                         "server_port=%d\r\n",
                         transportString.c_str(),
@@ -1466,7 +1472,7 @@ status_t WifiDisplaySource::onTeardownRequest(
     mNetSession->sendRequest(sessionID, response.c_str());
 
     if (mState == AWAITING_CLIENT_TEARDOWN) {
-        CHECK_NE(mStopReplyID, 0);
+        CHECK(mStopReplyID != NULL);
         finishStop();
     } else {
         mClient->onDisplayError(IRemoteDisplayClient::kDisplayErrorUnknown);
@@ -1581,15 +1587,15 @@ void WifiDisplaySource::AppendCommonResponse(
     response->append(buf);
     response->append("\r\n");
 
-    response->append(StringPrintf("Server: %s\r\n", sUserAgent.c_str()));
+    response->append(AStringPrintf("Server: %s\r\n", sUserAgent.c_str()));
 
     if (cseq >= 0) {
-        response->append(StringPrintf("CSeq: %d\r\n", cseq));
+        response->append(AStringPrintf("CSeq: %d\r\n", cseq));
     }
 
     if (playbackSessionID >= 0ll) {
         response->append(
-                StringPrintf(
+                AStringPrintf(
                     "Session: %d;timeout=%lld\r\n",
                     playbackSessionID, kPlaybackSessionTimeoutSecs));
     }
@@ -1703,7 +1709,7 @@ status_t WifiDisplaySource::makeHDCP() {
         return ERROR_UNSUPPORTED;
     }
 
-    sp<AMessage> notify = new AMessage(kWhatHDCPNotify, id());
+    sp<AMessage> notify = new AMessage(kWhatHDCPNotify, this);
     mHDCPObserver = new HDCPObserver(notify);
 
     status_t err = mHDCP->setObserver(mHDCPObserver);

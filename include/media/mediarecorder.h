@@ -32,6 +32,7 @@ class IMediaRecorder;
 class ICamera;
 class ICameraRecordingProxy;
 class IGraphicBufferProducer;
+struct PersistentSurface;
 class Surface;
 
 typedef void (*media_completion_f)(status_t status, void *cookie);
@@ -209,7 +210,7 @@ class MediaRecorder : public BnMediaRecorderClient,
                       public virtual IMediaDeathNotifier
 {
 public:
-    MediaRecorder();
+    MediaRecorder(const String16& opPackageName);
     ~MediaRecorder();
 
     void        died();
@@ -221,7 +222,6 @@ public:
     status_t    setOutputFormat(int of);
     status_t    setVideoEncoder(int ve);
     status_t    setAudioEncoder(int ae);
-    status_t    setOutputFile(const char* path);
     status_t    setOutputFile(int fd, int64_t offset, int64_t length);
     status_t    setVideoSize(int width, int height);
     status_t    setVideoFrameRate(int frames_per_second);
@@ -237,6 +237,7 @@ public:
     status_t    close();
     status_t    release();
     void        notify(int msg, int ext1, int ext2);
+    status_t    setInputSurface(const sp<PersistentSurface>& surface);
     sp<IGraphicBufferProducer>     querySurfaceMediaSourceFromMediaServer();
 
 private:

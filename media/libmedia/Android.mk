@@ -7,6 +7,9 @@ LOCAL_SRC_FILES:= \
 LOCAL_MODULE:= libmedia_helper
 LOCAL_MODULE_TAGS := optional
 
+LOCAL_C_FLAGS += -Werror -Wno-error=deprecated-declarations -Wall
+LOCAL_CLANG := true
+
 include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
@@ -19,6 +22,7 @@ LOCAL_SRC_FILES:= \
     IAudioTrack.cpp \
     IAudioRecord.cpp \
     ICrypto.cpp \
+    IDataSource.cpp \
     IDrm.cpp \
     IDrmClient.cpp \
     IHDCP.cpp \
@@ -36,12 +40,15 @@ LOCAL_SRC_FILES:= \
     IMediaRecorder.cpp \
     IRemoteDisplay.cpp \
     IRemoteDisplayClient.cpp \
+    IResourceManagerClient.cpp \
+    IResourceManagerService.cpp \
     IStreamSource.cpp \
     MediaCodecInfo.cpp \
     Metadata.cpp \
     mediarecorder.cpp \
     IMediaMetadataRetriever.cpp \
     mediametadataretriever.cpp \
+    MidiIoWrapper.cpp \
     ToneGenerator.cpp \
     JetPlayer.cpp \
     IOMX.cpp \
@@ -52,48 +59,36 @@ LOCAL_SRC_FILES:= \
     CharacterEncodingDetector.cpp \
     IMediaDeathNotifier.cpp \
     MediaProfiles.cpp \
+    MediaResource.cpp \
+    MediaResourcePolicy.cpp \
     IEffect.cpp \
     IEffectClient.cpp \
     AudioEffect.cpp \
     Visualizer.cpp \
     MemoryLeakTrackUtil.cpp \
-    SoundPool.cpp \
-    SoundPoolThread.cpp \
     StringArray.cpp \
     AudioPolicy.cpp
-
-LOCAL_SRC_FILES += ../libnbaio/roundup.c
 
 LOCAL_SHARED_LIBRARIES := \
 	libui liblog libcutils libutils libbinder libsonivox libicuuc libicui18n libexpat \
         libcamera_client libstagefright_foundation \
         libgui libdl libaudioutils libnbaio
 
-LOCAL_STATIC_LIBRARIES += libinstantssq
-
 LOCAL_WHOLE_STATIC_LIBRARIES := libmedia_helper
 
 LOCAL_MODULE:= libmedia
+
+LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
 
 LOCAL_C_INCLUDES := \
     $(TOP)/frameworks/native/include/media/openmax \
     $(TOP)/frameworks/av/include/media/ \
     $(TOP)/frameworks/av/media/libstagefright \
-    $(TOP)/external/icu/icu4c/source/common \
-    $(TOP)/external/icu/icu4c/source/i18n \
     $(call include-path-for, audio-effects) \
     $(call include-path-for, audio-utils)
 
+LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall
+LOCAL_CLANG := true
+
 include $(BUILD_SHARED_LIBRARY)
 
-include $(CLEAR_VARS)
-
-# for <cutils/atomic-inline.h>
-LOCAL_CFLAGS += -DANDROID_SMP=$(if $(findstring true,$(TARGET_CPU_SMP)),1,0)
-LOCAL_SRC_FILES += SingleStateQueue.cpp
-LOCAL_CFLAGS += -DSINGLE_STATE_QUEUE_INSTANTIATIONS='"SingleStateQueueInstantiations.cpp"'
-
-LOCAL_MODULE := libinstantssq
-LOCAL_MODULE_TAGS := optional
-
-include $(BUILD_STATIC_LIBRARY)

@@ -30,6 +30,8 @@
 
 namespace android {
 
+struct FrameDropper;
+
 /*
  * This class is used to feed OMX codecs from a Surface via BufferQueue.
  *
@@ -48,9 +50,15 @@ namespace android {
  */
 class GraphicBufferSource : public BufferQueue::ConsumerListener {
 public:
-    GraphicBufferSource(OMXNodeInstance* nodeInstance,
-            uint32_t bufferWidth, uint32_t bufferHeight, uint32_t bufferCount,
-            bool useGraphicBufferInMeta = false);
+    GraphicBufferSource(
+            OMXNodeInstance* nodeInstance,
+            uint32_t bufferWidth,
+            uint32_t bufferHeight,
+            uint32_t bufferCount,
+            uint32_t consumerUsage,
+            const sp<IGraphicBufferConsumer> &consumer = NULL
+    );
+
     virtual ~GraphicBufferSource();
 
     // We can't throw an exception if the constructor fails, so we just set
@@ -86,7 +94,7 @@ public:
 
     // Called from OnEmptyBufferDone.  If we have a BQ buffer available,
     // fill it with a new frame of data; otherwise, just mark it as available.
-    void codecBufferEmptied(OMX_BUFFERHEADERTYPE* header);
+    void codecBufferEmptied(OMX_BUFFERHEADERTYPE* header, int fenceFd);
 
     // Called when omx_message::FILL_BUFFER_DONE is received. (Currently the
     // buffer source will fix timestamp in the header if needed.)
@@ -119,6 +127,9 @@ public:
     // of suspension on input.
     status_t setMaxTimestampGapUs(int64_t maxGapUs);
 
+    // When set, the max frame rate fed to the encoder will be capped at maxFps.
+    status_t setMaxFps(float maxFps);
+
     // Sets the time lapse (or slow motion) parameters.
     // data[0] is the time (us) between two frames for playback
     // data[1] is the time (us) between two frames for capture
@@ -150,6 +161,31 @@ protected:
     virtual void onSidebandStreamChanged();
 
 private:
+    // PersistentProxyListener is similar to BufferQueue::ProxyConsumerListener
+    // except that it returns (acquire/detach/re-attache/release) buffers
+    // in onFrameAvailable() if the actual consumer object is no longer valid.
+    //
+    // This class is used in persistent input surface case to prevent buffer
+    // loss when onFrameAvailable() is received while we don't have a valid
+    // consumer around.
+    class PersistentProxyListener : public BnConsumerListener {
+        public:
+            PersistentProxyListener(
+                    const wp<IGraphicBufferConsumer> &consumer,
+                    const wp<ConsumerListener>& consumerListener);
+            virtual ~PersistentProxyListener();
+            virtual void onFrameAvailable(const BufferItem& item) override;
+            virtual void onFrameReplaced(const BufferItem& item) override;
+            virtual void onBuffersReleased() override;
+            virtual void onSidebandStreamChanged() override;
+         private:
+            // mConsumerListener is a weak reference to the IConsumerListener.
+            wp<ConsumerListener> mConsumerListener;
+            // mConsumer is a weak reference to the IGraphicBufferConsumer, use
+            // a weak ref to avoid circular ref between mConsumer and this class
+            wp<IGraphicBufferConsumer> mConsumer;
+    };
+
     // Keep track of codec input buffers.  They may either be available
     // (mGraphicBuffer == NULL) or in use by the codec.
     struct CodecBuffer {
@@ -187,15 +223,20 @@ private:
 
     // Marks the mCodecBuffers entry as in-use, copies the GraphicBuffer
     // reference into the codec buffer, and submits the data to the codec.
-    status_t submitBuffer_l(const BufferQueue::BufferItem &item, int cbi);
+    status_t submitBuffer_l(const BufferItem &item, int cbi);
 
     // Submits an empty buffer, with the EOS flag set.   Returns without
     // doing anything if we don't have a codec buffer available.
     void submitEndOfInputStream_l();
 
-    void setLatestSubmittedBuffer_l(const BufferQueue::BufferItem &item);
-    bool repeatLatestSubmittedBuffer_l();
-    int64_t getTimestamp(const BufferQueue::BufferItem &item);
+    // Release buffer to the consumer
+    void releaseBuffer(
+            int &id, uint64_t frameNum,
+            const sp<GraphicBuffer> buffer, const sp<Fence> &fence);
+
+    void setLatestBuffer_l(const BufferItem &item, bool dropped);
+    bool repeatLatestBuffer_l();
+    int64_t getTimestamp(const BufferItem &item);
 
     // Lock, covers all member variables.
     mutable Mutex mMutex;
@@ -214,12 +255,16 @@ private:
     // Our BufferQueue interfaces. mProducer is passed to the producer through
     // getIGraphicBufferProducer, and mConsumer is used internally to retrieve
     // the buffers queued by the producer.
+    bool mIsPersistent;
     sp<IGraphicBufferProducer> mProducer;
     sp<IGraphicBufferConsumer> mConsumer;
 
     // Number of frames pending in BufferQueue that haven't yet been
     // forwarded to the codec.
     size_t mNumFramesAvailable;
+
+    // Number of frames acquired from consumer (debug only)
+    int32_t mNumBufferAcquired;
 
     // Set to true if we want to send end-of-stream after we run out of
     // frames in BufferQueue.
@@ -235,7 +280,7 @@ private:
     Vector<CodecBuffer> mCodecBuffers;
 
     ////
-    friend class AHandlerReflector<GraphicBufferSource>;
+    friend struct AHandlerReflector<GraphicBufferSource>;
 
     enum {
         kWhatRepeatLastFrame,
@@ -250,6 +295,8 @@ private:
     int64_t mPrevModifiedTimeUs;
     int64_t mSkipFramesBeforeNs;
 
+    sp<FrameDropper> mFrameDropper;
+
     sp<ALooper> mLooper;
     sp<AHandlerReflector<GraphicBufferSource> > mReflector;
 
@@ -258,11 +305,12 @@ private:
     int64_t mRepeatLastFrameTimestamp;
     int32_t mRepeatLastFrameCount;
 
-    int mLatestSubmittedBufferId;
-    uint64_t mLatestSubmittedBufferFrameNum;
-    int32_t mLatestSubmittedBufferUseCount;
+    int mLatestBufferId;
+    uint64_t mLatestBufferFrameNum;
+    int32_t mLatestBufferUseCount;
+    sp<Fence> mLatestBufferFence;
 
-    // The previously submitted buffer should've been repeated but
+    // The previous buffer should've been repeated but
     // no codec buffer was available at the time.
     bool mRepeatBufferDeferred;
 
@@ -272,7 +320,7 @@ private:
     int64_t mPrevCaptureUs;
     int64_t mPrevFrameUs;
 
-    bool mUseGraphicBufferInMeta;
+    MetadataBufferType mMetadataBufferType;
 
     void onMessageReceived(const sp<AMessage> &msg);
 

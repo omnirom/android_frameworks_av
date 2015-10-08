@@ -14,6 +14,12 @@
  * limitations under the License.
  */
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+#include <utils/String16.h>
+
 #include <binder/ProcessState.h>
 #include <media/mediarecorder.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -30,7 +36,7 @@ using namespace android;
 
 static void usage(const char* name)
 {
-    fprintf(stderr, "Usage: %s [-d duration] [-m] [-w] [<output-file>]\n", name);
+    fprintf(stderr, "Usage: %s [-d du.ration] [-m] [-w] [<output-file>]\n", name);
     fprintf(stderr, "Encodes either a sine wave or microphone input to AMR format\n");
     fprintf(stderr, "    -d    duration in seconds, default 5 seconds\n");
     fprintf(stderr, "    -m    use microphone for input, default sine source\n");
@@ -81,6 +87,7 @@ int main(int argc, char* argv[])
         // talk into the appropriate microphone for the duration
         source = new AudioSource(
                 AUDIO_SOURCE_MIC,
+                String16(),
                 kSampleRate,
                 channels);
     } else {
@@ -109,7 +116,12 @@ int main(int argc, char* argv[])
 
     if (fileOut != NULL) {
         // target file specified, write encoded AMR output
-        sp<AMRWriter> writer = new AMRWriter(fileOut);
+        int fd = open(fileOut, O_CREAT | O_LARGEFILE | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+        if (fd < 0) {
+            return 1;
+        }
+        sp<AMRWriter> writer = new AMRWriter(fd);
+        close(fd);
         writer->addSource(encoder);
         writer->start();
         sleep(duration);

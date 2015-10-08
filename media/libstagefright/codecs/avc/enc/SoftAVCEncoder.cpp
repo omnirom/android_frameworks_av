@@ -244,6 +244,10 @@ OMX_ERRORTYPE SoftAVCEncoder::initEncParams() {
     if (mColorFormat != OMX_COLOR_FormatYUV420Planar || mInputDataIsMeta) {
         // Color conversion is needed.
         free(mInputFrameData);
+        if (((uint64_t)mWidth * mHeight) > ((uint64_t)INT32_MAX / 3)) {
+            ALOGE("Buffer size is too big.");
+            return OMX_ErrorUndefined;
+        }
         mInputFrameData =
             (uint8_t *) malloc((mWidth * mHeight * 3 ) >> 1);
         CHECK(mInputFrameData != NULL);
@@ -264,6 +268,10 @@ OMX_ERRORTYPE SoftAVCEncoder::initEncParams() {
 
     int32_t nMacroBlocks = divUp(mWidth, 16) * divUp(mHeight, 16);
     CHECK(mSliceGroup == NULL);
+    if ((size_t)nMacroBlocks > SIZE_MAX / sizeof(uint32_t)) {
+        ALOGE("requested memory size is too big.");
+        return OMX_ErrorUndefined;
+    }
     mSliceGroup = (uint32_t *) malloc(sizeof(uint32_t) * nMacroBlocks);
     CHECK(mSliceGroup != NULL);
     for (int ii = 0, idx = 0; ii < nMacroBlocks; ++ii) {
@@ -561,13 +569,6 @@ void SoftAVCEncoder::onQueueFilled(OMX_U32 /* portIndex */) {
                 videoInput.coding_timestamp = (inHeader->nTimeStamp + 500) / 1000;  // in ms
                 const uint8_t *inputData = NULL;
                 if (mInputDataIsMeta) {
-                    if (inHeader->nFilledLen != 8) {
-                        ALOGE("MetaData buffer is wrong size! "
-                                "(got %u bytes, expected 8)", inHeader->nFilledLen);
-                        mSignalledError = true;
-                        notify(OMX_EventError, OMX_ErrorUndefined, 0, 0);
-                        return;
-                    }
                     inputData =
                         extractGraphicBuffer(
                                 mInputFrameData, (mWidth * mHeight * 3) >> 1,

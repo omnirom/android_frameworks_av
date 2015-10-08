@@ -34,6 +34,7 @@ const char *MEDIA_MIMETYPE_AUDIO_AMR_WB = "audio/amr-wb";
 const char *MEDIA_MIMETYPE_AUDIO_MPEG = "audio/mpeg";
 const char *MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_I = "audio/mpeg-L1";
 const char *MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_II = "audio/mpeg-L2";
+const char *MEDIA_MIMETYPE_AUDIO_MIDI = "audio/midi";
 const char *MEDIA_MIMETYPE_AUDIO_AAC = "audio/mp4a-latm";
 const char *MEDIA_MIMETYPE_AUDIO_QCELP = "audio/qcelp";
 const char *MEDIA_MIMETYPE_AUDIO_VORBIS = "audio/vorbis";
@@ -61,5 +62,6 @@ const char *MEDIA_MIMETYPE_TEXT_3GPP = "text/3gpp-tt";
 const char *MEDIA_MIMETYPE_TEXT_SUBRIP = "application/x-subrip";
 const char *MEDIA_MIMETYPE_TEXT_VTT = "text/vtt";
 const char *MEDIA_MIMETYPE_TEXT_CEA_608 = "text/cea-608";
+const char *MEDIA_MIMETYPE_DATA_TIMED_ID3 = "application/x-id3v4";
 
 }  // namespace android

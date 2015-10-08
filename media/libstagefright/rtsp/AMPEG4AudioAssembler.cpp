@@ -108,7 +108,7 @@ static status_t parseAudioObjectType(
 static status_t parseGASpecificConfig(
         ABitReader *bits,
         unsigned audioObjectType, unsigned channelConfiguration) {
-    unsigned frameLengthFlag = bits->getBits(1);
+    unsigned frameLengthFlag __unused = bits->getBits(1);
     unsigned dependsOnCoreCoder = bits->getBits(1);
     if (dependsOnCoreCoder) {
         /* unsigned coreCoderDelay = */bits->getBits(1);
@@ -217,7 +217,7 @@ static status_t parseAudioSpecificConfig(ABitReader *bits, sp<ABuffer> *asc) {
                 // Apparently an extension is always considered an even
                 // multiple of 8 bits long.
 
-                ALOGI("Skipping %d bits after sync extension",
+                ALOGI("Skipping %zu bits after sync extension",
                      8 - (numBitsInExtension & 7));
 
                 bits->skipBits(8 - (numBitsInExtension & 7));
@@ -404,8 +404,9 @@ sp<ABuffer> AMPEG4AudioAssembler::removeLATMFraming(const sp<ABuffer> &buffer) {
                 break;
             }
         }
-
-        CHECK_LE(offset + payloadLength, buffer->size());
+        
+        CHECK_LT(offset, buffer->size());
+        CHECK_LE(payloadLength, buffer->size() - offset);
 
         memcpy(out->data() + out->size(), &ptr[offset], payloadLength);
         out->setRange(0, out->size() + payloadLength);
@@ -422,7 +423,7 @@ sp<ABuffer> AMPEG4AudioAssembler::removeLATMFraming(const sp<ABuffer> &buffer) {
     }
 
     if (offset < buffer->size()) {
-        ALOGI("ignoring %d bytes of trailing data", buffer->size() - offset);
+        ALOGI("ignoring %zu bytes of trailing data", buffer->size() - offset);
     }
     CHECK_LE(offset, buffer->size());
 

@@ -31,10 +31,13 @@
 // from LOCAL_C_INCLUDES
 #include "AudioFlinger.h"
 #include "CameraService.h"
+#include "IcuUtils.h"
 #include "MediaLogService.h"
 #include "MediaPlayerService.h"
-#include "AudioPolicyService.h"
+#include "ResourceManagerService.h"
+#include "service/AudioPolicyService.h"
 #include "SoundTriggerHwService.h"
+#include "RadioService.h"
 
 using namespace android;
 
@@ -122,14 +125,17 @@ int main(int argc __unused, char** argv)
             prctl(PR_SET_PDEATHSIG, SIGKILL);   // if parent media.log dies before me, kill me also
             setpgid(0, 0);                      // but if I die first, don't kill my parent
         }
+        InitializeIcuOrDie();
         sp<ProcessState> proc(ProcessState::self());
         sp<IServiceManager> sm = defaultServiceManager();
         ALOGI("ServiceManager: %p", sm.get());
         AudioFlinger::instantiate();
         MediaPlayerService::instantiate();
+        ResourceManagerService::instantiate();
         CameraService::instantiate();
         AudioPolicyService::instantiate();
         SoundTriggerHwService::instantiate();
+        RadioService::instantiate();
         registerExtensions();
         ProcessState::self()->startThreadPool();
         IPCThreadState::self()->joinThreadPool();

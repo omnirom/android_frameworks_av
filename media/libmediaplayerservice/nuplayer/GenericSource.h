@@ -31,12 +31,13 @@ class DecryptHandle;
 class DrmManagerClient;
 struct AnotherPacketSource;
 struct ARTSPController;
-struct DataSource;
+class DataSource;
+class IDataSource;
 struct IMediaHTTPService;
 struct MediaSource;
 class MediaBuffer;
 struct NuCachedSource2;
-struct WVMExtractor;
+class WVMExtractor;
 
 struct NuPlayer::GenericSource : public NuPlayer::Source {
     GenericSource(const sp<AMessage> &notify, bool uidValid, uid_t uid);
@@ -47,6 +48,8 @@ struct NuPlayer::GenericSource : public NuPlayer::Source {
             const KeyedVector<String8, String8> *headers);
 
     status_t setDataSource(int fd, int64_t offset, int64_t length);
+
+    status_t setDataSource(const sp<DataSource>& dataSource);
 
     virtual void prepareAsync();
 
@@ -71,6 +74,8 @@ struct NuPlayer::GenericSource : public NuPlayer::Source {
     virtual status_t seekTo(int64_t seekTimeUs);
 
     virtual status_t setBuffers(bool audio, Vector<MediaBuffer *> &buffers);
+
+    virtual bool isStreaming() const;
 
 protected:
     virtual ~GenericSource();
@@ -140,14 +145,13 @@ private:
     sp<DecryptHandle> mDecryptHandle;
     bool mStarted;
     bool mStopRead;
-    String8 mContentType;
-    AString mSniffedMIME;
-    off64_t mMetaDataSize;
     int64_t mBitrate;
     int32_t mPollBufferingGeneration;
     uint32_t mPendingReadBufferTypes;
     bool mBuffering;
     bool mPrepareBuffering;
+    int32_t mPrevBufferPercentage;
+
     mutable Mutex mReadBufferLock;
 
     sp<ALooper> mLooper;
@@ -158,8 +162,6 @@ private:
     void checkDrmStatus(const sp<DataSource>& dataSource);
     int64_t getLastReadPosition();
     void setDrmPlaybackStatusIfNeeded(int playbackStatus, int64_t position);
-
-    status_t prefillCacheIfNecessary();
 
     void notifyPreparedAndCleanup(status_t err);
     void onSecureDecodersInstantiated(status_t err);
@@ -200,11 +202,14 @@ private:
             media_track_type trackType,
             int64_t seekTimeUs = -1ll, int64_t *actualTimeUs = NULL, bool formatChange = false);
 
+    void queueDiscontinuityIfNeeded(
+            bool seeking, bool formatChange, media_track_type trackType, Track *track);
+
     void schedulePollBuffering();
     void cancelPollBuffering();
     void restartPollBuffering();
     void onPollBuffering();
-    void notifyBufferingUpdate(int percentage);
+    void notifyBufferingUpdate(int32_t percentage);
     void startBufferingIfNecessary();
     void stopBufferingIfNecessary();
     void sendCacheStats();

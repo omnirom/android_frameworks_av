@@ -44,6 +44,7 @@ struct BpMediaHTTPService : public BpInterface<IMediaHTTPService> {
         status_t err = reply.readInt32();
 
         if (err != OK) {
+            ALOGE("Unable to make HTTP connection (err = %d)", err);
             return NULL;
         }
 
@@ -54,5 +55,4 @@ struct BpMediaHTTPService : public BpInterface<IMediaHTTPService> {
 IMPLEMENT_META_INTERFACE(
         MediaHTTPService, "android.media.IMediaHTTPService");
 
-}  // namespace android
-
+} // namespace android

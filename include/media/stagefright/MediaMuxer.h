@@ -22,14 +22,16 @@
 #include <utils/Vector.h>
 #include <utils/threads.h>
 
+#include "foundation/ABase.h"
+
 namespace android {
 
 struct ABuffer;
 struct AMessage;
 struct MediaAdapter;
-struct MediaBuffer;
+class MediaBuffer;
 struct MediaSource;
-struct MetaData;
+class MetaData;
 struct MediaWriter;
 
 // MediaMuxer is used to mux multiple tracks into a video. Currently, we only
@@ -47,9 +49,6 @@ public:
         OUTPUT_FORMAT_WEBM   = 1,
         OUTPUT_FORMAT_LIST_END // must be last - used to validate format type
     };
-
-    // Construct the muxer with the output file path.
-    MediaMuxer(const char *path, OutputFormat format);
 
     // Construct the muxer with the file descriptor. Note that the MediaMuxer
     // will close this file at stop().

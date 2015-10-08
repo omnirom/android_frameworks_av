@@ -10,19 +10,10 @@ LOCAL_SHARED_LIBRARIES := \
 	liblog \
 	libutils \
 	libcutils \
-	libstlport \
 	libaudioutils \
 	libaudioresampler
 
-LOCAL_STATIC_LIBRARIES := \
-	libgtest \
-	libgtest_main
-
 LOCAL_C_INCLUDES := \
-	bionic \
-	bionic/libstdc++/include \
-	external/gtest/include \
-	external/stlport/stlport \
 	$(call include-path-for, audio-utils) \
 	frameworks/av/services/audioflinger
 
@@ -32,7 +23,7 @@ LOCAL_SRC_FILES := \
 LOCAL_MODULE := resampler_tests
 LOCAL_MODULE_TAGS := tests
 
-include $(BUILD_EXECUTABLE)
+include $(BUILD_NATIVE_TEST)
 
 #
 # audio mixer test tool
@@ -42,20 +33,18 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES:= \
 	test-mixer.cpp \
 	../AudioMixer.cpp.arm \
+	../BufferProviders.cpp
 
 LOCAL_C_INCLUDES := \
-	bionic \
-	bionic/libstdc++/include \
-	external/stlport/stlport \
 	$(call include-path-for, audio-effects) \
 	$(call include-path-for, audio-utils) \
-	frameworks/av/services/audioflinger
+	frameworks/av/services/audioflinger \
+	external/sonic
 
 LOCAL_STATIC_LIBRARIES := \
 	libsndfile
 
 LOCAL_SHARED_LIBRARIES := \
-	libstlport \
 	libeffects \
 	libnbaio \
 	libcommon_time_client \
@@ -64,10 +53,13 @@ LOCAL_SHARED_LIBRARIES := \
 	libdl \
 	libcutils \
 	libutils \
-	liblog
+	liblog \
+	libsonic
 
 LOCAL_MODULE:= test-mixer
 
 LOCAL_MODULE_TAGS := optional
+
+LOCAL_CXX_STL := libc++
 
 include $(BUILD_EXECUTABLE)

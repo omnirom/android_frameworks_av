@@ -27,15 +27,16 @@ namespace android {
 
 struct ABuffer;
 struct AnotherPacketSource;
-struct DataSource;
+class DataSource;
 struct HTTPBase;
 struct LiveDataSource;
 struct M3UParser;
-struct String8;
+class String8;
 
 struct PlaylistFetcher : public AHandler {
     static const int64_t kMinBufferedDurationUs;
     static const int32_t kDownloadBlockSize;
+    static const int64_t kFetcherResumeThreshold;
 
     enum {
         kWhatStarted,
@@ -43,35 +44,42 @@ struct PlaylistFetcher : public AHandler {
         kWhatStopped,
         kWhatError,
         kWhatDurationUpdate,
-        kWhatTemporarilyDoneFetching,
+        kWhatTargetDurationUpdate,
         kWhatPrepared,
         kWhatPreparationFailed,
         kWhatStartedAt,
+        kWhatStopReached,
+        kWhatPlaylistFetched,
+        kWhatMetadataDetected,
     };
 
     PlaylistFetcher(
             const sp<AMessage> &notify,
             const sp<LiveSession> &session,
             const char *uri,
+            int32_t id,
             int32_t subtitleGeneration);
 
-    sp<DataSource> getDataSource();
+    int32_t getFetcherID() const;
 
     void startAsync(
             const sp<AnotherPacketSource> &audioSource,
             const sp<AnotherPacketSource> &videoSource,
             const sp<AnotherPacketSource> &subtitleSource,
+            const sp<AnotherPacketSource> &metadataSource,
             int64_t startTimeUs = -1ll,         // starting timestamps
             int64_t segmentStartTimeUs = -1ll, // starting position within playlist
             // startTimeUs!=segmentStartTimeUs only when playlist is live
-            int32_t startDiscontinuitySeq = 0,
-            bool adaptive = false);
+            int32_t startDiscontinuitySeq = -1,
+            LiveSession::SeekMode seekMode = LiveSession::kSeekModeExactPosition);
 
-    void pauseAsync();
+    void pauseAsync(float thresholdRatio, bool disconnect);
 
     void stopAsync(bool clear = true);
 
     void resumeUntilAsync(const sp<AMessage> &params);
+
+    void fetchPlaylistAsync();
 
     uint32_t getStreamTypeMask() const {
         return mStreamTypeMask;
@@ -93,7 +101,10 @@ private:
         kWhatMonitorQueue   = 'moni',
         kWhatResumeUntil    = 'rsme',
         kWhatDownloadNext   = 'dlnx',
+        kWhatFetchPlaylist  = 'flst'
     };
+
+    struct DownloadState;
 
     static const int64_t kMaxMonitorDelayUs;
     static const int32_t kNumSkipFrames;
@@ -105,8 +116,11 @@ private:
     sp<AMessage> mNotify;
     sp<AMessage> mStartTimeUsNotify;
 
+    sp<HTTPDownloader> mHTTPDownloader;
     sp<LiveSession> mSession;
     AString mURI;
+
+    int32_t mFetcherID;
 
     uint32_t mStreamTypeMask;
     int64_t mStartTimeUs;
@@ -116,7 +130,7 @@ private:
     // adapting or switching tracks.
     int64_t mSegmentStartTimeUs;
 
-    ssize_t mDiscontinuitySeq;
+    int32_t mDiscontinuitySeq;
     bool mStartTimeUsRelative;
     sp<AMessage> mStopParams; // message containing the latest timestamps we should fetch.
 
@@ -126,16 +140,20 @@ private:
     KeyedVector<AString, sp<ABuffer> > mAESKeyForURI;
 
     int64_t mLastPlaylistFetchTimeUs;
+    int64_t mPlaylistTimeUs;
     sp<M3UParser> mPlaylist;
     int32_t mSeqNumber;
     int32_t mNumRetries;
     bool mStartup;
-    bool mAdaptive;
-    bool mPrepared;
+    bool mIDRFound;
+    int32_t mSeekMode;
+    bool mTimeChangeSignaled;
     int64_t mNextPTSTimeUs;
 
     int32_t mMonitorQueueGeneration;
     const int32_t mSubtitleGeneration;
+
+    int32_t mLastDiscontinuitySeq;
 
     enum RefreshState {
         INITIAL_MINIMUM_RELOAD_DELAY,
@@ -150,15 +168,21 @@ private:
     sp<ATSParser> mTSParser;
 
     bool mFirstPTSValid;
-    uint64_t mFirstPTS;
     int64_t mFirstTimeUs;
-    int64_t mAbsoluteTimeAnchorUs;
+    int64_t mSegmentFirstPTS;
     sp<AnotherPacketSource> mVideoBuffer;
 
     // Stores the initialization vector to decrypt the next block of cipher text, which can
     // either be derived from the sequence number, read from the manifest, or copied from
     // the last block of cipher text (cipher-block chaining).
     unsigned char mAESInitVec[16];
+
+    Mutex mThresholdLock;
+    float mThresholdRatio;
+
+    sp<DownloadState> mDownloadState;
+
+    bool mHasMetadata;
 
     // Set first to true if decrypting the first segment of a playlist segment. When
     // first is true, reset the initialization vector based on the available
@@ -175,6 +199,10 @@ private:
 
     void postMonitorQueue(int64_t delayUs = 0, int64_t minDelayUs = 0);
     void cancelMonitorQueue();
+    void setStoppingThreshold(float thresholdRatio, bool disconnect);
+    void resetStoppingThreshold(bool disconnect);
+    float getStoppingThreshold();
+    bool shouldPauseDownload();
 
     int64_t delayUsToRefreshPlaylist() const;
     status_t refreshPlaylist();
@@ -182,12 +210,19 @@ private:
     // Returns the media time in us of the segment specified by seqNumber.
     // This is computed by summing the durations of all segments before it.
     int64_t getSegmentStartTimeUs(int32_t seqNumber) const;
+    // Returns the duration time in us of the segment specified.
+    int64_t getSegmentDurationUs(int32_t seqNumber) const;
 
     status_t onStart(const sp<AMessage> &msg);
     void onPause();
     void onStop(const sp<AMessage> &msg);
     void onMonitorQueue();
     void onDownloadNext();
+    bool initDownloadState(
+            AString &uri,
+            sp<AMessage> &itemMeta,
+            int32_t &firstSeqNumberInPlaylist,
+            int32_t &lastSeqNumberInPlaylist);
 
     // Resume a fetcher to continue until the stopping point stored in msg.
     status_t onResumeUntil(const sp<AMessage> &msg);
@@ -196,25 +231,24 @@ private:
             const sp<ABuffer> &accessUnit,
             const sp<AnotherPacketSource> &source,
             bool discard = false);
+    bool isStartTimeReached(int64_t timeUs);
     status_t extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &buffer);
 
     status_t extractAndQueueAccessUnits(
             const sp<ABuffer> &buffer, const sp<AMessage> &itemMeta);
 
+    void notifyStopReached();
     void notifyError(status_t err);
 
     void queueDiscontinuity(
             ATSParser::DiscontinuityType type, const sp<AMessage> &extra);
 
-    int32_t getSeqNumberWithAnchorTime(int64_t anchorTimeUs) const;
+    bool adjustSeqNumberWithAnchorTime(int64_t anchorTimeUs);
     int32_t getSeqNumberForDiscontinuity(size_t discontinuitySeq) const;
     int32_t getSeqNumberForTime(int64_t timeUs) const;
 
     void updateDuration();
-
-    // Before resuming a fetcher in onResume, check the remaining duration is longer than that
-    // returned by resumeThreshold.
-    int64_t resumeThreshold(const sp<AMessage> &msg);
+    void updateTargetDuration();
 
     DISALLOW_EVIL_CONSTRUCTORS(PlaylistFetcher);
 };

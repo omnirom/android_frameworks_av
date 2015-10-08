@@ -226,7 +226,7 @@ NuCachedSource2::NuCachedSource2(
     mLooper->start(false /* runOnCallingThread */, true /* canCallJava */);
 
     Mutex::Autolock autoLock(mLock);
-    (new AMessage(kWhatFetchMore, mReflector->id()))->post();
+    (new AMessage(kWhatFetchMore, mReflector))->post();
 }
 
 NuCachedSource2::~NuCachedSource2() {
@@ -433,7 +433,7 @@ void NuCachedSource2::onFetch() {
         delayUs = 100000ll;
     }
 
-    (new AMessage(kWhatFetchMore, mReflector->id()))->post(delayUs);
+    (new AMessage(kWhatFetchMore, mReflector))->post(delayUs);
 }
 
 void NuCachedSource2::onRead(const sp<AMessage> &msg) {
@@ -503,7 +503,7 @@ void NuCachedSource2::restartPrefetcherIfNecessary_l(
 ssize_t NuCachedSource2::readAt(off64_t offset, void *data, size_t size) {
     Mutex::Autolock autoSerializer(mSerializer);
 
-    ALOGV("readAt offset %lld, size %zu", offset, size);
+    ALOGV("readAt offset %lld, size %zu", (long long)offset, size);
 
     Mutex::Autolock autoLock(mLock);
     if (mDisconnecting) {
@@ -522,7 +522,7 @@ ssize_t NuCachedSource2::readAt(off64_t offset, void *data, size_t size) {
         return size;
     }
 
-    sp<AMessage> msg = new AMessage(kWhatRead, mReflector->id());
+    sp<AMessage> msg = new AMessage(kWhatRead, mReflector);
     msg->setInt64("offset", offset);
     msg->setPointer("data", data);
     msg->setSize("size", size);
@@ -579,9 +579,16 @@ size_t NuCachedSource2::approxDataRemaining_l(status_t *finalStatus) const {
 ssize_t NuCachedSource2::readInternal(off64_t offset, void *data, size_t size) {
     CHECK_LE(size, (size_t)mHighwaterThresholdBytes);
 
-    ALOGV("readInternal offset %lld size %zu", offset, size);
+    ALOGV("readInternal offset %lld size %zu", (long long)offset, size);
 
     Mutex::Autolock autoLock(mLock);
+
+    // If we're disconnecting, return EOS and don't access *data pointer.
+    // data could be on the stack of the caller to NuCachedSource2::readAt(),
+    // which may have exited already.
+    if (mDisconnecting) {
+        return ERROR_END_OF_STREAM;
+    }
 
     if (!mFetching) {
         mLastAccessPos = offset;
@@ -640,7 +647,7 @@ status_t NuCachedSource2::seekInternal_l(off64_t offset) {
         return OK;
     }
 
-    ALOGI("new range: offset= %lld", offset);
+    ALOGI("new range: offset= %lld", (long long)offset);
 
     mCacheOffset = offset;
 
@@ -719,10 +726,10 @@ void NuCachedSource2::updateCacheParamsFromString(const char *s) {
         mKeepAliveIntervalUs = kDefaultKeepAliveIntervalUs;
     }
 
-    ALOGV("lowwater = %zu bytes, highwater = %zu bytes, keepalive = %" PRId64 " us",
+    ALOGV("lowwater = %zu bytes, highwater = %zu bytes, keepalive = %lld us",
          mLowwaterThresholdBytes,
          mHighwaterThresholdBytes,
-         mKeepAliveIntervalUs);
+         (long long)mKeepAliveIntervalUs);
 }
 
 // static

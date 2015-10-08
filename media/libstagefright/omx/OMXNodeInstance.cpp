@@ -32,6 +32,7 @@
 #include <gui/BufferQueue.h>
 #include <HardwareAPI.h>
 #include <media/stagefright/foundation/ADebug.h>
+#include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/MediaErrors.h>
 
 #include <utils/misc.h>
@@ -75,11 +76,11 @@ static const OMX_U32 kPortIndexOutput = 1;
 #define SIMPLE_NEW_BUFFER(buffer_id, port, size, data) \
     NEW_BUFFER_FMT(buffer_id, port, "%zu@%p", (size), (data))
 
-#define EMPTY_BUFFER(addr, header) "%#x [%u@%p]", \
-    (addr), (header)->nAllocLen, (header)->pBuffer
-#define FULL_BUFFER(addr, header) "%#" PRIxPTR " [%u@%p (%u..+%u) f=%x ts=%lld]", \
+#define EMPTY_BUFFER(addr, header, fenceFd) "%#x [%u@%p fc=%d]", \
+    (addr), (header)->nAllocLen, (header)->pBuffer, (fenceFd)
+#define FULL_BUFFER(addr, header, fenceFd) "%#" PRIxPTR " [%u@%p (%u..+%u) f=%x ts=%lld fc=%d]", \
     (intptr_t)(addr), (header)->nAllocLen, (header)->pBuffer, \
-    (header)->nOffset, (header)->nFilledLen, (header)->nFlags, (header)->nTimeStamp
+    (header)->nOffset, (header)->nFilledLen, (header)->nFlags, (header)->nTimeStamp, (fenceFd)
 
 #define WITH_STATS_WRAPPER(fmt, ...) fmt " { IN=%zu/%zu OUT=%zu/%zu }", ##__VA_ARGS__, \
     mInputBuffersWithCodec.size(), mNumPortBuffers[kPortIndexInput], \
@@ -120,9 +121,10 @@ struct BufferMeta {
             return;
         }
 
-        memcpy((OMX_U8 *)mMem->pointer() + header->nOffset,
-                header->pBuffer + header->nOffset,
-                header->nFilledLen);
+        // check component returns proper range
+        sp<ABuffer> codec = getBuffer(header, false /* backup */, true /* limit */);
+
+        memcpy((OMX_U8 *)mMem->pointer() + header->nOffset, codec->data(), codec->size());
     }
 
     void CopyToOMX(const OMX_BUFFERHEADERTYPE *header) {
@@ -133,6 +135,25 @@ struct BufferMeta {
         memcpy(header->pBuffer + header->nOffset,
                 (const OMX_U8 *)mMem->pointer() + header->nOffset,
                 header->nFilledLen);
+    }
+
+    // return either the codec or the backup buffer
+    sp<ABuffer> getBuffer(const OMX_BUFFERHEADERTYPE *header, bool backup, bool limit) {
+        sp<ABuffer> buf;
+        if (backup && mMem != NULL) {
+            buf = new ABuffer(mMem->pointer(), mMem->size());
+        } else {
+            buf = new ABuffer(header->pBuffer, header->nAllocLen);
+        }
+        if (limit) {
+            if (header->nOffset + header->nFilledLen > header->nOffset
+                    && header->nOffset + header->nFilledLen <= header->nAllocLen) {
+                buf->setRange(header->nOffset, header->nFilledLen);
+            } else {
+                buf->setRange(0, 0);
+            }
+        }
+        return buf;
     }
 
     void setGraphicBuffer(const sp<GraphicBuffer> &graphicBuffer) {
@@ -158,7 +179,7 @@ static inline const char *portString(OMX_U32 portIndex) {
     switch (portIndex) {
         case kPortIndexInput:  return "Input";
         case kPortIndexOutput: return "Output";
-        case ~0:               return "All";
+        case ~0U:              return "All";
         default:               return "port";
     }
 }
@@ -169,10 +190,8 @@ OMXNodeInstance::OMXNodeInstance(
       mNodeID(0),
       mHandle(NULL),
       mObserver(observer),
-      mDying(false)
-#ifdef __LP64__
-      , mBufferIDCount(0)
-#endif
+      mDying(false),
+      mBufferIDCount(0)
 {
     mName = ADebug::GetDebugName(name);
     DEBUG = ADebug::GetDebugLevelFromProperty(name, "debug.stagefright.omx-debug");
@@ -182,6 +201,8 @@ OMXNodeInstance::OMXNodeInstance(
     mNumPortBuffers[1] = 0;
     mDebugLevelBumpPendingBuffers[0] = 0;
     mDebugLevelBumpPendingBuffers[1] = 0;
+    mMetadataType[0] = kMetadataBufferTypeInvalid;
+    mMetadataType[1] = kMetadataBufferTypeInvalid;
 }
 
 OMXNodeInstance::~OMXNodeInstance() {
@@ -220,13 +241,15 @@ OMX::node_id OMXNodeInstance::nodeID() {
     return mNodeID;
 }
 
-static status_t StatusFromOMXError(OMX_ERRORTYPE err) {
+status_t StatusFromOMXError(OMX_ERRORTYPE err) {
     switch (err) {
         case OMX_ErrorNone:
             return OK;
         case OMX_ErrorUnsupportedSetting:
         case OMX_ErrorUnsupportedIndex:
             return ERROR_UNSUPPORTED;
+        case OMX_ErrorInsufficientResources:
+            return NO_MEMORY;
         default:
             return UNKNOWN_ERROR;
     }
@@ -486,63 +509,73 @@ status_t OMXNodeInstance::getGraphicBufferUsage(
 }
 
 status_t OMXNodeInstance::storeMetaDataInBuffers(
-        OMX_U32 portIndex,
-        OMX_BOOL enable) {
+        OMX_U32 portIndex, OMX_BOOL enable, MetadataBufferType *type) {
     Mutex::Autolock autolock(mLock);
     CLOG_CONFIG(storeMetaDataInBuffers, "%s:%u en:%d", portString(portIndex), portIndex, enable);
-    return storeMetaDataInBuffers_l(
-            portIndex, enable,
-            OMX_FALSE /* useGraphicBuffer */, NULL /* usingGraphicBufferInMetadata */);
+    return storeMetaDataInBuffers_l(portIndex, enable, type);
 }
 
 status_t OMXNodeInstance::storeMetaDataInBuffers_l(
-        OMX_U32 portIndex,
-        OMX_BOOL enable,
-        OMX_BOOL useGraphicBuffer,
-        OMX_BOOL *usingGraphicBufferInMetadata) {
+        OMX_U32 portIndex, OMX_BOOL enable, MetadataBufferType *type) {
+    if (portIndex != kPortIndexInput && portIndex != kPortIndexOutput) {
+        return BAD_VALUE;
+    }
+
     OMX_INDEXTYPE index;
     OMX_STRING name = const_cast<OMX_STRING>(
             "OMX.google.android.index.storeMetaDataInBuffers");
 
-    OMX_STRING graphicBufferName = const_cast<OMX_STRING>(
-            "OMX.google.android.index.storeGraphicBufferInMetaData");
-    if (usingGraphicBufferInMetadata == NULL) {
-        usingGraphicBufferInMetadata = &useGraphicBuffer;
-    }
+    OMX_STRING nativeBufferName = const_cast<OMX_STRING>(
+            "OMX.google.android.index.storeANWBufferInMetadata");
+    MetadataBufferType negotiatedType;
 
-    OMX_ERRORTYPE err =
-        (useGraphicBuffer && portIndex == kPortIndexInput)
-                ? OMX_GetExtensionIndex(mHandle, graphicBufferName, &index)
-                : OMX_ErrorBadParameter;
-    if (err == OMX_ErrorNone) {
-        *usingGraphicBufferInMetadata = OMX_TRUE;
-        name = graphicBufferName;
-    } else {
-        err = OMX_GetExtensionIndex(mHandle, name, &index);
-    }
+    StoreMetaDataInBuffersParams params;
+    InitOMXParams(&params);
+    params.nPortIndex = portIndex;
+    params.bStoreMetaData = enable;
 
+    OMX_ERRORTYPE err = OMX_GetExtensionIndex(mHandle, nativeBufferName, &index);
     OMX_ERRORTYPE xerr = err;
     if (err == OMX_ErrorNone) {
-        StoreMetaDataInBuffersParams params;
-        InitOMXParams(&params);
-        params.nPortIndex = portIndex;
-        params.bStoreMetaData = enable;
-
         err = OMX_SetParameter(mHandle, index, &params);
+        if (err == OMX_ErrorNone) {
+            name = nativeBufferName; // set name for debugging
+            negotiatedType = kMetadataBufferTypeANWBuffer;
+        }
+    }
+    if (err != OMX_ErrorNone) {
+        err = OMX_GetExtensionIndex(mHandle, name, &index);
+        xerr = err;
+        if (err == OMX_ErrorNone) {
+            negotiatedType = kMetadataBufferTypeGrallocSource;
+            err = OMX_SetParameter(mHandle, index, &params);
+        }
     }
 
     // don't log loud error if component does not support metadata mode on the output
     if (err != OMX_ErrorNone) {
-        *usingGraphicBufferInMetadata = OMX_FALSE;
         if (err == OMX_ErrorUnsupportedIndex && portIndex == kPortIndexOutput) {
             CLOGW("component does not support metadata mode; using fallback");
         } else if (xerr != OMX_ErrorNone) {
             CLOG_ERROR(getExtensionIndex, xerr, "%s", name);
         } else {
-            CLOG_ERROR(setParameter, err, "%s(%#x): %s:%u en=%d GB=%d", name, index,
-                    portString(portIndex), portIndex, enable, useGraphicBuffer);
+            CLOG_ERROR(setParameter, err, "%s(%#x): %s:%u en=%d type=%d", name, index,
+                    portString(portIndex), portIndex, enable, negotiatedType);
         }
+        negotiatedType = mMetadataType[portIndex];
+    } else {
+        if (!enable) {
+            negotiatedType = kMetadataBufferTypeInvalid;
+        }
+        mMetadataType[portIndex] = negotiatedType;
     }
+    CLOG_CONFIG(storeMetaDataInBuffers, "%s:%u negotiated %s:%d",
+            portString(portIndex), portIndex, asString(negotiatedType), negotiatedType);
+
+    if (type != NULL) {
+        *type = negotiatedType;
+    }
+
     return StatusFromOMXError(err);
 }
 
@@ -620,8 +653,11 @@ status_t OMXNodeInstance::configureVideoTunnelMode(
 
 status_t OMXNodeInstance::useBuffer(
         OMX_U32 portIndex, const sp<IMemory> &params,
-        OMX::buffer_id *buffer) {
+        OMX::buffer_id *buffer, OMX_U32 allottedSize) {
     Mutex::Autolock autoLock(mLock);
+    if (allottedSize > params->size()) {
+        return BAD_VALUE;
+    }
 
     BufferMeta *buffer_meta = new BufferMeta(params);
 
@@ -629,10 +665,11 @@ status_t OMXNodeInstance::useBuffer(
 
     OMX_ERRORTYPE err = OMX_UseBuffer(
             mHandle, &header, portIndex, buffer_meta,
-            params->size(), static_cast<OMX_U8 *>(params->pointer()));
+            allottedSize, static_cast<OMX_U8 *>(params->pointer()));
 
     if (err != OMX_ErrorNone) {
-        CLOG_ERROR(useBuffer, err, SIMPLE_BUFFER(portIndex, params->size(), params->pointer()));
+        CLOG_ERROR(useBuffer, err, SIMPLE_BUFFER(
+                portIndex, (size_t)allottedSize, params->pointer()));
 
         delete buffer_meta;
         buffer_meta = NULL;
@@ -654,7 +691,7 @@ status_t OMXNodeInstance::useBuffer(
     }
 
     CLOG_BUFFER(useBuffer, NEW_BUFFER_FMT(
-            *buffer, portIndex, "%zu@%p", params->size(), params->pointer()));
+            *buffer, portIndex, "%u(%zu)@%p", allottedSize, params->size(), params->pointer()));
     return OK;
 }
 
@@ -770,38 +807,60 @@ status_t OMXNodeInstance::useGraphicBuffer(
     return OK;
 }
 
+status_t OMXNodeInstance::updateGraphicBufferInMeta_l(
+        OMX_U32 portIndex, const sp<GraphicBuffer>& graphicBuffer,
+        OMX::buffer_id buffer, OMX_BUFFERHEADERTYPE *header) {
+    if (portIndex != kPortIndexInput && portIndex != kPortIndexOutput) {
+        return BAD_VALUE;
+    }
+
+    BufferMeta *bufferMeta = (BufferMeta *)(header->pAppPrivate);
+    bufferMeta->setGraphicBuffer(graphicBuffer);
+    if (mMetadataType[portIndex] == kMetadataBufferTypeGrallocSource
+            && header->nAllocLen >= sizeof(VideoGrallocMetadata)) {
+        VideoGrallocMetadata &metadata = *(VideoGrallocMetadata *)(header->pBuffer);
+        metadata.eType = kMetadataBufferTypeGrallocSource;
+        metadata.pHandle = graphicBuffer == NULL ? NULL : graphicBuffer->handle;
+    } else if (mMetadataType[portIndex] == kMetadataBufferTypeANWBuffer
+            && header->nAllocLen >= sizeof(VideoNativeMetadata)) {
+        VideoNativeMetadata &metadata = *(VideoNativeMetadata *)(header->pBuffer);
+        metadata.eType = kMetadataBufferTypeANWBuffer;
+        metadata.pBuffer = graphicBuffer == NULL ? NULL : graphicBuffer->getNativeBuffer();
+        metadata.nFenceFd = -1;
+    } else {
+        CLOG_BUFFER(updateGraphicBufferInMeta, "%s:%u, %#x bad type (%d) or size (%u)",
+            portString(portIndex), portIndex, buffer, mMetadataType[portIndex], header->nAllocLen);
+        return BAD_VALUE;
+    }
+
+    CLOG_BUFFER(updateGraphicBufferInMeta, "%s:%u, %#x := %p",
+            portString(portIndex), portIndex, buffer,
+            graphicBuffer == NULL ? NULL : graphicBuffer->handle);
+    return OK;
+}
+
 status_t OMXNodeInstance::updateGraphicBufferInMeta(
         OMX_U32 portIndex, const sp<GraphicBuffer>& graphicBuffer,
         OMX::buffer_id buffer) {
     Mutex::Autolock autoLock(mLock);
-
     OMX_BUFFERHEADERTYPE *header = findBufferHeader(buffer);
-    VideoDecoderOutputMetaData *metadata =
-        (VideoDecoderOutputMetaData *)(header->pBuffer);
-    BufferMeta *bufferMeta = (BufferMeta *)(header->pAppPrivate);
-    bufferMeta->setGraphicBuffer(graphicBuffer);
-    metadata->eType = kMetadataBufferTypeGrallocSource;
-    metadata->pHandle = graphicBuffer->handle;
-    CLOG_BUFFER(updateGraphicBufferInMeta, "%s:%u, %#x := %p",
-            portString(portIndex), portIndex, buffer, graphicBuffer->handle);
-    return OK;
+    return updateGraphicBufferInMeta_l(portIndex, graphicBuffer, buffer, header);
 }
 
-status_t OMXNodeInstance::createInputSurface(
-        OMX_U32 portIndex, sp<IGraphicBufferProducer> *bufferProducer) {
-    Mutex::Autolock autolock(mLock);
+status_t OMXNodeInstance::createGraphicBufferSource(
+        OMX_U32 portIndex, sp<IGraphicBufferConsumer> bufferConsumer, MetadataBufferType *type) {
     status_t err;
 
     const sp<GraphicBufferSource>& surfaceCheck = getGraphicBufferSource();
     if (surfaceCheck != NULL) {
+        if (portIndex < NELEM(mMetadataType) && type != NULL) {
+            *type = mMetadataType[portIndex];
+        }
         return ALREADY_EXISTS;
     }
 
-    // Input buffers will hold meta-data (gralloc references).
-    OMX_BOOL usingGraphicBuffer = OMX_FALSE;
-    err = storeMetaDataInBuffers_l(
-            portIndex, OMX_TRUE,
-            OMX_TRUE /* useGraphicBuffer */, &usingGraphicBuffer);
+    // Input buffers will hold meta-data (ANativeWindowBuffer references).
+    err = storeMetaDataInBuffers_l(portIndex, OMX_TRUE, type);
     if (err != OK) {
         return err;
     }
@@ -827,17 +886,73 @@ status_t OMXNodeInstance::createInputSurface(
         return INVALID_OPERATION;
     }
 
-    GraphicBufferSource* bufferSource = new GraphicBufferSource(
-            this, def.format.video.nFrameWidth, def.format.video.nFrameHeight,
-            def.nBufferCountActual, usingGraphicBuffer);
+    uint32_t usageBits;
+    oerr = OMX_GetParameter(
+            mHandle, (OMX_INDEXTYPE)OMX_IndexParamConsumerUsageBits, &usageBits);
+    if (oerr != OMX_ErrorNone) {
+        usageBits = 0;
+    }
+
+    sp<GraphicBufferSource> bufferSource = new GraphicBufferSource(this,
+            def.format.video.nFrameWidth,
+            def.format.video.nFrameHeight,
+            def.nBufferCountActual,
+            usageBits,
+            bufferConsumer);
+
     if ((err = bufferSource->initCheck()) != OK) {
-        delete bufferSource;
         return err;
     }
     setGraphicBufferSource(bufferSource);
 
-    *bufferProducer = bufferSource->getIGraphicBufferProducer();
     return OK;
+}
+
+status_t OMXNodeInstance::createInputSurface(
+        OMX_U32 portIndex, sp<IGraphicBufferProducer> *bufferProducer, MetadataBufferType *type) {
+    Mutex::Autolock autolock(mLock);
+    status_t err = createGraphicBufferSource(portIndex, NULL /* bufferConsumer */, type);
+
+    if (err != OK) {
+        return err;
+    }
+
+    *bufferProducer = mGraphicBufferSource->getIGraphicBufferProducer();
+    return OK;
+}
+
+//static
+status_t OMXNodeInstance::createPersistentInputSurface(
+        sp<IGraphicBufferProducer> *bufferProducer,
+        sp<IGraphicBufferConsumer> *bufferConsumer) {
+    String8 name("GraphicBufferSource");
+
+    sp<IGraphicBufferProducer> producer;
+    sp<IGraphicBufferConsumer> consumer;
+    BufferQueue::createBufferQueue(&producer, &consumer);
+    consumer->setConsumerName(name);
+    consumer->setConsumerUsageBits(GRALLOC_USAGE_HW_VIDEO_ENCODER);
+
+    sp<BufferQueue::ProxyConsumerListener> proxy =
+        new BufferQueue::ProxyConsumerListener(NULL);
+    status_t err = consumer->consumerConnect(proxy, false);
+    if (err != NO_ERROR) {
+        ALOGE("Error connecting to BufferQueue: %s (%d)",
+                strerror(-err), err);
+        return err;
+    }
+
+    *bufferProducer = producer;
+    *bufferConsumer = consumer;
+
+    return OK;
+}
+
+status_t OMXNodeInstance::setInputSurface(
+        OMX_U32 portIndex, const sp<IGraphicBufferConsumer> &bufferConsumer,
+        MetadataBufferType *type) {
+    Mutex::Autolock autolock(mLock);
+    return createGraphicBufferSource(portIndex, bufferConsumer, type);
 }
 
 status_t OMXNodeInstance::signalEndOfInputStream() {
@@ -892,19 +1007,21 @@ status_t OMXNodeInstance::allocateBuffer(
 
 status_t OMXNodeInstance::allocateBufferWithBackup(
         OMX_U32 portIndex, const sp<IMemory> &params,
-        OMX::buffer_id *buffer) {
+        OMX::buffer_id *buffer, OMX_U32 allottedSize) {
     Mutex::Autolock autoLock(mLock);
+    if (allottedSize > params->size()) {
+        return BAD_VALUE;
+    }
 
     BufferMeta *buffer_meta = new BufferMeta(params, true);
 
     OMX_BUFFERHEADERTYPE *header;
 
     OMX_ERRORTYPE err = OMX_AllocateBuffer(
-            mHandle, &header, portIndex, buffer_meta, params->size());
-
+            mHandle, &header, portIndex, buffer_meta, allottedSize);
     if (err != OMX_ErrorNone) {
         CLOG_ERROR(allocateBufferWithBackup, err,
-                SIMPLE_BUFFER(portIndex, params->size(), params->pointer()));
+                SIMPLE_BUFFER(portIndex, (size_t)allottedSize, params->pointer()));
         delete buffer_meta;
         buffer_meta = NULL;
 
@@ -924,8 +1041,8 @@ status_t OMXNodeInstance::allocateBufferWithBackup(
         bufferSource->addCodecBuffer(header);
     }
 
-    CLOG_BUFFER(allocateBufferWithBackup, NEW_BUFFER_FMT(*buffer, portIndex, "%zu@%p :> %p",
-            params->size(), params->pointer(), header->pBuffer));
+    CLOG_BUFFER(allocateBufferWithBackup, NEW_BUFFER_FMT(*buffer, portIndex, "%zu@%p :> %u@%p",
+            params->size(), params->pointer(), allottedSize, header->pBuffer));
 
     return OK;
 }
@@ -950,7 +1067,7 @@ status_t OMXNodeInstance::freeBuffer(
     return StatusFromOMXError(err);
 }
 
-status_t OMXNodeInstance::fillBuffer(OMX::buffer_id buffer) {
+status_t OMXNodeInstance::fillBuffer(OMX::buffer_id buffer, int fenceFd) {
     Mutex::Autolock autoLock(mLock);
 
     OMX_BUFFERHEADERTYPE *header = findBufferHeader(buffer);
@@ -958,15 +1075,22 @@ status_t OMXNodeInstance::fillBuffer(OMX::buffer_id buffer) {
     header->nOffset = 0;
     header->nFlags = 0;
 
+    // meta now owns fenceFd
+    status_t res = storeFenceInMeta_l(header, fenceFd, kPortIndexOutput);
+    if (res != OK) {
+        CLOG_ERROR(fillBuffer::storeFenceInMeta, res, EMPTY_BUFFER(buffer, header, fenceFd));
+        return res;
+    }
+
     {
         Mutex::Autolock _l(mDebugLock);
         mOutputBuffersWithCodec.add(header);
-        CLOG_BUMPED_BUFFER(fillBuffer, WITH_STATS(EMPTY_BUFFER(buffer, header)));
+        CLOG_BUMPED_BUFFER(fillBuffer, WITH_STATS(EMPTY_BUFFER(buffer, header, fenceFd)));
     }
 
     OMX_ERRORTYPE err = OMX_FillThisBuffer(mHandle, header);
     if (err != OMX_ErrorNone) {
-        CLOG_ERROR(fillBuffer, err, EMPTY_BUFFER(buffer, header));
+        CLOG_ERROR(fillBuffer, err, EMPTY_BUFFER(buffer, header, fenceFd));
         Mutex::Autolock _l(mDebugLock);
         mOutputBuffersWithCodec.remove(header);
     }
@@ -976,7 +1100,7 @@ status_t OMXNodeInstance::fillBuffer(OMX::buffer_id buffer) {
 status_t OMXNodeInstance::emptyBuffer(
         OMX::buffer_id buffer,
         OMX_U32 rangeOffset, OMX_U32 rangeLength,
-        OMX_U32 flags, OMX_TICKS timestamp) {
+        OMX_U32 flags, OMX_TICKS timestamp, int fenceFd) {
     Mutex::Autolock autoLock(mLock);
 
     OMX_BUFFERHEADERTYPE *header = findBufferHeader(buffer);
@@ -991,9 +1115,42 @@ status_t OMXNodeInstance::emptyBuffer(
 
     BufferMeta *buffer_meta =
         static_cast<BufferMeta *>(header->pAppPrivate);
-    buffer_meta->CopyToOMX(header);
+    sp<ABuffer> backup = buffer_meta->getBuffer(header, true /* backup */, false /* limit */);
+    sp<ABuffer> codec = buffer_meta->getBuffer(header, false /* backup */, false /* limit */);
 
-    return emptyBuffer_l(header, flags, timestamp, (intptr_t)buffer);
+    // convert incoming ANW meta buffers if component is configured for gralloc metadata mode
+    // ignore rangeOffset in this case
+    if (mMetadataType[kPortIndexInput] == kMetadataBufferTypeGrallocSource
+            && backup->capacity() >= sizeof(VideoNativeMetadata)
+            && codec->capacity() >= sizeof(VideoGrallocMetadata)
+            && ((VideoNativeMetadata *)backup->base())->eType
+                    == kMetadataBufferTypeANWBuffer) {
+        VideoNativeMetadata &backupMeta = *(VideoNativeMetadata *)backup->base();
+        VideoGrallocMetadata &codecMeta = *(VideoGrallocMetadata *)codec->base();
+        CLOG_BUFFER(emptyBuffer, "converting ANWB %p to handle %p",
+                backupMeta.pBuffer, backupMeta.pBuffer->handle);
+        codecMeta.pHandle = backupMeta.pBuffer != NULL ? backupMeta.pBuffer->handle : NULL;
+        codecMeta.eType = kMetadataBufferTypeGrallocSource;
+        header->nFilledLen = rangeLength ? sizeof(codecMeta) : 0;
+        header->nOffset = 0;
+    } else {
+        // rangeLength and rangeOffset must be a subset of the allocated data in the buffer.
+        // corner case: we permit rangeOffset == end-of-buffer with rangeLength == 0.
+        if (rangeOffset > header->nAllocLen
+                || rangeLength > header->nAllocLen - rangeOffset) {
+            CLOG_ERROR(emptyBuffer, OMX_ErrorBadParameter, FULL_BUFFER(NULL, header, fenceFd));
+            if (fenceFd >= 0) {
+                ::close(fenceFd);
+            }
+            return BAD_VALUE;
+        }
+        header->nFilledLen = rangeLength;
+        header->nOffset = rangeOffset;
+
+        buffer_meta->CopyToOMX(header);
+    }
+
+    return emptyBuffer_l(header, flags, timestamp, (intptr_t)buffer, fenceFd);
 }
 
 // log queued buffer activity for the next few input and/or output frames
@@ -1020,10 +1177,61 @@ void OMXNodeInstance::unbumpDebugLevel_l(size_t portIndex) {
     }
 }
 
+status_t OMXNodeInstance::storeFenceInMeta_l(
+        OMX_BUFFERHEADERTYPE *header, int fenceFd, OMX_U32 portIndex) {
+    // propagate fence if component supports it; wait for it otherwise
+    OMX_U32 metaSize = portIndex == kPortIndexInput ? header->nFilledLen : header->nAllocLen;
+    if (mMetadataType[portIndex] == kMetadataBufferTypeANWBuffer
+            && metaSize >= sizeof(VideoNativeMetadata)) {
+        VideoNativeMetadata &nativeMeta = *(VideoNativeMetadata *)(header->pBuffer);
+        if (nativeMeta.nFenceFd >= 0) {
+            ALOGE("fence (%d) already exists in meta", nativeMeta.nFenceFd);
+            if (fenceFd >= 0) {
+                ::close(fenceFd);
+            }
+            return ALREADY_EXISTS;
+        }
+        nativeMeta.nFenceFd = fenceFd;
+    } else if (fenceFd >= 0) {
+        CLOG_BUFFER(storeFenceInMeta, "waiting for fence %d", fenceFd);
+        sp<Fence> fence = new Fence(fenceFd);
+        return fence->wait(IOMX::kFenceTimeoutMs);
+    }
+    return OK;
+}
+
+int OMXNodeInstance::retrieveFenceFromMeta_l(
+        OMX_BUFFERHEADERTYPE *header, OMX_U32 portIndex) {
+    OMX_U32 metaSize = portIndex == kPortIndexInput ? header->nAllocLen : header->nFilledLen;
+    int fenceFd = -1;
+    if (mMetadataType[portIndex] == kMetadataBufferTypeANWBuffer
+            && header->nAllocLen >= sizeof(VideoNativeMetadata)) {
+        VideoNativeMetadata &nativeMeta = *(VideoNativeMetadata *)(header->pBuffer);
+        if (nativeMeta.eType == kMetadataBufferTypeANWBuffer) {
+            fenceFd = nativeMeta.nFenceFd;
+            nativeMeta.nFenceFd = -1;
+        }
+        if (metaSize < sizeof(nativeMeta) && fenceFd >= 0) {
+            CLOG_ERROR(foundFenceInEmptyMeta, BAD_VALUE, FULL_BUFFER(
+                    NULL, header, nativeMeta.nFenceFd));
+            fenceFd = -1;
+        }
+    }
+    return fenceFd;
+}
+
 status_t OMXNodeInstance::emptyBuffer_l(
-        OMX_BUFFERHEADERTYPE *header, OMX_U32 flags, OMX_TICKS timestamp, intptr_t debugAddr) {
+        OMX_BUFFERHEADERTYPE *header, OMX_U32 flags, OMX_TICKS timestamp,
+        intptr_t debugAddr, int fenceFd) {
     header->nFlags = flags;
     header->nTimeStamp = timestamp;
+
+    status_t res = storeFenceInMeta_l(header, fenceFd, kPortIndexInput);
+    if (res != OK) {
+        CLOG_ERROR(emptyBuffer::storeFenceInMeta, res, WITH_STATS(
+                FULL_BUFFER(debugAddr, header, fenceFd)));
+        return res;
+    }
 
     {
         Mutex::Autolock _l(mDebugLock);
@@ -1034,11 +1242,11 @@ status_t OMXNodeInstance::emptyBuffer_l(
             bumpDebugLevel_l(2 /* numInputBuffers */, 0 /* numOutputBuffers */);
         }
 
-        CLOG_BUMPED_BUFFER(emptyBuffer, WITH_STATS(FULL_BUFFER(debugAddr, header)));
+        CLOG_BUMPED_BUFFER(emptyBuffer, WITH_STATS(FULL_BUFFER(debugAddr, header, fenceFd)));
     }
 
     OMX_ERRORTYPE err = OMX_EmptyThisBuffer(mHandle, header);
-    CLOG_IF_ERROR(emptyBuffer, err, FULL_BUFFER(debugAddr, header));
+    CLOG_IF_ERROR(emptyBuffer, err, FULL_BUFFER(debugAddr, header, fenceFd));
 
     {
         Mutex::Autolock _l(mDebugLock);
@@ -1053,16 +1261,21 @@ status_t OMXNodeInstance::emptyBuffer_l(
 }
 
 // like emptyBuffer, but the data is already in header->pBuffer
-status_t OMXNodeInstance::emptyDirectBuffer(
-        OMX_BUFFERHEADERTYPE *header,
-        OMX_U32 rangeOffset, OMX_U32 rangeLength,
-        OMX_U32 flags, OMX_TICKS timestamp) {
+status_t OMXNodeInstance::emptyGraphicBuffer(
+        OMX_BUFFERHEADERTYPE *header, const sp<GraphicBuffer> &graphicBuffer,
+        OMX_U32 flags, OMX_TICKS timestamp, int fenceFd) {
     Mutex::Autolock autoLock(mLock);
+    OMX::buffer_id buffer = findBufferID(header);
+    status_t err = updateGraphicBufferInMeta_l(kPortIndexInput, graphicBuffer, buffer, header);
+    if (err != OK) {
+        CLOG_ERROR(emptyGraphicBuffer, err, FULL_BUFFER(
+                (intptr_t)header->pBuffer, header, fenceFd));
+        return err;
+    }
 
-    header->nFilledLen = rangeLength;
-    header->nOffset = rangeOffset;
-
-    return emptyBuffer_l(header, flags, timestamp, (intptr_t)header->pBuffer);
+    header->nOffset = 0;
+    header->nFilledLen = graphicBuffer == NULL ? 0 : header->nAllocLen;
+    return emptyBuffer_l(header, flags, timestamp, (intptr_t)header->pBuffer, fenceFd);
 }
 
 status_t OMXNodeInstance::getExtensionIndex(
@@ -1081,6 +1294,7 @@ inline static const char *asString(IOMX::InternalOptionType i, const char *def =
         case IOMX::INTERNAL_OPTION_REPEAT_PREVIOUS_FRAME_DELAY:
             return "REPEAT_PREVIOUS_FRAME_DELAY";
         case IOMX::INTERNAL_OPTION_MAX_TIMESTAMP_GAP: return "MAX_TIMESTAMP_GAP";
+        case IOMX::INTERNAL_OPTION_MAX_FPS:           return "MAX_FPS";
         case IOMX::INTERNAL_OPTION_START_TIME:        return "START_TIME";
         case IOMX::INTERNAL_OPTION_TIME_LAPSE:        return "TIME_LAPSE";
         default:                                      return def;
@@ -1098,6 +1312,7 @@ status_t OMXNodeInstance::setInternalOption(
         case IOMX::INTERNAL_OPTION_SUSPEND:
         case IOMX::INTERNAL_OPTION_REPEAT_PREVIOUS_FRAME_DELAY:
         case IOMX::INTERNAL_OPTION_MAX_TIMESTAMP_GAP:
+        case IOMX::INTERNAL_OPTION_MAX_FPS:
         case IOMX::INTERNAL_OPTION_START_TIME:
         case IOMX::INTERNAL_OPTION_TIME_LAPSE:
         {
@@ -1135,6 +1350,14 @@ status_t OMXNodeInstance::setInternalOption(
                 int64_t maxGapUs = *(int64_t *)data;
                 CLOG_CONFIG(setInternalOption, "gapUs=%lld", (long long)maxGapUs);
                 return bufferSource->setMaxTimestampGapUs(maxGapUs);
+            } else if (type == IOMX::INTERNAL_OPTION_MAX_FPS) {
+                if (size != sizeof(float)) {
+                    return INVALID_OPERATION;
+                }
+
+                float maxFps = *(float *)data;
+                CLOG_CONFIG(setInternalOption, "maxFps=%f", maxFps);
+                return bufferSource->setMaxFps(maxFps);
             } else if (type == IOMX::INTERNAL_OPTION_START_TIME) {
                 if (size != sizeof(int64_t)) {
                     return INVALID_OPERATION;
@@ -1164,7 +1387,7 @@ status_t OMXNodeInstance::setInternalOption(
     }
 }
 
-void OMXNodeInstance::onMessage(const omx_message &msg) {
+bool OMXNodeInstance::handleMessage(omx_message &msg) {
     const sp<GraphicBufferSource>& bufferSource(getGraphicBufferSource());
 
     if (msg.type == omx_message::FILL_BUFFER_DONE) {
@@ -1176,7 +1399,8 @@ void OMXNodeInstance::onMessage(const omx_message &msg) {
             mOutputBuffersWithCodec.remove(buffer);
 
             CLOG_BUMPED_BUFFER(
-                    FBD, WITH_STATS(FULL_BUFFER(msg.u.extended_buffer_data.buffer, buffer)));
+                    FBD, WITH_STATS(FULL_BUFFER(
+                            msg.u.extended_buffer_data.buffer, buffer, msg.fenceFd)));
 
             unbumpDebugLevel_l(kPortIndexOutput);
         }
@@ -1184,16 +1408,18 @@ void OMXNodeInstance::onMessage(const omx_message &msg) {
         BufferMeta *buffer_meta =
             static_cast<BufferMeta *>(buffer->pAppPrivate);
 
+        if (buffer->nOffset + buffer->nFilledLen < buffer->nOffset
+                || buffer->nOffset + buffer->nFilledLen > buffer->nAllocLen) {
+            CLOG_ERROR(onFillBufferDone, OMX_ErrorBadParameter,
+                    FULL_BUFFER(NULL, buffer, msg.fenceFd));
+        }
         buffer_meta->CopyFromOMX(buffer);
 
         if (bufferSource != NULL) {
             // fix up the buffer info (especially timestamp) if needed
             bufferSource->codecBufferFilled(buffer);
 
-            omx_message newMsg = msg;
-            newMsg.u.extended_buffer_data.timestamp = buffer->nTimeStamp;
-            mObserver->onMessage(newMsg);
-            return;
+            msg.u.extended_buffer_data.timestamp = buffer->nTimeStamp;
         }
     } else if (msg.type == omx_message::EMPTY_BUFFER_DONE) {
         OMX_BUFFERHEADERTYPE *buffer =
@@ -1204,7 +1430,7 @@ void OMXNodeInstance::onMessage(const omx_message &msg) {
             mInputBuffersWithCodec.remove(buffer);
 
             CLOG_BUMPED_BUFFER(
-                    EBD, WITH_STATS(EMPTY_BUFFER(msg.u.buffer_data.buffer, buffer)));
+                    EBD, WITH_STATS(EMPTY_BUFFER(msg.u.buffer_data.buffer, buffer, msg.fenceFd)));
         }
 
         if (bufferSource != NULL) {
@@ -1213,12 +1439,26 @@ void OMXNodeInstance::onMessage(const omx_message &msg) {
             // Don't dispatch a message back to ACodec, since it doesn't
             // know that anyone asked to have the buffer emptied and will
             // be very confused.
-            bufferSource->codecBufferEmptied(buffer);
-            return;
+            bufferSource->codecBufferEmptied(buffer, msg.fenceFd);
+            return true;
         }
     }
 
-    mObserver->onMessage(msg);
+    return false;
+}
+
+void OMXNodeInstance::onMessages(std::list<omx_message> &messages) {
+    for (std::list<omx_message>::iterator it = messages.begin(); it != messages.end(); ) {
+        if (handleMessage(*it)) {
+            messages.erase(it++);
+        } else {
+            ++it;
+        }
+    }
+
+    if (!messages.empty()) {
+        mObserver->onMessages(messages);
+    }
 }
 
 void OMXNodeInstance::onObserverDied(OMXMaster *master) {
@@ -1308,8 +1548,9 @@ OMX_ERRORTYPE OMXNodeInstance::OnEmptyBufferDone(
     if (instance->mDying) {
         return OMX_ErrorNone;
     }
+    int fenceFd = instance->retrieveFenceFromMeta_l(pBuffer, kPortIndexOutput);
     return instance->owner()->OnEmptyBufferDone(instance->nodeID(),
-            instance->findBufferID(pBuffer), pBuffer);
+            instance->findBufferID(pBuffer), pBuffer, fenceFd);
 }
 
 // static
@@ -1321,8 +1562,9 @@ OMX_ERRORTYPE OMXNodeInstance::OnFillBufferDone(
     if (instance->mDying) {
         return OMX_ErrorNone;
     }
+    int fenceFd = instance->retrieveFenceFromMeta_l(pBuffer, kPortIndexOutput);
     return instance->owner()->OnFillBufferDone(instance->nodeID(),
-            instance->findBufferID(pBuffer), pBuffer);
+            instance->findBufferID(pBuffer), pBuffer, fenceFd);
 }
 
 void OMXNodeInstance::addActiveBuffer(OMX_U32 portIndex, OMX::buffer_id id) {
@@ -1383,7 +1625,12 @@ OMX_BUFFERHEADERTYPE *OMXNodeInstance::findBufferHeader(OMX::buffer_id buffer) {
         return NULL;
     }
     Mutex::Autolock autoLock(mBufferIDLock);
-    return mBufferIDToBufferHeader.valueFor(buffer);
+    ssize_t index = mBufferIDToBufferHeader.indexOfKey(buffer);
+    if (index < 0) {
+        CLOGW("findBufferHeader: buffer %u not found", buffer);
+        return NULL;
+    }
+    return mBufferIDToBufferHeader.valueAt(index);
 }
 
 OMX::buffer_id OMXNodeInstance::findBufferID(OMX_BUFFERHEADERTYPE *bufferHeader) {
@@ -1391,7 +1638,12 @@ OMX::buffer_id OMXNodeInstance::findBufferID(OMX_BUFFERHEADERTYPE *bufferHeader)
         return 0;
     }
     Mutex::Autolock autoLock(mBufferIDLock);
-    return mBufferHeaderToBufferID.valueFor(bufferHeader);
+    ssize_t index = mBufferHeaderToBufferID.indexOfKey(bufferHeader);
+    if (index < 0) {
+        CLOGW("findBufferID: bufferHeader %p not found", bufferHeader);
+        return 0;
+    }
+    return mBufferHeaderToBufferID.valueAt(index);
 }
 
 void OMXNodeInstance::invalidateBufferID(OMX::buffer_id buffer) {
@@ -1399,8 +1651,13 @@ void OMXNodeInstance::invalidateBufferID(OMX::buffer_id buffer) {
         return;
     }
     Mutex::Autolock autoLock(mBufferIDLock);
-    mBufferHeaderToBufferID.removeItem(mBufferIDToBufferHeader.valueFor(buffer));
-    mBufferIDToBufferHeader.removeItem(buffer);
+    ssize_t index = mBufferIDToBufferHeader.indexOfKey(buffer);
+    if (index < 0) {
+        CLOGW("invalidateBufferID: buffer %u not found", buffer);
+        return;
+    }
+    mBufferHeaderToBufferID.removeItem(mBufferIDToBufferHeader.valueAt(index));
+    mBufferIDToBufferHeader.removeItemsAt(index);
 }
 
 }  // namespace android

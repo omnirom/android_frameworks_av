@@ -4,7 +4,8 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := \
 	ID3.cpp
 
-LOCAL_CFLAGS += -Werror
+LOCAL_CFLAGS += -Werror -Wall
+LOCAL_CLANG := true
 
 LOCAL_MODULE := libstagefright_id3
 
@@ -17,7 +18,8 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := \
 	testid3.cpp
 
-LOCAL_CFLAGS += -Werror
+LOCAL_CFLAGS += -Werror -Wall
+LOCAL_CLANG := true
 
 LOCAL_SHARED_LIBRARIES := \
 	libstagefright libutils liblog libbinder libstagefright_foundation

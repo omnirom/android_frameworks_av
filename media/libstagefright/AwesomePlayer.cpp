@@ -113,11 +113,11 @@ struct AwesomeLocalRenderer : public AwesomeRenderer {
         CHECK(buffer->meta_data()->findInt64(kKeyTime, &timeUs));
 
         render((const uint8_t *)buffer->data() + buffer->range_offset(),
-               buffer->range_length(), timeUs * 1000);
+               buffer->range_length(), timeUs, timeUs * 1000);
     }
 
-    void render(const void *data, size_t size, int64_t timestampNs) {
-        mTarget->render(data, size, timestampNs, NULL, mFormat);
+    void render(const void *data, size_t size, int64_t mediaTimeUs, nsecs_t renderTimeNs) {
+        (void)mTarget->render(data, size, mediaTimeUs, renderTimeNs, NULL, mFormat);
     }
 
 protected:
@@ -241,6 +241,8 @@ AwesomePlayer::AwesomePlayer()
 
     mClockEstimator = new WindowedLinearFitEstimator();
 
+    mPlaybackSettings = AUDIO_PLAYBACK_RATE_DEFAULT;
+
     reset();
 }
 
@@ -360,7 +362,7 @@ status_t AwesomePlayer::setDataSource(
     return setDataSource_l(dataSource);
 }
 
-status_t AwesomePlayer::setDataSource(const sp<IStreamSource> &source) {
+status_t AwesomePlayer::setDataSource(const sp<IStreamSource> &source __unused) {
     return INVALID_OPERATION;
 }
 
@@ -422,7 +424,7 @@ status_t AwesomePlayer::setDataSource_l(const sp<MediaExtractor> &extractor) {
 
     mBitrate = totalBitRate;
 
-    ALOGV("mBitrate = %lld bits/sec", mBitrate);
+    ALOGV("mBitrate = %lld bits/sec", (long long)mBitrate);
 
     {
         Mutex::Autolock autoLock(mStatsLock);
@@ -889,10 +891,7 @@ void AwesomePlayer::onStreamDone() {
         }
     }
     if ((mFlags & LOOPING)
-            || ((mFlags & AUTO_LOOPING)
-                && (mAudioSink == NULL || mAudioSink->realtime()))) {
-        // Don't AUTO_LOOP if we're being recorded, since that cannot be
-        // turned off and recording would go on indefinitely.
+            || (mFlags & AUTO_LOOPING)) {
 
         seekTo_l(0);
 
@@ -1011,6 +1010,10 @@ status_t AwesomePlayer::play_l() {
 
                 return err;
             }
+        }
+
+        if (mAudioPlayer != NULL) {
+            mAudioPlayer->setPlaybackRate(mPlaybackSettings);
         }
     }
 
@@ -1131,6 +1134,10 @@ status_t AwesomePlayer::startAudioPlayer_l(bool sendErrorNotification) {
         }
     } else {
         err = mAudioPlayer->resume();
+    }
+
+    if (err == OK) {
+        err = mAudioPlayer->setPlaybackRate(mPlaybackSettings);
     }
 
     if (err == OK) {
@@ -1725,7 +1732,7 @@ void AwesomePlayer::finishSeekIfNecessary(int64_t videoTimeUs) {
     // we are now resuming.  Signal new position to media time provider.
     // Cannot signal another SEEK_COMPLETE, as existing clients may not expect
     // multiple SEEK_COMPLETE responses to a single seek() request.
-    if (mSeekNotificationSent && abs(mSeekTimeUs - videoTimeUs) > 10000) {
+    if (mSeekNotificationSent && llabs((long long)(mSeekTimeUs - videoTimeUs)) > 10000) {
         // notify if we are resuming more than 10ms away from desired seek time
         notifyListener_l(MEDIA_SKIPPED);
     }
@@ -2361,7 +2368,7 @@ status_t AwesomePlayer::finishSetDataSource_l() {
                         }
 
                         CHECK_GE(metaDataSize, 0ll);
-                        ALOGV("metaDataSize = %lld bytes", metaDataSize);
+                        ALOGV("metaDataSize = %lld bytes", (long long)metaDataSize);
                     }
 
                     usleep(200000);
@@ -2556,14 +2563,6 @@ status_t AwesomePlayer::setParameter(int key, const Parcel &request) {
         {
             return setCacheStatCollectFreq(request);
         }
-        case KEY_PARAMETER_PLAYBACK_RATE_PERMILLE:
-        {
-            if (mAudioPlayer != NULL) {
-                return mAudioPlayer->setPlaybackRatePermille(request.readInt32());
-            } else {
-                return NO_INIT;
-            }
-        }
         default:
         {
             return ERROR_UNSUPPORTED;
@@ -2598,6 +2597,58 @@ status_t AwesomePlayer::getParameter(int key, Parcel *reply) {
             return ERROR_UNSUPPORTED;
         }
     }
+}
+
+status_t AwesomePlayer::setPlaybackSettings(const AudioPlaybackRate &rate) {
+    Mutex::Autolock autoLock(mLock);
+    // cursory sanity check for non-audio and paused cases
+    if ((rate.mSpeed != 0.f && rate.mSpeed < AUDIO_TIMESTRETCH_SPEED_MIN)
+        || rate.mSpeed > AUDIO_TIMESTRETCH_SPEED_MAX
+        || rate.mPitch < AUDIO_TIMESTRETCH_SPEED_MIN
+        || rate.mPitch > AUDIO_TIMESTRETCH_SPEED_MAX) {
+        return BAD_VALUE;
+    }
+
+    status_t err = OK;
+    if (rate.mSpeed == 0.f) {
+        if (mFlags & PLAYING) {
+            modifyFlags(CACHE_UNDERRUN, CLEAR); // same as pause
+            err = pause_l();
+        }
+        if (err == OK) {
+            // save settings (using old speed) in case player is resumed
+            AudioPlaybackRate newRate = rate;
+            newRate.mSpeed = mPlaybackSettings.mSpeed;
+            mPlaybackSettings = newRate;
+        }
+        return err;
+    }
+    if (mAudioPlayer != NULL) {
+        err = mAudioPlayer->setPlaybackRate(rate);
+    }
+    if (err == OK) {
+        mPlaybackSettings = rate;
+        if (!(mFlags & PLAYING)) {
+            play_l();
+        }
+    }
+    return err;
+}
+
+status_t AwesomePlayer::getPlaybackSettings(AudioPlaybackRate *rate /* nonnull */) {
+    if (mAudioPlayer != NULL) {
+        status_t err = mAudioPlayer->getPlaybackRate(rate);
+        if (err == OK) {
+            mPlaybackSettings = *rate;
+            Mutex::Autolock autoLock(mLock);
+            if (!(mFlags & PLAYING)) {
+                rate->mSpeed = 0.f;
+            }
+        }
+        return err;
+    }
+    *rate = mPlaybackSettings;
+    return OK;
 }
 
 status_t AwesomePlayer::getTrackInfo(Parcel *reply) const {

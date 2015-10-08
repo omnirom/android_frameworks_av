@@ -34,6 +34,12 @@ namespace android {
 
 static const int kRate = 48000;
 
+// Opus uses Vorbis channel mapping, and Vorbis channel mapping specifies
+// mappings for up to 8 channels. This information is part of the Vorbis I
+// Specification:
+// http://www.xiph.org/vorbis/doc/Vorbis_I_spec.html
+static const int kMaxChannels = 8;
+
 template<class T>
 static void InitOMXParams(T *params) {
     params->nSize = sizeof(T);
@@ -101,7 +107,7 @@ void SoftOpus::initPorts() {
     def.eDir = OMX_DirOutput;
     def.nBufferCountMin = kNumBuffers;
     def.nBufferCountActual = def.nBufferCountMin;
-    def.nBufferSize = kMaxNumSamplesPerBuffer * sizeof(int16_t);
+    def.nBufferSize = kMaxNumSamplesPerBuffer * sizeof(int16_t) * kMaxChannels;
     def.bEnabled = OMX_TRUE;
     def.bPopulated = OMX_FALSE;
     def.eDomain = OMX_PortDomainAudio;
@@ -225,12 +231,6 @@ static uint16_t ReadLE16(const uint8_t *data, size_t data_size,
     return val;
 }
 
-// Opus uses Vorbis channel mapping, and Vorbis channel mapping specifies
-// mappings for up to 8 channels. This information is part of the Vorbis I
-// Specification:
-// http://www.xiph.org/vorbis/doc/Vorbis_I_spec.html
-static const int kMaxChannels = 8;
-
 // Maximum packet size used in Xiph's opusdec.
 static const int kMaxOpusOutputPacketSizeSamples = 960 * 6;
 
@@ -345,9 +345,15 @@ void SoftOpus::onQueueFilled(OMX_U32 portIndex) {
             }
 
             uint8_t channel_mapping[kMaxChannels] = {0};
-            memcpy(&channel_mapping,
-                   kDefaultOpusChannelLayout,
-                   kMaxChannelsWithDefaultLayout);
+            if (mHeader->channels <= kMaxChannelsWithDefaultLayout) {
+                memcpy(&channel_mapping,
+                       kDefaultOpusChannelLayout,
+                       kMaxChannelsWithDefaultLayout);
+            } else {
+                memcpy(&channel_mapping,
+                       mHeader->stream_map,
+                       mHeader->channels);
+            }
 
             int status = OPUS_INVALID_STATE;
             mDecoder = opus_multistream_decoder_create(kRate,
@@ -396,6 +402,14 @@ void SoftOpus::onQueueFilled(OMX_U32 portIndex) {
     while (!inQueue.empty() && !outQueue.empty()) {
         BufferInfo *inInfo = *inQueue.begin();
         OMX_BUFFERHEADERTYPE *inHeader = inInfo->mHeader;
+
+        // Ignore CSD re-submissions.
+        if (inHeader->nFlags & OMX_BUFFERFLAG_CODECCONFIG) {
+            inQueue.erase(inQueue.begin());
+            inInfo->mOwnedByUs = false;
+            notifyEmptyBufferDone(inHeader);
+            return;
+        }
 
         BufferInfo *outInfo = *outQueue.begin();
         OMX_BUFFERHEADERTYPE *outHeader = outInfo->mHeader;

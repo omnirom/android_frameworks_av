@@ -24,9 +24,9 @@
 #include <utils/threads.h>
 #include <utils/Log.h>
 #include <utils/RefBase.h>
-#include <media/nbaio/roundup.h>
+#include <audio_utils/roundup.h>
+#include <media/AudioResamplerPublic.h>
 #include <media/SingleStateQueue.h>
-#include <private/media/StaticAudioTrackState.h>
 
 namespace android {
 
@@ -54,23 +54,67 @@ namespace android {
 struct AudioTrackSharedStreaming {
     // similar to NBAIO MonoPipe
     // in continuously incrementing frame units, take modulo buffer size, which must be a power of 2
-    volatile int32_t mFront;    // read by server
-    volatile int32_t mRear;     // write by client
+    volatile int32_t mFront;    // read by consumer (output: server, input: client)
+    volatile int32_t mRear;     // written by producer (output: client, input: server)
     volatile int32_t mFlush;    // incremented by client to indicate a request to flush;
                                 // server notices and discards all data between mFront and mRear
     volatile uint32_t mUnderrunFrames;  // server increments for each unavailable but desired frame
 };
 
+// Represents a single state of an AudioTrack that was created in static mode (shared memory buffer
+// supplied by the client).  This state needs to be communicated from the client to server.  As this
+// state is too large to be updated atomically without a mutex, and mutexes aren't allowed here, the
+// state is wrapped by a SingleStateQueue.
+struct StaticAudioTrackState {
+    // Do not define constructors, destructors, or virtual methods as this is part of a
+    // union in shared memory and they will not get called properly.
+
+    // These fields should both be size_t, but since they are located in shared memory we
+    // force to 32-bit.  The client and server may have different typedefs for size_t.
+
+    // The state has a sequence counter to indicate whether changes are made to loop or position.
+    // The sequence counter also currently indicates whether loop or position is first depending
+    // on which is greater; it jumps by max(mLoopSequence, mPositionSequence) + 1.
+
+    uint32_t    mLoopStart;
+    uint32_t    mLoopEnd;
+    int32_t     mLoopCount;
+    uint32_t    mLoopSequence; // a sequence counter to indicate changes to loop
+    uint32_t    mPosition;
+    uint32_t    mPositionSequence; // a sequence counter to indicate changes to position
+};
+
 typedef SingleStateQueue<StaticAudioTrackState> StaticAudioTrackSingleStateQueue;
 
+struct StaticAudioTrackPosLoop {
+    // Do not define constructors, destructors, or virtual methods as this is part of a
+    // union in shared memory and will not get called properly.
+
+    // These fields should both be size_t, but since they are located in shared memory we
+    // force to 32-bit.  The client and server may have different typedefs for size_t.
+
+    // This struct information is stored in a single state queue to communicate the
+    // static AudioTrack server state to the client while data is consumed.
+    // It is smaller than StaticAudioTrackState to prevent unnecessary information from
+    // being sent.
+
+    uint32_t mBufferPosition;
+    int32_t  mLoopCount;
+};
+
+typedef SingleStateQueue<StaticAudioTrackPosLoop> StaticAudioTrackPosLoopQueue;
+
 struct AudioTrackSharedStatic {
+    // client requests to the server for loop or position changes.
     StaticAudioTrackSingleStateQueue::Shared
                     mSingleStateQueue;
-    // This field should be a size_t, but since it is located in shared memory we
-    // force to 32-bit.  The client and server may have different typedefs for size_t.
-    uint32_t        mBufferPosition;    // updated asynchronously by server,
-                                        // "for entertainment purposes only"
+    // position info updated asynchronously by server and read by client,
+    // "for entertainment purposes only"
+    StaticAudioTrackPosLoopQueue::Shared
+                    mPosLoopQueue;
 };
+
+typedef SingleStateQueue<AudioPlaybackRate> PlaybackRateQueue;
 
 // ----------------------------------------------------------------------------
 
@@ -96,7 +140,8 @@ struct audio_track_cblk_t
                 uint32_t    mServer;    // Number of filled frames consumed by server (mIsOut),
                                         // or filled frames provided by server (!mIsOut).
                                         // It is updated asynchronously by server without a barrier.
-                                        // The value should be used "for entertainment purposes only",
+                                        // The value should be used
+                                        // "for entertainment purposes only",
                                         // which means don't make important decisions based on it.
 
                 uint32_t    mPad1;      // unused
@@ -116,6 +161,8 @@ private:
 
                 uint32_t    mSampleRate;    // AudioTrack only: client's requested sample rate in Hz
                                             // or 0 == default. Write-only client, read-only server.
+
+                PlaybackRateQueue::Shared mPlaybackRateQueue;
 
                 // client write-only, server read-only
                 uint16_t    mSendLevel;      // Fixed point U4.12 so 0x1000 means 1.0
@@ -271,7 +318,8 @@ public:
     AudioTrackClientProxy(audio_track_cblk_t* cblk, void *buffers, size_t frameCount,
             size_t frameSize, bool clientInServer = false)
         : ClientProxy(cblk, buffers, frameCount, frameSize, true /*isOut*/,
-          clientInServer) { }
+          clientInServer),
+          mPlaybackRateMutator(&cblk->mPlaybackRateQueue) { }
     virtual ~AudioTrackClientProxy() { }
 
     // No barriers on the following operations, so the ordering of loads/stores
@@ -291,6 +339,10 @@ public:
         mCblk->mSampleRate = sampleRate;
     }
 
+    void        setPlaybackRate(const AudioPlaybackRate& playbackRate) {
+        mPlaybackRateMutator.push(playbackRate);
+    }
+
     virtual void flush();
 
     virtual uint32_t    getUnderrunFrames() const {
@@ -302,6 +354,9 @@ public:
     bool        getStreamEndDone() const;
 
     status_t    waitStreamEndDone(const struct timespec *requested);
+
+private:
+    PlaybackRateQueue::Mutator   mPlaybackRateMutator;
 };
 
 class StaticAudioTrackClientProxy : public AudioTrackClientProxy {
@@ -313,8 +368,28 @@ public:
     virtual void    flush();
 
 #define MIN_LOOP    16  // minimum length of each loop iteration in frames
+
+            // setLoop(), setBufferPosition(), and setBufferPositionAndLoop() set the
+            // static buffer position and looping parameters.  These commands are not
+            // synchronous (they do not wait or block); instead they take effect at the
+            // next buffer data read from the server side. However, the client side
+            // getters will read a cached version of the position and loop variables
+            // until the setting takes effect.
+            //
+            // setBufferPositionAndLoop() is equivalent to calling, in order, setLoop() and
+            // setBufferPosition().
+            //
+            // The functions should not be relied upon to do parameter or state checking.
+            // That is done at the AudioTrack level.
+
             void    setLoop(size_t loopStart, size_t loopEnd, int loopCount);
+            void    setBufferPosition(size_t position);
+            void    setBufferPositionAndLoop(size_t position, size_t loopStart, size_t loopEnd,
+                                             int loopCount);
             size_t  getBufferPosition();
+                    // getBufferPositionAndLoopCount() provides the proper snapshot of
+                    // position and loopCount together.
+            void    getBufferPositionAndLoopCount(size_t *position, int *loopCount);
 
     virtual size_t  getMisalignment() {
         return 0;
@@ -326,7 +401,9 @@ public:
 
 private:
     StaticAudioTrackSingleStateQueue::Mutator   mMutator;
-    size_t          mBufferPosition;    // so that getBufferPosition() appears to be synchronous
+    StaticAudioTrackPosLoopQueue::Observer      mPosLoopObserver;
+                        StaticAudioTrackState   mState;   // last communicated state to server
+                        StaticAudioTrackPosLoop mPosLoop; // snapshot of position and loop.
 };
 
 // ----------------------------------------------------------------------------
@@ -394,8 +471,10 @@ class AudioTrackServerProxy : public ServerProxy {
 public:
     AudioTrackServerProxy(audio_track_cblk_t* cblk, void *buffers, size_t frameCount,
             size_t frameSize, bool clientInServer = false, uint32_t sampleRate = 0)
-        : ServerProxy(cblk, buffers, frameCount, frameSize, true /*isOut*/, clientInServer) {
+        : ServerProxy(cblk, buffers, frameCount, frameSize, true /*isOut*/, clientInServer),
+          mPlaybackRateObserver(&cblk->mPlaybackRateQueue) {
         mCblk->mSampleRate = sampleRate;
+        mPlaybackRate = AUDIO_PLAYBACK_RATE_DEFAULT;
     }
 protected:
     virtual ~AudioTrackServerProxy() { }
@@ -429,6 +508,13 @@ public:
 
     // Return the total number of frames that AudioFlinger has obtained and released
     virtual size_t      framesReleased() const { return mCblk->mServer; }
+
+    // Return the playback speed and pitch read atomically. Not multi-thread safe on server side.
+    AudioPlaybackRate getPlaybackRate();
+
+private:
+    AudioPlaybackRate             mPlaybackRate;  // last observed playback rate
+    PlaybackRateQueue::Observer   mPlaybackRateObserver;
 };
 
 class StaticAudioTrackServerProxy : public AudioTrackServerProxy {
@@ -447,10 +533,13 @@ public:
     virtual uint32_t    getUnderrunFrames() const { return 0; }
 
 private:
+    status_t            updateStateWithLoop(StaticAudioTrackState *localState,
+                                            const StaticAudioTrackState &update) const;
+    status_t            updateStateWithPosition(StaticAudioTrackState *localState,
+                                                const StaticAudioTrackState &update) const;
     ssize_t             pollPosition(); // poll for state queue update, and return current position
     StaticAudioTrackSingleStateQueue::Observer  mObserver;
-    size_t              mPosition;  // server's current play position in frames, relative to 0
-
+    StaticAudioTrackPosLoopQueue::Mutator       mPosLoopMutator;
     size_t              mFramesReadySafe; // Assuming size_t read/writes are atomic on 32 / 64 bit
                                           // processors, this is a thread-safe version of
                                           // mFramesReady.
@@ -459,7 +548,8 @@ private:
                                           // can cause a track to appear to have a large number
                                           // of frames. INT64_MAX means an infinite loop.
     bool                mFramesReadyIsCalledByMultipleThreads;
-    StaticAudioTrackState   mState;
+    StaticAudioTrackState mState;         // Server side state. Any updates from client must be
+                                          // passed by the mObserver SingleStateQueue.
 };
 
 // Proxy used by AudioFlinger for servicing AudioRecord

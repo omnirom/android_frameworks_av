@@ -31,9 +31,7 @@ LOCAL_SRC_FILES := \
     Utils.cpp \
 
 LOCAL_C_INCLUDES := \
-    bionic \
     external/jsmn \
-    external/openssl/include \
     frameworks/av/drm/mediadrm/plugins/clearkey \
     frameworks/av/include \
     frameworks/native/include \

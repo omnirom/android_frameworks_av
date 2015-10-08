@@ -17,6 +17,9 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "muxer"
 #include <inttypes.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <utils/Log.h>
 
 #include <binder/ProcessState.h>
@@ -50,7 +53,6 @@ static void usage(const char *me) {
 using namespace android;
 
 static int muxing(
-        const android::sp<android::ALooper> &looper,
         const char *path,
         bool useAudio,
         bool useVideo,
@@ -72,8 +74,15 @@ static int muxing(
     ALOGV("input file %s, output file %s", path, outputFileName);
     ALOGV("useAudio %d, useVideo %d", useAudio, useVideo);
 
-    sp<MediaMuxer> muxer = new MediaMuxer(outputFileName,
+    int fd = open(outputFileName, O_CREAT | O_LARGEFILE | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+
+    if (fd < 0) {
+        ALOGE("couldn't open file");
+        return fd;
+    }
+    sp<MediaMuxer> muxer = new MediaMuxer(fd,
                                           MediaMuxer::OUTPUT_FORMAT_MPEG_4);
+    close(fd);
 
     size_t trackCount = extractor->countTracks();
     // Map the extractor's track index to the muxer's track index.
@@ -127,14 +136,19 @@ static int muxing(
             }
         }
 
-        ALOGV("selecting track %d", i);
+        ALOGV("selecting track %zu", i);
 
         err = extractor->selectTrack(i);
         CHECK_EQ(err, (status_t)OK);
 
         ssize_t newTrackIndex = muxer->addTrack(format);
-        CHECK_GE(newTrackIndex, 0);
-        trackIndexMap.add(i, newTrackIndex);
+        if (newTrackIndex < 0) {
+            fprintf(stderr, "%s track (%zu) unsupported by muxer\n",
+                    isAudio ? "audio" : "video",
+                    i);
+        } else {
+            trackIndexMap.add(i, newTrackIndex);
+        }
     }
 
     int64_t muxerStartTimeUs = ALooper::GetNowUs();
@@ -153,7 +167,12 @@ static int muxing(
             ALOGV("saw input eos, err %d", err);
             sawInputEOS = true;
             break;
+        } else if (trackIndexMap.indexOfKey(trackIndex) < 0) {
+            // ALOGV("skipping input from unsupported track %zu", trackIndex);
+            extractor->advance();
+            continue;
         } else {
+            // ALOGV("reading sample from track index %zu\n", trackIndex);
             err = extractor->readSampleData(newBuffer);
             CHECK_EQ(err, (status_t)OK);
 
@@ -298,7 +317,7 @@ int main(int argc, char **argv) {
     sp<ALooper> looper = new ALooper;
     looper->start();
 
-    int result = muxing(looper, argv[0], useAudio, useVideo, outputFileName,
+    int result = muxing(argv[0], useAudio, useVideo, outputFileName,
                         enableTrim, trimStartTimeMs, trimEndTimeMs, rotationDegrees);
 
     looper->stop();

@@ -19,9 +19,11 @@
 #include "include/AMRExtractor.h"
 
 #include "include/AACExtractor.h"
+#include "include/CallbackDataSource.h"
 #include "include/DRMExtractor.h"
 #include "include/FLACExtractor.h"
 #include "include/HTTPBase.h"
+#include "include/MidiExtractor.h"
 #include "include/MP3Extractor.h"
 #include "include/MPEG2PSExtractor.h"
 #include "include/MPEG2TSExtractor.h"
@@ -172,6 +174,7 @@ void DataSource::RegisterDefaultSniffers() {
     RegisterSniffer_l(SniffAAC);
     RegisterSniffer_l(SniffMPEG2PS);
     RegisterSniffer_l(SniffWVM);
+    RegisterSniffer_l(SniffMidi);
 
     char value[PROPERTY_VALUE_MAX];
     if (property_get("drm.service.enabled", value, NULL)
@@ -277,6 +280,10 @@ sp<DataSource> DataSource::CreateMediaHTTP(const sp<IMediaHTTPService> &httpServ
     } else {
         return new MediaHTTP(conn);
     }
+}
+
+sp<DataSource> DataSource::CreateFromIDataSource(const sp<IDataSource> &source) {
+    return new TinyCacheSource(new CallbackDataSource(source));
 }
 
 String8 DataSource::getMIMEType() const {

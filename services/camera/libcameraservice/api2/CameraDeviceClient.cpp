@@ -42,8 +42,14 @@ CameraDeviceClientBase::CameraDeviceClientBase(
         int clientPid,
         uid_t clientUid,
         int servicePid) :
-    BasicClient(cameraService, remoteCallback->asBinder(), clientPackageName,
-                cameraId, cameraFacing, clientPid, clientUid, servicePid),
+    BasicClient(cameraService,
+            IInterface::asBinder(remoteCallback),
+            clientPackageName,
+            cameraId,
+            cameraFacing,
+            clientPid,
+            clientUid,
+            servicePid),
     mRemoteCallback(remoteCallback) {
 }
 
@@ -59,13 +65,14 @@ CameraDeviceClient::CameraDeviceClient(const sp<CameraService>& cameraService,
                                    int servicePid) :
     Camera2ClientBase(cameraService, remoteCallback, clientPackageName,
                 cameraId, cameraFacing, clientPid, clientUid, servicePid),
+    mInputStream(),
     mRequestIdCounter(0) {
 
     ATRACE_CALL();
     ALOGI("CameraDeviceClient %d: Opened", cameraId);
 }
 
-status_t CameraDeviceClient::initialize(camera_module_t *module)
+status_t CameraDeviceClient::initialize(CameraModule *module)
 {
     ATRACE_CALL();
     status_t res;
@@ -128,6 +135,15 @@ status_t CameraDeviceClient::submitRequestList(List<sp<CaptureRequest> > request
             ALOGE("%s: Camera %d: Sent null request.",
                     __FUNCTION__, mCameraId);
             return BAD_VALUE;
+        } else if (request->mIsReprocess) {
+            if (!mInputStream.configured) {
+                ALOGE("%s: Camera %d: no input stream is configured.", __FUNCTION__, mCameraId);
+                return BAD_VALUE;
+            } else if (streaming) {
+                ALOGE("%s: Camera %d: streaming reprocess requests not supported.", __FUNCTION__,
+                        mCameraId);
+                return BAD_VALUE;
+            }
         }
 
         CameraMetadata metadata(request->mMetadata);
@@ -157,7 +173,7 @@ status_t CameraDeviceClient::submitRequestList(List<sp<CaptureRequest> > request
             if (surface == 0) continue;
 
             sp<IGraphicBufferProducer> gbp = surface->getIGraphicBufferProducer();
-            int idx = mStreamMap.indexOfKey(gbp->asBinder());
+            int idx = mStreamMap.indexOfKey(IInterface::asBinder(gbp));
 
             // Trying to submit request with surface that wasn't created
             if (idx == NAME_NOT_FOUND) {
@@ -175,6 +191,10 @@ status_t CameraDeviceClient::submitRequestList(List<sp<CaptureRequest> > request
 
         metadata.update(ANDROID_REQUEST_OUTPUT_STREAMS, &outputStreamIds[0],
                         outputStreamIds.size());
+
+        if (request->mIsReprocess) {
+            metadata.update(ANDROID_REQUEST_INPUT_STREAMS, &mInputStream.id, 1);
+        }
 
         metadata.update(ANDROID_REQUEST_ID, &requestId, /*size*/1);
         loopCounter++; // loopCounter starts from 1
@@ -249,13 +269,33 @@ status_t CameraDeviceClient::cancelRequest(int requestId, int64_t* lastFrameNumb
 
 status_t CameraDeviceClient::beginConfigure() {
     // TODO: Implement this.
-    ALOGE("%s: Not implemented yet.", __FUNCTION__);
+    ALOGV("%s: Not implemented yet.", __FUNCTION__);
     return OK;
 }
 
-status_t CameraDeviceClient::endConfigure() {
-    ALOGV("%s: ending configure (%zu streams)",
-            __FUNCTION__, mStreamMap.size());
+status_t CameraDeviceClient::endConfigure(bool isConstrainedHighSpeed) {
+    ALOGV("%s: ending configure (%d input stream, %zu output streams)",
+            __FUNCTION__, mInputStream.configured ? 1 : 0, mStreamMap.size());
+
+    // Sanitize the high speed session against necessary capability bit.
+    if (isConstrainedHighSpeed) {
+        CameraMetadata staticInfo = mDevice->info();
+        camera_metadata_entry_t entry = staticInfo.find(ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
+        bool isConstrainedHighSpeedSupported = false;
+        for(size_t i = 0; i < entry.count; ++i) {
+            uint8_t capability = entry.data.u8[i];
+            if (capability == ANDROID_REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO) {
+                isConstrainedHighSpeedSupported = true;
+                break;
+            }
+        }
+        if (!isConstrainedHighSpeedSupported) {
+            ALOGE("%s: Camera %d: Try to create a constrained high speed configuration on a device"
+                    " that doesn't support it.",
+                          __FUNCTION__, mCameraId);
+            return INVALID_OPERATION;
+        }
+    }
 
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
@@ -264,7 +304,7 @@ status_t CameraDeviceClient::endConfigure() {
 
     if (!mDevice.get()) return DEAD_OBJECT;
 
-    return mDevice->configureStreams();
+    return mDevice->configureStreams(isConstrainedHighSpeed);
 }
 
 status_t CameraDeviceClient::deleteStream(int streamId) {
@@ -278,19 +318,25 @@ status_t CameraDeviceClient::deleteStream(int streamId) {
 
     if (!mDevice.get()) return DEAD_OBJECT;
 
-    // Guard against trying to delete non-created streams
+    bool isInput = false;
     ssize_t index = NAME_NOT_FOUND;
-    for (size_t i = 0; i < mStreamMap.size(); ++i) {
-        if (streamId == mStreamMap.valueAt(i)) {
-            index = i;
-            break;
-        }
-    }
 
-    if (index == NAME_NOT_FOUND) {
-        ALOGW("%s: Camera %d: Invalid stream ID (%d) specified, no stream "
-              "created yet", __FUNCTION__, mCameraId, streamId);
-        return BAD_VALUE;
+    if (mInputStream.configured && mInputStream.id == streamId) {
+        isInput = true;
+    } else {
+        // Guard against trying to delete non-created streams
+        for (size_t i = 0; i < mStreamMap.size(); ++i) {
+            if (streamId == mStreamMap.valueAt(i)) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index == NAME_NOT_FOUND) {
+            ALOGW("%s: Camera %d: Invalid stream ID (%d) specified, no stream "
+                  "created yet", __FUNCTION__, mCameraId, streamId);
+            return BAD_VALUE;
+        }
     }
 
     // Also returns BAD_VALUE if stream ID was not valid
@@ -301,24 +347,27 @@ status_t CameraDeviceClient::deleteStream(int streamId) {
               " already checked and the stream ID (%d) should be valid.",
               __FUNCTION__, mCameraId, streamId);
     } else if (res == OK) {
-        mStreamMap.removeItemsAt(index);
-
+        if (isInput) {
+            mInputStream.configured = false;
+        } else {
+            mStreamMap.removeItemsAt(index);
+        }
     }
 
     return res;
 }
 
-status_t CameraDeviceClient::createStream(int width, int height, int format,
-                      const sp<IGraphicBufferProducer>& bufferProducer)
+status_t CameraDeviceClient::createStream(const OutputConfiguration &outputConfiguration)
 {
     ATRACE_CALL();
-    ALOGV("%s (w = %d, h = %d, f = 0x%x)", __FUNCTION__, width, height, format);
 
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
     Mutex::Autolock icl(mBinderSerializationLock);
 
+
+    sp<IGraphicBufferProducer> bufferProducer = outputConfiguration.getGraphicBufferProducer();
     if (bufferProducer == NULL) {
         ALOGE("%s: bufferProducer must not be null", __FUNCTION__);
         return BAD_VALUE;
@@ -327,7 +376,7 @@ status_t CameraDeviceClient::createStream(int width, int height, int format,
 
     // Don't create multiple streams for the same target surface
     {
-        ssize_t index = mStreamMap.indexOfKey(bufferProducer->asBinder());
+        ssize_t index = mStreamMap.indexOfKey(IInterface::asBinder(bufferProducer));
         if (index != NAME_NOT_FOUND) {
             ALOGW("%s: Camera %d: Buffer producer already has a stream for it "
                   "(ID %zd)",
@@ -361,27 +410,31 @@ status_t CameraDeviceClient::createStream(int width, int height, int format,
     bool flexibleConsumer = (consumerUsage & disallowedFlags) == 0 &&
             (consumerUsage & allowedFlags) != 0;
 
-    sp<IBinder> binder;
-    sp<ANativeWindow> anw;
-    if (bufferProducer != 0) {
-        binder = bufferProducer->asBinder();
-        anw = new Surface(bufferProducer, useAsync);
-    }
+    sp<IBinder> binder = IInterface::asBinder(bufferProducer);
+    sp<Surface> surface = new Surface(bufferProducer, useAsync);
+    ANativeWindow *anw = surface.get();
 
-    // TODO: remove w,h,f since we are ignoring them
+    int width, height, format;
+    android_dataspace dataSpace;
 
-    if ((res = anw->query(anw.get(), NATIVE_WINDOW_WIDTH, &width)) != OK) {
+    if ((res = anw->query(anw, NATIVE_WINDOW_WIDTH, &width)) != OK) {
         ALOGE("%s: Camera %d: Failed to query Surface width", __FUNCTION__,
               mCameraId);
         return res;
     }
-    if ((res = anw->query(anw.get(), NATIVE_WINDOW_HEIGHT, &height)) != OK) {
+    if ((res = anw->query(anw, NATIVE_WINDOW_HEIGHT, &height)) != OK) {
         ALOGE("%s: Camera %d: Failed to query Surface height", __FUNCTION__,
               mCameraId);
         return res;
     }
-    if ((res = anw->query(anw.get(), NATIVE_WINDOW_FORMAT, &format)) != OK) {
+    if ((res = anw->query(anw, NATIVE_WINDOW_FORMAT, &format)) != OK) {
         ALOGE("%s: Camera %d: Failed to query Surface format", __FUNCTION__,
+              mCameraId);
+        return res;
+    }
+    if ((res = anw->query(anw, NATIVE_WINDOW_DEFAULT_DATASPACE,
+                            reinterpret_cast<int*>(&dataSpace))) != OK) {
+        ALOGE("%s: Camera %d: Failed to query Surface dataSpace", __FUNCTION__,
               mCameraId);
         return res;
     }
@@ -397,17 +450,20 @@ status_t CameraDeviceClient::createStream(int width, int height, int format,
 
     // Round dimensions to the nearest dimensions available for this format
     if (flexibleConsumer && !CameraDeviceClient::roundBufferDimensionNearest(width, height,
-            format, mDevice->info(), /*out*/&width, /*out*/&height)) {
+            format, dataSpace, mDevice->info(), /*out*/&width, /*out*/&height)) {
         ALOGE("%s: No stream configurations with the format %#x defined, failed to create stream.",
                 __FUNCTION__, format);
         return BAD_VALUE;
     }
 
     int streamId = -1;
-    res = mDevice->createStream(anw, width, height, format, &streamId);
+    res = mDevice->createStream(surface, width, height, format, dataSpace,
+                                static_cast<camera3_stream_rotation_t>
+                                        (outputConfiguration.getRotation()),
+                                &streamId);
 
     if (res == OK) {
-        mStreamMap.add(bufferProducer->asBinder(), streamId);
+        mStreamMap.add(binder, streamId);
 
         ALOGV("%s: Camera %d: Successfully created a new stream ID %d",
               __FUNCTION__, mCameraId, streamId);
@@ -438,11 +494,65 @@ status_t CameraDeviceClient::createStream(int width, int height, int format,
 }
 
 
+status_t CameraDeviceClient::createInputStream(int width, int height,
+        int format) {
+
+    ATRACE_CALL();
+    ALOGV("%s (w = %d, h = %d, f = 0x%x)", __FUNCTION__, width, height, format);
+
+    status_t res;
+    if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
+
+    Mutex::Autolock icl(mBinderSerializationLock);
+    if (!mDevice.get()) return DEAD_OBJECT;
+
+    if (mInputStream.configured) {
+        ALOGE("%s: Camera %d: Already has an input stream "
+                " configuration. (ID %zd)", __FUNCTION__, mCameraId,
+                mInputStream.id);
+        return ALREADY_EXISTS;
+    }
+
+    int streamId = -1;
+    res = mDevice->createInputStream(width, height, format, &streamId);
+    if (res == OK) {
+        mInputStream.configured = true;
+        mInputStream.width = width;
+        mInputStream.height = height;
+        mInputStream.format = format;
+        mInputStream.id = streamId;
+
+        ALOGV("%s: Camera %d: Successfully created a new input stream ID %d",
+              __FUNCTION__, mCameraId, streamId);
+
+        return streamId;
+    }
+
+    return res;
+}
+
+status_t CameraDeviceClient::getInputBufferProducer(
+        /*out*/sp<IGraphicBufferProducer> *producer) {
+    status_t res;
+    if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
+
+    if (producer == NULL) {
+        return BAD_VALUE;
+    }
+
+    Mutex::Autolock icl(mBinderSerializationLock);
+    if (!mDevice.get()) return DEAD_OBJECT;
+
+    return mDevice->getInputBufferProducer(producer);
+}
+
 bool CameraDeviceClient::roundBufferDimensionNearest(int32_t width, int32_t height,
-        int32_t format, const CameraMetadata& info,
+        int32_t format, android_dataspace dataSpace, const CameraMetadata& info,
         /*out*/int32_t* outWidth, /*out*/int32_t* outHeight) {
 
     camera_metadata_ro_entry streamConfigs =
+            (dataSpace == HAL_DATASPACE_DEPTH) ?
+            info.find(ANDROID_DEPTH_AVAILABLE_DEPTH_STREAM_CONFIGURATIONS) :
             info.find(ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS);
 
     int32_t bestWidth = -1;
@@ -578,24 +688,92 @@ status_t CameraDeviceClient::flush(int64_t* lastFrameNumber) {
     return mDevice->flush(lastFrameNumber);
 }
 
+status_t CameraDeviceClient::prepare(int streamId) {
+    ATRACE_CALL();
+    ALOGV("%s", __FUNCTION__);
+
+    status_t res = OK;
+    if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
+
+    Mutex::Autolock icl(mBinderSerializationLock);
+
+    // Guard against trying to prepare non-created streams
+    ssize_t index = NAME_NOT_FOUND;
+    for (size_t i = 0; i < mStreamMap.size(); ++i) {
+        if (streamId == mStreamMap.valueAt(i)) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index == NAME_NOT_FOUND) {
+        ALOGW("%s: Camera %d: Invalid stream ID (%d) specified, no stream "
+              "created yet", __FUNCTION__, mCameraId, streamId);
+        return BAD_VALUE;
+    }
+
+    // Also returns BAD_VALUE if stream ID was not valid, or stream already
+    // has been used
+    res = mDevice->prepare(streamId);
+
+    return res;
+}
+
+status_t CameraDeviceClient::tearDown(int streamId) {
+    ATRACE_CALL();
+    ALOGV("%s", __FUNCTION__);
+
+    status_t res = OK;
+    if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
+
+    Mutex::Autolock icl(mBinderSerializationLock);
+
+    // Guard against trying to prepare non-created streams
+    ssize_t index = NAME_NOT_FOUND;
+    for (size_t i = 0; i < mStreamMap.size(); ++i) {
+        if (streamId == mStreamMap.valueAt(i)) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index == NAME_NOT_FOUND) {
+        ALOGW("%s: Camera %d: Invalid stream ID (%d) specified, no stream "
+              "created yet", __FUNCTION__, mCameraId, streamId);
+        return BAD_VALUE;
+    }
+
+    // Also returns BAD_VALUE if stream ID was not valid or if the stream is in
+    // use
+    res = mDevice->tearDown(streamId);
+
+    return res;
+}
+
+
 status_t CameraDeviceClient::dump(int fd, const Vector<String16>& args) {
     String8 result;
     result.appendFormat("CameraDeviceClient[%d] (%p) dump:\n",
             mCameraId,
-            getRemoteCallback()->asBinder().get());
-    result.appendFormat("  Current client: %s (PID %d, UID %u)\n",
-            String8(mClientPackageName).string(),
-            mClientPid, mClientUid);
+            (getRemoteCallback() != NULL ?
+                    IInterface::asBinder(getRemoteCallback()).get() : NULL) );
+    result.appendFormat("  Current client UID %u\n", mClientUid);
 
     result.append("  State:\n");
     result.appendFormat("    Request ID counter: %d\n", mRequestIdCounter);
+    if (mInputStream.configured) {
+        result.appendFormat("    Current input stream ID: %d\n",
+                    mInputStream.id);
+    } else {
+        result.append("    No input stream configured.\n");
+    }
     if (!mStreamMap.isEmpty()) {
-        result.append("    Current stream IDs:\n");
+        result.append("    Current output stream IDs:\n");
         for (size_t i = 0; i < mStreamMap.size(); i++) {
             result.appendFormat("      Stream %d\n", mStreamMap.valueAt(i));
         }
     } else {
-        result.append("    No streams configured.\n");
+        result.append("    No output streams configured.\n");
     }
     write(fd, result.string(), result.size());
     // TODO: print dynamic/request section from most recent requests
@@ -632,8 +810,13 @@ void CameraDeviceClient::notifyShutter(const CaptureResultExtras& resultExtras,
     }
 }
 
-// TODO: refactor the code below this with IProCameraUser.
-// it's 100% copy-pasted, so lets not change it right now to make it easier.
+void CameraDeviceClient::notifyPrepared(int streamId) {
+    // Thread safe. Don't bother locking.
+    sp<ICameraDeviceCallbacks> remoteCb = getRemoteCallback();
+    if (remoteCb != 0) {
+        remoteCb->onPrepared(streamId);
+    }
+}
 
 void CameraDeviceClient::detachDevice() {
     if (mDevice == 0) return;

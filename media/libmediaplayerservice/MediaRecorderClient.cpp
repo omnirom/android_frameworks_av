@@ -55,6 +55,16 @@ static bool checkPermission(const char* permissionString) {
     return ok;
 }
 
+status_t MediaRecorderClient::setInputSurface(const sp<IGraphicBufferConsumer>& surface)
+{
+    ALOGV("setInputSurface");
+    Mutex::Autolock lock(mLock);
+    if (mRecorder == NULL) {
+        ALOGE("recorder is not initialized");
+        return NO_INIT;
+    }
+    return mRecorder->setInputSurface(surface);
+}
 
 sp<IGraphicBufferProducer> MediaRecorderClient::querySurfaceMediaSource()
 {
@@ -152,17 +162,6 @@ status_t MediaRecorderClient::setAudioEncoder(int ae)
         return NO_INIT;
     }
     return mRecorder->setAudioEncoder((audio_encoder)ae);
-}
-
-status_t MediaRecorderClient::setOutputFile(const char* path)
-{
-    ALOGV("setOutputFile(%s)", path);
-    Mutex::Autolock lock(mLock);
-    if (mRecorder == NULL) {
-        ALOGE("recorder is not initialized");
-        return NO_INIT;
-    }
-    return mRecorder->setOutputFile(path);
 }
 
 status_t MediaRecorderClient::setOutputFile(int fd, int64_t offset, int64_t length)
@@ -301,11 +300,12 @@ status_t MediaRecorderClient::release()
     return NO_ERROR;
 }
 
-MediaRecorderClient::MediaRecorderClient(const sp<MediaPlayerService>& service, pid_t pid)
+MediaRecorderClient::MediaRecorderClient(const sp<MediaPlayerService>& service, pid_t pid,
+        const String16& opPackageName)
 {
     ALOGV("Client constructor");
     mPid = pid;
-    mRecorder = new StagefrightRecorder;
+    mRecorder = new StagefrightRecorder(opPackageName);
     mMediaPlayerService = service;
 }
 
@@ -336,7 +336,7 @@ status_t MediaRecorderClient::setClientName(const String16& clientName) {
     return mRecorder->setClientName(clientName);
 }
 
-status_t MediaRecorderClient::dump(int fd, const Vector<String16>& args) const {
+status_t MediaRecorderClient::dump(int fd, const Vector<String16>& args) {
     if (mRecorder != NULL) {
         return mRecorder->dump(fd, args);
     }

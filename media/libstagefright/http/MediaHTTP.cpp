@@ -30,12 +30,11 @@
 namespace android {
 
 MediaHTTP::MediaHTTP(const sp<IMediaHTTPConnection> &conn)
-    : mInitCheck(NO_INIT),
+    : mInitCheck((conn != NULL) ? OK : NO_INIT),
       mHTTPConnection(conn),
       mCachedSizeValid(false),
       mCachedSize(0ll),
       mDrmManagerClient(NULL) {
-    mInitCheck = OK;
 }
 
 MediaHTTP::~MediaHTTP() {
@@ -54,7 +53,10 @@ status_t MediaHTTP::connect(
     if (headers != NULL) {
         extHeaders = *headers;
     }
-    extHeaders.add(String8("User-Agent"), String8(MakeUserAgent().c_str()));
+
+    if (extHeaders.indexOfKey(String8("User-Agent")) < 0) {
+        extHeaders.add(String8("User-Agent"), String8(MakeUserAgent().c_str()));
+    }
 
     bool success = mHTTPConnection->connect(uri, &extHeaders);
 
@@ -129,7 +131,7 @@ status_t MediaHTTP::getSize(off64_t *size) {
 
     *size = mCachedSize;
 
-    return *size < 0 ? *size : OK;
+    return *size < 0 ? *size : static_cast<status_t>(OK);
 }
 
 uint32_t MediaHTTP::flags() {
@@ -171,6 +173,10 @@ void MediaHTTP::getDrmInfo(
 }
 
 String8 MediaHTTP::getUri() {
+    if (mInitCheck != OK) {
+        return String8::empty();
+    }
+
     String8 uri;
     if (OK == mHTTPConnection->getUri(&uri)) {
         return uri;

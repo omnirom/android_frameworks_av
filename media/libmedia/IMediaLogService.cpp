@@ -42,18 +42,18 @@ public:
     virtual void    registerWriter(const sp<IMemory>& shared, size_t size, const char *name) {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaLogService::getInterfaceDescriptor());
-        data.writeStrongBinder(shared->asBinder());
+        data.writeStrongBinder(IInterface::asBinder(shared));
         data.writeInt64((int64_t) size);
         data.writeCString(name);
-        status_t status = remote()->transact(REGISTER_WRITER, data, &reply);
+        status_t status __unused = remote()->transact(REGISTER_WRITER, data, &reply);
         // FIXME ignores status
     }
 
     virtual void    unregisterWriter(const sp<IMemory>& shared) {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaLogService::getInterfaceDescriptor());
-        data.writeStrongBinder(shared->asBinder());
-        status_t status = remote()->transact(UNREGISTER_WRITER, data, &reply);
+        data.writeStrongBinder(IInterface::asBinder(shared));
+        status_t status __unused = remote()->transact(UNREGISTER_WRITER, data, &reply);
         // FIXME ignores status
     }
 
@@ -91,4 +91,4 @@ status_t BnMediaLogService::onTransact(
 
 // ----------------------------------------------------------------------------
 
-}; // namespace android
+} // namespace android

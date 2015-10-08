@@ -18,6 +18,7 @@
 #define ANDROID_SERVERS_CAMERA_CAMERA2CLIENT_BASE_H
 
 #include "common/CameraDeviceBase.h"
+#include "common/CameraModule.h"
 #include "camera/CaptureResult.h"
 
 namespace android {
@@ -35,7 +36,7 @@ public:
     typedef typename TClientBase::TCamCallbacks TCamCallbacks;
 
     /**
-     * Base binder interface (see ICamera/IProCameraUser for details)
+     * Base binder interface (see ICamera/ICameraDeviceUser for details)
      */
     virtual status_t      connect(const sp<TCamCallbacks>& callbacks);
     virtual void          disconnect();
@@ -55,7 +56,7 @@ public:
                       int servicePid);
     virtual ~Camera2ClientBase();
 
-    virtual status_t      initialize(camera_module_t *module);
+    virtual status_t      initialize(CameraModule *module);
     virtual status_t      dump(int fd, const Vector<String16>& args);
 
     /**
@@ -71,7 +72,7 @@ public:
     virtual void          notifyAutoExposure(uint8_t newState, int triggerId);
     virtual void          notifyAutoWhitebalance(uint8_t newState,
                                                  int triggerId);
-
+    virtual void          notifyPrepared(int streamId);
 
     int                   getCameraId() const;
     const sp<CameraDeviceBase>&
@@ -111,7 +112,7 @@ protected:
     pid_t mInitialClientPid;
 
     virtual sp<IBinder> asBinderWrapper() {
-        return IInterface::asBinder();
+        return IInterface::asBinder(this);
     }
 
     virtual status_t      dumpDevice(int fd, const Vector<String16>& args);

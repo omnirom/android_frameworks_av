@@ -29,21 +29,16 @@ FastThreadState::~FastThreadState()
 {
 }
 
-
-FastThreadDumpState::FastThreadDumpState() :
-    mCommand(FastThreadState::INITIAL), mUnderruns(0), mOverruns(0),
-    /* mMeasuredWarmupTs({0, 0}), */
-    mWarmupCycles(0)
-#ifdef FAST_MIXER_STATISTICS
-    , mSamplingN(1), mBounds(0)
-#endif
+// static
+const char *FastThreadState::commandToString(FastThreadState::Command command)
 {
-    mMeasuredWarmupTs.tv_sec = 0;
-    mMeasuredWarmupTs.tv_nsec = 0;
-}
-
-FastThreadDumpState::~FastThreadDumpState()
-{
+    switch (command) {
+    case FastThreadState::INITIAL:      return "INITIAL";
+    case FastThreadState::HOT_IDLE:     return "HOT_IDLE";
+    case FastThreadState::COLD_IDLE:    return "COLD_IDLE";
+    case FastThreadState::EXIT:         return "EXIT";
+    }
+    return NULL;
 }
 
 }   // namespace android

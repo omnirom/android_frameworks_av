@@ -250,7 +250,7 @@ private:
 
     status_t setAC3Format(int32_t numChannels, int32_t sampleRate);
 
-    void setG711Format(int32_t numChannels);
+    void setG711Format(int32_t sampleRate, int32_t numChannels);
 
     status_t setVideoPortFormatType(
             OMX_U32 portIndex,
@@ -298,7 +298,6 @@ private:
     status_t queueBufferToNativeWindow(BufferInfo *info);
     status_t cancelBufferToNativeWindow(BufferInfo *info);
     BufferInfo* dequeueBufferFromNativeWindow();
-    status_t pushBlankBuffersToNativeWindow();
 
     status_t freeBuffersOnPort(
             OMX_U32 portIndex, bool onlyThoseWeOwn = false);
@@ -347,7 +346,6 @@ private:
 
     status_t configureCodec(const sp<MetaData> &meta);
 
-    status_t applyRotation();
     status_t waitForBufferFilled_l();
 
     int64_t getDecodingTimeUs();

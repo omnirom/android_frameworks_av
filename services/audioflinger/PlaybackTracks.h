@@ -156,10 +156,6 @@ private:
     bool                mResumeToStopping; // track was paused in stopping state.
     bool                mFlushHwPending; // track requests for thread flush
 
-    // for last call to getTimestamp
-    bool                mPreviousValid;
-    uint32_t            mPreviousFramesWritten;
-    AudioTimestamp      mPreviousTimestamp;
 };  // end of Track
 
 class TimedTrack : public Track {
@@ -255,7 +251,7 @@ public:
 
     class Buffer : public AudioBufferProvider::Buffer {
     public:
-        int16_t *mBuffer;
+        void *mBuffer;
     };
 
                         OutputTrack(PlaybackThread *thread,
@@ -271,7 +267,7 @@ public:
                                     AudioSystem::SYNC_EVENT_NONE,
                              int triggerSession = 0);
     virtual void        stop();
-            bool        write(int16_t* data, uint32_t frames);
+            bool        write(void* data, uint32_t frames);
             bool        bufferQueueEmpty() const { return mBufferQueue.size() == 0; }
             bool        isActive() const { return mActive; }
     const wp<ThreadBase>& thread() const { return mThread; }
@@ -297,6 +293,7 @@ class PatchTrack : public Track, public PatchProxyBufferProvider {
 public:
 
                         PatchTrack(PlaybackThread *playbackThread,
+                                   audio_stream_type_t streamType,
                                    uint32_t sampleRate,
                                    audio_channel_mask_t channelMask,
                                    audio_format_t format,

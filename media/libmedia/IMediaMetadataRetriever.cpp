@@ -20,6 +20,7 @@
 #include <sys/types.h>
 
 #include <binder/Parcel.h>
+#include <media/IDataSource.h>
 #include <media/IMediaHTTPService.h>
 #include <media/IMediaMetadataRetriever.h>
 #include <utils/String8.h>
@@ -65,6 +66,7 @@ enum {
     DISCONNECT = IBinder::FIRST_CALL_TRANSACTION,
     SET_DATA_SOURCE_URL,
     SET_DATA_SOURCE_FD,
+    SET_DATA_SOURCE_CALLBACK,
     GET_FRAME_AT_TIME,
     EXTRACT_ALBUM_ART,
     EXTRACT_METADATA,
@@ -95,7 +97,7 @@ public:
         data.writeInterfaceToken(IMediaMetadataRetriever::getInterfaceDescriptor());
         data.writeInt32(httpService != NULL);
         if (httpService != NULL) {
-            data.writeStrongBinder(httpService->asBinder());
+            data.writeStrongBinder(IInterface::asBinder(httpService));
         }
         data.writeCString(srcUrl);
 
@@ -122,6 +124,15 @@ public:
         data.writeInt64(offset);
         data.writeInt64(length);
         remote()->transact(SET_DATA_SOURCE_FD, data, &reply);
+        return reply.readInt32();
+    }
+
+    status_t setDataSource(const sp<IDataSource>& source)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaMetadataRetriever::getInterfaceDescriptor());
+        data.writeStrongBinder(IInterface::asBinder(source));
+        remote()->transact(SET_DATA_SOURCE_CALLBACK, data, &reply);
         return reply.readInt32();
     }
 
@@ -235,6 +246,13 @@ status_t BnMediaMetadataRetriever::onTransact(
             reply->writeInt32(setDataSource(fd, offset, length));
             return NO_ERROR;
         } break;
+        case SET_DATA_SOURCE_CALLBACK: {
+            CHECK_INTERFACE(IMediaMetadataRetriever, data, reply);
+            sp<IDataSource> source =
+                interface_cast<IDataSource>(data.readStrongBinder());
+            reply->writeInt32(setDataSource(source));
+            return NO_ERROR;
+        } break;
         case GET_FRAME_AT_TIME: {
             CHECK_INTERFACE(IMediaMetadataRetriever, data, reply);
             int64_t timeUs = data.readInt64();
@@ -246,7 +264,7 @@ status_t BnMediaMetadataRetriever::onTransact(
             sp<IMemory> bitmap = getFrameAtTime(timeUs, option);
             if (bitmap != 0) {  // Don't send NULL across the binder interface
                 reply->writeInt32(NO_ERROR);
-                reply->writeStrongBinder(bitmap->asBinder());
+                reply->writeStrongBinder(IInterface::asBinder(bitmap));
             } else {
                 reply->writeInt32(UNKNOWN_ERROR);
             }
@@ -263,7 +281,7 @@ status_t BnMediaMetadataRetriever::onTransact(
             sp<IMemory> albumArt = extractAlbumArt();
             if (albumArt != 0) {  // Don't send NULL across the binder interface
                 reply->writeInt32(NO_ERROR);
-                reply->writeStrongBinder(albumArt->asBinder());
+                reply->writeStrongBinder(IInterface::asBinder(albumArt));
             } else {
                 reply->writeInt32(UNKNOWN_ERROR);
             }
@@ -297,4 +315,4 @@ status_t BnMediaMetadataRetriever::onTransact(
 
 // ----------------------------------------------------------------------------
 
-}; // namespace android
+} // namespace android

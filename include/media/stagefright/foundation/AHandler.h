@@ -19,6 +19,7 @@
 #define A_HANDLER_H_
 
 #include <media/stagefright/foundation/ALooper.h>
+#include <utils/KeyedVector.h>
 #include <utils/RefBase.h>
 
 namespace android {
@@ -27,26 +28,48 @@ struct AMessage;
 
 struct AHandler : public RefBase {
     AHandler()
-        : mID(0) {
+        : mID(0),
+          mVerboseStats(false),
+          mMessageCounter(0) {
     }
 
     ALooper::handler_id id() const {
         return mID;
     }
 
-    sp<ALooper> looper();
+    sp<ALooper> looper() const {
+        return mLooper.promote();
+    }
+
+    wp<ALooper> getLooper() const {
+        return mLooper;
+    }
+
+    wp<AHandler> getHandler() const {
+        // allow getting a weak reference to a const handler
+        return const_cast<AHandler *>(this);
+    }
 
 protected:
     virtual void onMessageReceived(const sp<AMessage> &msg) = 0;
 
 private:
-    friend struct ALooperRoster;
+    friend struct AMessage;      // deliverMessage()
+    friend struct ALooperRoster; // setID()
 
     ALooper::handler_id mID;
+    wp<ALooper> mLooper;
 
-    void setID(ALooper::handler_id id) {
+    inline void setID(ALooper::handler_id id, wp<ALooper> looper) {
         mID = id;
+        mLooper = looper;
     }
+
+    bool mVerboseStats;
+    uint32_t mMessageCounter;
+    KeyedVector<uint32_t, uint32_t> mMessages;
+
+    void deliverMessage(const sp<AMessage> &msg);
 
     DISALLOW_EVIL_CONSTRUCTORS(AHandler);
 };

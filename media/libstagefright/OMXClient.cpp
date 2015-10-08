@@ -37,7 +37,7 @@ struct MuxOMX : public IOMX {
     MuxOMX(const sp<IOMX> &remoteOMX);
     virtual ~MuxOMX();
 
-    virtual IBinder *onAsBinder() { return mRemoteOMX->asBinder().get(); }
+    virtual IBinder *onAsBinder() { return IInterface::asBinder(mRemoteOMX).get(); }
 
     virtual bool livesLocally(node_id node, pid_t pid);
 
@@ -72,7 +72,7 @@ struct MuxOMX : public IOMX {
             node_id node, OMX_STATETYPE* state);
 
     virtual status_t storeMetaDataInBuffers(
-            node_id node, OMX_U32 port_index, OMX_BOOL enable);
+            node_id node, OMX_U32 port_index, OMX_BOOL enable, MetadataBufferType *type);
 
     virtual status_t prepareForAdaptivePlayback(
             node_id node, OMX_U32 port_index, OMX_BOOL enable,
@@ -90,7 +90,7 @@ struct MuxOMX : public IOMX {
 
     virtual status_t useBuffer(
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-            buffer_id *buffer);
+            buffer_id *buffer, OMX_U32 allottedSize);
 
     virtual status_t useGraphicBuffer(
             node_id node, OMX_U32 port_index,
@@ -102,7 +102,15 @@ struct MuxOMX : public IOMX {
 
     virtual status_t createInputSurface(
             node_id node, OMX_U32 port_index,
-            sp<IGraphicBufferProducer> *bufferProducer);
+            sp<IGraphicBufferProducer> *bufferProducer, MetadataBufferType *type);
+
+    virtual status_t createPersistentInputSurface(
+            sp<IGraphicBufferProducer> *bufferProducer,
+            sp<IGraphicBufferConsumer> *bufferConsumer);
+
+    virtual status_t setInputSurface(
+            node_id node, OMX_U32 port_index,
+            const sp<IGraphicBufferConsumer> &bufferConsumer, MetadataBufferType *type);
 
     virtual status_t signalEndOfInputStream(node_id node);
 
@@ -112,18 +120,18 @@ struct MuxOMX : public IOMX {
 
     virtual status_t allocateBufferWithBackup(
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-            buffer_id *buffer);
+            buffer_id *buffer, OMX_U32 allottedSize);
 
     virtual status_t freeBuffer(
             node_id node, OMX_U32 port_index, buffer_id buffer);
 
-    virtual status_t fillBuffer(node_id node, buffer_id buffer);
+    virtual status_t fillBuffer(node_id node, buffer_id buffer, int fenceFd);
 
     virtual status_t emptyBuffer(
             node_id node,
             buffer_id buffer,
             OMX_U32 range_offset, OMX_U32 range_length,
-            OMX_U32 flags, OMX_TICKS timestamp);
+            OMX_U32 flags, OMX_TICKS timestamp, int fenceFd);
 
     virtual status_t getExtensionIndex(
             node_id node,
@@ -284,8 +292,8 @@ status_t MuxOMX::getState(
 }
 
 status_t MuxOMX::storeMetaDataInBuffers(
-        node_id node, OMX_U32 port_index, OMX_BOOL enable) {
-    return getOMX(node)->storeMetaDataInBuffers(node, port_index, enable);
+        node_id node, OMX_U32 port_index, OMX_BOOL enable, MetadataBufferType *type) {
+    return getOMX(node)->storeMetaDataInBuffers(node, port_index, enable, type);
 }
 
 status_t MuxOMX::prepareForAdaptivePlayback(
@@ -314,8 +322,8 @@ status_t MuxOMX::getGraphicBufferUsage(
 
 status_t MuxOMX::useBuffer(
         node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-        buffer_id *buffer) {
-    return getOMX(node)->useBuffer(node, port_index, params, buffer);
+        buffer_id *buffer, OMX_U32 allottedSize) {
+    return getOMX(node)->useBuffer(node, port_index, params, buffer, allottedSize);
 }
 
 status_t MuxOMX::useGraphicBuffer(
@@ -334,10 +342,24 @@ status_t MuxOMX::updateGraphicBufferInMeta(
 
 status_t MuxOMX::createInputSurface(
         node_id node, OMX_U32 port_index,
-        sp<IGraphicBufferProducer> *bufferProducer) {
+        sp<IGraphicBufferProducer> *bufferProducer, MetadataBufferType *type) {
     status_t err = getOMX(node)->createInputSurface(
-            node, port_index, bufferProducer);
+            node, port_index, bufferProducer, type);
     return err;
+}
+
+status_t MuxOMX::createPersistentInputSurface(
+        sp<IGraphicBufferProducer> *bufferProducer,
+        sp<IGraphicBufferConsumer> *bufferConsumer) {
+    // TODO: local or remote? Always use remote for now
+    return mRemoteOMX->createPersistentInputSurface(
+            bufferProducer, bufferConsumer);
+}
+
+status_t MuxOMX::setInputSurface(
+        node_id node, OMX_U32 port_index,
+        const sp<IGraphicBufferConsumer> &bufferConsumer, MetadataBufferType *type) {
+    return getOMX(node)->setInputSurface(node, port_index, bufferConsumer, type);
 }
 
 status_t MuxOMX::signalEndOfInputStream(node_id node) {
@@ -353,9 +375,9 @@ status_t MuxOMX::allocateBuffer(
 
 status_t MuxOMX::allocateBufferWithBackup(
         node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-        buffer_id *buffer) {
+        buffer_id *buffer, OMX_U32 allottedSize) {
     return getOMX(node)->allocateBufferWithBackup(
-            node, port_index, params, buffer);
+            node, port_index, params, buffer, allottedSize);
 }
 
 status_t MuxOMX::freeBuffer(
@@ -363,17 +385,17 @@ status_t MuxOMX::freeBuffer(
     return getOMX(node)->freeBuffer(node, port_index, buffer);
 }
 
-status_t MuxOMX::fillBuffer(node_id node, buffer_id buffer) {
-    return getOMX(node)->fillBuffer(node, buffer);
+status_t MuxOMX::fillBuffer(node_id node, buffer_id buffer, int fenceFd) {
+    return getOMX(node)->fillBuffer(node, buffer, fenceFd);
 }
 
 status_t MuxOMX::emptyBuffer(
         node_id node,
         buffer_id buffer,
         OMX_U32 range_offset, OMX_U32 range_length,
-        OMX_U32 flags, OMX_TICKS timestamp) {
+        OMX_U32 flags, OMX_TICKS timestamp, int fenceFd) {
     return getOMX(node)->emptyBuffer(
-            node, buffer, range_offset, range_length, flags, timestamp);
+            node, buffer, range_offset, range_length, flags, timestamp, fenceFd);
 }
 
 status_t MuxOMX::getExtensionIndex(
@@ -400,10 +422,16 @@ status_t OMXClient::connect() {
     sp<IBinder> binder = sm->getService(String16("media.player"));
     sp<IMediaPlayerService> service = interface_cast<IMediaPlayerService>(binder);
 
-    CHECK(service.get() != NULL);
+    if (service.get() == NULL) {
+        ALOGE("Cannot obtain IMediaPlayerService");
+        return NO_INIT;
+    }
 
     mOMX = service->getOMX();
-    CHECK(mOMX.get() != NULL);
+    if (mOMX.get() == NULL) {
+        ALOGE("Cannot obtain IOMX");
+        return NO_INIT;
+    }
 
     if (!mOMX->livesLocally(0 /* node */, getpid())) {
         ALOGI("Using client-side OMX mux.");

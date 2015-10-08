@@ -85,14 +85,18 @@ public:
                                 uint32_t sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
+                                const String16& callingPackage,
                                 size_t *pFrameCount,
                                 track_flags_t *flags,
                                 pid_t tid,  // -1 means unused, otherwise must be valid non-0
+                                int clientUid,
                                 int *sessionId,
                                 size_t *notificationFrames,
                                 sp<IMemory>& cblk,
                                 sp<IMemory>& buffers,   // return value 0 means it follows cblk
                                 status_t *status) = 0;
+
+    // FIXME Surprisingly, sampleRate/format/frameCount/latency don't work for input handles
 
     /* query the audio hardware state. This state never changes,
      * and therefore can be cached.
@@ -142,6 +146,7 @@ public:
     virtual void registerClient(const sp<IAudioFlingerClient>& client) = 0;
 
     // retrieve the audio recording buffer size
+    // FIXME This API assumes a route, and so should be deprecated.
     virtual size_t getInputBufferSize(uint32_t sampleRate, audio_format_t format,
             audio_channel_mask_t channelMask) const = 0;
 
@@ -195,6 +200,7 @@ public:
                                     // AudioFlinger doesn't take over handle reference from client
                                     audio_io_handle_t output,
                                     int sessionId,
+                                    const String16& callingPackage,
                                     status_t *status,
                                     int *id,
                                     int *enabled) = 0;
@@ -237,6 +243,9 @@ public:
 
     /* Get the HW synchronization source used for an audio session */
     virtual audio_hw_sync_t getAudioHwSyncForSession(audio_session_t sessionId) = 0;
+
+    /* Indicate JAVA services are ready (scheduling, power management ...) */
+    virtual status_t systemReady() = 0;
 };
 
 

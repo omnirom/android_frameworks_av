@@ -27,6 +27,7 @@
 #include "ABuffer.h"
 #include "ADebug.h"
 #include "ALooperRoster.h"
+#include "AHandler.h"
 #include "AString.h"
 
 #include <binder/Parcel.h>
@@ -36,10 +37,27 @@ namespace android {
 
 extern ALooperRoster gLooperRoster;
 
-AMessage::AMessage(uint32_t what, ALooper::handler_id target)
-    : mWhat(what),
-      mTarget(target),
+status_t AReplyToken::setReply(const sp<AMessage> &reply) {
+    if (mReplied) {
+        ALOGE("trying to post a duplicate reply");
+        return -EBUSY;
+    }
+    CHECK(mReply == NULL);
+    mReply = reply;
+    mReplied = true;
+    return OK;
+}
+
+AMessage::AMessage(void)
+    : mWhat(0),
+      mTarget(0),
       mNumItems(0) {
+}
+
+AMessage::AMessage(uint32_t what, const sp<const AHandler> &handler)
+    : mWhat(what),
+      mNumItems(0) {
+    setTarget(handler);
 }
 
 AMessage::~AMessage() {
@@ -54,12 +72,16 @@ uint32_t AMessage::what() const {
     return mWhat;
 }
 
-void AMessage::setTarget(ALooper::handler_id handlerID) {
-    mTarget = handlerID;
-}
-
-ALooper::handler_id AMessage::target() const {
-    return mTarget;
+void AMessage::setTarget(const sp<const AHandler> &handler) {
+    if (handler == NULL) {
+        mTarget = 0;
+        mHandler.clear();
+        mLooper.clear();
+    } else {
+        mTarget = handler->id();
+        mHandler = handler->getHandler();
+        mLooper = handler->getLooper();
+    }
 }
 
 void AMessage::clear() {
@@ -322,33 +344,76 @@ bool AMessage::findRect(
     return true;
 }
 
-void AMessage::post(int64_t delayUs) {
-    gLooperRoster.postMessage(this, delayUs);
+void AMessage::deliver() {
+    sp<AHandler> handler = mHandler.promote();
+    if (handler == NULL) {
+        ALOGW("failed to deliver message as target handler %d is gone.", mTarget);
+        return;
+    }
+
+    handler->deliverMessage(this);
+}
+
+status_t AMessage::post(int64_t delayUs) {
+    sp<ALooper> looper = mLooper.promote();
+    if (looper == NULL) {
+        ALOGW("failed to post message as target looper for handler %d is gone.", mTarget);
+        return -ENOENT;
+    }
+
+    looper->post(this, delayUs);
+    return OK;
 }
 
 status_t AMessage::postAndAwaitResponse(sp<AMessage> *response) {
-    return gLooperRoster.postAndAwaitResponse(this, response);
+    sp<ALooper> looper = mLooper.promote();
+    if (looper == NULL) {
+        ALOGW("failed to post message as target looper for handler %d is gone.", mTarget);
+        return -ENOENT;
+    }
+
+    sp<AReplyToken> token = looper->createReplyToken();
+    if (token == NULL) {
+        ALOGE("failed to create reply token");
+        return -ENOMEM;
+    }
+    setObject("replyID", token);
+
+    looper->post(this, 0 /* delayUs */);
+    return looper->awaitResponse(token, response);
 }
 
-void AMessage::postReply(uint32_t replyID) {
-    gLooperRoster.postReply(replyID, this);
+status_t AMessage::postReply(const sp<AReplyToken> &replyToken) {
+    if (replyToken == NULL) {
+        ALOGW("failed to post reply to a NULL token");
+        return -ENOENT;
+    }
+    sp<ALooper> looper = replyToken->getLooper();
+    if (looper == NULL) {
+        ALOGW("failed to post reply as target looper is gone.");
+        return -ENOENT;
+    }
+    return looper->postReply(replyToken, this);
 }
 
-bool AMessage::senderAwaitsResponse(uint32_t *replyID) const {
-    int32_t tmp;
-    bool found = findInt32("replyID", &tmp);
+bool AMessage::senderAwaitsResponse(sp<AReplyToken> *replyToken) {
+    sp<RefBase> tmp;
+    bool found = findObject("replyID", &tmp);
 
     if (!found) {
         return false;
     }
 
-    *replyID = static_cast<uint32_t>(tmp);
+    *replyToken = static_cast<AReplyToken *>(tmp.get());
+    tmp.clear();
+    setObject("replyID", tmp);
+    // TODO: delete Object instead of setting it to NULL
 
-    return true;
+    return *replyToken != NULL;
 }
 
 sp<AMessage> AMessage::dup() const {
-    sp<AMessage> msg = new AMessage(mWhat, mTarget);
+    sp<AMessage> msg = new AMessage(mWhat, mHandler.promote());
     msg->mNumItems = mNumItems;
 
 #ifdef DUMP_STATS
@@ -426,19 +491,19 @@ AString AMessage::debugString(int32_t indent) const {
 
     AString tmp;
     if (isFourcc(mWhat)) {
-        tmp = StringPrintf(
+        tmp = AStringPrintf(
                 "'%c%c%c%c'",
                 (char)(mWhat >> 24),
                 (char)((mWhat >> 16) & 0xff),
                 (char)((mWhat >> 8) & 0xff),
                 (char)(mWhat & 0xff));
     } else {
-        tmp = StringPrintf("0x%08x", mWhat);
+        tmp = AStringPrintf("0x%08x", mWhat);
     }
     s.append(tmp);
 
     if (mTarget != 0) {
-        tmp = StringPrintf(", target = %d", mTarget);
+        tmp = AStringPrintf(", target = %d", mTarget);
         s.append(tmp);
     }
     s.append(") = {\n");
@@ -448,37 +513,37 @@ AString AMessage::debugString(int32_t indent) const {
 
         switch (item.mType) {
             case kTypeInt32:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "int32_t %s = %d", item.mName, item.u.int32Value);
                 break;
             case kTypeInt64:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "int64_t %s = %lld", item.mName, item.u.int64Value);
                 break;
             case kTypeSize:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "size_t %s = %d", item.mName, item.u.sizeValue);
                 break;
             case kTypeFloat:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "float %s = %f", item.mName, item.u.floatValue);
                 break;
             case kTypeDouble:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "double %s = %f", item.mName, item.u.doubleValue);
                 break;
             case kTypePointer:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "void *%s = %p", item.mName, item.u.ptrValue);
                 break;
             case kTypeString:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "string %s = \"%s\"",
                         item.mName,
                         item.u.stringValue->c_str());
                 break;
             case kTypeObject:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "RefBase *%s = %p", item.mName, item.u.refValue);
                 break;
             case kTypeBuffer:
@@ -486,18 +551,18 @@ AString AMessage::debugString(int32_t indent) const {
                 sp<ABuffer> buffer = static_cast<ABuffer *>(item.u.refValue);
 
                 if (buffer != NULL && buffer->data() != NULL && buffer->size() <= 64) {
-                    tmp = StringPrintf("Buffer %s = {\n", item.mName);
+                    tmp = AStringPrintf("Buffer %s = {\n", item.mName);
                     hexdump(buffer->data(), buffer->size(), indent + 4, &tmp);
                     appendIndent(&tmp, indent + 2);
                     tmp.append("}");
                 } else {
-                    tmp = StringPrintf(
+                    tmp = AStringPrintf(
                             "Buffer *%s = %p", item.mName, buffer.get());
                 }
                 break;
             }
             case kTypeMessage:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "AMessage %s = %s",
                         item.mName,
                         static_cast<AMessage *>(
@@ -505,7 +570,7 @@ AString AMessage::debugString(int32_t indent) const {
                                 indent + strlen(item.mName) + 14).c_str());
                 break;
             case kTypeRect:
-                tmp = StringPrintf(
+                tmp = AStringPrintf(
                         "Rect %s(%d, %d, %d, %d)",
                         item.mName,
                         item.u.rectValue.mLeft,
@@ -532,7 +597,8 @@ AString AMessage::debugString(int32_t indent) const {
 // static
 sp<AMessage> AMessage::FromParcel(const Parcel &parcel) {
     int32_t what = parcel.readInt32();
-    sp<AMessage> msg = new AMessage(what);
+    sp<AMessage> msg = new AMessage();
+    msg->setWhat(what);
 
     msg->mNumItems = static_cast<size_t>(parcel.readInt32());
     for (size_t i = 0; i < msg->mNumItems; ++i) {

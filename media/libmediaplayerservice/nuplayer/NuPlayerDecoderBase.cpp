@@ -31,6 +31,7 @@ namespace android {
 NuPlayer::DecoderBase::DecoderBase(const sp<AMessage> &notify)
     :  mNotify(notify),
        mBufferGeneration(0),
+       mStats(new AMessage),
        mRequestInputBuffersPending(false) {
     // Every decoder has its own looper because MediaCodec operations
     // are blocking, but NuPlayer needs asynchronous operations.
@@ -61,7 +62,7 @@ status_t PostAndAwaitResponse(
 }
 
 void NuPlayer::DecoderBase::configure(const sp<AMessage> &format) {
-    sp<AMessage> msg = new AMessage(kWhatConfigure, id());
+    sp<AMessage> msg = new AMessage(kWhatConfigure, this);
     msg->setMessage("format", format);
     msg->post();
 }
@@ -70,14 +71,20 @@ void NuPlayer::DecoderBase::init() {
     mDecoderLooper->registerHandler(this);
 }
 
+void NuPlayer::DecoderBase::setParameters(const sp<AMessage> &params) {
+    sp<AMessage> msg = new AMessage(kWhatSetParameters, this);
+    msg->setMessage("params", params);
+    msg->post();
+}
+
 void NuPlayer::DecoderBase::setRenderer(const sp<Renderer> &renderer) {
-    sp<AMessage> msg = new AMessage(kWhatSetRenderer, id());
+    sp<AMessage> msg = new AMessage(kWhatSetRenderer, this);
     msg->setObject("renderer", renderer);
     msg->post();
 }
 
 status_t NuPlayer::DecoderBase::getInputBuffers(Vector<sp<ABuffer> > *buffers) const {
-    sp<AMessage> msg = new AMessage(kWhatGetInputBuffers, id());
+    sp<AMessage> msg = new AMessage(kWhatGetInputBuffers, this);
     msg->setPointer("buffers", buffers);
 
     sp<AMessage> response;
@@ -85,17 +92,17 @@ status_t NuPlayer::DecoderBase::getInputBuffers(Vector<sp<ABuffer> > *buffers) c
 }
 
 void NuPlayer::DecoderBase::signalFlush() {
-    (new AMessage(kWhatFlush, id()))->post();
+    (new AMessage(kWhatFlush, this))->post();
 }
 
 void NuPlayer::DecoderBase::signalResume(bool notifyComplete) {
-    sp<AMessage> msg = new AMessage(kWhatResume, id());
+    sp<AMessage> msg = new AMessage(kWhatResume, this);
     msg->setInt32("notifyComplete", notifyComplete);
     msg->post();
 }
 
 void NuPlayer::DecoderBase::initiateShutdown() {
-    (new AMessage(kWhatShutdown, id()))->post();
+    (new AMessage(kWhatShutdown, this))->post();
 }
 
 void NuPlayer::DecoderBase::onRequestInputBuffers() {
@@ -103,16 +110,13 @@ void NuPlayer::DecoderBase::onRequestInputBuffers() {
         return;
     }
 
-    doRequestBuffers();
-}
+    // doRequestBuffers() return true if we should request more data
+    if (doRequestBuffers()) {
+        mRequestInputBuffersPending = true;
 
-void NuPlayer::DecoderBase::scheduleRequestBuffers() {
-    if (mRequestInputBuffersPending) {
-        return;
+        sp<AMessage> msg = new AMessage(kWhatRequestInputBuffers, this);
+        msg->post(10 * 1000ll);
     }
-    mRequestInputBuffersPending = true;
-    sp<AMessage> msg = new AMessage(kWhatRequestInputBuffers, id());
-    msg->post(10 * 1000ll);
 }
 
 void NuPlayer::DecoderBase::onMessageReceived(const sp<AMessage> &msg) {
@@ -126,6 +130,14 @@ void NuPlayer::DecoderBase::onMessageReceived(const sp<AMessage> &msg) {
             break;
         }
 
+        case kWhatSetParameters:
+        {
+            sp<AMessage> params;
+            CHECK(msg->findMessage("params", &params));
+            onSetParameters(params);
+            break;
+        }
+
         case kWhatSetRenderer:
         {
             sp<RefBase> obj;
@@ -136,7 +148,7 @@ void NuPlayer::DecoderBase::onMessageReceived(const sp<AMessage> &msg) {
 
         case kWhatGetInputBuffers:
         {
-            uint32_t replyID;
+            sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
             Vector<sp<ABuffer> > *dstBuffers;
@@ -157,7 +169,7 @@ void NuPlayer::DecoderBase::onMessageReceived(const sp<AMessage> &msg) {
 
         case kWhatFlush:
         {
-            onFlush(true);
+            onFlush();
             break;
         }
 

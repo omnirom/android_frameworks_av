@@ -43,7 +43,7 @@ class Camera2Device: public CameraDeviceBase {
      * CameraDevice interface
      */
     virtual int      getId() const;
-    virtual status_t initialize(camera_module_t *module);
+    virtual status_t initialize(CameraModule *module);
     virtual status_t disconnect();
     virtual status_t dump(int fd, const Vector<String16>& args);
     virtual const CameraMetadata& info() const;
@@ -56,16 +56,22 @@ class Camera2Device: public CameraDeviceBase {
                                              int64_t *lastFrameNumber = NULL);
     virtual status_t clearStreamingRequest(int64_t *lastFrameNumber = NULL);
     virtual status_t waitUntilRequestReceived(int32_t requestId, nsecs_t timeout);
-    virtual status_t createStream(sp<ANativeWindow> consumer,
+    virtual status_t createStream(sp<Surface> consumer,
+            uint32_t width, uint32_t height, int format,
+            android_dataspace dataSpace, camera3_stream_rotation_t rotation, int *id);
+    virtual status_t createInputStream(
             uint32_t width, uint32_t height, int format, int *id);
     virtual status_t createReprocessStreamFromStream(int outputId, int *id);
     virtual status_t getStreamInfo(int id,
-            uint32_t *width, uint32_t *height, uint32_t *format);
+            uint32_t *width, uint32_t *height,
+            uint32_t *format, android_dataspace *dataSpace);
     virtual status_t setStreamTransform(int id, int transform);
     virtual status_t deleteStream(int id);
     virtual status_t deleteReprocessStream(int id);
     // No-op on HAL2 devices
-    virtual status_t configureStreams();
+    virtual status_t configureStreams(bool isConstrainedHighSpeed = false);
+    virtual status_t getInputBufferProducer(
+            sp<IGraphicBufferProducer> *producer);
     virtual status_t createDefaultRequest(int templateId, CameraMetadata *request);
     virtual status_t waitUntilDrained();
     virtual status_t setNotifyCallback(NotificationListener *listener);
@@ -79,6 +85,10 @@ class Camera2Device: public CameraDeviceBase {
             buffer_handle_t *buffer, wp<BufferReleasedListener> listener);
     // Flush implemented as just a wait
     virtual status_t flush(int64_t *lastFrameNumber = NULL);
+    // Prepare and tearDown are no-ops
+    virtual status_t prepare(int streamId);
+    virtual status_t tearDown(int streamId);
+
     virtual uint32_t getDeviceVersion();
     virtual ssize_t getJpegBufferSize(uint32_t width, uint32_t height) const;
 

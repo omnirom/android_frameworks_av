@@ -24,6 +24,31 @@
 #include <media/stagefright/foundation/AString.h>
 #include <utils/Log.h>
 
+inline static const char *asString(android::status_t i, const char *def = "??") {
+    using namespace android;
+    switch (i) {
+        case NO_ERROR:              return "NO_ERROR";
+        case UNKNOWN_ERROR:         return "UNKNOWN_ERROR";
+        case NO_MEMORY:             return "NO_MEMORY";
+        case INVALID_OPERATION:     return "INVALID_OPERATION";
+        case BAD_VALUE:             return "BAD_VALUE";
+        case BAD_TYPE:              return "BAD_TYPE";
+        case NAME_NOT_FOUND:        return "NAME_NOT_FOUND";
+        case PERMISSION_DENIED:     return "PERMISSION_DENIED";
+        case NO_INIT:               return "NO_INIT";
+        case ALREADY_EXISTS:        return "ALREADY_EXISTS";
+        case DEAD_OBJECT:           return "DEAD_OBJECT";
+        case FAILED_TRANSACTION:    return "FAILED_TRANSACTION";
+        case BAD_INDEX:             return "BAD_INDEX";
+        case NOT_ENOUGH_DATA:       return "NOT_ENOUGH_DATA";
+        case WOULD_BLOCK:           return "WOULD_BLOCK";
+        case TIMED_OUT:             return "TIMED_OUT";
+        case UNKNOWN_TRANSACTION:   return "UNKNOWN_TRANSACTION";
+        case FDS_NOT_ALLOWED:       return "FDS_NOT_ALLOWED";
+        default:                    return def;
+    }
+}
+
 namespace android {
 
 #define LITERAL_TO_STRING_INTERNAL(x)    #x
@@ -92,7 +117,7 @@ struct ADebug {
 
     };
 
-    // parse the property or string to get the debug level for a component name
+    // parse the property or string to get a long-type level for a component name
     // string format is:
     // <level>[:<glob>][,<level>[:<glob>]...]
     // - <level> is 0-5 corresponding to ADebug::Level
@@ -100,14 +125,38 @@ struct ADebug {
     //   matches all components
     // - string is read left-to-right, and the last matching level is returned, or
     //   the def if no terms matched
+    static long GetLevelFromSettingsString(
+            const char *name, const char *value, long def);
+    static long GetLevelFromProperty(
+            const char *name, const char *value, long def);
+
+    // same for ADebug::Level - performs clamping to valid debug ranges
     static Level GetDebugLevelFromProperty(
             const char *name, const char *propertyName, Level def = kDebugNone);
-    static Level GetDebugLevelFromString(
-            const char *name, const char *value, Level def = kDebugNone);
 
     // remove redundant segments of a codec name, and return a newly allocated
     // string suitable for debugging
     static char *GetDebugName(const char *name);
+
+    inline static bool isExperimentEnabled(
+            const char *name __unused /* nonnull */, bool allow __unused = true) {
+#ifdef ENABLE_STAGEFRIGHT_EXPERIMENTS
+        if (!strcmp(name, "legacy-adaptive")) {
+            return getExperimentFlag(allow, name, 2, 1); // every other day
+        } else if (!strcmp(name, "legacy-setsurface")) {
+            return getExperimentFlag(allow, name, 3, 1); // every third day
+        } else {
+            ALOGE("unknown experiment '%s' (disabled)", name);
+        }
+#endif
+        return false;
+    }
+
+private:
+    // pass in allow, so we can print in the log if the experiment is disabled
+    static bool getExperimentFlag(
+            bool allow, const char *name, uint64_t modulo, uint64_t limit,
+            uint64_t plus = 0, uint64_t timeDivisor = 24 * 60 * 60 /* 1 day */);
 };
 
 }  // namespace android

@@ -28,7 +28,7 @@ namespace camera3 {
 
 Camera3DummyStream::Camera3DummyStream(int id) :
         Camera3IOStreamBase(id, CAMERA3_STREAM_OUTPUT, DUMMY_WIDTH, DUMMY_HEIGHT,
-                /*maxSize*/0, DUMMY_FORMAT) {
+                /*maxSize*/0, DUMMY_FORMAT, DUMMY_DATASPACE, DUMMY_ROTATION) {
 
 }
 
@@ -87,7 +87,7 @@ status_t Camera3DummyStream::disconnectLocked() {
     return OK;
 }
 
-status_t Camera3DummyStream::getEndpointUsage(uint32_t *usage) {
+status_t Camera3DummyStream::getEndpointUsage(uint32_t *usage) const {
     *usage = DUMMY_USAGE;
     return OK;
 }

@@ -73,7 +73,7 @@ class Camera3Device :
     virtual int      getId() const;
 
     // Transitions to idle state on success.
-    virtual status_t initialize(camera_module_t *module);
+    virtual status_t initialize(CameraModule *module);
     virtual status_t disconnect();
     virtual status_t dump(int fd, const Vector<String16> &args);
     virtual const CameraMetadata& info() const;
@@ -94,8 +94,9 @@ class Camera3Device :
     // Actual stream creation/deletion is delayed until first request is submitted
     // If adding streams while actively capturing, will pause device before adding
     // stream, reconfiguring device, and unpausing.
-    virtual status_t createStream(sp<ANativeWindow> consumer,
-            uint32_t width, uint32_t height, int format, int *id);
+    virtual status_t createStream(sp<Surface> consumer,
+            uint32_t width, uint32_t height, int format,
+            android_dataspace dataSpace, camera3_stream_rotation_t rotation, int *id);
     virtual status_t createInputStream(
             uint32_t width, uint32_t height, int format,
             int *id);
@@ -108,13 +109,16 @@ class Camera3Device :
     virtual status_t createReprocessStreamFromStream(int outputId, int *id);
 
     virtual status_t getStreamInfo(int id,
-            uint32_t *width, uint32_t *height, uint32_t *format);
+            uint32_t *width, uint32_t *height,
+            uint32_t *format, android_dataspace *dataSpace);
     virtual status_t setStreamTransform(int id, int transform);
 
     virtual status_t deleteStream(int id);
     virtual status_t deleteReprocessStream(int id);
 
-    virtual status_t configureStreams();
+    virtual status_t configureStreams(bool isConstraiedHighSpeed = false);
+    virtual status_t getInputBufferProducer(
+            sp<IGraphicBufferProducer> *producer);
 
     virtual status_t createDefaultRequest(int templateId, CameraMetadata *request);
 
@@ -135,9 +139,14 @@ class Camera3Device :
 
     virtual status_t flush(int64_t *lastFrameNumber = NULL);
 
+    virtual status_t prepare(int streamId);
+
+    virtual status_t tearDown(int streamId);
+
     virtual uint32_t getDeviceVersion();
 
     virtual ssize_t getJpegBufferSize(uint32_t width, uint32_t height) const;
+    ssize_t getPointCloudBufferSize() const;
 
     // Methods called by subclasses
     void             notifyStatus(bool idle); // updates from StatusTracker
@@ -145,9 +154,11 @@ class Camera3Device :
   private:
     static const size_t        kDumpLockAttempts  = 10;
     static const size_t        kDumpSleepDuration = 100000; // 0.10 sec
-    static const size_t        kInFlightWarnLimit = 20;
     static const nsecs_t       kShutdownTimeout   = 5000000000; // 5 sec
     static const nsecs_t       kActiveTimeout     = 500000000;  // 500 ms
+    static const size_t        kInFlightWarnLimit = 20;
+    static const size_t        kInFlightWarnLimitHighSpeed = 256; // batch size 32 * pipe depth 8
+
     struct                     RequestTrigger;
     // minimal jpeg buffer size: 256KB + blob header
     static const ssize_t       kMinJpegBufferSize = 256 * 1024 + sizeof(camera3_jpeg_blob);
@@ -168,6 +179,9 @@ class Camera3Device :
     // Camera device ID
     const int                  mId;
 
+    // Flag indicating is the current active stream configuration is constrained high speed.
+    bool                       mIsConstrainedHighSpeedConfiguration;
+
     /**** Scope for mLock ****/
 
     camera3_device_t          *mHal3Device;
@@ -178,6 +192,14 @@ class Camera3Device :
 
     uint32_t                   mDeviceVersion;
 
+    struct Size {
+        uint32_t width;
+        uint32_t height;
+        Size(uint32_t w = 0, uint32_t h = 0) : width(w), height(h){}
+    };
+    // Map from format to size.
+    Vector<Size>               mSupportedOpaqueInputSizes;
+
     enum Status {
         STATUS_ERROR,
         STATUS_UNINITIALIZED,
@@ -185,7 +207,11 @@ class Camera3Device :
         STATUS_CONFIGURED,
         STATUS_ACTIVE
     }                          mStatus;
+
+    // Only clear mRecentStatusUpdates, mStatusWaiters from waitUntilStateThenRelock
     Vector<Status>             mRecentStatusUpdates;
+    int                        mStatusWaiters;
+
     Condition                  mStatusChanged;
 
     // Tracking cause of fatal errors when in STATUS_ERROR
@@ -217,13 +243,24 @@ class Camera3Device :
 
     /**** End scope for mLock ****/
 
+    typedef struct AeTriggerCancelOverride {
+        bool applyAeLock;
+        uint8_t aeLock;
+        bool applyAePrecaptureTrigger;
+        uint8_t aePrecaptureTrigger;
+    } AeTriggerCancelOverride_t;
+
     class CaptureRequest : public LightRefBase<CaptureRequest> {
       public:
         CameraMetadata                      mSettings;
         sp<camera3::Camera3Stream>          mInputStream;
+        camera3_stream_buffer_t             mInputBuffer;
         Vector<sp<camera3::Camera3OutputStreamInterface> >
                                             mOutputStreams;
         CaptureResultExtras                 mResultExtras;
+        // Used to cancel AE precapture trigger for devices doesn't support
+        // CONTROL_AE_PRECAPTURE_TRIGGER_CANCEL
+        AeTriggerCancelOverride_t           mAeTriggerCancelOverride;
     };
     typedef List<sp<CaptureRequest> > RequestList;
 
@@ -243,6 +280,13 @@ class Camera3Device :
      * Takes mLock.
      */
     virtual CameraMetadata getLatestRequestLocked();
+
+    /**
+     * Update the current device status and wake all waiting threads.
+     *
+     * Must be called with mLock held.
+     */
+    void internalUpdateStatusLocked(Status status);
 
     /**
      * Pause processing and flush everything, but don't tell the clients.
@@ -323,11 +367,11 @@ class Camera3Device :
      */
     bool               tryLockSpinRightRound(Mutex& lock);
 
-    struct Size {
-        int width;
-        int height;
-        Size(int w, int h) : width(w), height(h){}
-    };
+    /**
+     * Helper function to determine if an input size for implementation defined
+     * format is supported.
+     */
+    bool isOpaqueInputSizeSupported(uint32_t width, uint32_t height);
 
     /**
      * Helper function to get the largest Jpeg resolution (in area)
@@ -361,9 +405,10 @@ class Camera3Device :
 
         RequestThread(wp<Camera3Device> parent,
                 sp<camera3::StatusTracker> statusTracker,
-                camera3_device_t *hal3Device);
+                camera3_device_t *hal3Device,
+                bool aeLockAvailable);
 
-        void     setNotifyCallback(NotificationListener *listener);
+        void     setNotificationListener(NotificationListener *listener);
 
         /**
          * Call after stream (re)-configuration is completed.
@@ -427,6 +472,12 @@ class Camera3Device :
          */
         CameraMetadata getLatestRequest() const;
 
+        /**
+         * Returns true if the stream is a target of any queued or repeating
+         * capture request
+         */
+        bool isStreamPending(sp<camera3::Camera3StreamInterface>& stream);
+
       protected:
 
         virtual bool threadLoop();
@@ -468,6 +519,9 @@ class Camera3Device :
         // If the input request is in mRepeatingRequests. Must be called with mRequestLock hold
         bool isRepeatingRequestLocked(const sp<CaptureRequest>);
 
+        // Handle AE precapture trigger cancel for devices <= CAMERA_DEVICE_API_VERSION_3_2.
+        void handleAePrecaptureCancelRequest(sp<CaptureRequest> request);
+
         wp<Camera3Device>  mParent;
         wp<camera3::StatusTracker>  mStatusTracker;
         camera3_device_t  *mHal3Device;
@@ -482,6 +536,10 @@ class Camera3Device :
         Condition          mRequestSignal;
         RequestList        mRequestQueue;
         RequestList        mRepeatingRequests;
+        // The next request being prepped for submission to the HAL, no longer
+        // on the request queue. Read-only even with mRequestLock held, outside
+        // of threadLoop
+        sp<const CaptureRequest> mNextRequest;
 
         bool               mReconfigured;
 
@@ -512,6 +570,9 @@ class Camera3Device :
         uint32_t           mCurrentPreCaptureTriggerId;
 
         int64_t            mRepeatingLastFrameNumber;
+
+        // Whether the device supports AE lock
+        bool               mAeLockAvailable;
     };
     sp<RequestThread> mRequestThread;
 
@@ -534,7 +595,6 @@ class Camera3Device :
         // If this request has any input buffer
         bool hasInputBuffer;
 
-
         // The last metadata that framework receives from HAL and
         // not yet send out because the shutter event hasn't arrived.
         // It's added by process_capture_result and sent when framework
@@ -547,6 +607,9 @@ class Camera3Device :
         // the shutter event.
         Vector<camera3_stream_buffer_t> pendingOutputBuffers;
 
+        // Used to cancel AE precapture trigger for devices doesn't support
+        // CONTROL_AE_PRECAPTURE_TRIGGER_CANCEL
+        AeTriggerCancelOverride_t aeTriggerCancelOverride;
 
 
         // Fields used by the partial result only
@@ -568,38 +631,23 @@ class Camera3Device :
                 requestStatus(OK),
                 haveResultMetadata(false),
                 numBuffersLeft(0),
-                hasInputBuffer(false){
+                hasInputBuffer(false),
+                aeTriggerCancelOverride({false, 0, false, 0}){
         }
 
-        InFlightRequest(int numBuffers) :
-                shutterTimestamp(0),
-                sensorTimestamp(0),
-                requestStatus(OK),
-                haveResultMetadata(false),
-                numBuffersLeft(numBuffers),
-                hasInputBuffer(false){
-        }
-
-        InFlightRequest(int numBuffers, CaptureResultExtras extras) :
+        InFlightRequest(int numBuffers, CaptureResultExtras extras, bool hasInput,
+                AeTriggerCancelOverride aeTriggerCancelOverride) :
                 shutterTimestamp(0),
                 sensorTimestamp(0),
                 requestStatus(OK),
                 haveResultMetadata(false),
                 numBuffersLeft(numBuffers),
                 resultExtras(extras),
-                hasInputBuffer(false){
+                hasInputBuffer(hasInput),
+                aeTriggerCancelOverride(aeTriggerCancelOverride){
         }
+    };
 
-        InFlightRequest(int numBuffers, CaptureResultExtras extras, bool hasInput) :
-                shutterTimestamp(0),
-                sensorTimestamp(0),
-                requestStatus(OK),
-                haveResultMetadata(false),
-                numBuffersLeft(numBuffers),
-                resultExtras(extras),
-                hasInputBuffer(hasInput){
-        }
-};
     // Map from frame number to the in-flight request state
     typedef KeyedVector<uint32_t, InFlightRequest> InFlightMap;
 
@@ -607,7 +655,8 @@ class Camera3Device :
     InFlightMap            mInFlightMap;
 
     status_t registerInFlight(uint32_t frameNumber,
-            int32_t numBuffers, CaptureResultExtras resultExtras, bool hasInput);
+            int32_t numBuffers, CaptureResultExtras resultExtras, bool hasInput,
+            const AeTriggerCancelOverride_t &aeTriggerCancelOverride);
 
     /**
      * For the partial result, check if all 3A state fields are available
@@ -625,10 +674,57 @@ class Camera3Device :
     template<typename T>
     bool insert3AResult(CameraMetadata &result, int32_t tag, const T* value,
             uint32_t frameNumber);
+
+    /**
+     * Override result metadata for cancelling AE precapture trigger applied in
+     * handleAePrecaptureCancelRequest().
+     */
+    void overrideResultForPrecaptureCancel(CameraMetadata* result,
+            const AeTriggerCancelOverride_t &aeTriggerCancelOverride);
+
     /**
      * Tracking for idle detection
      */
     sp<camera3::StatusTracker> mStatusTracker;
+
+    /**
+     * Thread for preparing streams
+     */
+    class PreparerThread : private Thread, public virtual RefBase {
+      public:
+        PreparerThread();
+        ~PreparerThread();
+
+        void setNotificationListener(NotificationListener *listener);
+
+        /**
+         * Queue up a stream to be prepared. Streams are processed by
+         * a background thread in FIFO order
+         */
+        status_t prepare(sp<camera3::Camera3StreamInterface>& stream);
+
+        /**
+         * Cancel all current and pending stream preparation
+         */
+        status_t clear();
+
+      private:
+        Mutex mLock;
+
+        virtual bool threadLoop();
+
+        // Guarded by mLock
+
+        NotificationListener *mListener;
+        List<sp<camera3::Camera3StreamInterface> > mPendingStreams;
+        bool mActive;
+        bool mCancelNow;
+
+        // Only accessed by threadLoop and the destructor
+
+        sp<camera3::Camera3StreamInterface> mCurrentStream;
+    };
+    sp<PreparerThread> mPreparerThread;
 
     /**
      * Output result queue and current HAL device 3A state
@@ -638,8 +734,10 @@ class Camera3Device :
     Mutex                  mOutputLock;
 
     /**** Scope for mOutputLock ****/
-
+    // the minimal frame number of the next non-reprocess result
     uint32_t               mNextResultFrameNumber;
+    // the minimal frame number of the next reprocess result
+    uint32_t               mNextReprocessResultFrameNumber;
     uint32_t               mNextShutterFrameNumber;
     List<CaptureResult>   mResultQueue;
     Condition              mResultSignal;
@@ -668,7 +766,8 @@ class Camera3Device :
     // partial results, and the frame number to the result queue.
     void sendCaptureResult(CameraMetadata &pendingMetadata,
             CaptureResultExtras &resultExtras,
-            CameraMetadata &collectedPartialResult, uint32_t frameNumber);
+            CameraMetadata &collectedPartialResult, uint32_t frameNumber,
+            bool reprocess, const AeTriggerCancelOverride_t &aeTriggerCancelOverride);
 
     /**** Scope for mInFlightLock ****/
 

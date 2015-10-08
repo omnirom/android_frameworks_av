@@ -20,9 +20,14 @@
 
 #include <binder/IInterface.h>
 #include <gui/IGraphicBufferProducer.h>
+#include <gui/IGraphicBufferConsumer.h>
 #include <ui/GraphicBuffer.h>
 #include <utils/List.h>
 #include <utils/String8.h>
+
+#include <list>
+
+#include <media/hardware/MetadataBufferType.h>
 
 #include <OMX_Core.h>
 #include <OMX_Video.h>
@@ -80,14 +85,16 @@ public:
     virtual status_t getState(
             node_id node, OMX_STATETYPE* state) = 0;
 
+    // This will set *type to previous metadata buffer type on OMX error (not on binder error), and
+    // new metadata buffer type on success.
     virtual status_t storeMetaDataInBuffers(
-            node_id node, OMX_U32 port_index, OMX_BOOL enable) = 0;
+            node_id node, OMX_U32 port_index, OMX_BOOL enable, MetadataBufferType *type = NULL) = 0;
 
     virtual status_t prepareForAdaptivePlayback(
             node_id node, OMX_U32 portIndex, OMX_BOOL enable,
             OMX_U32 maxFrameWidth, OMX_U32 maxFrameHeight) = 0;
 
-   virtual status_t configureVideoTunnelMode(
+    virtual status_t configureVideoTunnelMode(
             node_id node, OMX_U32 portIndex, OMX_BOOL tunneled,
             OMX_U32 audioHwSync, native_handle_t **sidebandHandle) = 0;
 
@@ -97,9 +104,10 @@ public:
     virtual status_t getGraphicBufferUsage(
             node_id node, OMX_U32 port_index, OMX_U32* usage) = 0;
 
+    // Use |params| as an OMX buffer, but limit the size of the OMX buffer to |allottedSize|.
     virtual status_t useBuffer(
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-            buffer_id *buffer) = 0;
+            buffer_id *buffer, OMX_U32 allottedSize) = 0;
 
     virtual status_t useGraphicBuffer(
             node_id node, OMX_U32 port_index,
@@ -109,9 +117,23 @@ public:
             node_id node, OMX_U32 port_index,
             const sp<GraphicBuffer> &graphicBuffer, buffer_id buffer) = 0;
 
+    // This will set *type to resulting metadata buffer type on OMX error (not on binder error) as
+    // well as on success.
     virtual status_t createInputSurface(
             node_id node, OMX_U32 port_index,
-            sp<IGraphicBufferProducer> *bufferProducer) = 0;
+            sp<IGraphicBufferProducer> *bufferProducer,
+            MetadataBufferType *type = NULL) = 0;
+
+    virtual status_t createPersistentInputSurface(
+            sp<IGraphicBufferProducer> *bufferProducer,
+            sp<IGraphicBufferConsumer> *bufferConsumer) = 0;
+
+    // This will set *type to resulting metadata buffer type on OMX error (not on binder error) as
+    // well as on success.
+    virtual status_t setInputSurface(
+            node_id node, OMX_U32 port_index,
+            const sp<IGraphicBufferConsumer> &bufferConsumer,
+            MetadataBufferType *type) = 0;
 
     virtual status_t signalEndOfInputStream(node_id node) = 0;
 
@@ -123,20 +145,32 @@ public:
             node_id node, OMX_U32 port_index, size_t size,
             buffer_id *buffer, void **buffer_data) = 0;
 
+    // Allocate an OMX buffer of size |allotedSize|. Use |params| as the backup buffer, which
+    // may be larger.
     virtual status_t allocateBufferWithBackup(
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-            buffer_id *buffer) = 0;
+            buffer_id *buffer, OMX_U32 allottedSize) = 0;
 
     virtual status_t freeBuffer(
             node_id node, OMX_U32 port_index, buffer_id buffer) = 0;
 
-    virtual status_t fillBuffer(node_id node, buffer_id buffer) = 0;
+    enum {
+        kFenceTimeoutMs = 1000
+    };
+    // Calls OMX_FillBuffer on buffer, and passes |fenceFd| to component if it supports
+    // fences. Otherwise, it waits on |fenceFd| before calling OMX_FillBuffer.
+    // Takes ownership of |fenceFd| even if this call fails.
+    virtual status_t fillBuffer(node_id node, buffer_id buffer, int fenceFd = -1) = 0;
 
+    // Calls OMX_EmptyBuffer on buffer (after updating buffer header with |range_offset|,
+    // |range_length|, |flags| and |timestamp|). Passes |fenceFd| to component if it
+    // supports fences. Otherwise, it waits on |fenceFd| before calling OMX_EmptyBuffer.
+    // Takes ownership of |fenceFd| even if this call fails.
     virtual status_t emptyBuffer(
             node_id node,
             buffer_id buffer,
             OMX_U32 range_offset, OMX_U32 range_length,
-            OMX_U32 flags, OMX_TICKS timestamp) = 0;
+            OMX_U32 flags, OMX_TICKS timestamp, int fenceFd = -1) = 0;
 
     virtual status_t getExtensionIndex(
             node_id node,
@@ -147,6 +181,7 @@ public:
         INTERNAL_OPTION_SUSPEND,  // data is a bool
         INTERNAL_OPTION_REPEAT_PREVIOUS_FRAME_DELAY,  // data is an int64_t
         INTERNAL_OPTION_MAX_TIMESTAMP_GAP, // data is int64_t
+        INTERNAL_OPTION_MAX_FPS, // data is float
         INTERNAL_OPTION_START_TIME, // data is an int64_t
         INTERNAL_OPTION_TIME_LAPSE, // data is an int64_t[2]
     };
@@ -163,10 +198,11 @@ struct omx_message {
         EVENT,
         EMPTY_BUFFER_DONE,
         FILL_BUFFER_DONE,
-
+        FRAME_RENDERED,
     } type;
 
     IOMX::node_id node;
+    int fenceFd; // used for EMPTY_BUFFER_DONE and FILL_BUFFER_DONE; client must close this
 
     union {
         // if type == EVENT
@@ -190,6 +226,11 @@ struct omx_message {
             OMX_TICKS timestamp;
         } extended_buffer_data;
 
+        // if type == FRAME_RENDERED
+        struct {
+            OMX_TICKS timestamp;
+            OMX_S64 nanoTime;
+        } render_data;
     } u;
 };
 
@@ -197,7 +238,8 @@ class IOMXObserver : public IInterface {
 public:
     DECLARE_META_INTERFACE(OMXObserver);
 
-    virtual void onMessage(const omx_message &msg) = 0;
+    // Handle (list of) messages.
+    virtual void onMessages(const std::list<omx_message> &messages) = 0;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -222,5 +264,16 @@ struct CodecProfileLevel {
 };
 
 }  // namespace android
+
+inline static const char *asString(android::MetadataBufferType i, const char *def = "??") {
+    using namespace android;
+    switch (i) {
+        case kMetadataBufferTypeCameraSource:   return "CameraSource";
+        case kMetadataBufferTypeGrallocSource:  return "GrallocSource";
+        case kMetadataBufferTypeANWBuffer:      return "ANWBuffer";
+        case kMetadataBufferTypeInvalid:        return "Invalid";
+        default:                                return def;
+    }
+}
 
 #endif  // ANDROID_IOMX_H_

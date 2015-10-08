@@ -34,8 +34,8 @@
 #include <media/IMediaHTTPService.h>
 #include <media/MediaMetadataRetrieverInterface.h>
 #include <media/MediaPlayerInterface.h>
+#include <media/stagefright/DataSource.h>
 #include <private/media/VideoFrame.h>
-#include "MidiMetadataRetriever.h"
 #include "MetadataRetrieverClient.h"
 #include "StagefrightMetadataRetriever.h"
 #include "MediaPlayerFactory.h"
@@ -57,7 +57,7 @@ MetadataRetrieverClient::~MetadataRetrieverClient()
     disconnect();
 }
 
-status_t MetadataRetrieverClient::dump(int fd, const Vector<String16>& /*args*/) const
+status_t MetadataRetrieverClient::dump(int fd, const Vector<String16>& /*args*/)
 {
     const size_t SIZE = 256;
     char buffer[SIZE];
@@ -90,10 +90,6 @@ static sp<MediaMetadataRetrieverBase> createRetriever(player_type playerType)
             p = new StagefrightMetadataRetriever;
             break;
         }
-        case SONIVOX_PLAYER:
-            ALOGV("create midi metadata retriever");
-            p = new MidiMetadataRetriever();
-            break;
         default:
             // TODO:
             // support for TEST_PLAYER
@@ -145,7 +141,7 @@ status_t MetadataRetrieverClient::setDataSource(int fd, int64_t offset, int64_t 
         ALOGE("fstat(%d) failed: %d, %s", fd, ret, strerror(errno));
         return BAD_VALUE;
     }
-    ALOGV("st_dev  = %llu", sb.st_dev);
+    ALOGV("st_dev  = %llu", static_cast<uint64_t>(sb.st_dev));
     ALOGV("st_mode = %u", sb.st_mode);
     ALOGV("st_uid  = %lu", static_cast<unsigned long>(sb.st_uid));
     ALOGV("st_gid  = %lu", static_cast<unsigned long>(sb.st_gid));
@@ -178,10 +174,30 @@ status_t MetadataRetrieverClient::setDataSource(int fd, int64_t offset, int64_t 
     return status;
 }
 
+status_t MetadataRetrieverClient::setDataSource(
+        const sp<IDataSource>& source)
+{
+    ALOGV("setDataSource(IDataSource)");
+    Mutex::Autolock lock(mLock);
+
+    sp<DataSource> dataSource = DataSource::CreateFromIDataSource(source);
+    player_type playerType =
+        MediaPlayerFactory::getPlayerType(NULL /* client */, dataSource);
+    ALOGV("player type = %d", playerType);
+    sp<MediaMetadataRetrieverBase> p = createRetriever(playerType);
+    if (p == NULL) return NO_INIT;
+    status_t ret = p->setDataSource(dataSource);
+    if (ret == NO_ERROR) mRetriever = p;
+    return ret;
+}
+
+Mutex MetadataRetrieverClient::sLock;
+
 sp<IMemory> MetadataRetrieverClient::getFrameAtTime(int64_t timeUs, int option)
 {
     ALOGV("getFrameAtTime: time(%lld us) option(%d)", timeUs, option);
     Mutex::Autolock lock(mLock);
+    Mutex::Autolock glock(sLock);
     mThumbnail.clear();
     if (mRetriever == NULL) {
         ALOGE("retriever is not initialized");

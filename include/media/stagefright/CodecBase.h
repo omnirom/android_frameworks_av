@@ -26,6 +26,7 @@
 namespace android {
 
 struct ABuffer;
+struct PersistentSurface;
 
 struct CodecBase : public AHandler {
     enum {
@@ -39,8 +40,10 @@ struct CodecBase : public AHandler {
         kWhatComponentAllocated  = 'cAll',
         kWhatComponentConfigured = 'cCon',
         kWhatInputSurfaceCreated = 'isfc',
+        kWhatInputSurfaceAccepted = 'isfa',
         kWhatSignaledInputEOS    = 'seos',
         kWhatBuffersAllocated    = 'allc',
+        kWhatOutputFramesRendered = 'outR',
     };
 
     virtual void setNotificationMessage(const sp<AMessage> &msg) = 0;
@@ -48,11 +51,15 @@ struct CodecBase : public AHandler {
     virtual void initiateAllocateComponent(const sp<AMessage> &msg) = 0;
     virtual void initiateConfigureComponent(const sp<AMessage> &msg) = 0;
     virtual void initiateCreateInputSurface() = 0;
+    virtual void initiateSetInputSurface(
+            const sp<PersistentSurface> &surface) = 0;
     virtual void initiateStart() = 0;
     virtual void initiateShutdown(bool keepComponentAllocated = false) = 0;
 
     // require an explicit message handler
     virtual void onMessageReceived(const sp<AMessage> &msg) = 0;
+
+    virtual status_t setSurface(const sp<Surface> &surface) { return INVALID_OPERATION; }
 
     virtual void signalFlush() = 0;
     virtual void signalResume() = 0;

@@ -32,7 +32,10 @@
 #include <gui/Surface.h>
 
 #include <media/mediaplayer.h>
+#include <media/AudioResamplerPublic.h>
 #include <media/AudioSystem.h>
+#include <media/AVSyncSettings.h>
+#include <media/IDataSource.h>
 
 #include <binder/MemoryBase.h>
 
@@ -194,6 +197,22 @@ status_t MediaPlayer::setDataSource(const sp<IStreamSource> &source)
     return err;
 }
 
+status_t MediaPlayer::setDataSource(const sp<IDataSource> &source)
+{
+    ALOGV("setDataSource(IDataSource)");
+    status_t err = UNKNOWN_ERROR;
+    const sp<IMediaPlayerService>& service(getMediaPlayerService());
+    if (service != 0) {
+        sp<IMediaPlayer> player(service->create(this, mAudioSessionId));
+        if ((NO_ERROR != doSetRetransmitEndpoint(player)) ||
+            (NO_ERROR != player->setDataSource(source))) {
+            player.clear();
+        }
+        err = attachNewPlayer(player);
+    }
+    return err;
+}
+
 status_t MediaPlayer::invoke(const Parcel& request, Parcel *reply)
 {
     Mutex::Autolock _l(mLock);
@@ -240,10 +259,11 @@ status_t MediaPlayer::setVideoSurfaceTexture(
 // must call with lock held
 status_t MediaPlayer::prepareAsync_l()
 {
-    if ( (mPlayer != 0) && ( mCurrentState & ( MEDIA_PLAYER_INITIALIZED | MEDIA_PLAYER_STOPPED) ) ) {
-        mPlayer->setAudioStreamType(mStreamType);
+    if ( (mPlayer != 0) && ( mCurrentState & (MEDIA_PLAYER_INITIALIZED | MEDIA_PLAYER_STOPPED) ) ) {
         if (mAudioAttributesParcel != NULL) {
             mPlayer->setParameter(KEY_PARAMETER_AUDIO_ATTRIBUTES, *mAudioAttributesParcel);
+        } else {
+            mPlayer->setAudioStreamType(mStreamType);
         }
         mCurrentState = MEDIA_PLAYER_PREPARING;
         return mPlayer->prepareAsync();
@@ -371,11 +391,60 @@ bool MediaPlayer::isPlaying()
         if ((mCurrentState & MEDIA_PLAYER_STARTED) && ! temp) {
             ALOGE("internal/external state mismatch corrected");
             mCurrentState = MEDIA_PLAYER_PAUSED;
+        } else if ((mCurrentState & MEDIA_PLAYER_PAUSED) && temp) {
+            ALOGE("internal/external state mismatch corrected");
+            mCurrentState = MEDIA_PLAYER_STARTED;
         }
         return temp;
     }
     ALOGV("isPlaying: no active player");
     return false;
+}
+
+status_t MediaPlayer::setPlaybackSettings(const AudioPlaybackRate& rate)
+{
+    ALOGV("setPlaybackSettings: %f %f %d %d",
+            rate.mSpeed, rate.mPitch, rate.mFallbackMode, rate.mStretchMode);
+    // Negative speed and pitch does not make sense. Further validation will
+    // be done by the respective mediaplayers.
+    if (rate.mSpeed < 0.f || rate.mPitch < 0.f) {
+        return BAD_VALUE;
+    }
+    Mutex::Autolock _l(mLock);
+    if (mPlayer == 0) return INVALID_OPERATION;
+    status_t err = mPlayer->setPlaybackSettings(rate);
+    if (err == OK) {
+        if (rate.mSpeed == 0.f && mCurrentState == MEDIA_PLAYER_STARTED) {
+            mCurrentState = MEDIA_PLAYER_PAUSED;
+        } else if (rate.mSpeed != 0.f && mCurrentState == MEDIA_PLAYER_PAUSED) {
+            mCurrentState = MEDIA_PLAYER_STARTED;
+        }
+    }
+    return err;
+}
+
+status_t MediaPlayer::getPlaybackSettings(AudioPlaybackRate* rate /* nonnull */)
+{
+    Mutex::Autolock _l(mLock);
+    if (mPlayer == 0) return INVALID_OPERATION;
+    return mPlayer->getPlaybackSettings(rate);
+}
+
+status_t MediaPlayer::setSyncSettings(const AVSyncSettings& sync, float videoFpsHint)
+{
+    ALOGV("setSyncSettings: %u %u %f %f",
+            sync.mSource, sync.mAudioAdjustMode, sync.mTolerance, videoFpsHint);
+    Mutex::Autolock _l(mLock);
+    if (mPlayer == 0) return INVALID_OPERATION;
+    return mPlayer->setSyncSettings(sync, videoFpsHint);
+}
+
+status_t MediaPlayer::getSyncSettings(
+        AVSyncSettings* sync /* nonnull */, float* videoFps /* nonnull */)
+{
+    Mutex::Autolock _l(mLock);
+    if (mPlayer == 0) return INVALID_OPERATION;
+    return mPlayer->getSyncSettings(sync, videoFps);
 }
 
 status_t MediaPlayer::getVideoWidth(int *w)
@@ -414,7 +483,8 @@ status_t MediaPlayer::getCurrentPosition(int *msec)
 status_t MediaPlayer::getDuration_l(int *msec)
 {
     ALOGV("getDuration_l");
-    bool isValidState = (mCurrentState & (MEDIA_PLAYER_PREPARED | MEDIA_PLAYER_STARTED | MEDIA_PLAYER_PAUSED | MEDIA_PLAYER_STOPPED | MEDIA_PLAYER_PLAYBACK_COMPLETE));
+    bool isValidState = (mCurrentState & (MEDIA_PLAYER_PREPARED | MEDIA_PLAYER_STARTED |
+            MEDIA_PLAYER_PAUSED | MEDIA_PLAYER_STOPPED | MEDIA_PLAYER_PLAYBACK_COMPLETE));
     if (mPlayer != 0 && isValidState) {
         int durationMs;
         status_t ret = mPlayer->getDuration(&durationMs);
@@ -443,7 +513,8 @@ status_t MediaPlayer::getDuration(int *msec)
 status_t MediaPlayer::seekTo_l(int msec)
 {
     ALOGV("seekTo %d", msec);
-    if ((mPlayer != 0) && ( mCurrentState & ( MEDIA_PLAYER_STARTED | MEDIA_PLAYER_PREPARED | MEDIA_PLAYER_PAUSED |  MEDIA_PLAYER_PLAYBACK_COMPLETE) ) ) {
+    if ((mPlayer != 0) && ( mCurrentState & ( MEDIA_PLAYER_STARTED | MEDIA_PLAYER_PREPARED |
+            MEDIA_PLAYER_PAUSED |  MEDIA_PLAYER_PLAYBACK_COMPLETE) ) ) {
         if ( msec < 0 ) {
             ALOGW("Attempt to seek to invalid position: %d", msec);
             msec = 0;
@@ -477,7 +548,8 @@ status_t MediaPlayer::seekTo_l(int msec)
             return NO_ERROR;
         }
     }
-    ALOGE("Attempt to perform seekTo in wrong state: mPlayer=%p, mCurrentState=%u", mPlayer.get(), mCurrentState);
+    ALOGE("Attempt to perform seekTo in wrong state: mPlayer=%p, mCurrentState=%u", mPlayer.get(),
+            mCurrentState);
     return INVALID_OPERATION;
 }
 
@@ -502,6 +574,7 @@ status_t MediaPlayer::reset_l()
             ALOGE("reset() failed with return code (%d)", ret);
             mCurrentState = MEDIA_PLAYER_STATE_ERROR;
         } else {
+            mPlayer->disconnect();
             mCurrentState = MEDIA_PLAYER_IDLE;
         }
         // setDataSource has to be called again to create a
@@ -663,24 +736,28 @@ status_t MediaPlayer::checkStateForKeySet_l(int key)
 status_t MediaPlayer::setParameter(int key, const Parcel& request)
 {
     ALOGV("MediaPlayer::setParameter(%d)", key);
+    status_t status = INVALID_OPERATION;
     Mutex::Autolock _l(mLock);
     if (checkStateForKeySet_l(key) != OK) {
-        return INVALID_OPERATION;
-    }
-    if (mPlayer != NULL) {
-        return  mPlayer->setParameter(key, request);
+        return status;
     }
     switch (key) {
     case KEY_PARAMETER_AUDIO_ATTRIBUTES:
-        // no player, save the marshalled audio attributes
+        // save the marshalled audio attributes
         if (mAudioAttributesParcel != NULL) { delete mAudioAttributesParcel; };
         mAudioAttributesParcel = new Parcel();
         mAudioAttributesParcel->appendFrom(&request, 0, request.dataSize());
-        return OK;
+        status = OK;
+        break;
     default:
-        ALOGV("setParameter: no active player");
-        return INVALID_OPERATION;
+        ALOGV_IF(mPlayer == NULL, "setParameter: no active player");
+        break;
     }
+
+    if (mPlayer != NULL) {
+        status = mPlayer->setParameter(key, request);
+    }
+    return status;
 }
 
 status_t MediaPlayer::getParameter(int key, Parcel *reply)
@@ -818,6 +895,9 @@ void MediaPlayer::notify(int msg, int ext1, int ext2, const Parcel *obj)
     case MEDIA_SUBTITLE_DATA:
         ALOGV("Received subtitle data message");
         break;
+    case MEDIA_META_DATA:
+        ALOGV("Received timed metadata message");
+        break;
     default:
         ALOGV("unrecognized message: (%d, %d, %d)", msg, ext1, ext2);
         break;
@@ -835,51 +915,10 @@ void MediaPlayer::notify(int msg, int ext1, int ext2, const Parcel *obj)
     }
 }
 
-/*static*/ status_t MediaPlayer::decode(
-        const sp<IMediaHTTPService> &httpService,
-        const char* url,
-        uint32_t *pSampleRate,
-        int* pNumChannels,
-        audio_format_t* pFormat,
-        const sp<IMemoryHeap>& heap,
-        size_t *pSize)
-{
-    ALOGV("decode(%s)", url);
-    status_t status;
-    const sp<IMediaPlayerService>& service = getMediaPlayerService();
-    if (service != 0) {
-        status = service->decode(httpService, url, pSampleRate, pNumChannels, pFormat, heap, pSize);
-    } else {
-        ALOGE("Unable to locate media service");
-        status = DEAD_OBJECT;
-    }
-    return status;
-
-}
-
 void MediaPlayer::died()
 {
     ALOGV("died");
     notify(MEDIA_ERROR, MEDIA_ERROR_SERVER_DIED, 0);
-}
-
-/*static*/ status_t MediaPlayer::decode(int fd, int64_t offset, int64_t length,
-                                        uint32_t *pSampleRate, int* pNumChannels,
-                                        audio_format_t* pFormat,
-                                        const sp<IMemoryHeap>& heap, size_t *pSize)
-{
-    ALOGV("decode(%d, %" PRId64 ", %" PRId64 ")", fd, offset, length);
-    status_t status;
-    const sp<IMediaPlayerService>& service = getMediaPlayerService();
-    if (service != 0) {
-        status = service->decode(fd, offset, length, pSampleRate,
-                                 pNumChannels, pFormat, heap, pSize);
-    } else {
-        ALOGE("Unable to locate media service");
-        status = DEAD_OBJECT;
-    }
-    return status;
-
 }
 
 status_t MediaPlayer::setNextMediaPlayer(const sp<MediaPlayer>& next) {
@@ -896,4 +935,4 @@ status_t MediaPlayer::setNextMediaPlayer(const sp<MediaPlayer>& next) {
     return mPlayer->setNextPlayer(next == NULL ? NULL : next->mPlayer);
 }
 
-}; // namespace android
+} // namespace android

@@ -143,7 +143,7 @@ status_t SoundTriggerHwService::attach(const sound_trigger_module_handle_t handl
     sp<Module> module = mModules.valueAt(index);
 
     module->setClient(client);
-    client->asBinder()->linkToDeath(module);
+    IInterface::asBinder(client)->linkToDeath(module);
     moduleInterface = module;
 
     module->setCaptureState_l(mCaptureState);
@@ -510,7 +510,7 @@ void SoundTriggerHwService::Module::detach() {
         mModels.clear();
     }
     if (mClient != 0) {
-        mClient->asBinder()->unlinkToDeath(this);
+        IInterface::asBinder(mClient)->unlinkToDeath(this);
     }
     sp<SoundTriggerHwService> service = mService.promote();
     if (service == 0) {
@@ -787,6 +787,7 @@ void SoundTriggerHwService::Module::setCaptureState_l(bool active)
                 mHwDevice->stop_recognition(mHwDevice, model->mHandle);
                 // keep model in ACTIVE state so that event is processed by onCallbackEvent()
                 struct sound_trigger_phrase_recognition_event phraseEvent;
+                memset(&phraseEvent, 0, sizeof(struct sound_trigger_phrase_recognition_event));
                 switch (model->mType) {
                 case SOUND_MODEL_TYPE_KEYPHRASE:
                     phraseEvent.num_phrases = model->mConfig.num_phrases;

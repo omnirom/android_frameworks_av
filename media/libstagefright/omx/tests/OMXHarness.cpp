@@ -64,9 +64,11 @@ status_t Harness::initOMX() {
     return mOMX != 0 ? OK : NO_INIT;
 }
 
-void Harness::onMessage(const omx_message &msg) {
+void Harness::onMessages(const std::list<omx_message> &messages) {
     Mutex::Autolock autoLock(mLock);
-    mMessageQueue.push_back(msg);
+    for (std::list<omx_message>::const_iterator it = messages.cbegin(); it != messages.cend(); ) {
+        mMessageQueue.push_back(*it++);
+    }
     mMessageAddedCondition.signal();
 }
 
@@ -193,7 +195,7 @@ status_t Harness::allocatePortBuffers(
         CHECK(buffer.mMemory != NULL);
 
         err = mOMX->allocateBufferWithBackup(
-                node, portIndex, buffer.mMemory, &buffer.mID);
+                node, portIndex, buffer.mMemory, &buffer.mID, buffer.mMemory->size());
         EXPECT_SUCCESS(err, "allocateBuffer");
 
         buffers->push(buffer);
@@ -251,29 +253,6 @@ static sp<MediaExtractor> CreateExtractorFromURI(const char *uri) {
     }
 
     return MediaExtractor::Create(source);
-}
-
-static sp<MediaSource> MakeSource(
-        const char *uri,
-        const char *mimeType) {
-    sp<MediaExtractor> extractor = CreateExtractorFromURI(uri);
-
-    if (extractor == NULL) {
-        return NULL;
-    }
-
-    for (size_t i = 0; i < extractor->countTracks(); ++i) {
-        sp<MetaData> meta = extractor->getTrackMetaData(i);
-
-        const char *trackMIME;
-        CHECK(meta->findCString(kKeyMIMEType, &trackMIME));
-
-        if (!strcasecmp(trackMIME, mimeType)) {
-            return extractor->getTrack(i);
-        }
-    }
-
-    return NULL;
 }
 
 status_t Harness::testStateTransitions(

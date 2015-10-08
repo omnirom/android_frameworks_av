@@ -26,8 +26,10 @@
 #include <utils/RefBase.h>
 
 #include <media/mediaplayer.h>
+#include <media/AudioResamplerPublic.h>
 #include <media/AudioSystem.h>
 #include <media/AudioTimestamp.h>
+#include <media/AVSyncSettings.h>
 #include <media/Metadata.h>
 
 // Fwd decl to make sure everyone agrees that the scope of struct sockaddr_in is
@@ -36,6 +38,7 @@ struct sockaddr_in;
 
 namespace android {
 
+class DataSource;
 class Parcel;
 class Surface;
 class IGraphicBufferProducer;
@@ -43,8 +46,6 @@ class IGraphicBufferProducer;
 template<typename T> class SortedVector;
 
 enum player_type {
-    PV_PLAYER = 1,
-    SONIVOX_PLAYER = 2,
     STAGEFRIGHT_PLAYER = 3,
     NU_PLAYER = 4,
     // Test players are available only in the 'test' and 'eng' builds.
@@ -90,7 +91,6 @@ public:
 
         virtual             ~AudioSink() {}
         virtual bool        ready() const = 0; // audio output is open and ready
-        virtual bool        realtime() const = 0; // audio output is real-time output
         virtual ssize_t     bufferSize() const = 0;
         virtual ssize_t     frameCount() const = 0;
         virtual ssize_t     channelCount() const = 0;
@@ -113,20 +113,35 @@ public:
                 AudioCallback cb = NULL,
                 void *cookie = NULL,
                 audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
-                const audio_offload_info_t *offloadInfo = NULL) = 0;
+                const audio_offload_info_t *offloadInfo = NULL,
+                bool doNotReconnect = false,
+                uint32_t suggestedFrameCount = 0) = 0;
 
         virtual status_t    start() = 0;
-        virtual ssize_t     write(const void* buffer, size_t size) = 0;
+
+        /* Input parameter |size| is in byte units stored in |buffer|.
+         * Data is copied over and actual number of bytes written (>= 0)
+         * is returned, or no data is copied and a negative status code
+         * is returned (even when |blocking| is true).
+         * When |blocking| is false, AudioSink will immediately return after
+         * part of or full |buffer| is copied over.
+         * When |blocking| is true, AudioSink will wait to copy the entire
+         * buffer, unless an error occurs or the copy operation is
+         * prematurely stopped.
+         */
+        virtual ssize_t     write(const void* buffer, size_t size, bool blocking = true) = 0;
+
         virtual void        stop() = 0;
         virtual void        flush() = 0;
         virtual void        pause() = 0;
         virtual void        close() = 0;
 
-        virtual status_t    setPlaybackRatePermille(int32_t rate) { return INVALID_OPERATION; }
+        virtual status_t    setPlaybackRate(const AudioPlaybackRate& rate) = 0;
+        virtual status_t    getPlaybackRate(AudioPlaybackRate* rate /* nonnull */) = 0;
         virtual bool        needsTrailingPadding() { return true; }
 
-        virtual status_t    setParameters(const String8& keyValuePairs) { return NO_ERROR; };
-        virtual String8     getParameters(const String8& keys) { return String8::empty(); };
+        virtual status_t    setParameters(const String8& /* keyValuePairs */) { return NO_ERROR; }
+        virtual String8     getParameters(const String8& /* keys */) { return String8::empty(); }
     };
 
                         MediaPlayerBase() : mCookie(0), mNotify(0) {}
@@ -134,7 +149,7 @@ public:
     virtual status_t    initCheck() = 0;
     virtual bool        hardwareOutput() = 0;
 
-    virtual status_t    setUID(uid_t uid) {
+    virtual status_t    setUID(uid_t /* uid */) {
         return INVALID_OPERATION;
     }
 
@@ -145,7 +160,11 @@ public:
 
     virtual status_t    setDataSource(int fd, int64_t offset, int64_t length) = 0;
 
-    virtual status_t    setDataSource(const sp<IStreamSource> &source) {
+    virtual status_t    setDataSource(const sp<IStreamSource>& /* source */) {
+        return INVALID_OPERATION;
+    }
+
+    virtual status_t    setDataSource(const sp<DataSource>& /* source */) {
         return INVALID_OPERATION;
     }
 
@@ -159,6 +178,31 @@ public:
     virtual status_t    stop() = 0;
     virtual status_t    pause() = 0;
     virtual bool        isPlaying() = 0;
+    virtual status_t    setPlaybackSettings(const AudioPlaybackRate& rate) {
+        // by default, players only support setting rate to the default
+        if (!isAudioPlaybackRateEqual(rate, AUDIO_PLAYBACK_RATE_DEFAULT)) {
+            return BAD_VALUE;
+        }
+        return OK;
+    }
+    virtual status_t    getPlaybackSettings(AudioPlaybackRate* rate /* nonnull */) {
+        *rate = AUDIO_PLAYBACK_RATE_DEFAULT;
+        return OK;
+    }
+    virtual status_t    setSyncSettings(const AVSyncSettings& sync, float /* videoFps */) {
+        // By default, players only support setting sync source to default; all other sync
+        // settings are ignored. There is no requirement for getters to return set values.
+        if (sync.mSource != AVSYNC_SOURCE_DEFAULT) {
+            return BAD_VALUE;
+        }
+        return OK;
+    }
+    virtual status_t    getSyncSettings(
+                                AVSyncSettings* sync /* nonnull */, float* videoFps /* nonnull */) {
+        *sync = AVSyncSettings();
+        *videoFps = -1.f;
+        return OK;
+    }
     virtual status_t    seekTo(int msec) = 0;
     virtual status_t    getCurrentPosition(int *msec) = 0;
     virtual status_t    getDuration(int *msec) = 0;
@@ -169,13 +213,13 @@ public:
     virtual status_t    getParameter(int key, Parcel *reply) = 0;
 
     // default no-op implementation of optional extensions
-    virtual status_t setRetransmitEndpoint(const struct sockaddr_in* endpoint) {
+    virtual status_t setRetransmitEndpoint(const struct sockaddr_in* /* endpoint */) {
         return INVALID_OPERATION;
     }
-    virtual status_t getRetransmitEndpoint(struct sockaddr_in* endpoint) {
+    virtual status_t getRetransmitEndpoint(struct sockaddr_in* /* endpoint */) {
         return INVALID_OPERATION;
     }
-    virtual status_t setNextPlayer(const sp<MediaPlayerBase>& next) {
+    virtual status_t setNextPlayer(const sp<MediaPlayerBase>& /* next */) {
         return OK;
     }
 
@@ -195,8 +239,8 @@ public:
     //            the known metadata should be returned.
     // @param[inout] records Parcel where the player appends its metadata.
     // @return OK if the call was successful.
-    virtual status_t    getMetadata(const media::Metadata::Filter& ids,
-                                    Parcel *records) {
+    virtual status_t    getMetadata(const media::Metadata::Filter& /* ids */,
+                                    Parcel* /* records */) {
         return INVALID_OPERATION;
     };
 
@@ -219,7 +263,7 @@ public:
         if (notifyCB) notifyCB(cookie, msg, ext1, ext2, obj);
     }
 
-    virtual status_t dump(int fd, const Vector<String16> &args) const {
+    virtual status_t dump(int /* fd */, const Vector<String16>& /* args */) const {
         return INVALID_OPERATION;
     }
 

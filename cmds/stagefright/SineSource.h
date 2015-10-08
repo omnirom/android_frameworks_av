@@ -3,10 +3,11 @@
 #define SINE_SOURCE_H_
 
 #include <media/stagefright/MediaSource.h>
+#include <utils/Compat.h>
 
 namespace android {
 
-struct MediaBufferGroup;
+class MediaBufferGroup;
 
 struct SineSource : public MediaSource {
     SineSource(int32_t sampleRate, int32_t numChannels);
@@ -24,7 +25,7 @@ protected:
 
 private:
     enum { kBufferSize = 8192 };
-    static const double kFrequency = 500.0;
+    static const CONSTEXPR double kFrequency = 500.0;
 
     bool mStarted;
     int32_t mSampleRate;

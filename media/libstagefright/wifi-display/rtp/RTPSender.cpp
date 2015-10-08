@@ -95,11 +95,11 @@ status_t RTPSender::initAsync(
         return INVALID_OPERATION;
     }
 
-    sp<AMessage> rtpNotify = new AMessage(kWhatRTPNotify, id());
+    sp<AMessage> rtpNotify = new AMessage(kWhatRTPNotify, this);
 
     sp<AMessage> rtcpNotify;
     if (remoteRTCPPort >= 0) {
-        rtcpNotify = new AMessage(kWhatRTCPNotify, id());
+        rtcpNotify = new AMessage(kWhatRTCPNotify, this);
     }
 
     CHECK_EQ(mRTPSessionID, 0);
@@ -251,8 +251,6 @@ status_t RTPSender::queueTSPackets(
 
     int64_t timeUs;
     CHECK(tsPackets->meta()->findInt64("timeUs", &timeUs));
-
-    const size_t numTSPackets = tsPackets->size() / 188;
 
     size_t srcOffset = 0;
     while (srcOffset < tsPackets->size()) {
@@ -672,8 +670,8 @@ status_t RTPSender::onRTCPData(const sp<ABuffer> &buffer) {
 
             default:
             {
-                ALOGW("Unknown RTCP packet type %u of size %d",
-                     (unsigned)data[1], headerLength);
+                ALOGW("Unknown RTCP packet type %u of size %zu",
+                        (unsigned)data[1], headerLength);
                 break;
             }
         }
@@ -764,7 +762,7 @@ status_t RTPSender::parseTSFB(const uint8_t *data, size_t size) {
     return OK;
 }
 
-status_t RTPSender::parseAPP(const uint8_t *data, size_t size) {
+status_t RTPSender::parseAPP(const uint8_t *data, size_t size __unused) {
     if (!memcmp("late", &data[8], 4)) {
         int64_t avgLatencyUs = (int64_t)U64_AT(&data[12]);
         int64_t maxLatencyUs = (int64_t)U64_AT(&data[20]);

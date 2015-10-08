@@ -87,7 +87,7 @@ status_t JpegProcessor::updateStream(const Parameters &params) {
         BufferQueue::createBufferQueue(&producer, &consumer);
         mCaptureConsumer = new CpuConsumer(consumer, 1);
         mCaptureConsumer->setFrameAvailableListener(this);
-        mCaptureConsumer->setName(String8("Camera2Client::CaptureConsumer"));
+        mCaptureConsumer->setName(String8("Camera2-JpegConsumer"));
         mCaptureWindow = new Surface(producer);
     }
 
@@ -115,7 +115,7 @@ status_t JpegProcessor::updateStream(const Parameters &params) {
         // Check if stream parameters have to change
         uint32_t currentWidth, currentHeight;
         res = device->getStreamInfo(mCaptureStreamId,
-                &currentWidth, &currentHeight, 0);
+                &currentWidth, &currentHeight, 0, 0);
         if (res != OK) {
             ALOGE("%s: Camera %d: Error querying capture output stream info: "
                     "%s (%d)", __FUNCTION__,
@@ -145,7 +145,8 @@ status_t JpegProcessor::updateStream(const Parameters &params) {
         // Create stream for HAL production
         res = device->createStream(mCaptureWindow,
                 params.pictureWidth, params.pictureHeight,
-                HAL_PIXEL_FORMAT_BLOB, &mCaptureStreamId);
+                HAL_PIXEL_FORMAT_BLOB, HAL_DATASPACE_JFIF,
+                CAMERA3_STREAM_ROTATION_0, &mCaptureStreamId);
         if (res != OK) {
             ALOGE("%s: Camera %d: Can't create output stream for capture: "
                     "%s (%d)", __FUNCTION__, mId,

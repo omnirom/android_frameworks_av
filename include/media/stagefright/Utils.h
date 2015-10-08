@@ -41,7 +41,7 @@ uint64_t U64LE_AT(const uint8_t *ptr);
 uint64_t ntoh64(uint64_t x);
 uint64_t hton64(uint64_t x);
 
-struct MetaData;
+class MetaData;
 struct AMessage;
 status_t convertMetaDataToMessage(
         const sp<MetaData> &meta, sp<AMessage> *format);
@@ -64,6 +64,26 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
                       bool isStreaming, audio_stream_type_t streamType);
 
 AString uriDebugString(const AString &uri, bool incognito = false);
+
+struct HLSTime {
+    int32_t mSeq;
+    int64_t mTimeUs;
+    sp<AMessage> mMeta;
+
+    HLSTime(const sp<AMessage> &meta = NULL);
+    int64_t getSegmentTimeUs() const;
+};
+
+bool operator <(const HLSTime &t0, const HLSTime &t1);
+
+// read and write various object to/from AMessage
+
+void writeToAMessage(sp<AMessage> msg, const AudioPlaybackRate &rate);
+void readFromAMessage(const sp<AMessage> &msg, AudioPlaybackRate *rate /* nonnull */);
+
+void writeToAMessage(sp<AMessage> msg, const AVSyncSettings &sync, float videoFpsHint);
+void readFromAMessage(
+        const sp<AMessage> &msg, AVSyncSettings *sync /* nonnull */, float *videoFps /* nonnull */);
 
 }  // namespace android
 

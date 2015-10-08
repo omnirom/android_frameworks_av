@@ -26,10 +26,9 @@
 namespace android {
 
 struct MediaSource;
-struct MetaData;
+class MetaData;
 
 struct AMRWriter : public MediaWriter {
-    AMRWriter(const char *filename);
     AMRWriter(int fd);
 
     status_t initCheck() const;

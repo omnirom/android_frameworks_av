@@ -21,6 +21,7 @@
 #include "HTTPBase.h"
 #include "TimedEventQueue.h"
 
+#include <media/AudioResamplerPublic.h>
 #include <media/MediaPlayerInterface.h>
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/OMXClient.h>
@@ -31,20 +32,20 @@
 
 namespace android {
 
-struct AudioPlayer;
+class AudioPlayer;
 struct ClockEstimator;
-struct DataSource;
-struct MediaBuffer;
+class IDataSource;
+class MediaBuffer;
 struct MediaExtractor;
 struct MediaSource;
 struct NuCachedSource2;
-struct IGraphicBufferProducer;
+class IGraphicBufferProducer;
 
 class DrmManagerClinet;
 class DecryptHandle;
 
 class TimedTextDriver;
-struct WVMExtractor;
+class WVMExtractor;
 
 struct AwesomeRenderer : public RefBase {
     AwesomeRenderer() {}
@@ -93,6 +94,8 @@ struct AwesomePlayer {
 
     status_t setParameter(int key, const Parcel &request);
     status_t getParameter(int key, Parcel *reply);
+    status_t setPlaybackSettings(const AudioPlaybackRate &rate);
+    status_t getPlaybackSettings(AudioPlaybackRate *rate /* nonnull */);
     status_t invoke(const Parcel &request, Parcel *reply);
     status_t setCacheStatCollectFreq(const Parcel &request);
 
@@ -180,6 +183,7 @@ private:
     sp<MediaSource> mOmxSource;
     sp<MediaSource> mAudioSource;
     AudioPlayer *mAudioPlayer;
+    AudioPlaybackRate mPlaybackSettings;
     int64_t mDurationUs;
 
     int32_t mDisplayWidth;

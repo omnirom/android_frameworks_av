@@ -67,7 +67,7 @@ Camera2Client::Camera2Client(const sp<CameraService>& cameraService,
     mLegacyMode = legacyMode;
 }
 
-status_t Camera2Client::initialize(camera_module_t *module)
+status_t Camera2Client::initialize(CameraModule *module)
 {
     ATRACE_CALL();
     ALOGV("%s: Initializing client for camera %d", __FUNCTION__, mCameraId);
@@ -121,7 +121,8 @@ status_t Camera2Client::initialize(camera_module_t *module)
         }
         case CAMERA_DEVICE_API_VERSION_3_0:
         case CAMERA_DEVICE_API_VERSION_3_1:
-        case CAMERA_DEVICE_API_VERSION_3_2: {
+        case CAMERA_DEVICE_API_VERSION_3_2:
+        case CAMERA_DEVICE_API_VERSION_3_3: {
             sp<ZslProcessor3> zslProc =
                     new ZslProcessor3(this, mCaptureSequencer);
             mZslProcessor = zslProc;
@@ -163,10 +164,9 @@ Camera2Client::~Camera2Client() {
 
 status_t Camera2Client::dump(int fd, const Vector<String16>& args) {
     String8 result;
-    result.appendFormat("Client2[%d] (%p) Client: %s PID: %d, dump:\n",
-            mCameraId,
-            getRemoteCallback()->asBinder().get(),
-            String8(mClientPackageName).string(),
+    result.appendFormat("Client2[%d] (%p) PID: %d, dump:\n", mCameraId,
+            (getRemoteCallback() != NULL ?
+                    (IInterface::asBinder(getRemoteCallback()).get()) : NULL),
             mClientPid);
     result.append("  State: ");
 #define CASE_APPEND_ENUM(x) case x: result.append(#x "\n"); break;
@@ -529,9 +529,9 @@ status_t Camera2Client::setPreviewTarget(
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
     sp<IBinder> binder;
-    sp<ANativeWindow> window;
+    sp<Surface> window;
     if (bufferProducer != 0) {
-        binder = bufferProducer->asBinder();
+        binder = IInterface::asBinder(bufferProducer);
         // Using controlledByApp flag to ensure that the buffer queue remains in
         // async mode for the old camera API, where many applications depend
         // on that behavior.
@@ -541,7 +541,7 @@ status_t Camera2Client::setPreviewTarget(
 }
 
 status_t Camera2Client::setPreviewWindowL(const sp<IBinder>& binder,
-        sp<ANativeWindow> window) {
+        sp<Surface> window) {
     ATRACE_CALL();
     status_t res;
 
@@ -666,7 +666,7 @@ status_t Camera2Client::setPreviewCallbackTarget(
     status_t res;
     if ( (res = checkPid(__FUNCTION__) ) != OK) return res;
 
-    sp<ANativeWindow> window;
+    sp<Surface> window;
     if (callbackProducer != 0) {
         window = new Surface(callbackProducer);
     }
@@ -764,16 +764,22 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
     // first capture latency on HAL3 devices, and potentially on some HAL2
     // devices. So create it unconditionally at preview start. As a drawback,
     // this increases gralloc memory consumption for applications that don't
-    // ever take a picture.
+    // ever take a picture. Do not enter this mode when jpeg stream will slow
+    // down preview.
     // TODO: Find a better compromise, though this likely would involve HAL
     // changes.
     int lastJpegStreamId = mJpegProcessor->getStreamId();
-    res = updateProcessorStream(mJpegProcessor, params);
-    if (res != OK) {
-        ALOGE("%s: Camera %d: Can't pre-configure still image "
-                "stream: %s (%d)",
-                __FUNCTION__, mCameraId, strerror(-res), res);
-        return res;
+    // If jpeg stream will slow down preview, make sure we remove it before starting preview
+    if (params.slowJpegMode) {
+        mJpegProcessor->deleteStream();
+    } else {
+        res = updateProcessorStream(mJpegProcessor, params);
+        if (res != OK) {
+            ALOGE("%s: Camera %d: Can't pre-configure still image "
+                    "stream: %s (%d)",
+                    __FUNCTION__, mCameraId, strerror(-res), res);
+            return res;
+        }
     }
     bool jpegStreamChanged = mJpegProcessor->getStreamId() != lastJpegStreamId;
 
@@ -1453,9 +1459,12 @@ status_t Camera2Client::takePicture(int msgType) {
         }
 
         ALOGV("%s: Camera %d: Starting picture capture", __FUNCTION__, mCameraId);
-
         int lastJpegStreamId = mJpegProcessor->getStreamId();
-        res = updateProcessorStream(mJpegProcessor, l.mParameters);
+        // slowJpegMode will create jpeg stream in CaptureSequencer before capturing
+        if (!l.mParameters.slowJpegMode) {
+            res = updateProcessorStream(mJpegProcessor, l.mParameters);
+        }
+
         // If video snapshot fail to configureStream, try override video snapshot size to
         // video size
         if (res == BAD_VALUE && l.mParameters.state == Parameters::VIDEO_SNAPSHOT) {
@@ -1559,6 +1568,9 @@ status_t Camera2Client::sendCommand(int32_t cmd, int32_t arg1, int32_t arg2) {
             return commandPingL();
         case CAMERA_CMD_SET_VIDEO_BUFFER_COUNT:
             return commandSetVideoBufferCountL(arg1);
+        case CAMERA_CMD_SET_VIDEO_FORMAT:
+            return commandSetVideoFormatL(arg1,
+                    static_cast<android_dataspace>(arg2));
         default:
             ALOGE("%s: Unknown command %d (arguments %d, %d)",
                     __FUNCTION__, cmd, arg1, arg2);
@@ -1710,6 +1722,51 @@ status_t Camera2Client::commandSetVideoBufferCountL(size_t count) {
     return mStreamingProcessor->setRecordingBufferCount(count);
 }
 
+status_t Camera2Client::commandSetVideoFormatL(int format,
+        android_dataspace dataspace) {
+    if (recordingEnabledL()) {
+        ALOGE("%s: Camera %d: Error setting video format after "
+                "recording was started", __FUNCTION__, mCameraId);
+        return INVALID_OPERATION;
+    }
+
+    return mStreamingProcessor->setRecordingFormat(format, dataspace);
+}
+
+void Camera2Client::notifyError(ICameraDeviceCallbacks::CameraErrorCode errorCode,
+        const CaptureResultExtras& resultExtras) {
+    int32_t err = CAMERA_ERROR_UNKNOWN;
+    switch(errorCode) {
+        case ICameraDeviceCallbacks::ERROR_CAMERA_DISCONNECTED:
+            err = CAMERA_ERROR_RELEASED;
+            break;
+        case ICameraDeviceCallbacks::ERROR_CAMERA_DEVICE:
+            err = CAMERA_ERROR_UNKNOWN;
+            break;
+        case ICameraDeviceCallbacks::ERROR_CAMERA_SERVICE:
+            err = CAMERA_ERROR_SERVER_DIED;
+            break;
+        case ICameraDeviceCallbacks::ERROR_CAMERA_REQUEST:
+        case ICameraDeviceCallbacks::ERROR_CAMERA_RESULT:
+        case ICameraDeviceCallbacks::ERROR_CAMERA_BUFFER:
+            ALOGW("%s: Received recoverable error %d from HAL - ignoring, requestId %" PRId32,
+                    __FUNCTION__, errorCode, resultExtras.requestId);
+            return;
+        default:
+            err = CAMERA_ERROR_UNKNOWN;
+            break;
+    }
+
+    ALOGE("%s: Error condition %d reported by HAL, requestId %" PRId32, __FUNCTION__, errorCode,
+              resultExtras.requestId);
+
+    SharedCameraCallbacks::Lock l(mSharedCameraCallbacks);
+    if (l.mRemoteCallback != nullptr) {
+        l.mRemoteCallback->notifyCallback(CAMERA_MSG_ERROR, err, 0);
+    }
+}
+
+
 /** Device-related methods */
 void Camera2Client::notifyAutoFocus(uint8_t newState, int triggerId) {
     ALOGV("%s: Autofocus state now %d, last trigger %d",
@@ -1847,6 +1904,16 @@ void Camera2Client::notifyAutoExposure(uint8_t newState, int triggerId) {
     mCaptureSequencer->notifyAutoExposure(newState, triggerId);
 }
 
+void Camera2Client::notifyShutter(const CaptureResultExtras& resultExtras,
+                                  nsecs_t timestamp) {
+    (void)resultExtras;
+    (void)timestamp;
+
+    ALOGV("%s: Shutter notification for request id %" PRId32 " at time %" PRId64,
+            __FUNCTION__, resultExtras.requestId, timestamp);
+    mCaptureSequencer->notifyShutter(resultExtras, timestamp);
+}
+
 camera2::SharedParameters& Camera2Client::getParameters() {
     return mParameters;
 }
@@ -1883,6 +1950,39 @@ status_t Camera2Client::removeFrameListener(int32_t minId, int32_t maxId,
 
 status_t Camera2Client::stopStream() {
     return mStreamingProcessor->stopStream();
+}
+
+status_t Camera2Client::createJpegStreamL(Parameters &params) {
+    status_t res = OK;
+    int lastJpegStreamId = mJpegProcessor->getStreamId();
+    if (lastJpegStreamId != NO_STREAM) {
+        return INVALID_OPERATION;
+    }
+
+    res = mStreamingProcessor->togglePauseStream(/*pause*/true);
+    if (res != OK) {
+        ALOGE("%s: Camera %d: Can't pause streaming: %s (%d)",
+                __FUNCTION__, mCameraId, strerror(-res), res);
+        return res;
+    }
+
+    res = mDevice->flush();
+    if (res != OK) {
+        ALOGE("%s: Camera %d: Unable flush device: %s (%d)",
+                __FUNCTION__, mCameraId, strerror(-res), res);
+        return res;
+    }
+
+    // Ideally we don't need this, but current camera device
+    // status tracking mechanism demands it.
+    res = mDevice->waitUntilDrained();
+    if (res != OK) {
+        ALOGE("%s: Camera %d: Waiting device drain failed: %s (%d)",
+                __FUNCTION__, mCameraId, strerror(-res), res);
+    }
+
+    res = updateProcessorStream(mJpegProcessor, params);
+    return res;
 }
 
 const int32_t Camera2Client::kPreviewRequestIdStart;
@@ -1958,7 +2058,7 @@ size_t Camera2Client::calculateBufferSize(int width, int height,
             return width * height * 2;
         case HAL_PIXEL_FORMAT_RGBA_8888:
             return width * height * 4;
-        case HAL_PIXEL_FORMAT_RAW_SENSOR:
+        case HAL_PIXEL_FORMAT_RAW16:
             return width * height * 2;
         default:
             ALOGE("%s: Unknown preview format: %x",

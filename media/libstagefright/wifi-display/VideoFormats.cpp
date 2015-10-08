@@ -248,8 +248,8 @@ void VideoFormats::getProfileLevel(
     }
 
     if (bestProfile == -1 || bestLevel == -1) {
-        ALOGE("Profile or level not set for resolution type %d, index %d",
-              type, index);
+        ALOGE("Profile or level not set for resolution type %d, index %zu",
+                type, index);
         bestProfile = PROFILE_CBP;
         bestLevel = LEVEL_31;
     }
@@ -382,7 +382,6 @@ bool VideoFormats::parseFormatSpec(const char *spec) {
     disableAll();
 
     unsigned native, dummy;
-    unsigned res[3];
     size_t size = strlen(spec);
     size_t offset = 0;
 
@@ -435,7 +434,7 @@ AString VideoFormats::getFormatSpec(bool forM4Message) const {
     //   max-hres (none or 2 byte)
     //   max-vres (none or 2 byte)
 
-    return StringPrintf(
+    return AStringPrintf(
             "%02x 00 %02x %02x %08x %08x %08x 00 0000 0000 00 none none",
             forM4Message ? 0x00 : ((mNativeIndex << 3) | mNativeType),
             mConfigs[mNativeType][mNativeIndex].profile,
@@ -507,7 +506,7 @@ bool VideoFormats::PickBestFormat(
                 continue;
             }
 
-            ALOGV("type %u, index %u, %u x %u %c%u supported",
+            ALOGV("type %zu, index %zu, %zu x %zu %c%zu supported",
                   i, j, width, height, interlaced ? 'i' : 'p', framesPerSecond);
 
             uint32_t score = width * height * framesPerSecond;

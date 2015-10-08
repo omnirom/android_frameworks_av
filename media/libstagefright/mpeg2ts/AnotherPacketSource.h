@@ -43,13 +43,19 @@ struct AnotherPacketSource : public MediaSource {
 
     void clear();
 
+    // Returns true if we have any packets including discontinuities
     bool hasBufferAvailable(status_t *finalResult);
+
+    // Returns true if we have packets that's not discontinuities
+    bool hasDataBufferAvailable(status_t *finalResult);
+
+    // Returns the number of available buffers. finalResult is always OK
+    // if this method returns non-0, or the final result if it returns 0.
+    size_t getAvailableBufferCount(status_t *finalResult);
 
     // Returns the difference between the last and the first queued
     // presentation timestamps since the last discontinuity (if any).
     int64_t getBufferedDurationUs(status_t *finalResult);
-
-    int64_t getEstimatedDurationUs();
 
     status_t nextBufferTime(int64_t *timeUs);
 
@@ -63,21 +69,48 @@ struct AnotherPacketSource : public MediaSource {
     void signalEOS(status_t result);
 
     status_t dequeueAccessUnit(sp<ABuffer> *buffer);
+    void requeueAccessUnit(const sp<ABuffer> &buffer);
 
     bool isFinished(int64_t duration) const;
 
+    void enable(bool enable);
+
     sp<AMessage> getLatestEnqueuedMeta();
     sp<AMessage> getLatestDequeuedMeta();
+    sp<AMessage> getMetaAfterLastDequeued(int64_t delayUs);
+
+    void trimBuffersAfterMeta(const sp<AMessage> &meta);
+    sp<AMessage> trimBuffersBeforeMeta(const sp<AMessage> &meta);
 
 protected:
     virtual ~AnotherPacketSource();
 
 private:
+
+    struct DiscontinuitySegment {
+        int64_t mMaxDequeTimeUs, mMaxEnqueTimeUs;
+        DiscontinuitySegment()
+            : mMaxDequeTimeUs(-1),
+              mMaxEnqueTimeUs(-1) {
+        };
+
+        void clear() {
+            mMaxDequeTimeUs = mMaxEnqueTimeUs = -1;
+        }
+    };
+
+    // Discontinuity segments are consecutive access units between
+    // discontinuity markers. There should always be at least _ONE_
+    // discontinuity segment, hence the various CHECKs in
+    // AnotherPacketSource.cpp for non-empty()-ness.
+    List<DiscontinuitySegment> mDiscontinuitySegments;
+
     Mutex mLock;
     Condition mCondition;
 
     bool mIsAudio;
     bool mIsVideo;
+    bool mEnabled;
     sp<MetaData> mFormat;
     int64_t mLastQueuedTimeUs;
     List<sp<ABuffer> > mBuffers;
@@ -85,10 +118,7 @@ private:
     sp<AMessage> mLatestEnqueuedMeta;
     sp<AMessage> mLatestDequeuedMeta;
 
-    size_t  mQueuedDiscontinuityCount;
-
     bool wasFormatChange(int32_t discontinuityType) const;
-    int64_t getBufferedDurationUs_l(status_t *finalResult);
 
     DISALLOW_EVIL_CONSTRUCTORS(AnotherPacketSource);
 };

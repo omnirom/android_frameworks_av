@@ -18,6 +18,7 @@
 #define LOG_TAG "NuPlayerDriver"
 #include <inttypes.h>
 #include <utils/Log.h>
+#include <cutils/properties.h>
 
 #include "NuPlayerDriver.h"
 
@@ -32,7 +33,7 @@
 
 namespace android {
 
-NuPlayerDriver::NuPlayerDriver()
+NuPlayerDriver::NuPlayerDriver(pid_t pid)
     : mState(STATE_IDLE),
       mIsAsyncPrepare(false),
       mAsyncResult(UNKNOWN_ERROR),
@@ -54,7 +55,7 @@ NuPlayerDriver::NuPlayerDriver()
             true,  /* canCallJava */
             PRIORITY_AUDIO);
 
-    mPlayer = new NuPlayer;
+    mPlayer = new NuPlayer(pid);
     mLooper->registerHandler(mPlayer);
 
     mPlayer->setDriver(this);
@@ -118,6 +119,25 @@ status_t NuPlayerDriver::setDataSource(int fd, int64_t offset, int64_t length) {
 
 status_t NuPlayerDriver::setDataSource(const sp<IStreamSource> &source) {
     ALOGV("setDataSource(%p) stream source", this);
+    Mutex::Autolock autoLock(mLock);
+
+    if (mState != STATE_IDLE) {
+        return INVALID_OPERATION;
+    }
+
+    mState = STATE_SET_DATASOURCE_PENDING;
+
+    mPlayer->setDataSourceAsync(source);
+
+    while (mState == STATE_SET_DATASOURCE_PENDING) {
+        mCondition.wait(mLock);
+    }
+
+    return mAsyncResult;
+}
+
+status_t NuPlayerDriver::setDataSource(const sp<DataSource> &source) {
+    ALOGV("setDataSource(%p) callback source", this);
     Mutex::Autolock autoLock(mLock);
 
     if (mState != STATE_IDLE) {
@@ -222,7 +242,7 @@ status_t NuPlayerDriver::prepareAsync() {
 }
 
 status_t NuPlayerDriver::start() {
-    ALOGD("start(%p)", this);
+    ALOGD("start(%p), state is %d, eos is %d", this, mState, mAtEOS);
     Mutex::Autolock autoLock(mLock);
 
     switch (mState) {
@@ -341,6 +361,34 @@ bool NuPlayerDriver::isPlaying() {
     return mState == STATE_RUNNING && !mAtEOS;
 }
 
+status_t NuPlayerDriver::setPlaybackSettings(const AudioPlaybackRate &rate) {
+    Mutex::Autolock autoLock(mLock);
+    status_t err = mPlayer->setPlaybackSettings(rate);
+    if (err == OK) {
+        if (rate.mSpeed == 0.f && mState == STATE_RUNNING) {
+            mState = STATE_PAUSED;
+            // try to update position
+            (void)mPlayer->getCurrentPosition(&mPositionUs);
+            notifyListener_l(MEDIA_PAUSED);
+        } else if (rate.mSpeed != 0.f && mState == STATE_PAUSED) {
+            mState = STATE_RUNNING;
+        }
+    }
+    return err;
+}
+
+status_t NuPlayerDriver::getPlaybackSettings(AudioPlaybackRate *rate) {
+    return mPlayer->getPlaybackSettings(rate);
+}
+
+status_t NuPlayerDriver::setSyncSettings(const AVSyncSettings &sync, float videoFpsHint) {
+    return mPlayer->setSyncSettings(sync, videoFpsHint);
+}
+
+status_t NuPlayerDriver::getSyncSettings(AVSyncSettings *sync, float *videoFps) {
+    return mPlayer->getSyncSettings(sync, videoFps);
+}
+
 status_t NuPlayerDriver::seekTo(int msec) {
     ALOGD("seekTo(%p) %d ms", this, msec);
     Mutex::Autolock autoLock(mLock);
@@ -350,17 +398,10 @@ status_t NuPlayerDriver::seekTo(int msec) {
     switch (mState) {
         case STATE_PREPARED:
         case STATE_STOPPED_AND_PREPARED:
-        {
-            mStartupSeekTimeUs = seekTimeUs;
-            // pretend that the seek completed. It will actually happen when starting playback.
-            // TODO: actually perform the seek here, so the player is ready to go at the new
-            // location
-            notifySeekComplete_l();
-            break;
-        }
-
-        case STATE_RUNNING:
         case STATE_PAUSED:
+            mStartupSeekTimeUs = seekTimeUs;
+            // fall through.
+        case STATE_RUNNING:
         {
             mAtEOS = false;
             mSeekInProgress = true;
@@ -442,6 +483,13 @@ status_t NuPlayerDriver::reset() {
 
     if (mState != STATE_STOPPED) {
         notifyListener_l(MEDIA_STOPPED);
+    }
+
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("persist.debug.sf.stats", value, NULL) &&
+            (!strcmp("1", value) || !strcasecmp("true", value))) {
+        Vector<String16> args;
+        dump(-1, args);
     }
 
     mState = STATE_RESET_IN_PROGRESS;
@@ -612,22 +660,59 @@ void NuPlayerDriver::notifySeekComplete_l() {
 
 status_t NuPlayerDriver::dump(
         int fd, const Vector<String16> & /* args */) const {
-    int64_t numFramesTotal;
-    int64_t numFramesDropped;
-    mPlayer->getStats(&numFramesTotal, &numFramesDropped);
 
-    FILE *out = fdopen(dup(fd), "w");
+    Vector<sp<AMessage> > trackStats;
+    mPlayer->getStats(&trackStats);
 
-    fprintf(out, " NuPlayer\n");
-    fprintf(out, "  numFramesTotal(%" PRId64 "), numFramesDropped(%" PRId64 "), "
-                 "percentageDropped(%.2f)\n",
-                 numFramesTotal,
-                 numFramesDropped,
-                 numFramesTotal == 0
-                    ? 0.0 : (double)numFramesDropped / numFramesTotal);
+    AString logString(" NuPlayer\n");
+    char buf[256] = {0};
 
-    fclose(out);
-    out = NULL;
+    for (size_t i = 0; i < trackStats.size(); ++i) {
+        const sp<AMessage> &stats = trackStats.itemAt(i);
+
+        AString mime;
+        if (stats->findString("mime", &mime)) {
+            snprintf(buf, sizeof(buf), "  mime(%s)\n", mime.c_str());
+            logString.append(buf);
+        }
+
+        AString name;
+        if (stats->findString("component-name", &name)) {
+            snprintf(buf, sizeof(buf), "    decoder(%s)\n", name.c_str());
+            logString.append(buf);
+        }
+
+        if (mime.startsWith("video/")) {
+            int32_t width, height;
+            if (stats->findInt32("width", &width)
+                    && stats->findInt32("height", &height)) {
+                snprintf(buf, sizeof(buf), "    resolution(%d x %d)\n", width, height);
+                logString.append(buf);
+            }
+
+            int64_t numFramesTotal = 0;
+            int64_t numFramesDropped = 0;
+
+            stats->findInt64("frames-total", &numFramesTotal);
+            stats->findInt64("frames-dropped-output", &numFramesDropped);
+            snprintf(buf, sizeof(buf), "    numFramesTotal(%lld), numFramesDropped(%lld), "
+                     "percentageDropped(%.2f%%)\n",
+                     (long long)numFramesTotal,
+                     (long long)numFramesDropped,
+                     numFramesTotal == 0
+                            ? 0.0 : (double)(numFramesDropped * 100) / numFramesTotal);
+            logString.append(buf);
+        }
+    }
+
+    ALOGI("%s", logString.c_str());
+
+    if (fd >= 0) {
+        FILE *out = fdopen(dup(fd), "w");
+        fprintf(out, "%s", logString.c_str());
+        fclose(out);
+        out = NULL;
+    }
 
     return OK;
 }
@@ -640,6 +725,7 @@ void NuPlayerDriver::notifyListener(
 
 void NuPlayerDriver::notifyListener_l(
         int msg, int ext1, int ext2, const Parcel *in) {
+    ALOGD("notifyListener_l(%p), (%d, %d, %d)", this, msg, ext1, ext2);
     switch (msg) {
         case MEDIA_PLAYBACK_COMPLETE:
         {
@@ -654,8 +740,7 @@ void NuPlayerDriver::notifyListener_l(
                         mAutoLoop = false;
                     }
                 }
-                if (mLooping || (mAutoLoop
-                        && (mAudioSink == NULL || mAudioSink->realtime()))) {
+                if (mLooping || mAutoLoop) {
                     mPlayer->seekToAsync(0);
                     if (mAudioSink != NULL) {
                         // The renderer has stopped the sink at the end in order to play out

@@ -3,6 +3,7 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:=               \
+        HTTPDownloader.cpp      \
         LiveDataSource.cpp      \
         LiveSession.cpp         \
         M3UParser.cpp           \
@@ -10,10 +11,10 @@ LOCAL_SRC_FILES:=               \
 
 LOCAL_C_INCLUDES:= \
 	$(TOP)/frameworks/av/media/libstagefright \
-	$(TOP)/frameworks/native/include/media/openmax \
-	$(TOP)/external/openssl/include
+	$(TOP)/frameworks/native/include/media/openmax
 
-LOCAL_CFLAGS += -Werror
+LOCAL_CFLAGS += -Werror -Wall
+LOCAL_CLANG := true
 
 LOCAL_SHARED_LIBRARIES := \
         libbinder \

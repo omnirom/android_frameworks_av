@@ -24,7 +24,7 @@
 namespace android {
 
 struct OMXMaster;
-class OMXNodeInstance;
+struct OMXNodeInstance;
 
 class OMX : public BnOMX,
             public IBinder::DeathRecipient {
@@ -69,7 +69,7 @@ public:
             node_id node, OMX_U32 port_index, OMX_U32* usage);
 
     virtual status_t storeMetaDataInBuffers(
-            node_id node, OMX_U32 port_index, OMX_BOOL enable);
+            node_id node, OMX_U32 port_index, OMX_BOOL enable, MetadataBufferType *type);
 
     virtual status_t prepareForAdaptivePlayback(
             node_id node, OMX_U32 portIndex, OMX_BOOL enable,
@@ -81,7 +81,7 @@ public:
 
     virtual status_t useBuffer(
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-            buffer_id *buffer);
+            buffer_id *buffer, OMX_U32 allottedSize);
 
     virtual status_t useGraphicBuffer(
             node_id node, OMX_U32 port_index,
@@ -93,7 +93,17 @@ public:
 
     virtual status_t createInputSurface(
             node_id node, OMX_U32 port_index,
-            sp<IGraphicBufferProducer> *bufferProducer);
+            sp<IGraphicBufferProducer> *bufferProducer,
+            MetadataBufferType *type);
+
+    virtual status_t createPersistentInputSurface(
+            sp<IGraphicBufferProducer> *bufferProducer,
+            sp<IGraphicBufferConsumer> *bufferConsumer);
+
+    virtual status_t setInputSurface(
+            node_id node, OMX_U32 port_index,
+            const sp<IGraphicBufferConsumer> &bufferConsumer,
+            MetadataBufferType *type);
 
     virtual status_t signalEndOfInputStream(node_id node);
 
@@ -103,18 +113,18 @@ public:
 
     virtual status_t allocateBufferWithBackup(
             node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-            buffer_id *buffer);
+            buffer_id *buffer, OMX_U32 allottedSize);
 
     virtual status_t freeBuffer(
             node_id node, OMX_U32 port_index, buffer_id buffer);
 
-    virtual status_t fillBuffer(node_id node, buffer_id buffer);
+    virtual status_t fillBuffer(node_id node, buffer_id buffer, int fenceFd);
 
     virtual status_t emptyBuffer(
             node_id node,
             buffer_id buffer,
             OMX_U32 range_offset, OMX_U32 range_length,
-            OMX_U32 flags, OMX_TICKS timestamp);
+            OMX_U32 flags, OMX_TICKS timestamp, int fenceFd);
 
     virtual status_t getExtensionIndex(
             node_id node,
@@ -138,10 +148,10 @@ public:
             OMX_IN OMX_PTR pEventData);
 
     OMX_ERRORTYPE OnEmptyBufferDone(
-            node_id node, buffer_id buffer, OMX_IN OMX_BUFFERHEADERTYPE *pBuffer);
+            node_id node, buffer_id buffer, OMX_IN OMX_BUFFERHEADERTYPE *pBuffer, int fenceFd);
 
     OMX_ERRORTYPE OnFillBufferDone(
-            node_id node, buffer_id buffer, OMX_IN OMX_BUFFERHEADERTYPE *pBuffer);
+            node_id node, buffer_id buffer, OMX_IN OMX_BUFFERHEADERTYPE *pBuffer, int fenceFd);
 
     void invalidateNodeID(node_id node);
 

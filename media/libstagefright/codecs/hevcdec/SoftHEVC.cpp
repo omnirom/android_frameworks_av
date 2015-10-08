@@ -21,7 +21,6 @@
 #include "ihevc_typedefs.h"
 #include "iv.h"
 #include "ivd.h"
-#include "ithread.h"
 #include "ihevcd_cxa.h"
 #include "SoftHEVC.h"
 
@@ -82,7 +81,10 @@ SoftHEVC::SoftHEVC(
     initPorts(
             kNumBuffers, max(kMaxOutputBufferSize / kMinCompressionRatio, (size_t)INPUT_BUF_SIZE),
             kNumBuffers, CODEC_MIME_TYPE, kMinCompressionRatio);
-    CHECK_EQ(initDecoder(), (status_t)OK);
+}
+
+status_t SoftHEVC::init() {
+    return initDecoder();
 }
 
 SoftHEVC::~SoftHEVC() {
@@ -143,7 +145,7 @@ status_t SoftHEVC::setParams(size_t stride) {
     s_ctl_ip.u4_size = sizeof(ivd_ctl_set_config_ip_t);
     s_ctl_op.u4_size = sizeof(ivd_ctl_set_config_op_t);
 
-    ALOGV("Set the run-time (dynamic) parameters stride = %u", stride);
+    ALOGV("Set the run-time (dynamic) parameters stride = %zu", stride);
     status = ivdec_api_function(mCodecCtx, (void *)&s_ctl_ip,
             (void *)&s_ctl_op);
 
@@ -408,7 +410,7 @@ status_t SoftHEVC::initDecoder() {
     uint32_t bufferSize = displaySizeY * 3 / 2;
     mFlushOutBuffer = (uint8_t *)ivd_aligned_malloc(128, bufferSize);
     if (NULL == mFlushOutBuffer) {
-        ALOGE("Could not allocate flushOutputBuffer of size %zu", bufferSize);
+        ALOGE("Could not allocate flushOutputBuffer of size %u", bufferSize);
         return NO_MEMORY;
     }
 
@@ -766,5 +768,10 @@ void SoftHEVC::onQueueFilled(OMX_U32 portIndex) {
 android::SoftOMXComponent *createSoftOMXComponent(const char *name,
         const OMX_CALLBACKTYPE *callbacks, OMX_PTR appData,
         OMX_COMPONENTTYPE **component) {
-    return new android::SoftHEVC(name, callbacks, appData, component);
+    android::SoftHEVC *codec = new android::SoftHEVC(name, callbacks, appData, component);
+    if (codec->init() != android::OK) {
+        android::sp<android::SoftOMXComponent> release = codec;
+        return NULL;
+    }
+    return codec;
 }

@@ -56,6 +56,9 @@
 #include <media/nbaio/NBAIO.h>
 #include "AudioWatchdog.h"
 #include "AudioMixer.h"
+#include "AudioStreamOut.h"
+#include "SpdifStreamOut.h"
+#include "AudioHwDevice.h"
 
 #include <powermanager/IPowerManager.h>
 
@@ -70,18 +73,18 @@ class AudioMixer;
 class AudioBuffer;
 class AudioResampler;
 class FastMixer;
+class PassthruBufferProvider;
 class ServerProxy;
 
 // ----------------------------------------------------------------------------
 
-// AudioFlinger has a hard-coded upper limit of 2 channels for capture and playback.
-// There is support for > 2 channel tracks down-mixed to 2 channel output via a down-mix effect.
-// Adding full support for > 2 channel capture or playback would require more than simply changing
-// this #define.  There is an independent hard-coded upper limit in AudioMixer;
-// removing that AudioMixer limit would be necessary but insufficient to support > 2 channels.
-// The macro FCC_2 highlights some (but not all) places where there is are 2-channel assumptions.
+// The macro FCC_2 highlights some (but not all) places where there are are 2-channel assumptions.
+// This is typically due to legacy implementation of stereo input or output.
 // Search also for "2", "left", "right", "[0]", "[1]", ">> 16", "<< 16", etc.
 #define FCC_2 2     // FCC_2 = Fixed Channel Count 2
+// The macro FCC_8 highlights places where there are 8-channel assumptions.
+// This is typically due to audio mixer and resampler limitations.
+#define FCC_8 8     // FCC_8 = Fixed Channel Count 8
 
 static const nsecs_t kDefaultStandbyTimeInNsecs = seconds(3);
 
@@ -117,9 +120,11 @@ public:
                                 uint32_t sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
+                                const String16& opPackageName,
                                 size_t *pFrameCount,
                                 IAudioFlinger::track_flags_t *flags,
                                 pid_t tid,
+                                int clientUid,
                                 int *sessionId,
                                 size_t *notificationFrames,
                                 sp<IMemory>& cblk,
@@ -213,6 +218,7 @@ public:
                         int32_t priority,
                         audio_io_handle_t io,
                         int sessionId,
+                        const String16& opPackageName,
                         status_t *status /*non-NULL*/,
                         int *id,
                         int *enabled);
@@ -250,6 +256,9 @@ public:
 
     /* Get the HW synchronization source used for an audio session */
     virtual audio_hw_sync_t getAudioHwSyncForSession(audio_session_t sessionId);
+
+    /* Indicate JAVA services are ready (scheduling, power management ...) */
+    virtual status_t systemReady();
 
     virtual     status_t    onTransact(
                                 uint32_t code,
@@ -311,7 +320,6 @@ public:
                                         wp<RefBase> cookie);
 
 private:
-    class AudioHwDevice;    // fwd declaration for findSuitableHwDev_l
 
                audio_mode_t getMode() const { return mMode; }
 
@@ -351,6 +359,15 @@ private:
             // check that channelMask is the "canonical" one we expect for the channelCount.
             return channelMask == audio_channel_out_mask_from_count(channelCount);
             }
+        case AUDIO_CHANNEL_REPRESENTATION_INDEX:
+            if (kEnableExtendedChannels) {
+                const uint32_t channelCount = audio_channel_count_from_out_mask(channelMask);
+                if (channelCount >= FCC_2 // mono is not supported at this time
+                        && channelCount <= AudioMixer::MAX_NUM_CHANNELS) {
+                    return true;
+                }
+            }
+            return false;
         default:
             return false;
         }
@@ -449,7 +466,7 @@ private:
     class EffectModule;
     class EffectHandle;
     class EffectChain;
-    struct AudioStreamOut;
+
     struct AudioStreamIn;
 
     struct  stream_type_t {
@@ -541,7 +558,9 @@ private:
               // no range check, doesn't check per-thread stream volume, AudioFlinger::mLock held
               float streamVolume_l(audio_stream_type_t stream) const
                                 { return mStreamTypes[stream].volume; }
-              void audioConfigChanged(int event, audio_io_handle_t ioHandle, const void *param2);
+              void ioConfigChanged(audio_io_config_event event,
+                                   const sp<AudioIoDescriptor>& ioDesc,
+                                   pid_t pid = 0);
 
               // Allocate an audio_io_handle_t, session ID, effect ID, or audio_module_handle_t.
               // They all share the same ID space, but the namespaces are actually independent
@@ -586,56 +605,11 @@ private:
                 // Return true if the effect was found in mOrphanEffectChains, false otherwise.
                 bool            updateOrphanEffectChains(const sp<EffectModule>& effect);
 
-    class AudioHwDevice {
-    public:
-        enum Flags {
-            AHWD_CAN_SET_MASTER_VOLUME  = 0x1,
-            AHWD_CAN_SET_MASTER_MUTE    = 0x2,
-        };
+                void broacastParametersToRecordThreads_l(const String8& keyValuePairs);
 
-        AudioHwDevice(audio_module_handle_t handle,
-                      const char *moduleName,
-                      audio_hw_device_t *hwDevice,
-                      Flags flags)
-            : mHandle(handle), mModuleName(strdup(moduleName))
-            , mHwDevice(hwDevice)
-            , mFlags(flags) { }
-        /*virtual*/ ~AudioHwDevice() { free((void *)mModuleName); }
-
-        bool canSetMasterVolume() const {
-            return (0 != (mFlags & AHWD_CAN_SET_MASTER_VOLUME));
-        }
-
-        bool canSetMasterMute() const {
-            return (0 != (mFlags & AHWD_CAN_SET_MASTER_MUTE));
-        }
-
-        audio_module_handle_t handle() const { return mHandle; }
-        const char *moduleName() const { return mModuleName; }
-        audio_hw_device_t *hwDevice() const { return mHwDevice; }
-        uint32_t version() const { return mHwDevice->common.version; }
-
-    private:
-        const audio_module_handle_t mHandle;
-        const char * const mModuleName;
-        audio_hw_device_t * const mHwDevice;
-        const Flags mFlags;
-    };
-
-    // AudioStreamOut and AudioStreamIn are immutable, so their fields are const.
+    // AudioStreamIn is immutable, so their fields are const.
     // For emphasis, we could also make all pointers to them be "const *",
     // but that would clutter the code unnecessarily.
-
-    struct AudioStreamOut {
-        AudioHwDevice* const audioHwDev;
-        audio_stream_out_t* const stream;
-        const audio_output_flags_t flags;
-
-        audio_hw_device_t* hwDev() const { return audioHwDev->hwDevice(); }
-
-        AudioStreamOut(AudioHwDevice *dev, audio_stream_out_t *out, audio_output_flags_t flags) :
-            audioHwDev(dev), stream(out), flags(flags) {}
-    };
 
     struct AudioStreamIn {
         AudioHwDevice* const audioHwDev;
@@ -789,16 +763,19 @@ private:
 
     sp<PatchPanel> mPatchPanel;
 
-    uint32_t    mPrimaryOutputSampleRate;   // sample rate of the primary output, or zero if none
-                                            // protected by mHardwareLock
+    bool        mSystemReady;
 };
 
 #undef INCLUDING_FROM_AUDIOFLINGER_H
 
 const char *formatToString(audio_format_t format);
+String8 inputFlagsToString(audio_input_flags_t flags);
+String8 outputFlagsToString(audio_output_flags_t flags);
+String8 devicesToString(audio_devices_t devices);
+const char *sourceToString(audio_source_t source);
 
 // ----------------------------------------------------------------------------
 
-}; // namespace android
+} // namespace android
 
 #endif // ANDROID_AUDIO_FLINGER_H

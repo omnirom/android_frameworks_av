@@ -65,7 +65,7 @@ struct BpHDCP : public BpInterface<IHDCP> {
     virtual status_t setObserver(const sp<IHDCPObserver> &observer) {
         Parcel data, reply;
         data.writeInterfaceToken(IHDCP::getInterfaceDescriptor());
-        data.writeStrongBinder(observer->asBinder());
+        data.writeStrongBinder(IInterface::asBinder(observer));
         remote()->transact(HDCP_SET_OBSERVER, data, &reply);
         return reply.readInt32();
     }
@@ -284,11 +284,17 @@ status_t BnHDCP::onTransact(
             size_t offset = data.readInt32();
             size_t size = data.readInt32();
             uint32_t streamCTR = data.readInt32();
-            void *outData = malloc(size);
+            void *outData = NULL;
             uint64_t inputCTR;
 
-            status_t err = encryptNative(graphicBuffer, offset, size,
-                                         streamCTR, &inputCTR, outData);
+            status_t err = ERROR_OUT_OF_RANGE;
+
+            outData = malloc(size);
+
+            if (outData != NULL) {
+                err = encryptNative(graphicBuffer, offset, size,
+                                             streamCTR, &inputCTR, outData);
+            }
 
             reply->writeInt32(err);
 

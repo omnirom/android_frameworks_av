@@ -29,18 +29,18 @@
 
 namespace android {
 
-/*static*/ const FastCaptureState FastCapture::initial;
+/*static*/ const FastCaptureState FastCapture::sInitial;
 
 FastCapture::FastCapture() : FastThread(),
-    inputSource(NULL), inputSourceGen(0), pipeSink(NULL), pipeSinkGen(0),
-    readBuffer(NULL), readBufferState(-1), format(Format_Invalid), sampleRate(0),
-    // dummyDumpState
-    totalNativeFramesRead(0)
+    mInputSource(NULL), mInputSourceGen(0), mPipeSink(NULL), mPipeSinkGen(0),
+    mReadBuffer(NULL), mReadBufferState(-1), mFormat(Format_Invalid), mSampleRate(0),
+    // mDummyDumpState
+    mTotalNativeFramesRead(0)
 {
-    previous = &initial;
-    current = &initial;
+    mPrevious = &sInitial;
+    mCurrent = &sInitial;
 
-    mDummyDumpState = &dummyDumpState;
+    mDummyDumpState = &mDummyFastCaptureDumpState;
 }
 
 FastCapture::~FastCapture()
@@ -63,13 +63,13 @@ void FastCapture::setLog(NBLog::Writer *logWriter __unused)
 
 void FastCapture::onIdle()
 {
-    preIdle = *(const FastCaptureState *)current;
-    current = &preIdle;
+    mPreIdle = *(const FastCaptureState *)mCurrent;
+    mCurrent = &mPreIdle;
 }
 
 void FastCapture::onExit()
 {
-    delete[] readBuffer;
+    free(mReadBuffer);
 }
 
 bool FastCapture::isSubClassCommand(FastThreadState::Command command)
@@ -86,67 +86,67 @@ bool FastCapture::isSubClassCommand(FastThreadState::Command command)
 
 void FastCapture::onStateChange()
 {
-    const FastCaptureState * const current = (const FastCaptureState *) this->current;
-    const FastCaptureState * const previous = (const FastCaptureState *) this->previous;
-    FastCaptureDumpState * const dumpState = (FastCaptureDumpState *) this->dumpState;
+    const FastCaptureState * const current = (const FastCaptureState *) mCurrent;
+    const FastCaptureState * const previous = (const FastCaptureState *) mPrevious;
+    FastCaptureDumpState * const dumpState = (FastCaptureDumpState *) mDumpState;
     const size_t frameCount = current->mFrameCount;
 
     bool eitherChanged = false;
 
     // check for change in input HAL configuration
-    NBAIO_Format previousFormat = format;
-    if (current->mInputSourceGen != inputSourceGen) {
-        inputSource = current->mInputSource;
-        inputSourceGen = current->mInputSourceGen;
-        if (inputSource == NULL) {
-            format = Format_Invalid;
-            sampleRate = 0;
+    NBAIO_Format previousFormat = mFormat;
+    if (current->mInputSourceGen != mInputSourceGen) {
+        mInputSource = current->mInputSource;
+        mInputSourceGen = current->mInputSourceGen;
+        if (mInputSource == NULL) {
+            mFormat = Format_Invalid;
+            mSampleRate = 0;
         } else {
-            format = inputSource->format();
-            sampleRate = Format_sampleRate(format);
-            unsigned channelCount = Format_channelCount(format);
-            ALOG_ASSERT(channelCount == 1 || channelCount == 2);
+            mFormat = mInputSource->format();
+            mSampleRate = Format_sampleRate(mFormat);
+            unsigned channelCount = Format_channelCount(mFormat);
+            ALOG_ASSERT(channelCount >= 1 && channelCount <= FCC_8);
         }
-        dumpState->mSampleRate = sampleRate;
+        dumpState->mSampleRate = mSampleRate;
         eitherChanged = true;
     }
 
     // check for change in pipe
-    if (current->mPipeSinkGen != pipeSinkGen) {
-        pipeSink = current->mPipeSink;
-        pipeSinkGen = current->mPipeSinkGen;
+    if (current->mPipeSinkGen != mPipeSinkGen) {
+        mPipeSink = current->mPipeSink;
+        mPipeSinkGen = current->mPipeSinkGen;
         eitherChanged = true;
     }
 
     // input source and pipe sink must be compatible
-    if (eitherChanged && inputSource != NULL && pipeSink != NULL) {
-        ALOG_ASSERT(Format_isEqual(format, pipeSink->format()));
+    if (eitherChanged && mInputSource != NULL && mPipeSink != NULL) {
+        ALOG_ASSERT(Format_isEqual(mFormat, mPipeSink->format()));
     }
 
-    if ((!Format_isEqual(format, previousFormat)) || (frameCount != previous->mFrameCount)) {
-        // FIXME to avoid priority inversion, don't delete here
-        delete[] readBuffer;
-        readBuffer = NULL;
-        if (frameCount > 0 && sampleRate > 0) {
+    if ((!Format_isEqual(mFormat, previousFormat)) || (frameCount != previous->mFrameCount)) {
+        // FIXME to avoid priority inversion, don't free here
+        free(mReadBuffer);
+        mReadBuffer = NULL;
+        if (frameCount > 0 && mSampleRate > 0) {
             // FIXME new may block for unbounded time at internal mutex of the heap
             //       implementation; it would be better to have normal capture thread allocate for
             //       us to avoid blocking here and to prevent possible priority inversion
-            unsigned channelCount = Format_channelCount(format);
-            // FIXME frameSize
-            readBuffer = new short[frameCount * channelCount];
-            periodNs = (frameCount * 1000000000LL) / sampleRate;    // 1.00
-            underrunNs = (frameCount * 1750000000LL) / sampleRate;  // 1.75
-            overrunNs = (frameCount * 500000000LL) / sampleRate;    // 0.50
-            forceNs = (frameCount * 950000000LL) / sampleRate;      // 0.95
-            warmupNs = (frameCount * 500000000LL) / sampleRate;     // 0.50
+            (void)posix_memalign(&mReadBuffer, 32, frameCount * Format_frameSize(mFormat));
+            mPeriodNs = (frameCount * 1000000000LL) / mSampleRate;      // 1.00
+            mUnderrunNs = (frameCount * 1750000000LL) / mSampleRate;    // 1.75
+            mOverrunNs = (frameCount * 500000000LL) / mSampleRate;      // 0.50
+            mForceNs = (frameCount * 950000000LL) / mSampleRate;        // 0.95
+            mWarmupNsMin = (frameCount * 750000000LL) / mSampleRate;    // 0.75
+            mWarmupNsMax = (frameCount * 1250000000LL) / mSampleRate;   // 1.25
         } else {
-            periodNs = 0;
-            underrunNs = 0;
-            overrunNs = 0;
-            forceNs = 0;
-            warmupNs = 0;
+            mPeriodNs = 0;
+            mUnderrunNs = 0;
+            mOverrunNs = 0;
+            mForceNs = 0;
+            mWarmupNsMin = 0;
+            mWarmupNsMax = LONG_MAX;
         }
-        readBufferState = -1;
+        mReadBufferState = -1;
         dumpState->mFrameCount = frameCount;
     }
 
@@ -154,44 +154,43 @@ void FastCapture::onStateChange()
 
 void FastCapture::onWork()
 {
-    const FastCaptureState * const current = (const FastCaptureState *) this->current;
-    FastCaptureDumpState * const dumpState = (FastCaptureDumpState *) this->dumpState;
-    const FastCaptureState::Command command = this->command;
+    const FastCaptureState * const current = (const FastCaptureState *) mCurrent;
+    FastCaptureDumpState * const dumpState = (FastCaptureDumpState *) mDumpState;
+    const FastCaptureState::Command command = mCommand;
     const size_t frameCount = current->mFrameCount;
 
     if ((command & FastCaptureState::READ) /*&& isWarm*/) {
-        ALOG_ASSERT(inputSource != NULL);
-        ALOG_ASSERT(readBuffer != NULL);
+        ALOG_ASSERT(mInputSource != NULL);
+        ALOG_ASSERT(mReadBuffer != NULL);
         dumpState->mReadSequence++;
         ATRACE_BEGIN("read");
-        ssize_t framesRead = inputSource->read(readBuffer, frameCount,
+        ssize_t framesRead = mInputSource->read(mReadBuffer, frameCount,
                 AudioBufferProvider::kInvalidPTS);
         ATRACE_END();
         dumpState->mReadSequence++;
         if (framesRead >= 0) {
             LOG_ALWAYS_FATAL_IF((size_t) framesRead > frameCount);
-            totalNativeFramesRead += framesRead;
-            dumpState->mFramesRead = totalNativeFramesRead;
-            readBufferState = framesRead;
+            mTotalNativeFramesRead += framesRead;
+            dumpState->mFramesRead = mTotalNativeFramesRead;
+            mReadBufferState = framesRead;
         } else {
             dumpState->mReadErrors++;
-            readBufferState = 0;
+            mReadBufferState = 0;
         }
         // FIXME rename to attemptedIO
-        attemptedWrite = true;
+        mAttemptedWrite = true;
     }
 
     if (command & FastCaptureState::WRITE) {
-        ALOG_ASSERT(pipeSink != NULL);
-        ALOG_ASSERT(readBuffer != NULL);
-        if (readBufferState < 0) {
-            unsigned channelCount = Format_channelCount(format);
-            // FIXME frameSize
-            memset(readBuffer, 0, frameCount * channelCount * sizeof(short));
-            readBufferState = frameCount;
+        ALOG_ASSERT(mPipeSink != NULL);
+        ALOG_ASSERT(mReadBuffer != NULL);
+        if (mReadBufferState < 0) {
+            unsigned channelCount = Format_channelCount(mFormat);
+            memset(mReadBuffer, 0, frameCount * Format_frameSize(mFormat));
+            mReadBufferState = frameCount;
         }
-        if (readBufferState > 0) {
-            ssize_t framesWritten = pipeSink->write(readBuffer, readBufferState);
+        if (mReadBufferState > 0) {
+            ssize_t framesWritten = mPipeSink->write(mReadBuffer, mReadBufferState);
             // FIXME This supports at most one fast capture client.
             //       To handle multiple clients this could be converted to an array,
             //       or with a lot more work the control block could be shared by all clients.
@@ -208,15 +207,6 @@ void FastCapture::onWork()
             }
         }
     }
-}
-
-FastCaptureDumpState::FastCaptureDumpState() : FastThreadDumpState(),
-    mReadSequence(0), mFramesRead(0), mReadErrors(0), mSampleRate(0), mFrameCount(0)
-{
-}
-
-FastCaptureDumpState::~FastCaptureDumpState()
-{
 }
 
 }   // namespace android

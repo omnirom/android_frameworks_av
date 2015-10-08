@@ -25,10 +25,13 @@
 
 #include <netinet/in.h>
 
+#include <utils/String16.h>
+
 namespace android {
 
+struct AReplyToken;
 struct IHDCP;
-struct IRemoteDisplayClient;
+class IRemoteDisplayClient;
 struct ParsedMessage;
 
 // Represents the RTSP server acting as a wifi display source.
@@ -37,6 +40,7 @@ struct WifiDisplaySource : public AHandler {
     static const unsigned kWifiDisplayDefaultPort = 7236;
 
     WifiDisplaySource(
+            const String16 &opPackageName,
             const sp<ANetworkSession> &netSession,
             const sp<IRemoteDisplayClient> &client,
             const char *path = NULL);
@@ -113,6 +117,8 @@ private:
 
     static const AString sUserAgent;
 
+    String16 mOpPackageName;
+
     State mState;
     VideoFormats mSupportedSourceVideoFormats;
     sp<ANetworkSession> mNetSession;
@@ -121,7 +127,7 @@ private:
     struct in_addr mInterfaceAddr;
     int32_t mSessionID;
 
-    uint32_t mStopReplyID;
+    sp<AReplyToken> mStopReplyID;
 
     AString mWfdClientRtpPorts;
     int32_t mChosenRTPPort;  // extracted from "wfd_client_rtp_ports"

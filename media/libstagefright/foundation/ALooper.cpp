@@ -16,6 +16,9 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "ALooper"
+
+#include <media/stagefright/foundation/ADebug.h>
+
 #include <utils/Log.h>
 
 #include <sys/time.h>
@@ -210,7 +213,7 @@ bool ALooper::loop() {
         mEventQueue.erase(mEventQueue.begin());
     }
 
-    gLooperRoster.deliverMessage(event.mMessage);
+    event.mMessage->deliver();
 
     // NOTE: It's important to note that at this point our "ALooper" object
     // may no longer exist (its final reference may have gone away while
@@ -218,6 +221,31 @@ bool ALooper::loop() {
     // won't be called again.
 
     return true;
+}
+
+// to be called by AMessage::postAndAwaitResponse only
+sp<AReplyToken> ALooper::createReplyToken() {
+    return new AReplyToken(this);
+}
+
+// to be called by AMessage::postAndAwaitResponse only
+status_t ALooper::awaitResponse(const sp<AReplyToken> &replyToken, sp<AMessage> *response) {
+    // return status in case we want to handle an interrupted wait
+    Mutex::Autolock autoLock(mRepliesLock);
+    CHECK(replyToken != NULL);
+    while (!replyToken->retrieveReply(response)) {
+        mRepliesCondition.wait(mRepliesLock);
+    }
+    return OK;
+}
+
+status_t ALooper::postReply(const sp<AReplyToken> &replyToken, const sp<AMessage> &reply) {
+    Mutex::Autolock autoLock(mRepliesLock);
+    status_t err = replyToken->setReply(reply);
+    if (err == OK) {
+        mRepliesCondition.broadcast();
+    }
+    return err;
 }
 
 }  // namespace android

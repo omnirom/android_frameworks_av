@@ -17,16 +17,16 @@
 #ifndef AAC_WRITER_H_
 #define AAC_WRITER_H_
 
+#include "foundation/ABase.h"
 #include <media/stagefright/MediaWriter.h>
 #include <utils/threads.h>
 
 namespace android {
 
 struct MediaSource;
-struct MetaData;
+class MetaData;
 
 struct AACWriter : public MediaWriter {
-    AACWriter(const char *filename);
     AACWriter(int fd);
 
     status_t initCheck() const;

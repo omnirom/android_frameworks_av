@@ -28,14 +28,13 @@ LOCAL_SRC_FILES:= \
 	ICameraClient.cpp \
 	ICameraService.cpp \
 	ICameraServiceListener.cpp \
+	ICameraServiceProxy.cpp \
 	ICameraRecordingProxy.cpp \
 	ICameraRecordingProxyListener.cpp \
-	IProCameraUser.cpp \
-	IProCameraCallbacks.cpp \
 	camera2/ICameraDeviceUser.cpp \
 	camera2/ICameraDeviceCallbacks.cpp \
 	camera2/CaptureRequest.cpp \
-	ProCamera.cpp \
+	camera2/OutputConfiguration.cpp \
 	CameraBase.cpp \
 	CameraUtils.cpp \
 	VendorTagDescriptor.cpp

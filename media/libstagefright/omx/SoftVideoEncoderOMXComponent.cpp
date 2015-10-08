@@ -34,6 +34,8 @@
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicBufferMapper.h>
 
+#include <OMX_IndexExt.h>
+
 namespace android {
 
 const static OMX_COLOR_FORMATTYPE kSupportedColorFormats[] = {
@@ -155,7 +157,7 @@ void SoftVideoEncoderOMXComponent::updatePortParams() {
     uint32_t rawBufferSize =
         inDef->format.video.nStride * inDef->format.video.nSliceHeight * 3 / 2;
     if (inDef->format.video.eColorFormat == OMX_COLOR_FormatAndroidOpaque) {
-        inDef->nBufferSize = 4 + max(sizeof(buffer_handle_t), sizeof(GraphicBuffer *));
+        inDef->nBufferSize = max(sizeof(VideoNativeMetadata), sizeof(VideoGrallocMetadata));
     } else {
         inDef->nBufferSize = rawBufferSize;
     }
@@ -293,7 +295,7 @@ OMX_ERRORTYPE SoftVideoEncoderOMXComponent::internalSetParameter(
 
 OMX_ERRORTYPE SoftVideoEncoderOMXComponent::internalGetParameter(
         OMX_INDEXTYPE index, OMX_PTR param) {
-    switch (index) {
+    switch ((int)index) {
         case OMX_IndexParamVideoErrorCorrection:
         {
             return OMX_ErrorNotImplemented;
@@ -340,6 +342,13 @@ OMX_ERRORTYPE SoftVideoEncoderOMXComponent::internalGetParameter(
 
             profileLevel->eProfile = mProfileLevels[profileLevel->nProfileIndex].mProfile;
             profileLevel->eLevel   = mProfileLevels[profileLevel->nProfileIndex].mLevel;
+            return OMX_ErrorNone;
+        }
+
+        case OMX_IndexParamConsumerUsageBits:
+        {
+            OMX_U32 *usageBits = (OMX_U32 *)param;
+            *usageBits = GRALLOC_USAGE_SW_READ_OFTEN;
             return OMX_ErrorNone;
         }
 
@@ -482,8 +491,8 @@ const uint8_t *SoftVideoEncoderOMXComponent::extractGraphicBuffer(
     size_t dstVStride = height;
 
     MetadataBufferType bufferType = *(MetadataBufferType *)src;
-    bool usingGraphicBuffer = bufferType == kMetadataBufferTypeGraphicBuffer;
-    if (!usingGraphicBuffer && bufferType != kMetadataBufferTypeGrallocSource) {
+    bool usingANWBuffer = bufferType == kMetadataBufferTypeANWBuffer;
+    if (!usingANWBuffer && bufferType != kMetadataBufferTypeGrallocSource) {
         ALOGE("Unsupported metadata type (%d)", bufferType);
         return NULL;
     }
@@ -499,13 +508,14 @@ const uint8_t *SoftVideoEncoderOMXComponent::extractGraphicBuffer(
     int format;
     size_t srcStride;
     size_t srcVStride;
-    if (usingGraphicBuffer) {
-        if (srcSize < 4 + sizeof(GraphicBuffer *)) {
-            ALOGE("Metadata is too small (%zu vs %zu)", srcSize, 4 + sizeof(GraphicBuffer *));
+    if (usingANWBuffer) {
+        if (srcSize < sizeof(VideoNativeMetadata)) {
+            ALOGE("Metadata is too small (%zu vs %zu)", srcSize, sizeof(VideoNativeMetadata));
             return NULL;
         }
 
-        GraphicBuffer *buffer = *(GraphicBuffer **)(src + 4);
+        VideoNativeMetadata &nativeMeta = *(VideoNativeMetadata *)src;
+        ANativeWindowBuffer *buffer = nativeMeta.pBuffer;
         handle = buffer->handle;
         format = buffer->format;
         srcStride = buffer->stride;
@@ -516,15 +526,26 @@ const uint8_t *SoftVideoEncoderOMXComponent::extractGraphicBuffer(
             // TODO do we need to support other formats?
             srcStride *= 4;
         }
+
+        if (nativeMeta.nFenceFd >= 0) {
+            sp<Fence> fence = new Fence(nativeMeta.nFenceFd);
+            nativeMeta.nFenceFd = -1;
+            status_t err = fence->wait(IOMX::kFenceTimeoutMs);
+            if (err != OK) {
+                ALOGE("Timed out waiting on input fence");
+                return NULL;
+            }
+        }
     } else {
         // TODO: remove this part.  Check if anyone uses this.
 
-        if (srcSize < 4 + sizeof(buffer_handle_t)) {
-            ALOGE("Metadata is too small (%zu vs %zu)", srcSize, 4 + sizeof(buffer_handle_t));
+        if (srcSize < sizeof(VideoGrallocMetadata)) {
+            ALOGE("Metadata is too small (%zu vs %zu)", srcSize, sizeof(VideoGrallocMetadata));
             return NULL;
         }
 
-        handle = *(buffer_handle_t *)(src + 4);
+        VideoGrallocMetadata &grallocMeta = *(VideoGrallocMetadata *)(src);
+        handle = grallocMeta.pHandle;
         // assume HAL_PIXEL_FORMAT_RGBA_8888
         // there is no way to get the src stride without the graphic buffer
         format = HAL_PIXEL_FORMAT_RGBA_8888;
@@ -606,7 +627,7 @@ const uint8_t *SoftVideoEncoderOMXComponent::extractGraphicBuffer(
 OMX_ERRORTYPE SoftVideoEncoderOMXComponent::getExtensionIndex(
         const char *name, OMX_INDEXTYPE *index) {
     if (!strcmp(name, "OMX.google.android.index.storeMetaDataInBuffers") ||
-        !strcmp(name, "OMX.google.android.index.storeGraphicBufferInMetaData")) {
+        !strcmp(name, "OMX.google.android.index.storeANWBufferInMetadata")) {
         *(int32_t*)index = kStoreMetaDataExtensionIndex;
         return OMX_ErrorNone;
     }

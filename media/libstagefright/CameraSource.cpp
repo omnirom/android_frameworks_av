@@ -219,7 +219,7 @@ status_t CameraSource::isCameraAvailable(
         mCameraFlags |= FLAGS_HOT_CAMERA;
         mDeathNotifier = new DeathNotifier();
         // isBinderAlive needs linkToDeath to work.
-        mCameraRecordingProxy->asBinder()->linkToDeath(mDeathNotifier);
+        IInterface::asBinder(mCameraRecordingProxy)->linkToDeath(mDeathNotifier);
     }
 
     mCamera->lock();
@@ -608,6 +608,16 @@ status_t CameraSource::startCameraRecording() {
         }
     }
 
+    err = mCamera->sendCommand(
+        CAMERA_CMD_SET_VIDEO_FORMAT, mEncoderFormat, mEncoderDataSpace);
+
+    // This could happen for CameraHAL1 clients; thus the failure is
+    // not a fatal error
+    if (err != OK) {
+        ALOGW("Failed to set video encoder format/dataspace to %d, %d due to %d",
+                mEncoderFormat, mEncoderDataSpace, err);
+    }
+
     err = OK;
     if (mCameraFlags & FLAGS_HOT_CAMERA) {
         mCamera->unlock();
@@ -645,6 +655,9 @@ status_t CameraSource::start(MetaData *meta) {
 
     mStartTimeUs = 0;
     mNumInputBuffers = 0;
+    mEncoderFormat = HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
+    mEncoderDataSpace = HAL_DATASPACE_BT709;
+
     if (meta) {
         int64_t startTimeUs;
         if (meta->findInt64(kKeyTime, &startTimeUs)) {
@@ -655,6 +668,14 @@ status_t CameraSource::start(MetaData *meta) {
         if (meta->findInt32(kKeyNumBuffers, &nBuffers)) {
             CHECK_GT(nBuffers, 0);
             mNumInputBuffers = nBuffers;
+        }
+
+        // apply encoder color format if specified
+        if (meta->findInt32(kKeyPixelFormat, &mEncoderFormat)) {
+            ALOGV("Using encoder format: %#x", mEncoderFormat);
+        }
+        if (meta->findInt32(kKeyColorSpace, &mEncoderDataSpace)) {
+            ALOGV("Using encoder data space: %#x", mEncoderDataSpace);
         }
     }
 
@@ -702,7 +723,7 @@ void CameraSource::releaseCamera() {
     {
         Mutex::Autolock autoLock(mLock);
         if (mCameraRecordingProxy != 0) {
-            mCameraRecordingProxy->asBinder()->unlinkToDeath(mDeathNotifier);
+            IInterface::asBinder(mCameraRecordingProxy)->unlinkToDeath(mDeathNotifier);
             mCameraRecordingProxy.clear();
         }
         mCameraFlags = 0;
@@ -825,7 +846,7 @@ status_t CameraSource::read(
                 mFrameAvailableCondition.waitRelative(mLock,
                     mTimeBetweenFrameCaptureUs * 1000LL + CAMERA_SOURCE_TIMEOUT_NS)) {
                 if (mCameraRecordingProxy != 0 &&
-                    !mCameraRecordingProxy->asBinder()->isBinderAlive()) {
+                    !IInterface::asBinder(mCameraRecordingProxy)->isBinderAlive()) {
                     ALOGW("camera recording proxy is gone");
                     return ERROR_END_OF_STREAM;
                 }
@@ -851,20 +872,13 @@ status_t CameraSource::read(
 }
 
 void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
-        int32_t msgType, const sp<IMemory> &data) {
-    ALOGV("dataCallbackTimestamp: timestamp %" PRId64 " us", timestampUs);
+        int32_t msgType __unused, const sp<IMemory> &data) {
+    ALOGV("dataCallbackTimestamp: timestamp %lld us", (long long)timestampUs);
     Mutex::Autolock autoLock(mLock);
     if (!mStarted || (mNumFramesReceived == 0 && timestampUs < mStartTimeUs)) {
-        ALOGV("Drop frame at %" PRId64 "/%" PRId64 " us", timestampUs, mStartTimeUs);
+        ALOGV("Drop frame at %lld/%lld us", (long long)timestampUs, (long long)mStartTimeUs);
         releaseOneRecordingFrame(data);
         return;
-    }
-
-    if (mNumFramesReceived > 0) {
-        CHECK(timestampUs > mLastFrameTimestampUs);
-        if (timestampUs - mLastFrameTimestampUs > mGlitchDurationThresholdUs) {
-            ++mNumGlitches;
-        }
     }
 
     // May need to skip frame or modify timestamp. Currently implemented
@@ -872,6 +886,18 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
     if (skipCurrentFrame(timestampUs)) {
         releaseOneRecordingFrame(data);
         return;
+    }
+
+    if (mNumFramesReceived > 0) {
+        if (timestampUs <= mLastFrameTimestampUs) {
+            ALOGW("Dropping frame with backward timestamp %lld (last %lld)",
+                    (long long)timestampUs, (long long)mLastFrameTimestampUs);
+            releaseOneRecordingFrame(data);
+            return;
+        }
+        if (timestampUs - mLastFrameTimestampUs > mGlitchDurationThresholdUs) {
+            ++mNumGlitches;
+        }
     }
 
     mLastFrameTimestampUs = timestampUs;
@@ -913,7 +939,7 @@ void CameraSource::ProxyListener::dataCallbackTimestamp(
     mSource->dataCallbackTimestamp(timestamp / 1000, msgType, dataPtr);
 }
 
-void CameraSource::DeathNotifier::binderDied(const wp<IBinder>& who) {
+void CameraSource::DeathNotifier::binderDied(const wp<IBinder>& who __unused) {
     ALOGI("Camera recording proxy died");
 }
 

@@ -81,6 +81,13 @@ status_t CaptureRequest::readFromParcel(Parcel* parcel) {
         mSurfaceList.push_back(surface);
     }
 
+    int isReprocess = 0;
+    if ((err = parcel->readInt32(&isReprocess)) != OK) {
+        ALOGE("%s: Failed to read reprocessing from parcel", __FUNCTION__);
+        return err;
+    }
+    mIsReprocess = (isReprocess != 0);
+
     return OK;
 }
 
@@ -106,7 +113,7 @@ status_t CaptureRequest::writeToParcel(Parcel* parcel) const {
 
         sp<IBinder> binder;
         if (surface != 0) {
-            binder = surface->getIGraphicBufferProducer()->asBinder();
+            binder = IInterface::asBinder(surface->getIGraphicBufferProducer());
         }
 
         // not sure if readParcelableArray does this, hard to tell from source
@@ -117,6 +124,8 @@ status_t CaptureRequest::writeToParcel(Parcel* parcel) const {
         // Surface.nativeWriteToParcel
         parcel->writeStrongBinder(binder);
     }
+
+    parcel->writeInt32(mIsReprocess ? 1 : 0);
 
     return OK;
 }

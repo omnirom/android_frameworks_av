@@ -25,8 +25,6 @@ namespace android {
 
 class ICamera;
 class ICameraClient;
-class IProCameraUser;
-class IProCameraCallbacks;
 class ICameraServiceListener;
 class ICameraDeviceUser;
 class ICameraDeviceCallbacks;
@@ -44,7 +42,6 @@ public:
         GET_NUMBER_OF_CAMERAS = IBinder::FIRST_CALL_TRANSACTION,
         GET_CAMERA_INFO,
         CONNECT,
-        CONNECT_PRO,
         CONNECT_DEVICE,
         ADD_LISTENER,
         REMOVE_LISTENER,
@@ -53,6 +50,8 @@ public:
         GET_LEGACY_PARAMETERS,
         SUPPORTS_CAMERA_API,
         CONNECT_LEGACY,
+        SET_TORCH_MODE,
+        NOTIFY_SYSTEM_EVENT,
     };
 
     enum {
@@ -65,13 +64,34 @@ public:
     };
 
     enum {
+        CAMERA_TYPE_BACKWARD_COMPATIBLE = 0,
+        CAMERA_TYPE_ALL = 1,
+    };
+
+    enum {
         CAMERA_HAL_API_VERSION_UNSPECIFIED = -1
-      };
+    };
+
+    /**
+     * Keep up-to-date with declarations in
+     * frameworks/base/services/core/java/com/android/server/camera/CameraService.java
+     *
+     * These event codes are intended to be used with the notifySystemEvent call.
+     */
+    enum {
+        NO_EVENT = 0,
+        USER_SWITCHED,
+    };
 
 public:
     DECLARE_META_INTERFACE(CameraService);
 
+    // Get the number of cameras that support basic color camera operation
+    // (type CAMERA_TYPE_BACKWARD_COMPATIBLE)
     virtual int32_t  getNumberOfCameras() = 0;
+    // Get the number of cameras of the specified type, one of CAMERA_TYPE_*
+    // enums
+    virtual int32_t  getNumberOfCameras(int cameraType) = 0;
     virtual status_t getCameraInfo(int cameraId,
             /*out*/
             struct CameraInfo* cameraInfo) = 0;
@@ -104,13 +124,6 @@ public:
             /*out*/
             sp<ICamera>& device) = 0;
 
-    virtual status_t connectPro(const sp<IProCameraCallbacks>& cameraCb,
-            int cameraId,
-            const String16& clientPackageName,
-            int clientUid,
-            /*out*/
-            sp<IProCameraUser>& device) = 0;
-
     virtual status_t connectDevice(
             const sp<ICameraDeviceCallbacks>& cameraCb,
             int cameraId,
@@ -142,6 +155,26 @@ public:
             int clientUid,
             /*out*/
             sp<ICamera>& device) = 0;
+
+    /**
+     * Turn on or off a camera's torch mode. Torch mode will be turned off by
+     * camera service if the lastest client binder that turns it on dies.
+     *
+     * return values:
+     * 0:       on a successful operation.
+     * -ENOSYS: the camera device doesn't support this operation. It it returned
+     *          if and only if android.flash.into.available is false.
+     * -EBUSY:  the camera device is opened.
+     * -EINVAL: camera_id is invalid or clientBinder is NULL when enabling a
+     *          torch mode.
+     */
+    virtual status_t setTorchMode(const String16& cameraId, bool enabled,
+            const sp<IBinder>& clientBinder) = 0;
+
+    /**
+     * Notify the camera service of a system event.  Should only be called from system_server.
+     */
+    virtual void notifySystemEvent(int32_t eventId, const int32_t* args, size_t length) = 0;
 };
 
 // ----------------------------------------------------------------------------

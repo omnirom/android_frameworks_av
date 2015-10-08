@@ -23,6 +23,8 @@
 
 #include "Drm.h"
 
+#include "DrmSessionClientInterface.h"
+#include "DrmSessionManager.h"
 #include <media/drm/DrmAPI.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AString.h>
@@ -32,6 +34,10 @@
 #include <binder/IPCThreadState.h>
 
 namespace android {
+
+static inline int getCallingPid() {
+    return IPCThreadState::self()->getCallingPid();
+}
 
 static bool checkPermission(const char* permissionString) {
 #ifndef HAVE_ANDROID_OS
@@ -46,6 +52,7 @@ static bool checkPermission(const char* permissionString) {
 KeyedVector<Vector<uint8_t>, String8> Drm::mUUIDToLibraryPathMap;
 KeyedVector<String8, wp<SharedLibrary> > Drm::mLibraryPathToOpenLibraryMap;
 Mutex Drm::mMapLock;
+Mutex Drm::mLock;
 
 static bool operator<(const Vector<uint8_t> &lhs, const Vector<uint8_t> &rhs) {
     if (lhs.size() < rhs.size()) {
@@ -57,14 +64,41 @@ static bool operator<(const Vector<uint8_t> &lhs, const Vector<uint8_t> &rhs) {
     return memcmp((void *)lhs.array(), (void *)rhs.array(), rhs.size()) < 0;
 }
 
+struct DrmSessionClient : public DrmSessionClientInterface {
+    DrmSessionClient(Drm* drm) : mDrm(drm) {}
+
+    virtual bool reclaimSession(const Vector<uint8_t>& sessionId) {
+        sp<Drm> drm = mDrm.promote();
+        if (drm == NULL) {
+            return true;
+        }
+        status_t err = drm->closeSession(sessionId);
+        if (err != OK) {
+            return false;
+        }
+        drm->sendEvent(DrmPlugin::kDrmPluginEventSessionReclaimed, 0, &sessionId, NULL);
+        return true;
+    }
+
+protected:
+    virtual ~DrmSessionClient() {}
+
+private:
+    wp<Drm> mDrm;
+
+    DISALLOW_EVIL_CONSTRUCTORS(DrmSessionClient);
+};
+
 Drm::Drm()
     : mInitCheck(NO_INIT),
+      mDrmSessionClient(new DrmSessionClient(this)),
       mListener(NULL),
       mFactory(NULL),
       mPlugin(NULL) {
 }
 
 Drm::~Drm() {
+    DrmSessionManager::Instance()->removeDrm(mDrmSessionClient);
     delete mPlugin;
     mPlugin = NULL;
     closeFactory();
@@ -84,10 +118,10 @@ status_t Drm::setListener(const sp<IDrmClient>& listener)
 {
     Mutex::Autolock lock(mEventLock);
     if (mListener != NULL){
-        mListener->asBinder()->unlinkToDeath(this);
+        IInterface::asBinder(mListener)->unlinkToDeath(this);
     }
     if (listener != NULL) {
-        listener->asBinder()->linkToDeath(this);
+        IInterface::asBinder(listener)->linkToDeath(this);
     }
     mListener = listener;
     return NO_ERROR;
@@ -103,22 +137,54 @@ void Drm::sendEvent(DrmPlugin::EventType eventType, int extra,
 
     if (listener != NULL) {
         Parcel obj;
-        if (sessionId && sessionId->size()) {
-            obj.writeInt32(sessionId->size());
-            obj.write(sessionId->array(), sessionId->size());
-        } else {
-            obj.writeInt32(0);
-        }
-
-        if (data && data->size()) {
-            obj.writeInt32(data->size());
-            obj.write(data->array(), data->size());
-        } else {
-            obj.writeInt32(0);
-        }
+        writeByteArray(obj, sessionId);
+        writeByteArray(obj, data);
 
         Mutex::Autolock lock(mNotifyLock);
         listener->notify(eventType, extra, &obj);
+    }
+}
+
+void Drm::sendExpirationUpdate(Vector<uint8_t> const *sessionId,
+                               int64_t expiryTimeInMS)
+{
+    mEventLock.lock();
+    sp<IDrmClient> listener = mListener;
+    mEventLock.unlock();
+
+    if (listener != NULL) {
+        Parcel obj;
+        writeByteArray(obj, sessionId);
+        obj.writeInt64(expiryTimeInMS);
+
+        Mutex::Autolock lock(mNotifyLock);
+        listener->notify(DrmPlugin::kDrmPluginEventExpirationUpdate, 0, &obj);
+    }
+}
+
+void Drm::sendKeysChange(Vector<uint8_t> const *sessionId,
+                         Vector<DrmPlugin::KeyStatus> const *keyStatusList,
+                         bool hasNewUsableKey)
+{
+    mEventLock.lock();
+    sp<IDrmClient> listener = mListener;
+    mEventLock.unlock();
+
+    if (listener != NULL) {
+        Parcel obj;
+        writeByteArray(obj, sessionId);
+
+        size_t nkeys = keyStatusList->size();
+        obj.writeInt32(keyStatusList->size());
+        for (size_t i = 0; i < nkeys; ++i) {
+            const DrmPlugin::KeyStatus *keyStatus = &keyStatusList->itemAt(i);
+            writeByteArray(obj, &keyStatus->mKeyId);
+            obj.writeInt32(keyStatus->mType);
+        }
+        obj.writeInt32(hasNewUsableKey);
+
+        Mutex::Autolock lock(mNotifyLock);
+        listener->notify(DrmPlugin::kDrmPluginEventKeysChange, 0, &obj);
     }
 }
 
@@ -144,7 +210,7 @@ void Drm::findFactoryForScheme(const uint8_t uuid[16]) {
 
     // first check cache
     Vector<uint8_t> uuidVector;
-    uuidVector.appendArray(uuid, sizeof(uuid));
+    uuidVector.appendArray(uuid, sizeof(uuid[0]) * 16);
     ssize_t index = mUUIDToLibraryPathMap.indexOfKey(uuidVector);
     if (index >= 0) {
         if (loadLibraryForScheme(mUUIDToLibraryPathMap[index], uuid)) {
@@ -289,7 +355,29 @@ status_t Drm::openSession(Vector<uint8_t> &sessionId) {
         return -EINVAL;
     }
 
-    return mPlugin->openSession(sessionId);
+    status_t err = mPlugin->openSession(sessionId);
+    if (err == ERROR_DRM_RESOURCE_BUSY) {
+        bool retry = false;
+        mLock.unlock();
+        // reclaimSession may call back to closeSession, since mLock is shared between Drm
+        // instances, we should unlock here to avoid deadlock.
+        retry = DrmSessionManager::Instance()->reclaimSession(getCallingPid());
+        mLock.lock();
+        if (mInitCheck != OK) {
+            return mInitCheck;
+        }
+
+        if (mPlugin == NULL) {
+            return -EINVAL;
+        }
+        if (retry) {
+            err = mPlugin->openSession(sessionId);
+        }
+    }
+    if (err == OK) {
+        DrmSessionManager::Instance()->addSession(getCallingPid(), mDrmSessionClient, sessionId);
+    }
+    return err;
 }
 
 status_t Drm::closeSession(Vector<uint8_t> const &sessionId) {
@@ -303,14 +391,19 @@ status_t Drm::closeSession(Vector<uint8_t> const &sessionId) {
         return -EINVAL;
     }
 
-    return mPlugin->closeSession(sessionId);
+    status_t err = mPlugin->closeSession(sessionId);
+    if (err == OK) {
+        DrmSessionManager::Instance()->removeSession(sessionId);
+    }
+    return err;
 }
 
 status_t Drm::getKeyRequest(Vector<uint8_t> const &sessionId,
                             Vector<uint8_t> const &initData,
                             String8 const &mimeType, DrmPlugin::KeyType keyType,
                             KeyedVector<String8, String8> const &optionalParameters,
-                            Vector<uint8_t> &request, String8 &defaultUrl) {
+                            Vector<uint8_t> &request, String8 &defaultUrl,
+                            DrmPlugin::KeyRequestType *keyRequestType) {
     Mutex::Autolock autoLock(mLock);
 
     if (mInitCheck != OK) {
@@ -321,8 +414,11 @@ status_t Drm::getKeyRequest(Vector<uint8_t> const &sessionId,
         return -EINVAL;
     }
 
+    DrmSessionManager::Instance()->useSession(sessionId);
+
     return mPlugin->getKeyRequest(sessionId, initData, mimeType, keyType,
-                                  optionalParameters, request, defaultUrl);
+                                  optionalParameters, request, defaultUrl,
+                                  keyRequestType);
 }
 
 status_t Drm::provideKeyResponse(Vector<uint8_t> const &sessionId,
@@ -337,6 +433,8 @@ status_t Drm::provideKeyResponse(Vector<uint8_t> const &sessionId,
     if (mPlugin == NULL) {
         return -EINVAL;
     }
+
+    DrmSessionManager::Instance()->useSession(sessionId);
 
     return mPlugin->provideKeyResponse(sessionId, response, keySetId);
 }
@@ -367,6 +465,8 @@ status_t Drm::restoreKeys(Vector<uint8_t> const &sessionId,
         return -EINVAL;
     }
 
+    DrmSessionManager::Instance()->useSession(sessionId);
+
     return mPlugin->restoreKeys(sessionId, keySetId);
 }
 
@@ -381,6 +481,8 @@ status_t Drm::queryKeyStatus(Vector<uint8_t> const &sessionId,
     if (mPlugin == NULL) {
         return -EINVAL;
     }
+
+    DrmSessionManager::Instance()->useSession(sessionId);
 
     return mPlugin->queryKeyStatus(sessionId, infoMap);
 }
@@ -561,6 +663,8 @@ status_t Drm::setCipherAlgorithm(Vector<uint8_t> const &sessionId,
         return -EINVAL;
     }
 
+    DrmSessionManager::Instance()->useSession(sessionId);
+
     return mPlugin->setCipherAlgorithm(sessionId, algorithm);
 }
 
@@ -575,6 +679,8 @@ status_t Drm::setMacAlgorithm(Vector<uint8_t> const &sessionId,
     if (mPlugin == NULL) {
         return -EINVAL;
     }
+
+    DrmSessionManager::Instance()->useSession(sessionId);
 
     return mPlugin->setMacAlgorithm(sessionId, algorithm);
 }
@@ -594,6 +700,8 @@ status_t Drm::encrypt(Vector<uint8_t> const &sessionId,
         return -EINVAL;
     }
 
+    DrmSessionManager::Instance()->useSession(sessionId);
+
     return mPlugin->encrypt(sessionId, keyId, input, iv, output);
 }
 
@@ -612,6 +720,8 @@ status_t Drm::decrypt(Vector<uint8_t> const &sessionId,
         return -EINVAL;
     }
 
+    DrmSessionManager::Instance()->useSession(sessionId);
+
     return mPlugin->decrypt(sessionId, keyId, input, iv, output);
 }
 
@@ -628,6 +738,8 @@ status_t Drm::sign(Vector<uint8_t> const &sessionId,
     if (mPlugin == NULL) {
         return -EINVAL;
     }
+
+    DrmSessionManager::Instance()->useSession(sessionId);
 
     return mPlugin->sign(sessionId, keyId, message, signature);
 }
@@ -646,6 +758,8 @@ status_t Drm::verify(Vector<uint8_t> const &sessionId,
     if (mPlugin == NULL) {
         return -EINVAL;
     }
+
+    DrmSessionManager::Instance()->useSession(sessionId);
 
     return mPlugin->verify(sessionId, keyId, message, signature, match);
 }
@@ -669,10 +783,12 @@ status_t Drm::signRSA(Vector<uint8_t> const &sessionId,
         return -EPERM;
     }
 
+    DrmSessionManager::Instance()->useSession(sessionId);
+
     return mPlugin->signRSA(sessionId, algorithm, message, wrappedKey, signature);
 }
 
-void Drm::binderDied(const wp<IBinder> &the_late_who)
+void Drm::binderDied(const wp<IBinder> &the_late_who __unused)
 {
     mEventLock.lock();
     mListener.clear();
@@ -682,6 +798,16 @@ void Drm::binderDied(const wp<IBinder> &the_late_who)
     delete mPlugin;
     mPlugin = NULL;
     closeFactory();
+}
+
+void Drm::writeByteArray(Parcel &obj, Vector<uint8_t> const *array)
+{
+    if (array && array->size()) {
+        obj.writeInt32(array->size());
+        obj.write(array->array(), array->size());
+    } else {
+        obj.writeInt32(0);
+    }
 }
 
 }  // namespace android

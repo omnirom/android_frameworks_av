@@ -10,19 +10,17 @@ LOCAL_SRC_FILES:=               \
     ActivityManager.cpp         \
     Crypto.cpp                  \
     Drm.cpp                     \
+    DrmSessionManager.cpp       \
     HDCP.cpp                    \
     MediaPlayerFactory.cpp      \
     MediaPlayerService.cpp      \
     MediaRecorderClient.cpp     \
     MetadataRetrieverClient.cpp \
-    MidiFile.cpp                \
-    MidiMetadataRetriever.cpp   \
     RemoteDisplay.cpp           \
     SharedLibrary.cpp           \
     StagefrightPlayer.cpp       \
     StagefrightRecorder.cpp     \
     TestPlayerStub.cpp          \
-    VideoFrameScheduler.cpp     \
 
 LOCAL_SHARED_LIBRARIES :=       \
     libbinder                   \
@@ -34,6 +32,7 @@ LOCAL_SHARED_LIBRARIES :=       \
     libdl                       \
     libgui                      \
     libmedia                    \
+    libmediautils               \
     libsonivox                  \
     libstagefright              \
     libstagefright_foundation   \
@@ -54,6 +53,9 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/av/media/libstagefright/webm                  \
     $(TOP)/frameworks/native/include/media/openmax                  \
     $(TOP)/external/tremolo/Tremolo                                 \
+
+LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall
+LOCAL_CLANG := true
 
 LOCAL_MODULE:= libmediaplayerservice
 

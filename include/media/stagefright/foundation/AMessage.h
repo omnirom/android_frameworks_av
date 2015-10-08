@@ -26,11 +26,41 @@
 namespace android {
 
 struct ABuffer;
+struct AHandler;
 struct AString;
-struct Parcel;
+class Parcel;
+
+struct AReplyToken : public RefBase {
+    AReplyToken(const sp<ALooper> &looper)
+        : mLooper(looper),
+          mReplied(false) {
+    }
+
+private:
+    friend struct AMessage;
+    friend struct ALooper;
+    wp<ALooper> mLooper;
+    sp<AMessage> mReply;
+    bool mReplied;
+
+    sp<ALooper> getLooper() const {
+        return mLooper.promote();
+    }
+    // if reply is not set, returns false; otherwise, it retrieves the reply and returns true
+    bool retrieveReply(sp<AMessage> *reply) {
+        if (mReplied) {
+            *reply = mReply;
+            mReply.clear();
+        }
+        return mReplied;
+    }
+    // sets the reply for this token. returns OK or error
+    status_t setReply(const sp<AMessage> &reply);
+};
 
 struct AMessage : public RefBase {
-    AMessage(uint32_t what = 0, ALooper::handler_id target = 0);
+    AMessage();
+    AMessage(uint32_t what, const sp<const AHandler> &handler);
 
     static sp<AMessage> FromParcel(const Parcel &parcel);
     void writeToParcel(Parcel *parcel) const;
@@ -38,8 +68,7 @@ struct AMessage : public RefBase {
     void setWhat(uint32_t what);
     uint32_t what() const;
 
-    void setTarget(ALooper::handler_id target);
-    ALooper::handler_id target() const;
+    void setTarget(const sp<const AHandler> &handler);
 
     void clear();
 
@@ -76,18 +105,22 @@ struct AMessage : public RefBase {
             const char *name,
             int32_t *left, int32_t *top, int32_t *right, int32_t *bottom) const;
 
-    void post(int64_t delayUs = 0);
+    status_t post(int64_t delayUs = 0);
 
     // Posts the message to its target and waits for a response (or error)
     // before returning.
     status_t postAndAwaitResponse(sp<AMessage> *response);
 
     // If this returns true, the sender of this message is synchronously
-    // awaiting a response, the "replyID" can be used to send the response
-    // via "postReply" below.
-    bool senderAwaitsResponse(uint32_t *replyID) const;
+    // awaiting a response and the reply token is consumed from the message
+    // and stored into replyID. The reply token must be used to send the response
+    // using "postReply" below.
+    bool senderAwaitsResponse(sp<AReplyToken> *replyID);
 
-    void postReply(uint32_t replyID);
+    // Posts the message as a response to a reply token.  A reply token can
+    // only be used once. Returns OK if the response could be posted; otherwise,
+    // an error.
+    status_t postReply(const sp<AReplyToken> &replyID);
 
     // Performs a deep-copy of "this", contained messages are in turn "dup'ed".
     // Warning: RefBase items, i.e. "objects" are _not_ copied but only have
@@ -117,8 +150,15 @@ protected:
     virtual ~AMessage();
 
 private:
+    friend struct ALooper; // deliver()
+
     uint32_t mWhat;
+
+    // used only for debugging
     ALooper::handler_id mTarget;
+
+    wp<AHandler> mHandler;
+    wp<ALooper> mLooper;
 
     struct Rect {
         int32_t mLeft, mTop, mRight, mBottom;
@@ -156,6 +196,8 @@ private:
             const char *name, const sp<RefBase> &obj, Type type);
 
     size_t findItemIndex(const char *name, size_t len) const;
+
+    void deliver();
 
     DISALLOW_EVIL_CONSTRUCTORS(AMessage);
 };

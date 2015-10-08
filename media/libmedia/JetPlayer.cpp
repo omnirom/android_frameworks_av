@@ -36,7 +36,6 @@ JetPlayer::JetPlayer(void *javaJetPlayer, int maxTracks, int trackBufferSize) :
         mPaused(false),
         mMaxTracks(maxTracks),
         mEasData(NULL),
-        mEasJetFileLoc(NULL),
         mTrackBufferSize(trackBufferSize)
 {
     ALOGV("JetPlayer constructor");
@@ -86,12 +85,18 @@ int JetPlayer::init()
 
     // create the output AudioTrack
     mAudioTrack = new AudioTrack();
-    mAudioTrack->set(AUDIO_STREAM_MUSIC,  //TODO parameterize this
+    status_t status = mAudioTrack->set(AUDIO_STREAM_MUSIC,  //TODO parameterize this
             pLibConfig->sampleRate,
             AUDIO_FORMAT_PCM_16_BIT,
             audio_channel_out_mask_from_count(pLibConfig->numChannels),
             (size_t) mTrackBufferSize,
             AUDIO_OUTPUT_FLAG_NONE);
+    if (status != OK) {
+        ALOGE("JetPlayer::init(): Error initializing JET library; AudioTrack error %d", status);
+        mAudioTrack.clear();
+        mState = EAS_STATE_ERROR;
+        return EAS_FAILURE;
+    }
 
     // create render and playback thread
     {
@@ -133,10 +138,7 @@ int JetPlayer::release()
         JET_Shutdown(mEasData);
         EAS_Shutdown(mEasData);
     }
-    if (mEasJetFileLoc) {
-        free(mEasJetFileLoc);
-        mEasJetFileLoc = NULL;
-    }
+    mIoWrapper.clear();
     if (mAudioTrack != 0) {
         mAudioTrack->stop();
         mAudioTrack->flush();
@@ -327,16 +329,9 @@ int JetPlayer::loadFromFile(const char* path)
 
     Mutex::Autolock lock(mMutex);
 
-    mEasJetFileLoc = (EAS_FILE_LOCATOR) malloc(sizeof(EAS_FILE));
-    strncpy(mJetFilePath, path, sizeof(mJetFilePath));
-    mJetFilePath[sizeof(mJetFilePath) - 1] = '\0';
-    mEasJetFileLoc->path = mJetFilePath;
+    mIoWrapper = new MidiIoWrapper(path);
 
-    mEasJetFileLoc->fd = 0;
-    mEasJetFileLoc->length = 0;
-    mEasJetFileLoc->offset = 0;
-
-    EAS_RESULT result = JET_OpenFile(mEasData, mEasJetFileLoc);
+    EAS_RESULT result = JET_OpenFile(mEasData, mIoWrapper->getLocator());
     if (result != EAS_SUCCESS)
         mState = EAS_STATE_ERROR;
     else
@@ -352,13 +347,9 @@ int JetPlayer::loadFromFD(const int fd, const long long offset, const long long 
 
     Mutex::Autolock lock(mMutex);
 
-    mEasJetFileLoc = (EAS_FILE_LOCATOR) malloc(sizeof(EAS_FILE));
-    mEasJetFileLoc->fd = fd;
-    mEasJetFileLoc->offset = offset;
-    mEasJetFileLoc->length = length;
-    mEasJetFileLoc->path = NULL;
+    mIoWrapper = new MidiIoWrapper(fd, offset, length);
 
-    EAS_RESULT result = JET_OpenFile(mEasData, mEasJetFileLoc);
+    EAS_RESULT result = JET_OpenFile(mEasData, mIoWrapper->getLocator());
     if (result != EAS_SUCCESS)
         mState = EAS_STATE_ERROR;
     else
@@ -423,7 +414,8 @@ int JetPlayer::queueSegment(int segmentNum, int libNum, int repeatCount, int tra
     ALOGV("JetPlayer::queueSegment segmentNum=%d, libNum=%d, repeatCount=%d, transpose=%d",
         segmentNum, libNum, repeatCount, transpose);
     Mutex::Autolock lock(mMutex);
-    return JET_QueueSegment(mEasData, segmentNum, libNum, repeatCount, transpose, muteFlags, userID);
+    return JET_QueueSegment(mEasData, segmentNum, libNum, repeatCount, transpose, muteFlags,
+            userID);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -459,13 +451,13 @@ int JetPlayer::clearQueue()
 //-------------------------------------------------------------------------------------------------
 void JetPlayer::dump()
 {
-    ALOGE("JetPlayer dump: JET file=%s", mEasJetFileLoc->path);
 }
 
 void JetPlayer::dumpJetStatus(S_JET_STATUS* pJetStatus)
 {
     if (pJetStatus!=NULL)
-        ALOGV(">> current JET player status: userID=%d segmentRepeatCount=%d numQueuedSegments=%d paused=%d",
+        ALOGV(">> current JET player status: userID=%d segmentRepeatCount=%d numQueuedSegments=%d "
+                "paused=%d",
                 pJetStatus->currentUserID, pJetStatus->segmentRepeatCount,
                 pJetStatus->numQueuedSegments, pJetStatus->paused);
     else

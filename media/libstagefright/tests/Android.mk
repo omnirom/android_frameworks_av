@@ -1,8 +1,7 @@
 # Build the unit tests.
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
-
-ifneq ($(TARGET_SIMULATOR),true)
+LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
 
 LOCAL_MODULE := SurfaceMediaSource_test
 
@@ -22,33 +21,26 @@ LOCAL_SHARED_LIBRARIES := \
 	libstagefright \
 	libstagefright_foundation \
 	libstagefright_omx \
-	libstlport \
 	libsync \
 	libui \
 	libutils \
 	liblog
 
-LOCAL_STATIC_LIBRARIES := \
-	libgtest \
-	libgtest_main \
-
 LOCAL_C_INCLUDES := \
-	bionic \
-	bionic/libstdc++/include \
-	external/gtest/include \
-	external/stlport/stlport \
 	frameworks/av/media/libstagefright \
 	frameworks/av/media/libstagefright/include \
 	$(TOP)/frameworks/native/include/media/openmax \
 
+LOCAL_CFLAGS += -Werror -Wall
+LOCAL_CLANG := true
+
 LOCAL_32_BIT_ONLY := true
 
-include $(BUILD_EXECUTABLE)
-
-endif
+include $(BUILD_NATIVE_TEST)
 
 
 include $(CLEAR_VARS)
+LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
 
 LOCAL_MODULE := Utils_test
 
@@ -64,23 +56,47 @@ LOCAL_SHARED_LIBRARIES := \
 	libstagefright \
 	libstagefright_foundation \
 	libstagefright_omx \
-	libstlport \
-
-LOCAL_STATIC_LIBRARIES := \
-	libgtest \
-	libgtest_main \
 
 LOCAL_C_INCLUDES := \
-	bionic \
-	bionic/libstdc++/include \
-	external/gtest/include \
-	external/stlport/stlport \
 	frameworks/av/include \
 	frameworks/av/media/libstagefright \
 	frameworks/av/media/libstagefright/include \
 	$(TOP)/frameworks/native/include/media/openmax \
 
-include $(BUILD_EXECUTABLE)
+LOCAL_CFLAGS += -Werror -Wall
+LOCAL_CLANG := true
+
+include $(BUILD_NATIVE_TEST)
+
+include $(CLEAR_VARS)
+LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
+
+LOCAL_MODULE := MediaCodecListOverrides_test
+
+LOCAL_MODULE_TAGS := tests
+
+LOCAL_SRC_FILES := \
+	MediaCodecListOverrides_test.cpp \
+
+LOCAL_SHARED_LIBRARIES := \
+	libmedia \
+	libstagefright \
+	libstagefright_foundation \
+	libstagefright_omx \
+	libutils \
+	liblog
+
+LOCAL_C_INCLUDES := \
+	frameworks/av/media/libstagefright \
+	frameworks/av/media/libstagefright/include \
+	frameworks/native/include/media/openmax \
+
+LOCAL_32_BIT_ONLY := true
+
+LOCAL_CFLAGS += -Werror -Wall
+LOCAL_CLANG := true
+
+include $(BUILD_NATIVE_TEST)
 
 # Include subdirectory makefiles
 # ============================================================
