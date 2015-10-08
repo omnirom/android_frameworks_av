@@ -199,6 +199,7 @@ struct AVUtils {
     virtual bool isAudioMuxFormatSupported(const char *mime);
     virtual void cacheCaptureBuffers(sp<ICamera> camera, video_encoder encoder);
     virtual const char *getCustomCodecsLocation();
+    virtual const char *getCustomCodecsPerformanceLocation();
 
     virtual void setIntraPeriod(
                 int nPFrames, int nBFrames, const sp<IOMX> OMXhandle,
