@@ -108,7 +108,7 @@ void AVNuUtils::addFlagsInMeta(const sp<ABuffer> & /*buffer*/,
         int32_t /*flags*/, bool /*isAudio*/) {
 }
 
-uint32_t AVNuUtils::getUseSetBuffersFlag() {
+uint32_t AVNuUtils::getFlags() {
     return 0;
 }
 
