@@ -122,7 +122,8 @@ struct BufferMeta {
         }
 
         // check component returns proper range
-        sp<ABuffer> codec = getBuffer(header, false /* backup */, true /* limit */);
+        sp<ABuffer> codec = getBuffer(header, false /* backup */,
+                !(header->nFlags & OMX_BUFFERFLAG_EXTRADATA));
 
         memcpy((OMX_U8 *)mMem->pointer() + header->nOffset, codec->data(), codec->size());
     }
@@ -132,9 +133,11 @@ struct BufferMeta {
             return;
         }
 
+        size_t bytesToCopy = header->nFlags & OMX_BUFFERFLAG_EXTRADATA ?
+            header->nAllocLen - header->nOffset : header->nFilledLen;
         memcpy(header->pBuffer + header->nOffset,
                 (const OMX_U8 *)mMem->pointer() + header->nOffset,
-                header->nFilledLen);
+                bytesToCopy);
     }
 
     // return either the codec or the backup buffer
@@ -278,6 +281,7 @@ status_t OMXNodeInstance::freeNode(OMXMaster *master) {
     OMX_STATETYPE state;
     CHECK_EQ(OMX_GetState(mHandle, &state), OMX_ErrorNone);
     switch (state) {
+        case OMX_StatePause:
         case OMX_StateExecuting:
         {
             ALOGV("forcing Executing->Idle");

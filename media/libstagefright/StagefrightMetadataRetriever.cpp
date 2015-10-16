@@ -23,6 +23,7 @@
 #include <gui/Surface.h>
 
 #include "include/StagefrightMetadataRetriever.h"
+#include "include/HTTPBase.h"
 
 #include <media/ICrypto.h>
 #include <media/IMediaHTTPService.h>
@@ -44,6 +45,8 @@
 
 #include <CharacterEncodingDetector.h>
 
+#include <stagefright/AVExtensions.h>
+
 namespace android {
 
 static const int64_t kBufferTimeOutUs = 30000ll; // 30 msec
@@ -62,6 +65,12 @@ StagefrightMetadataRetriever::~StagefrightMetadataRetriever() {
     ALOGV("~StagefrightMetadataRetriever()");
     clearMetadata();
     mClient.disconnect();
+
+    if (mSource != NULL &&
+        (mSource->flags() & DataSource::kIsHTTPBasedSource)) {
+        mExtractor.clear();
+        static_cast<HTTPBase *>(mSource.get())->disconnect();
+    }
 }
 
 status_t StagefrightMetadataRetriever::setDataSource(
@@ -97,6 +106,7 @@ status_t StagefrightMetadataRetriever::setDataSource(
     fd = dup(fd);
 
     ALOGV("setDataSource(%d, %" PRId64 ", %" PRId64 ")", fd, offset, length);
+    AVUtils::get()->printFileName(fd);
 
     clearMetadata();
     mSource = new FileSource(fd, offset, length);
@@ -150,6 +160,8 @@ static VideoFrame *extractVideoFrame(
 
     // TODO: Use Flexible color instead
     videoFormat->setInt32("color-format", OMX_COLOR_FormatYUV420Planar);
+
+    videoFormat->setInt32("thumbnail-mode", 1);
 
     status_t err;
     sp<ALooper> looper = new ALooper;
@@ -211,6 +223,7 @@ static VideoFrame *extractVideoFrame(
     err = decoder->getInputBuffers(&inputBuffers);
     if (err != OK) {
         ALOGW("failed to get input buffers: %d (%s)", err, asString(err));
+        source->stop();
         decoder->release();
         return NULL;
     }
@@ -219,6 +232,7 @@ static VideoFrame *extractVideoFrame(
     err = decoder->getOutputBuffers(&outputBuffers);
     if (err != OK) {
         ALOGW("failed to get output buffers: %d (%s)", err, asString(err));
+        source->stop();
         decoder->release();
         return NULL;
     }
@@ -343,9 +357,11 @@ static VideoFrame *extractVideoFrame(
         }
     }
 
-    int32_t width, height;
+    int32_t width, height, stride, slice_height;
     CHECK(outputFormat->findInt32("width", &width));
     CHECK(outputFormat->findInt32("height", &height));
+    CHECK(outputFormat->findInt32("stride", &stride));
+    CHECK(outputFormat->findInt32("slice-height", &slice_height));
 
     int32_t crop_left, crop_top, crop_right, crop_bottom;
     if (!outputFormat->findRect("crop", &crop_left, &crop_top, &crop_right, &crop_bottom)) {
@@ -383,7 +399,7 @@ static VideoFrame *extractVideoFrame(
     if (converter.isValid()) {
         err = converter.convert(
                 (const uint8_t *)videoFrameBuffer->data(),
-                width, height,
+                stride, slice_height,
                 crop_left, crop_top, crop_right, crop_bottom,
                 frame->mData,
                 frame->mWidth,
@@ -478,7 +494,7 @@ VideoFrame *StagefrightMetadataRetriever::getFrameAtTime(
             mime,
             false, /* encoder */
             NULL, /* matchComponentName */
-            OMXCodec::kPreferSoftwareCodecs,
+            0 /* OMXCodec::kPreferSoftwareCodecs */,
             &matchingCodecs);
 
     for (size_t i = 0; i < matchingCodecs.size(); ++i) {
@@ -658,9 +674,12 @@ void StagefrightMetadataRetriever::parseMetaData() {
                 }
             } else if (!strcasecmp(mime, MEDIA_MIMETYPE_TEXT_3GPP)) {
                 const char *lang;
-                trackMeta->findCString(kKeyMediaLanguage, &lang);
-                timedTextLang.append(String8(lang));
-                timedTextLang.append(String8(":"));
+                if (trackMeta->findCString(kKeyMediaLanguage, &lang)) {
+                    timedTextLang.append(String8(lang));
+                    timedTextLang.append(String8(":"));
+                } else {
+                    ALOGE("No language found for timed text");
+                }
             }
         }
     }

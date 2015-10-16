@@ -69,12 +69,21 @@ LOCAL_SRC_FILES:= \
     StringArray.cpp \
     AudioPolicy.cpp
 
+
+#QTI Resampler
+ifeq ($(call is-vendor-board-platform,QCOM), true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_RESAMPLER)), true)
+LOCAL_CFLAGS += -DQTI_RESAMPLER
+endif
+endif
+#QTI Resampler
+
 LOCAL_SHARED_LIBRARIES := \
 	libui liblog libcutils libutils libbinder libsonivox libicuuc libicui18n libexpat \
         libcamera_client libstagefright_foundation \
         libgui libdl libaudioutils libnbaio
 
-LOCAL_WHOLE_STATIC_LIBRARIES := libmedia_helper
+LOCAL_WHOLE_STATIC_LIBRARIES := libmedia_helper libavmediaextentions
 
 LOCAL_MODULE:= libmedia
 
@@ -84,6 +93,7 @@ LOCAL_C_INCLUDES := \
     $(TOP)/frameworks/native/include/media/openmax \
     $(TOP)/frameworks/av/include/media/ \
     $(TOP)/frameworks/av/media/libstagefright \
+    $(TOP)/frameworks/av/media/libavextensions \
     $(call include-path-for, audio-effects) \
     $(call include-path-for, audio-utils)
 

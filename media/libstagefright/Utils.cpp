@@ -35,6 +35,8 @@
 #include <media/stagefright/Utils.h>
 #include <media/AudioParameter.h>
 
+#include <stagefright/AVExtensions.h>
+
 namespace android {
 
 uint16_t U16_AT(const uint8_t *ptr) {
@@ -433,6 +435,7 @@ status_t convertMetaDataToMessage(
         msg->setBuffer("csd-2", buffer);
     }
 
+    AVUtils::get()->convertMetaDataToMessage(meta, &msg);
     *format = msg;
 
     return OK;
@@ -665,6 +668,8 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
             // for transporting the CSD to muxers.
             reassembleESDS(csd0, esds);
             meta->setData(kKeyESDS, kKeyESDS, esds, sizeof(esds));
+        } else {
+            AVUtils::get()->HEVCMuxerUtils().reassembleHEVCCSD(mime, csd0, meta);
         }
     }
 
@@ -724,6 +729,7 @@ status_t sendMetaDataToHal(sp<MediaPlayerBase::AudioSink>& sink,
         param.addInt(String8(AUDIO_OFFLOAD_CODEC_PADDING_SAMPLES), paddingSamples);
     }
 
+    AVUtils::get()->sendMetaDataToHal(meta, &param);
     ALOGV("sendMetaDataToHal: bitRate %d, sampleRate %d, chanMask %d,"
           "delaySample %d, paddingSample %d", bitRate, sampleRate,
           channelMask, delaySamples, paddingSamples);
@@ -759,7 +765,7 @@ const struct mime_conv_t* p = &mimeLookup[0];
         ++p;
     }
 
-    return BAD_VALUE;
+    return AVUtils::get()->mapMimeToAudioFormat(format, mime);
 }
 
 struct aac_format_conv_t {
@@ -813,10 +819,14 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
     } else {
         ALOGV("Mime type \"%s\" mapped to audio_format %d", mime, info.format);
     }
-
+    info.format  = AVUtils::get()->updateAudioFormat(info.format, meta);
     if (AUDIO_FORMAT_INVALID == info.format) {
         // can't offload if we don't know what the source format is
         ALOGE("mime type \"%s\" not a known audio format", mime);
+        return false;
+    }
+
+    if (AVUtils::get()->canOffloadAPE(meta) != true) {
         return false;
     }
 
@@ -824,7 +834,12 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
     // Offloading depends on audio DSP capabilities.
     int32_t aacaot = -1;
     if (meta->findInt32(kKeyAACAOT, &aacaot)) {
-        mapAACProfileToAudioFormat(info.format,(OMX_AUDIO_AACPROFILETYPE) aacaot);
+        bool isADTSSupported = false;
+        isADTSSupported = AVUtils::get()->mapAACProfileToAudioFormat(meta, info.format,
+                                  (OMX_AUDIO_AACPROFILETYPE) aacaot);
+        if (!isADTSSupported) {
+           mapAACProfileToAudioFormat(info.format,(OMX_AUDIO_AACPROFILETYPE) aacaot);
+        }
     }
 
     int32_t srate = -1;

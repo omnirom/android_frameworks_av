@@ -108,6 +108,8 @@ private:
 
     sp<AMessage> mMetaKeys;
 
+    bool mIsVideoHEVC;
+
     void setStartTimestampUs(int64_t timeUs);
     int64_t getStartTimestampUs();  // Not const
     status_t startTracks(MetaData *params);
@@ -180,6 +182,9 @@ private:
     // drained the chunks yet.
     // By default, real time recording is on.
     bool isRealTimeRecording() const;
+
+    // To use 3gp4 box for clips with AMR audio
+    bool mIsAudioAMR;
 
     void lock();
     void unlock();

@@ -535,6 +535,7 @@ status_t MPEG4Extractor::readMetaData() {
     }
     if (psshsize > 0 && psshsize <= UINT32_MAX) {
         char *buf = (char*)malloc(psshsize);
+        CHECK(buf != NULL);
         char *ptr = buf;
         for (size_t i = 0; i < mPssh.size(); i++) {
             memcpy(ptr, mPssh[i].uuid, 20); // uuid + length
@@ -1590,13 +1591,21 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 return ERROR_MALFORMED;
 
             *offset += chunk_size;
+            // Ignore stss block for audio even if its present
+            // All audio sample are sync samples itself,
+            // self decodeable and playable.
+            // Parsing this block for audio restricts audio seek to few entries
+            // available in this block, sometimes 0, which is undesired.
+            const char *mime;
+            CHECK(mLastTrack->meta->findCString(kKeyMIMEType, &mime));
+            if (strncasecmp("audio/", mime, 6)) {
+                status_t err =
+                    mLastTrack->sampleTable->setSyncSampleParams(
+                            data_offset, chunk_data_size);
 
-            status_t err =
-                mLastTrack->sampleTable->setSyncSampleParams(
-                        data_offset, chunk_data_size);
-
-            if (err != OK) {
-                return err;
+                if (err != OK) {
+                    return err;
+                }
             }
 
             break;
@@ -3124,7 +3133,7 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
                         extensionFlag, objectType);
             }
 
-            if (numChannels == 0) {
+            if (numChannels == 0 && (br.numBitsLeft() > 0)) {
                 int32_t channelsEffectiveNum = 0;
                 int32_t channelsNum = 0;
                 if (br.numBitsLeft() < 32) {

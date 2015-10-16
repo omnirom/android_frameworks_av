@@ -374,7 +374,8 @@ void NuPlayer::GenericSource::onPrepareAsync() {
 
             mDataSource = DataSource::CreateFromURI(
                    mHTTPService, uri, &mUriHeaders, &contentType,
-                   static_cast<HTTPBase *>(mHttpSource.get()));
+                   static_cast<HTTPBase *>(mHttpSource.get()),
+                   true /*use extended cache*/);
         } else {
             mIsWidevine = false;
 
@@ -1466,7 +1467,9 @@ void NuPlayer::GenericSource::readBuffer(
             break;
         case MEDIA_TRACK_TYPE_AUDIO:
             track = &mAudioTrack;
-            if (mIsWidevine) {
+            if (mHttpSource != NULL && getTrackCount() == 1) {
+                maxBuffers = 16;
+            } else if (mIsWidevine || (mHttpSource != NULL)) {
                 maxBuffers = 8;
             } else {
                 maxBuffers = 64;
@@ -1497,6 +1500,7 @@ void NuPlayer::GenericSource::readBuffer(
     if (seekTimeUs >= 0) {
         options.setSeekTo(seekTimeUs, MediaSource::ReadOptions::SEEK_PREVIOUS_SYNC);
         seeking = true;
+        track->mPackets->clear();
     }
 
     if (mIsWidevine) {
@@ -1521,7 +1525,8 @@ void NuPlayer::GenericSource::readBuffer(
             queueDiscontinuityIfNeeded(seeking, formatChange, trackType, track);
 
             sp<ABuffer> buffer = mediaBufferToABuffer(
-                    mbuf, trackType, seekTimeUs, actualTimeUs);
+                    mbuf, trackType, seekTimeUs,
+                    numBuffers == 0 ? actualTimeUs : NULL);
             track->mPackets->queueAccessUnit(buffer);
             formatChange = false;
             seeking = false;

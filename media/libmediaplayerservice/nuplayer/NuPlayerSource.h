@@ -57,6 +57,7 @@ struct NuPlayer::Source : public AHandler {
         kWhatQueueDecoderShutdown,
         kWhatDrmNoLicense,
         kWhatInstantiateSecureDecoders,
+        kWhatRTCPByeReceived,
     };
 
     // The provides message is used to notify the player about various
@@ -132,10 +133,10 @@ protected:
     void notifyFlagsChanged(uint32_t flags);
     void notifyVideoSizeChanged(const sp<AMessage> &format = NULL);
     void notifyInstantiateSecureDecoders(const sp<AMessage> &reply);
-    void notifyPrepared(status_t err = OK);
+    virtual void notifyPrepared(status_t err = OK);
 
-private:
     sp<AMessage> mNotify;
+private:
 
     DISALLOW_EVIL_CONSTRUCTORS(Source);
 };

@@ -30,6 +30,7 @@
 #include <media/IAudioFlinger.h>
 #include <media/AudioPolicyHelper.h>
 #include <media/AudioResamplerPublic.h>
+#include "media/AVMediaExtensions.h"
 
 #define WAIT_PERIOD_MS                  10
 #define WAIT_STREAM_END_TIMEOUT_SEC     120
@@ -532,6 +533,12 @@ status_t AudioTrack::start()
         // force refresh of remaining frames by processAudioBuffer() as last
         // write before stop could be partial.
         mRefreshRemaining = true;
+
+       // for static track, clear the old flags when start from stopped state
+       if (mSharedBuffer != 0)
+           android_atomic_and(
+           ~(CBLK_LOOP_CYCLE | CBLK_LOOP_FINAL | CBLK_BUFFER_END),
+           &mCblk->mFlags);
     }
     mNewPosition = mPosition + mUpdatePeriod;
     int32_t flags = android_atomic_and(~CBLK_DISABLED, &mCblk->mFlags);
@@ -992,6 +999,10 @@ status_t AudioTrack::getPosition(uint32_t *position)
             return NO_ERROR;
         }
 
+        if (AVMediaUtils::get()->AudioTrackGetPosition(this, position) == NO_ERROR) {
+            return NO_ERROR;
+        }
+
         if (mOutput != AUDIO_IO_HANDLE_NONE) {
             uint32_t halFrames; // actually unused
             (void) AudioSystem::getRenderPosition(mOutput, &halFrames, &dspFrames);
@@ -1194,6 +1205,7 @@ status_t AudioTrack::createTrack_l()
             frameCount = mSharedBuffer->size();
         } else if (frameCount == 0) {
             frameCount = mAfFrameCount;
+            frameCount = AVMediaUtils::get()->AudioTrackGetOffloadFrameCount(frameCount);
         }
         if (mNotificationFramesAct != frameCount) {
             mNotificationFramesAct = frameCount;
@@ -1829,40 +1841,6 @@ nsecs_t AudioTrack::processAudioBuffer()
     // get anchor time to account for callbacks.
     const nsecs_t timeBeforeCallbacks = systemTime();
 
-    if (waitStreamEnd) {
-        // FIXME:  Instead of blocking in proxy->waitStreamEndDone(), Callback thread
-        // should wait on proxy futex and handle CBLK_STREAM_END_DONE within this function
-        // (and make sure we don't callback for more data while we're stopping).
-        // This helps with position, marker notifications, and track invalidation.
-        struct timespec timeout;
-        timeout.tv_sec = WAIT_STREAM_END_TIMEOUT_SEC;
-        timeout.tv_nsec = 0;
-
-        status_t status = proxy->waitStreamEndDone(&timeout);
-        switch (status) {
-        case NO_ERROR:
-        case DEAD_OBJECT:
-        case TIMED_OUT:
-            mCbf(EVENT_STREAM_END, mUserData, NULL);
-            {
-                AutoMutex lock(mLock);
-                // The previously assigned value of waitStreamEnd is no longer valid,
-                // since the mutex has been unlocked and either the callback handler
-                // or another thread could have re-started the AudioTrack during that time.
-                waitStreamEnd = mState == STATE_STOPPING;
-                if (waitStreamEnd) {
-                    mState = STATE_STOPPED;
-                    mReleased = 0;
-                }
-            }
-            if (waitStreamEnd && status != DEAD_OBJECT) {
-               return NS_INACTIVE;
-            }
-            break;
-        }
-        return 0;
-    }
-
     // perform callbacks while unlocked
     if (newUnderrun) {
         mCbf(EVENT_UNDERRUN, mUserData, NULL);
@@ -1891,6 +1869,46 @@ nsecs_t AudioTrack::processAudioBuffer()
         if (isOffloadedOrDirect()) {
             return NS_INACTIVE;
         }
+    }
+
+    if (waitStreamEnd) {
+        // FIXME:  Instead of blocking in proxy->waitStreamEndDone(), Callback thread
+        // should wait on proxy futex and handle CBLK_STREAM_END_DONE within this function
+        // (and make sure we don't callback for more data while we're stopping).
+        // This helps with position, marker notifications, and track invalidation.
+        struct timespec timeout;
+        timeout.tv_sec = WAIT_STREAM_END_TIMEOUT_SEC;
+        timeout.tv_nsec = 0;
+
+        status_t status = proxy->waitStreamEndDone(&timeout);
+        switch (status) {
+        case NO_ERROR:
+        case DEAD_OBJECT:
+        case TIMED_OUT:
+            if (isOffloaded_l()) {
+                if (mCblk->mFlags & (CBLK_INVALID)){
+                    // will trigger EVENT_STREAM_END in next iteration
+                    return 0;
+                }
+            }
+            mCbf(EVENT_STREAM_END, mUserData, NULL);
+            {
+                AutoMutex lock(mLock);
+                // The previously assigned value of waitStreamEnd is no longer valid,
+                // since the mutex has been unlocked and either the callback handler
+                // or another thread could have re-started the AudioTrack during that time.
+                waitStreamEnd = mState == STATE_STOPPING;
+                if (waitStreamEnd) {
+                    mState = STATE_STOPPED;
+                    mReleased = 0;
+                }
+            }
+            if (waitStreamEnd && status != DEAD_OBJECT) {
+               return NS_INACTIVE;
+            }
+            break;
+        }
+        return 0;
     }
 
     // if inactive, then don't run me again until re-started
@@ -2223,14 +2241,21 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
         }
     }
 
-    // The presented frame count must always lag behind the consumed frame count.
-    // To avoid a race, read the presented frames first.  This ensures that presented <= consumed.
-    status_t status = mAudioTrack->getTimestamp(timestamp);
-    if (status != NO_ERROR) {
-        ALOGV_IF(status != WOULD_BLOCK, "getTimestamp error:%#x", status);
-        return status;
+    status_t status = UNKNOWN_ERROR;
+    //do not call Timestamp if its PCM offloaded
+    if (!AVMediaUtils::get()->AudioTrackIsPcmOffloaded(mFormat)) {
+        // The presented frame count must always lag behind the consumed frame count.
+        // To avoid a race, read the presented frames first.  This ensures that presented <= consumed.
+
+        status = mAudioTrack->getTimestamp(timestamp);
+        if (status != NO_ERROR) {
+            ALOGV_IF(status != WOULD_BLOCK, "getTimestamp error:%#x", status);
+            return status;
+        }
+
     }
-    if (isOffloadedOrDirect_l()) {
+
+    if (isOffloadedOrDirect_l() && !AVMediaUtils::get()->AudioTrackIsPcmOffloaded(mFormat)) {
         if (isOffloaded_l() && (mState == STATE_PAUSED || mState == STATE_PAUSED_STOPPING)) {
             // use cached paused position in case another offloaded track is running.
             timestamp.mPosition = mPausedPosition;
@@ -2288,6 +2313,11 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
         }
     } else {
         // Update the mapping between local consumed (mPosition) and server consumed (mServer)
+
+        if (AVMediaUtils::get()->AudioTrackGetTimestamp(this, timestamp) == NO_ERROR) {
+            return NO_ERROR;
+        }
+
         (void) updateAndGetPosition_l();
         // Server consumed (mServer) and presented both use the same server time base,
         // and server consumed is always >= presented.

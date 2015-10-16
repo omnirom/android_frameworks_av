@@ -73,12 +73,15 @@ struct NuPlayer::Renderer : public AHandler {
     status_t getCurrentPosition(int64_t *mediaUs);
     int64_t getVideoLateByUs();
 
+    virtual audio_stream_type_t getAudioStreamType(){return AUDIO_STREAM_DEFAULT;}
+
     status_t openAudioSink(
             const sp<AMessage> &format,
             bool offloadOnly,
             bool hasVideo,
             uint32_t flags,
-            bool *isOffloaded);
+            bool *isOffloaded,
+            bool isStreaming);
     void closeAudioSink();
 
     enum {
@@ -101,7 +104,6 @@ protected:
 
     virtual void onMessageReceived(const sp<AMessage> &msg);
 
-private:
     enum {
         kWhatDrainAudioQueue     = 'draA',
         kWhatDrainVideoQueue     = 'draV',
@@ -162,6 +164,7 @@ private:
     int64_t mVideoLateByUs;
     bool mHasAudio;
     bool mHasVideo;
+    bool mFoundAudioEOS;
 
     bool mNotifyCompleteAudio;
     bool mNotifyCompleteVideo;
@@ -227,7 +230,7 @@ private:
     void prepareForMediaRenderingStart_l();
     void notifyIfMediaRenderingStarted_l();
 
-    void onQueueBuffer(const sp<AMessage> &msg);
+    virtual void onQueueBuffer(const sp<AMessage> &msg);
     void onQueueEOS(const sp<AMessage> &msg);
     void onFlush(const sp<AMessage> &msg);
     void onAudioSinkChanged();
@@ -249,7 +252,8 @@ private:
             const sp<AMessage> &format,
             bool offloadOnly,
             bool hasVideo,
-            uint32_t flags);
+            uint32_t flags,
+            bool isStreaming);
     void onCloseAudioSink();
 
     void notifyEOS(bool audio, status_t finalResult, int64_t delayUs = 0);

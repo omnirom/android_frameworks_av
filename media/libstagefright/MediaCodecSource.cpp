@@ -36,6 +36,8 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/PersistentSurface.h>
 #include <media/stagefright/Utils.h>
+#include <OMX_Core.h>
+#include <stagefright/AVExtensions.h>
 
 namespace android {
 
@@ -399,10 +401,14 @@ status_t MediaCodecSource::initEncoder() {
     }
 
     AString outputMIME;
+    AString role;
     CHECK(mOutputFormat->findString("mime", &outputMIME));
-
-    mEncoder = MediaCodec::CreateByType(
+    if (AVUtils::get()->useQCHWEncoder(mOutputFormat, role)) {
+        mEncoder = MediaCodec::CreateByComponentName(mCodecLooper, role.c_str());
+    } else {
+        mEncoder = MediaCodec::CreateByType(
             mCodecLooper, outputMIME.c_str(), true /* encoder */);
+    }
 
     if (mEncoder == NULL) {
         return NO_INIT;
@@ -514,6 +520,9 @@ void MediaCodecSource::signalEOS(status_t err) {
             mOutputBufferQueue.clear();
             mEncoderReachedEOS = true;
             mErrorCode = err;
+            if (err == OMX_ErrorHardware) {
+                mErrorCode = ERROR_IO;
+            }
             mOutputBufferCond.signal();
         }
 
@@ -572,6 +581,9 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
             // push decoding time for video, or drift time for audio
             if (mIsVideo) {
                 mDecodingTimeQueue.push_back(timeUs);
+                if (mFlags & FLAG_USE_METADATA_INPUT) {
+                    AVUtils::get()->addDecodingTimesFromBatch(mbuf, mDecodingTimeQueue);
+                }
             } else {
 #if DEBUG_DRIFT_TIME
                 if (mFirstSampleTimeUs < 0ll) {
@@ -591,7 +603,7 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
             status_t err = mEncoder->getInputBuffer(bufferIndex, &inbuf);
             if (err != OK || inbuf == NULL) {
                 mbuf->release();
-                signalEOS();
+                signalEOS(err);
                 break;
             }
 
@@ -633,6 +645,9 @@ status_t MediaCodecSource::onStart(MetaData *params) {
             resume();
         } else {
             CHECK(mPuller != NULL);
+            if (mIsVideo) {
+                mEncoder->requestIDRFrame();
+            }
             mPuller->resume();
         }
         return OK;
@@ -738,7 +753,7 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             sp<ABuffer> outbuf;
             status_t err = mEncoder->getOutputBuffer(index, &outbuf);
             if (err != OK || outbuf == NULL) {
-                signalEOS();
+                signalEOS(err);
                 break;
             }
 
@@ -799,7 +814,7 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             CHECK(msg->findInt32("err", &err));
             ALOGE("Encoder (%s) reported error : 0x%x",
                     mIsVideo ? "video" : "audio", err);
-            signalEOS();
+            signalEOS(err);
        }
        break;
     }
@@ -852,7 +867,7 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
     }
     case kWhatPause:
     {
-        if (mFlags && FLAG_USE_SURFACE_INPUT) {
+        if (mFlags & FLAG_USE_SURFACE_INPUT) {
             suspend();
         } else {
             CHECK(mPuller != NULL);

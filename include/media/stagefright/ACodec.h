@@ -93,8 +93,11 @@ struct ACodec : public AHierarchicalStateMachine, public CodecBase {
 
 protected:
     virtual ~ACodec();
+    virtual status_t setupCustomCodec(
+            status_t err, const char *mime, const sp<AMessage> &msg);
+    virtual status_t GetVideoCodingTypeFromMime(
+            const char *mime, OMX_VIDEO_CODINGTYPE *codingType);
 
-private:
     struct BaseState;
     struct UninitializedState;
     struct LoadedState;
@@ -152,6 +155,7 @@ private:
     };
 
     struct BufferInfo {
+        BufferInfo() : mCustomData(-1) {}
         enum Status {
             OWNED_BY_US,
             OWNED_BY_COMPONENT,
@@ -173,6 +177,7 @@ private:
         sp<GraphicBuffer> mGraphicBuffer;
         int mFenceFd;
         FrameRenderTracker::Info *mRenderInfo;
+        int mCustomData;
 
         // The following field and 4 methods are used for debugging only
         bool mIsReadFence;
@@ -271,7 +276,7 @@ private:
     status_t setCyclicIntraMacroblockRefresh(const sp<AMessage> &msg, int32_t mode);
     status_t allocateBuffersOnPort(OMX_U32 portIndex);
     status_t freeBuffersOnPort(OMX_U32 portIndex);
-    status_t freeBuffer(OMX_U32 portIndex, size_t i);
+    virtual status_t freeBuffer(OMX_U32 portIndex, size_t i);
 
     status_t handleSetSurface(const sp<Surface> &surface);
     status_t setupNativeWindowSizeFormatAndUsage(
@@ -300,8 +305,8 @@ private:
             uint32_t portIndex, IOMX::buffer_id bufferID,
             ssize_t *index = NULL);
 
-    status_t setComponentRole(bool isEncoder, const char *mime);
-    status_t configureCodec(const char *mime, const sp<AMessage> &msg);
+    virtual status_t setComponentRole(bool isEncoder, const char *mime);
+    virtual status_t configureCodec(const char *mime, const sp<AMessage> &msg);
 
     status_t configureTunneledVideoPlayback(int32_t audioHwSync,
             const sp<ANativeWindow> &nativeWindow);
@@ -314,10 +319,10 @@ private:
 
     status_t setSupportedOutputFormat(bool getLegacyFlexibleFormat);
 
-    status_t setupVideoDecoder(
+    virtual status_t setupVideoDecoder(
             const char *mime, const sp<AMessage> &msg, bool usingNativeBuffers);
 
-    status_t setupVideoEncoder(
+    virtual status_t setupVideoEncoder(
             const char *mime, const sp<AMessage> &msg);
 
     status_t setVideoFormatOnPort(
@@ -372,7 +377,7 @@ private:
     status_t configureBitrate(
             int32_t bitrate, OMX_VIDEO_CONTROLRATETYPE bitrateMode);
 
-    status_t setupErrorCorrectionParameters();
+    virtual status_t setupErrorCorrectionParameters();
 
     status_t initNativeWindow();
 
@@ -408,7 +413,7 @@ private:
             bool dropIncomplete = false, FrameRenderTracker::Info *until = NULL);
 
     void sendFormatChange(const sp<AMessage> &reply);
-    status_t getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify);
+    virtual status_t getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify);
 
     void signalError(
             OMX_ERRORTYPE error = OMX_ErrorUndefined,
@@ -420,10 +425,35 @@ private:
         DescribeColorFormatParams &describeParams);
 
     status_t requestIDRFrame();
-    status_t setParameters(const sp<AMessage> &params);
+    virtual status_t setParameters(const sp<AMessage> &params);
 
     // Send EOS on input stream.
     void onSignalEndOfInputStream();
+
+    virtual void setBFrames(OMX_VIDEO_PARAM_MPEG4TYPE *mpeg4type) {}
+    virtual void setBFrames(OMX_VIDEO_PARAM_AVCTYPE *h264type,
+        const int32_t iFramesInterval, const int32_t frameRate) {}
+
+    virtual status_t getVQZIPInfo(const sp<AMessage> &msg) {
+        return OK;
+    }
+    virtual bool canAllocateBuffer(OMX_U32 /* portIndex */) {
+        return false;
+    }
+    virtual void enableCustomAllocationMode(const sp<AMessage> &/* msg */) {}
+    virtual status_t allocateBuffer(
+        OMX_U32 portIndex, size_t bufSize, BufferInfo &info);
+
+    virtual status_t setDSModeHint(sp<AMessage>& msg,
+        OMX_U32 flags, int64_t timeUs) {
+        return UNKNOWN_ERROR;
+    }
+
+    virtual bool getDSModeHint(const sp<AMessage>& msg) {
+        return false;
+    }
+
+    sp<IOMXObserver> createObserver();
 
     DISALLOW_EVIL_CONSTRUCTORS(ACodec);
 };

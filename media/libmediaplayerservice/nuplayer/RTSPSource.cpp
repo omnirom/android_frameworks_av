@@ -27,6 +27,7 @@
 #include <media/IMediaHTTPService.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MetaData.h>
+#include <mediaplayerservice/AVMediaServiceExtensions.h>
 
 namespace android {
 
@@ -131,6 +132,10 @@ void NuPlayer::RTSPSource::pause() {
 
         // Check if EOS or ERROR is received
         if (source != NULL && source->isFinished(mediaDurationUs)) {
+            if (mHandler != NULL) {
+                ALOGI("Nearing EOS...No Pause is issued");
+                mHandler->cancelTimeoutCheck();
+            }
             return;
         }
     }
@@ -474,8 +479,11 @@ void NuPlayer::RTSPSource::onMessageReceived(const sp<AMessage> &msg) {
                 if (!info->mNPTMappingValid) {
                     // This is a live stream, we didn't receive any normal
                     // playtime mapping. We won't map to npt time.
-                    source->queueAccessUnit(accessUnit);
-                    break;
+                    if (!AVMediaServiceUtils::get()->checkNPTMapping(&info->mRTPTime,
+                            &info->mNormalPlaytimeUs, &info->mNPTMappingValid, rtpTime)) {
+                        source->queueAccessUnit(accessUnit);
+                        break;
+                    }
                 }
 
                 int64_t nptUs =
@@ -558,6 +566,14 @@ void NuPlayer::RTSPSource::onMessageReceived(const sp<AMessage> &msg) {
             info->mRTPTime = rtpTime;
             info->mNormalPlaytimeUs = nptUs;
             info->mNPTMappingValid = true;
+            break;
+        }
+
+        case MyHandler::kWhatByeReceived:
+        {
+            sp<AMessage> msg = dupNotify();
+            msg->setInt32("what", kWhatRTCPByeReceived);
+            msg->post();
             break;
         }
 

@@ -24,6 +24,7 @@
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AString.h>
+#include <media/AVMediaExtensions.h>
 
 namespace android {
 
@@ -136,6 +137,7 @@ struct BpCrypto : public BpInterface<ICrypto> {
 
         if (secure) {
             data.writeInt64(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(dstPtr)));
+            AVMediaUtils::get()->writeCustomData(&data, dstPtr);
         }
 
         remote()->transact(DECRYPT, data, &reply);
@@ -235,6 +237,7 @@ status_t BnCrypto::onTransact(
 
             if (opaqueSize > 0) {
                 opaqueData = malloc(opaqueSize);
+                CHECK(opaqueData != NULL);
                 data.read(opaqueData, opaqueSize);
             }
 
@@ -296,8 +299,10 @@ status_t BnCrypto::onTransact(
             void *secureBufferId, *dstPtr;
             if (secure) {
                 secureBufferId = reinterpret_cast<void *>(static_cast<uintptr_t>(data.readInt64()));
+                AVMediaUtils::get()->readCustomData(&data, &secureBufferId);
             } else {
                 dstPtr = malloc(totalSize);
+                CHECK(dstPtr != NULL);
             }
 
             AString errorDetailMsg;
@@ -330,6 +335,8 @@ status_t BnCrypto::onTransact(
                 }
                 free(dstPtr);
                 dstPtr = NULL;
+            } else {
+                AVMediaUtils::get()->closeFileDescriptor(secureBufferId);
             }
 
             delete[] subSamples;

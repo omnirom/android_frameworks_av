@@ -351,6 +351,14 @@ void AudioPolicyManager::updateCallRouting(audio_devices_t rxDevice, int delayMs
                                                 AUDIO_OUTPUT_FLAG_NONE,
                                                 AUDIO_FORMAT_INVALID);
         if (output != AUDIO_IO_HANDLE_NONE) {
+            // close active input (if any) before opening new input
+            audio_io_handle_t activeInput = mInputs.getActiveInput();
+            if (activeInput != 0) {
+                ALOGV("updateCallRouting() close active input before opening new input");
+                sp<AudioInputDescriptor> activeDesc = mInputs.valueFor(activeInput);
+                stopInput(activeInput, activeDesc->mSessions.itemAt(0));
+                releaseInput(activeInput, activeDesc->mSessions.itemAt(0));
+            }
             sp<SwAudioOutputDescriptor> outputDesc = mOutputs.valueFor(output);
             ALOG_ASSERT(!outputDesc->isDuplicated(),
                         "updateCallRouting() RX device output is duplicated");
@@ -1336,6 +1344,12 @@ status_t AudioPolicyManager::getInputForAttr(const audio_attributes_t *attr,
             ALOGW("getInputForAttr() could not find device for source %d", inputSource);
             return BAD_VALUE;
         }
+        // block request to open input on USB during voice call
+        if((AUDIO_MODE_IN_CALL == mEngine->getPhoneState()) &&
+            (device == AUDIO_DEVICE_IN_USB_DEVICE)) {
+            ALOGV("getInputForAttr(): blocking the request to open input on USB device");
+            return BAD_VALUE;
+        }
         if (policyMix != NULL) {
             address = policyMix->mRegistrationId;
             if (policyMix->mMixType == MIX_TYPE_RECORDERS) {
@@ -1355,20 +1369,6 @@ status_t AudioPolicyManager::getInputForAttr(const audio_attributes_t *attr,
             *inputType = API_INPUT_TELEPHONY_RX;
         } else {
             *inputType = API_INPUT_LEGACY;
-        }
-        // adapt channel selection to input source
-        switch (inputSource) {
-        case AUDIO_SOURCE_VOICE_UPLINK:
-            channelMask = AUDIO_CHANNEL_IN_VOICE_UPLINK;
-            break;
-        case AUDIO_SOURCE_VOICE_DOWNLINK:
-            channelMask = AUDIO_CHANNEL_IN_VOICE_DNLINK;
-            break;
-        case AUDIO_SOURCE_VOICE_CALL:
-            channelMask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
-            break;
-        default:
-            break;
         }
         if (inputSource == AUDIO_SOURCE_HOTWORD) {
             ssize_t index = mSoundTriggerSessions.indexOfKey(session);
@@ -1765,12 +1765,16 @@ audio_io_handle_t AudioPolicyManager::selectOutputForEffects(
 
     audio_io_handle_t outputOffloaded = 0;
     audio_io_handle_t outputDeepBuffer = 0;
+    audio_io_handle_t outputDirectPcm = 0;
 
     for (size_t i = 0; i < outputs.size(); i++) {
         sp<SwAudioOutputDescriptor> desc = mOutputs.valueFor(outputs[i]);
         ALOGV("selectOutputForEffects outputs[%zu] flags %x", i, desc->mFlags);
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
             outputOffloaded = outputs[i];
+        }
+        if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DIRECT_PCM) != 0) {
+            outputDirectPcm = outputs[i];
         }
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
             outputDeepBuffer = outputs[i];
@@ -1781,6 +1785,9 @@ audio_io_handle_t AudioPolicyManager::selectOutputForEffects(
           outputOffloaded, outputDeepBuffer);
     if (outputOffloaded != 0) {
         return outputOffloaded;
+    }
+    if (outputDirectPcm != 0) {
+        return outputDirectPcm;
     }
     if (outputDeepBuffer != 0) {
         return outputDeepBuffer;
@@ -3766,7 +3773,7 @@ void AudioPolicyManager::checkOutputForStrategy(routing_strategy strategy)
 {
     audio_devices_t oldDevice = getDeviceForStrategy(strategy, true /*fromCache*/);
     audio_devices_t newDevice = getDeviceForStrategy(strategy, false /*fromCache*/);
-    SortedVector<audio_io_handle_t> srcOutputs = getOutputsForDevice(oldDevice, mPreviousOutputs);
+    SortedVector<audio_io_handle_t> srcOutputs = getOutputsForDevice(oldDevice, mOutputs);
     SortedVector<audio_io_handle_t> dstOutputs = getOutputsForDevice(newDevice, mOutputs);
 
     // also take into account external policy-related changes: add all outputs which are
