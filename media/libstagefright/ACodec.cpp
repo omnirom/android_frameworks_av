@@ -373,6 +373,7 @@ ACodec::ACodec()
       mSentFormat(false),
       mIsEncoder(false),
       mUseMetadataOnEncoderOutput(false),
+      mFatalError(false),
       mShutdownInProgress(false),
       mIsConfiguredForAdaptivePlayback(false),
       mEncoderDelay(0),
@@ -860,6 +861,11 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
     CHECK(mNativeWindow.get() != NULL);
     if (native_window_dequeue_buffer_and_wait(mNativeWindow.get(), &buf) != 0) {
         ALOGE("dequeueBuffer failed.");
+        return NULL;
+    }
+
+    if (mFatalError) {
+        ALOGW("not dequeuing from native window due to fatal error");
         return NULL;
     }
 
@@ -2810,6 +2816,9 @@ void ACodec::signalError(OMX_ERRORTYPE error, status_t internalError) {
     sp<AMessage> notify = mNotify->dup();
     notify->setInt32("what", ACodec::kWhatError);
     notify->setInt32("omx-error", error);
+
+    mFatalError = true;
+
     notify->setInt32("err", internalError);
     notify->post();
 }
