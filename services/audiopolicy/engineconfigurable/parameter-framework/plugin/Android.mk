@@ -19,9 +19,9 @@ LOCAL_CFLAGS += \
 
 LOCAL_C_INCLUDES := \
     $(TOPDIR)external/parameter-framework/parameter \
-    $(TOPDIR)frameworks/av/services/audiopolicy/common/include \
-    $(TOPDIR)frameworks/av/services/audiopolicy/engineconfigurable/include \
-    $(TOPDIR)frameworks/av/services/audiopolicy/engineconfigurable/interface \
+    $(TOPDIR)frameworks/av-caf/services/audiopolicy/common/include \
+    $(TOPDIR)frameworks/av-caf/services/audiopolicy/engineconfigurable/include \
+    $(TOPDIR)frameworks/av-caf/services/audiopolicy/engineconfigurable/interface \
 
 LOCAL_SHARED_LIBRARIES := \
     libaudiopolicyengineconfigurable  \

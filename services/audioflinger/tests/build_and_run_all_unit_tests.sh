@@ -8,7 +8,7 @@ fi
 # ensure we have mm
 . $ANDROID_BUILD_TOP/build/envsetup.sh
 
-pushd $ANDROID_BUILD_TOP/frameworks/av/services/audioflinger/
+pushd $ANDROID_BUILD_TOP/frameworks/av-caf/services/audioflinger/
 pwd
 mm
 
@@ -17,6 +17,6 @@ adb root && adb wait-for-device remount
 adb push $OUT/system/lib/libaudioresampler.so /system/lib
 adb push $OUT/data/nativetest/resampler_tests /system/bin
 
-sh $ANDROID_BUILD_TOP/frameworks/av/services/audioflinger/tests/run_all_unit_tests.sh
+sh $ANDROID_BUILD_TOP/frameworks/av-caf/services/audioflinger/tests/run_all_unit_tests.sh
 
 popd

@@ -90,10 +90,10 @@ LOCAL_MODULE:= libmedia
 LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
 
 LOCAL_C_INCLUDES := \
-    $(TOP)/frameworks/native/include/media/openmax \
-    $(TOP)/frameworks/av/include/media/ \
-    $(TOP)/frameworks/av/media/libstagefright \
-    $(TOP)/frameworks/av/media/libavextensions \
+    $(TOP)/frameworks/native-caf/include/media/openmax \
+    $(TOP)/frameworks/av-caf/include/media/ \
+    $(TOP)/frameworks/av-caf/media/libstagefright \
+    $(TOP)/frameworks/av-caf/media/libavextensions \
     $(call include-path-for, audio-effects) \
     $(call include-path-for, audio-utils)
 

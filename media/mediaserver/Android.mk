@@ -36,18 +36,18 @@ LOCAL_STATIC_LIBRARIES := \
         libregistermsext
 
 LOCAL_C_INCLUDES := \
-    frameworks/av/media/libmediaplayerservice \
-    frameworks/av/services/medialog \
-    frameworks/av/services/audioflinger \
-    frameworks/av/services/audiopolicy \
-    frameworks/av/services/audiopolicy/common/managerdefinitions/include \
-    frameworks/av/services/audiopolicy/common/include \
-    frameworks/av/services/audiopolicy/engine/interface \
-    frameworks/av/services/camera/libcameraservice \
-    frameworks/av/services/mediaresourcemanager \
+    frameworks/av-caf/media/libmediaplayerservice \
+    frameworks/av-caf/services/medialog \
+    frameworks/av-caf/services/audioflinger \
+    frameworks/av-caf/services/audiopolicy \
+    frameworks/av-caf/services/audiopolicy/common/managerdefinitions/include \
+    frameworks/av-caf/services/audiopolicy/common/include \
+    frameworks/av-caf/services/audiopolicy/engine/interface \
+    frameworks/av-caf/services/camera/libcameraservice \
+    frameworks/av-caf/services/mediaresourcemanager \
     $(call include-path-for, audio-utils) \
-    frameworks/av/services/soundtrigger \
-    frameworks/av/services/radio \
+    frameworks/av-caf/services/soundtrigger \
+    frameworks/av-caf/services/radio \
     external/sonic
 
 LOCAL_MODULE:= mediaserver

@@ -30,8 +30,8 @@ LOCAL_CFLAGS := \
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/src \
     $(LOCAL_PATH)/include \
-    $(TOP)/frameworks/av/media/libstagefright/include \
-    $(TOP)/frameworks/native/include/media/openmax
+    $(TOP)/frameworks/av-caf/media/libstagefright/include \
+    $(TOP)/frameworks/native-caf/include/media/openmax
 
 LOCAL_CFLAGS += -Werror
 
@@ -45,9 +45,9 @@ LOCAL_SRC_FILES := \
         SoftMPEG4Encoder.cpp
 
 LOCAL_C_INCLUDES := \
-        frameworks/av/media/libstagefright/include \
-        frameworks/native/include/media/openmax \
-        frameworks/native/include/media/hardware \
+        frameworks/av-caf/media/libstagefright/include \
+        frameworks/native-caf/include/media/openmax \
+        frameworks/native-caf/include/media/hardware \
         $(LOCAL_PATH)/src \
         $(LOCAL_PATH)/include \
         $(LOCAL_PATH)/../common/include \

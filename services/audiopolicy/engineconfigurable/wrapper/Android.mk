@@ -9,9 +9,9 @@ include $(CLEAR_VARS)
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/include \
     $(TARGET_OUT_HEADERS)/parameter \
-    $(TOPDIR)frameworks/av/services/audiopolicy/engineconfigurable/include \
-    $(TOPDIR)frameworks/av/services/audiopolicy/engineconfigurable/interface \
-    $(TOPDIR)frameworks/av/services/audiopolicy/utilities/convert \
+    $(TOPDIR)frameworks/av-caf/services/audiopolicy/engineconfigurable/include \
+    $(TOPDIR)frameworks/av-caf/services/audiopolicy/engineconfigurable/interface \
+    $(TOPDIR)frameworks/av-caf/services/audiopolicy/utilities/convert \
 
 LOCAL_SRC_FILES:= ParameterManagerWrapper.cpp
 

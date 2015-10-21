@@ -11,8 +11,8 @@ LOCAL_SRC_FILES         := SoftHEVC.cpp
 
 LOCAL_C_INCLUDES := $(TOP)/external/libhevc/decoder
 LOCAL_C_INCLUDES += $(TOP)/external/libhevc/common
-LOCAL_C_INCLUDES += $(TOP)/frameworks/av/media/libstagefright/include
-LOCAL_C_INCLUDES += $(TOP)/frameworks/native/include/media/openmax
+LOCAL_C_INCLUDES += $(TOP)/frameworks/av-caf/media/libstagefright/include
+LOCAL_C_INCLUDES += $(TOP)/frameworks/native-caf/include/media/openmax
 
 LOCAL_SHARED_LIBRARIES  := libstagefright
 LOCAL_SHARED_LIBRARIES  += libstagefright_omx

@@ -8,8 +8,8 @@ LOCAL_SRC_FILES:=       \
         HTTPHelper.cpp          \
 
 LOCAL_C_INCLUDES:= \
-	$(TOP)/frameworks/av/media/libstagefright \
-	$(TOP)/frameworks/native/include/media/openmax \
+	$(TOP)/frameworks/av-caf/media/libstagefright \
+	$(TOP)/frameworks/native-caf/include/media/openmax \
 	$(TOP)/frameworks/base/core/jni \
 
 LOCAL_SHARED_LIBRARIES := \

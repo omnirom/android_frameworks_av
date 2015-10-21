@@ -27,9 +27,9 @@ LOCAL_SHARED_LIBRARIES := \
 	liblog
 
 LOCAL_C_INCLUDES := \
-	frameworks/av/media/libstagefright \
-	frameworks/av/media/libstagefright/include \
-	$(TOP)/frameworks/native/include/media/openmax \
+	frameworks/av-caf/media/libstagefright \
+	frameworks/av-caf/media/libstagefright/include \
+	$(TOP)/frameworks/native-caf/include/media/openmax \
 
 LOCAL_CFLAGS += -Werror -Wall
 LOCAL_CLANG := true
@@ -58,10 +58,10 @@ LOCAL_SHARED_LIBRARIES := \
 	libstagefright_omx \
 
 LOCAL_C_INCLUDES := \
-	frameworks/av/include \
-	frameworks/av/media/libstagefright \
-	frameworks/av/media/libstagefright/include \
-	$(TOP)/frameworks/native/include/media/openmax \
+	frameworks/av-caf/include \
+	frameworks/av-caf/media/libstagefright \
+	frameworks/av-caf/media/libstagefright/include \
+	$(TOP)/frameworks/native-caf/include/media/openmax \
 
 LOCAL_CFLAGS += -Werror -Wall
 LOCAL_CLANG := true
@@ -87,9 +87,9 @@ LOCAL_SHARED_LIBRARIES := \
 	liblog
 
 LOCAL_C_INCLUDES := \
-	frameworks/av/media/libstagefright \
-	frameworks/av/media/libstagefright/include \
-	frameworks/native/include/media/openmax \
+	frameworks/av-caf/media/libstagefright \
+	frameworks/av-caf/media/libstagefright/include \
+	frameworks/native-caf/include/media/openmax \
 
 LOCAL_32_BIT_ONLY := true
 

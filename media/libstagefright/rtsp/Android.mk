@@ -22,10 +22,10 @@ LOCAL_SRC_FILES:=       \
 LOCAL_SHARED_LIBRARIES += libcrypto
 
 LOCAL_C_INCLUDES:= \
-        $(TOP)/frameworks/av/media/libstagefright \
-        $(TOP)/frameworks/av/media/libavextensions \
-        $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/frameworks/av/media/libmediaplayerservice \
+        $(TOP)/frameworks/av-caf/media/libstagefright \
+        $(TOP)/frameworks/av-caf/media/libavextensions \
+        $(TOP)/frameworks/native-caf/include/media/openmax \
+        $(TOP)/frameworks/av-caf/media/libmediaplayerservice \
 
 LOCAL_MODULE:= libstagefright_rtsp
 
@@ -54,8 +54,8 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_rtsp
 
 LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
-	$(TOP)/frameworks/native/include/media/openmax
+	frameworks/av-caf/media/libstagefright \
+	$(TOP)/frameworks/native-caf/include/media/openmax
 
 LOCAL_CFLAGS += -Wno-multichar -Werror -Wall
 LOCAL_CLANG := true

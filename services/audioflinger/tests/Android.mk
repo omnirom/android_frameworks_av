@@ -15,7 +15,7 @@ LOCAL_SHARED_LIBRARIES := \
 
 LOCAL_C_INCLUDES := \
 	$(call include-path-for, audio-utils) \
-	frameworks/av/services/audioflinger
+	frameworks/av-caf/services/audioflinger
 
 LOCAL_SRC_FILES := \
 	resampler_tests.cpp
@@ -38,7 +38,7 @@ LOCAL_SRC_FILES:= \
 LOCAL_C_INCLUDES := \
 	$(call include-path-for, audio-effects) \
 	$(call include-path-for, audio-utils) \
-	frameworks/av/services/audioflinger \
+	frameworks/av-caf/services/audioflinger \
 	external/sonic
 
 LOCAL_STATIC_LIBRARIES := \

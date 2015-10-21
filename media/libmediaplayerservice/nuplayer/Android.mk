@@ -16,15 +16,15 @@ LOCAL_SRC_FILES:=                       \
         StreamingSource.cpp             \
 
 LOCAL_C_INCLUDES := \
-	$(TOP)/frameworks/av/media/libstagefright                     \
-	$(TOP)/frameworks/av/media/libstagefright/httplive            \
-	$(TOP)/frameworks/av/media/libstagefright/include             \
-	$(TOP)/frameworks/av/media/libstagefright/mpeg2ts             \
-	$(TOP)/frameworks/av/media/libstagefright/rtsp                \
-	$(TOP)/frameworks/av/media/libstagefright/timedtext           \
-	$(TOP)/frameworks/av/media/libmediaplayerservice              \
-	$(TOP)/frameworks/native/include/media/openmax                \
-        $(TOP)/frameworks/av/media/libavextensions                    \
+	$(TOP)/frameworks/av-caf/media/libstagefright                     \
+	$(TOP)/frameworks/av-caf/media/libstagefright/httplive            \
+	$(TOP)/frameworks/av-caf/media/libstagefright/include             \
+	$(TOP)/frameworks/av-caf/media/libstagefright/mpeg2ts             \
+	$(TOP)/frameworks/av-caf/media/libstagefright/rtsp                \
+	$(TOP)/frameworks/av-caf/media/libstagefright/timedtext           \
+	$(TOP)/frameworks/av-caf/media/libmediaplayerservice              \
+	$(TOP)/frameworks/native-caf/include/media/openmax                \
+        $(TOP)/frameworks/av-caf/media/libavextensions                    \
 
 LOCAL_CFLAGS += -Werror -Wall
 

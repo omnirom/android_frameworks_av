@@ -49,13 +49,13 @@ LOCAL_WHOLE_STATIC_LIBRARIES := \
     libavmediaserviceextensions \
 
 LOCAL_C_INCLUDES :=                                                 \
-    $(TOP)/frameworks/av/media/libstagefright/include               \
-    $(TOP)/frameworks/av/media/libstagefright/rtsp                  \
-    $(TOP)/frameworks/av/media/libstagefright/wifi-display          \
-    $(TOP)/frameworks/av/media/libstagefright/webm                  \
-    $(TOP)/frameworks/native/include/media/openmax                  \
+    $(TOP)/frameworks/av-caf/media/libstagefright/include               \
+    $(TOP)/frameworks/av-caf/media/libstagefright/rtsp                  \
+    $(TOP)/frameworks/av-caf/media/libstagefright/wifi-display          \
+    $(TOP)/frameworks/av-caf/media/libstagefright/webm                  \
+    $(TOP)/frameworks/native-caf/include/media/openmax                  \
     $(TOP)/external/tremolo/Tremolo                                 \
-    $(TOP)/frameworks/av/media/libavextensions                      \
+    $(TOP)/frameworks/av-caf/media/libavextensions                      \
 
 LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall
 LOCAL_CLANG := true

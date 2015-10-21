@@ -5,8 +5,8 @@ LOCAL_SRC_FILES := \
         SoftFlacEncoder.cpp
 
 LOCAL_C_INCLUDES := \
-        frameworks/av/media/libstagefright/include \
-        frameworks/native/include/media/openmax \
+        frameworks/av-caf/media/libstagefright/include \
+        frameworks/native-caf/include/media/openmax \
         external/flac/include
 
 LOCAL_CFLAGS += -Werror

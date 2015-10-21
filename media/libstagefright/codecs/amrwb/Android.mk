@@ -43,7 +43,7 @@ LOCAL_SRC_FILES := \
  	src/weight_amrwb_lpc.cpp
 
 LOCAL_C_INCLUDES := \
-        frameworks/av/media/libstagefright/include \
+        frameworks/av-caf/media/libstagefright/include \
         $(LOCAL_PATH)/src \
         $(LOCAL_PATH)/include
 

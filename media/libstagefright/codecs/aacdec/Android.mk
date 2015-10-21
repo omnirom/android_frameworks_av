@@ -7,8 +7,8 @@ LOCAL_SRC_FILES := \
       DrcPresModeWrap.cpp
 
 LOCAL_C_INCLUDES := \
-      frameworks/av/media/libstagefright/include \
-      frameworks/native/include/media/openmax \
+      frameworks/av-caf/media/libstagefright/include \
+      frameworks/native-caf/include/media/openmax \
       external/aac/libAACdec/include \
       external/aac/libPCMutils/include \
       external/aac/libFDK/include \

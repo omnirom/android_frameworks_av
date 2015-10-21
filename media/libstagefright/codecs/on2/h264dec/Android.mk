@@ -34,8 +34,8 @@ LOCAL_SRC_FILES := \
 	SoftAVC.cpp \
 
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/./inc \
-	frameworks/av/media/libstagefright/include \
-	frameworks/native/include/media/openmax \
+	frameworks/av-caf/media/libstagefright/include \
+	frameworks/native-caf/include/media/openmax \
 
 MY_ASM := \
 	./source/arm_neon_asm_gcc/h264bsdWriteMacroblock.S \

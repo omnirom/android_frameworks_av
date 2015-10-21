@@ -28,7 +28,7 @@ LOCAL_SHARED_LIBRARIES := liblog libcutils libutils libdl libeffects
 
 LOCAL_C_INCLUDES := \
         system/media/audio_effects/include \
-        frameworks/av/media/libeffects/factory
+        frameworks/av-caf/media/libeffects/factory
 
 include $(BUILD_SHARED_LIBRARY)
 

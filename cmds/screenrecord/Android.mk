@@ -29,9 +29,9 @@ LOCAL_SHARED_LIBRARIES := \
 	libjpeg libgui libcutils liblog libEGL libGLESv2
 
 LOCAL_C_INCLUDES := \
-	frameworks/av/media/libstagefright \
-	frameworks/av/media/libstagefright/include \
-	$(TOP)/frameworks/native/include/media/openmax \
+	frameworks/av-caf/media/libstagefright \
+	frameworks/av-caf/media/libstagefright/include \
+	$(TOP)/frameworks/native-caf/include/media/openmax \
 	external/jpeg
 
 LOCAL_CFLAGS += -Wno-multichar

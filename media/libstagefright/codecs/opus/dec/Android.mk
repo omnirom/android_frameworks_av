@@ -6,8 +6,8 @@ LOCAL_SRC_FILES := \
 
 LOCAL_C_INCLUDES := \
         external/libopus/include \
-        frameworks/av/media/libstagefright/include \
-        frameworks/native/include/media/openmax \
+        frameworks/av-caf/media/libstagefright/include \
+        frameworks/native-caf/include/media/openmax \
 
 LOCAL_SHARED_LIBRARIES := \
         libopus libstagefright libstagefright_omx \
