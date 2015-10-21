@@ -17,8 +17,8 @@ LOCAL_SHARED_LIBRARIES := \
   libutils \
 
 LOCAL_C_INCLUDES := \
-  frameworks/av/include \
-  frameworks/av/services/mediaresourcemanager \
+  frameworks/av-caf/include \
+  frameworks/av-caf/services/mediaresourcemanager \
 
 LOCAL_CFLAGS += -Werror -Wall
 LOCAL_CLANG := true
@@ -43,8 +43,8 @@ LOCAL_SHARED_LIBRARIES := \
   libutils \
 
 LOCAL_C_INCLUDES := \
-  frameworks/av/include \
-  frameworks/av/services/mediaresourcemanager \
+  frameworks/av-caf/include \
+  frameworks/av-caf/services/mediaresourcemanager \
 
 LOCAL_CFLAGS += -Werror -Wall
 LOCAL_CLANG := true

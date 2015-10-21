@@ -37,7 +37,7 @@ fi
 # ensure we have mm
 . $ANDROID_BUILD_TOP/build/envsetup.sh
 
-pushd $ANDROID_BUILD_TOP/frameworks/av/services/audioflinger/
+pushd $ANDROID_BUILD_TOP/frameworks/av-caf/services/audioflinger/
 
 # build
 pwd

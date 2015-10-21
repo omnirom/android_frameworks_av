@@ -20,7 +20,7 @@ include $(CLEAR_VARS)
 # The flag below turns on local debug printouts
 #LOCAL_CFLAGS += -DDRM_OMA_FL_ENGINE_DEBUG
 
-base := frameworks/av
+base := frameworks/av-caf
 
 # Determine whether the DRM framework uses 64-bit data types for file offsets and do the same.
 ifneq ($(shell grep -c 'off64_t offset' $(base)/drm/libdrmframework/plugins/common/include/IDrmEngine.h), 0)

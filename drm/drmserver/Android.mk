@@ -32,9 +32,9 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_STATIC_LIBRARIES := libdrmframeworkcommon
 
 LOCAL_C_INCLUDES := \
-    $(TOP)/frameworks/av/include \
-    $(TOP)/frameworks/av/drm/libdrmframework/include \
-    $(TOP)/frameworks/av/drm/libdrmframework/plugins/common/include
+    $(TOP)/frameworks/av-caf/include \
+    $(TOP)/frameworks/av-caf/drm/libdrmframework/include \
+    $(TOP)/frameworks/av-caf/drm/libdrmframework/plugins/common/include
 
 LOCAL_MODULE:= drmserver
 

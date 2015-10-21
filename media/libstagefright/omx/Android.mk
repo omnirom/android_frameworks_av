@@ -14,9 +14,9 @@ LOCAL_SRC_FILES:=                     \
         SoftVideoEncoderOMXComponent.cpp \
 
 LOCAL_C_INCLUDES += \
-        $(TOP)/frameworks/av/media/libstagefright \
-        $(TOP)/frameworks/native/include/media/hardware \
-        $(TOP)/frameworks/native/include/media/openmax
+        $(TOP)/frameworks/av-caf/media/libstagefright \
+        $(TOP)/frameworks/native-caf/include/media/hardware \
+        $(TOP)/frameworks/native-caf/include/media/openmax
 
 LOCAL_SHARED_LIBRARIES :=               \
         libbinder                       \

@@ -7,13 +7,18 @@ LOCAL_SRC_FILES:=                          \
         stagefright/AVFactory.cpp          \
 
 LOCAL_C_INCLUDES:= \
-        $(TOP)/frameworks/av/include/media/ \
-        $(TOP)/frameworks/av/media/libavextensions \
-        $(TOP)/frameworks/native/include/media/hardware \
-        $(TOP)/frameworks/native/include/media/openmax \
+        $(TOP)/frameworks/av-caf/include/media/ \
+        $(TOP)/frameworks/av-caf/media/libavextensions \
+        $(TOP)/frameworks/native-caf/include/media/hardware \
+        $(TOP)/frameworks/native-caf/include/media/openmax \
         $(TOP)/external/flac/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc \
-        $(TOP)/frameworks/av/media/libstagefright \
+        $(TOP)/frameworks/av-caf/media/libstagefright \
+
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+else
+       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+endif
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 
@@ -35,12 +40,17 @@ LOCAL_SRC_FILES:=                          \
         media/AVMediaUtils.cpp             \
 
 LOCAL_C_INCLUDES:= \
-        $(TOP)/frameworks/av/include/media/ \
-        $(TOP)/frameworks/av/media/libavextensions \
-        $(TOP)/frameworks/native/include/media/hardware \
-        $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/external/flac/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+        $(TOP)/frameworks/av-caf/include/media/ \
+        $(TOP)/frameworks/av-caf/media/libavextensions \
+        $(TOP)/frameworks/native-caf/include/media/hardware \
+        $(TOP)/frameworks/native-caf/include/media/openmax \
+        $(TOP)/external/flac/include
+
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+else
+       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+endif
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 
@@ -65,15 +75,20 @@ LOCAL_SRC_FILES:=                                      \
         mediaplayerservice/AVNuUtils.cpp               \
 
 LOCAL_C_INCLUDES:= \
-        $(TOP)/frameworks/av/include/media/ \
-        $(TOP)/frameworks/av/media/libmediaplayerservice \
-        $(TOP)/frameworks/av/media/libavextensions \
-        $(TOP)/frameworks/av/media/libstagefright/include \
-        $(TOP)/frameworks/av/media/libstagefright/rtsp \
-        $(TOP)/frameworks/native/include/media/hardware \
-        $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/external/flac/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+        $(TOP)/frameworks/av-caf/include/media/ \
+        $(TOP)/frameworks/av-caf/media/libmediaplayerservice \
+        $(TOP)/frameworks/av-caf/media/libavextensions \
+        $(TOP)/frameworks/av-caf/media/libstagefright/include \
+        $(TOP)/frameworks/av-caf/media/libstagefright/rtsp \
+        $(TOP)/frameworks/native-caf/include/media/hardware \
+        $(TOP)/frameworks/native-caf/include/media/openmax \
+        $(TOP)/external/flac/include
+
+ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
+       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+else
+       LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+endif
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 

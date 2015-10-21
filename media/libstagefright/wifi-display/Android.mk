@@ -15,9 +15,9 @@ LOCAL_SRC_FILES:= \
         VideoFormats.cpp                \
 
 LOCAL_C_INCLUDES:= \
-        $(TOP)/frameworks/av/media/libstagefright \
-        $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/frameworks/av/media/libstagefright/mpeg2ts \
+        $(TOP)/frameworks/av-caf/media/libstagefright \
+        $(TOP)/frameworks/native-caf/include/media/openmax \
+        $(TOP)/frameworks/av-caf/media/libstagefright/mpeg2ts \
 
 LOCAL_SHARED_LIBRARIES:= \
         libbinder                       \

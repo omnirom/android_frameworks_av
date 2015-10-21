@@ -5,8 +5,8 @@ LOCAL_SRC_FILES := \
         SoftG711.cpp
 
 LOCAL_C_INCLUDES := \
-        frameworks/av/media/libstagefright/include \
-        frameworks/native/include/media/openmax
+        frameworks/av-caf/media/libstagefright/include \
+        frameworks/native-caf/include/media/openmax
 
 LOCAL_SHARED_LIBRARIES := \
         libstagefright libstagefright_omx libstagefright_foundation libutils liblog

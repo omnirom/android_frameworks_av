@@ -36,7 +36,7 @@ LOCAL_SHARED_LIBRARIES:= \
     libserviceutility
 
 LOCAL_C_INCLUDES += \
-    $(TOPDIR)frameworks/av/services/audioflinger
+    $(TOPDIR)frameworks/av-caf/services/audioflinger
 
 LOCAL_MODULE:= libsoundtriggerservice
 

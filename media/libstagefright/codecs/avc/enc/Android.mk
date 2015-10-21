@@ -24,8 +24,8 @@ LOCAL_MODULE := libstagefright_avcenc
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/src \
     $(LOCAL_PATH)/../common/include \
-    $(TOP)/frameworks/av/media/libstagefright/include \
-    $(TOP)/frameworks/native/include/media/openmax
+    $(TOP)/frameworks/av-caf/media/libstagefright/include \
+    $(TOP)/frameworks/native-caf/include/media/openmax
 
 LOCAL_CFLAGS := \
     -DOSCL_IMPORT_REF= -D"OSCL_UNUSED_ARG(x)=(void)(x)" -DOSCL_EXPORT_REF=
@@ -42,9 +42,9 @@ LOCAL_SRC_FILES := \
         SoftAVCEncoder.cpp
 
 LOCAL_C_INCLUDES := \
-        frameworks/av/media/libstagefright/include \
-        frameworks/native/include/media/hardware \
-        frameworks/native/include/media/openmax \
+        frameworks/av-caf/media/libstagefright/include \
+        frameworks/native-caf/include/media/hardware \
+        frameworks/native-caf/include/media/openmax \
         $(LOCAL_PATH)/src \
         $(LOCAL_PATH)/include \
         $(LOCAL_PATH)/../common/include \

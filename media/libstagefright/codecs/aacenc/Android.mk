@@ -1,6 +1,6 @@
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
-include frameworks/av/media/libstagefright/codecs/common/Config.mk
+include frameworks/av-caf/media/libstagefright/codecs/common/Config.mk
 
 AAC_LIBRARY = fraunhofer
 
@@ -64,9 +64,9 @@ LOCAL_STATIC_LIBRARIES :=
 LOCAL_SHARED_LIBRARIES :=
 
 LOCAL_C_INCLUDES := \
-	frameworks/av/include \
-	frameworks/av/media/libstagefright/include \
-	frameworks/av/media/libstagefright/codecs/common/include \
+	frameworks/av-caf/include \
+	frameworks/av-caf/media/libstagefright/include \
+	frameworks/av-caf/media/libstagefright/codecs/common/include \
 	$(LOCAL_PATH)/src \
 	$(LOCAL_PATH)/inc \
 	$(LOCAL_PATH)/basic_op
@@ -98,8 +98,8 @@ ifeq ($(AAC_LIBRARY), fraunhofer)
           SoftAACEncoder2.cpp
 
   LOCAL_C_INCLUDES := \
-          frameworks/av/media/libstagefright/include \
-          frameworks/native/include/media/openmax \
+          frameworks/av-caf/media/libstagefright/include \
+          frameworks/native-caf/include/media/openmax \
           external/aac/libAACenc/include \
           external/aac/libFDK/include \
           external/aac/libMpegTPEnc/include \
@@ -126,9 +126,9 @@ else # visualon
           SoftAACEncoder.cpp
 
   LOCAL_C_INCLUDES := \
-          frameworks/av/media/libstagefright/include \
-          frameworks/av/media/libstagefright/codecs/common/include \
-          frameworks/native/include/media/openmax
+          frameworks/av-caf/media/libstagefright/include \
+          frameworks/av-caf/media/libstagefright/codecs/common/include \
+          frameworks/native-caf/include/media/openmax
 
   LOCAL_CFLAGS := -DOSCL_IMPORT_REF=
 

@@ -11,7 +11,7 @@ LOCAL_MODULE:= libresourcemanagerservice
 LOCAL_32_BIT_ONLY := true
 
 LOCAL_C_INCLUDES += \
-    $(TOPDIR)frameworks/av/include
+    $(TOPDIR)frameworks/av-caf/include
 
 LOCAL_CFLAGS += -Werror -Wall
 LOCAL_CLANG := true

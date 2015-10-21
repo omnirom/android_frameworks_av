@@ -32,9 +32,9 @@ LOCAL_SRC_FILES := \
 
 LOCAL_C_INCLUDES := \
     external/jsmn \
-    frameworks/av/drm/mediadrm/plugins/clearkey \
-    frameworks/av/include \
-    frameworks/native/include \
+    frameworks/av-caf/drm/mediadrm/plugins/clearkey \
+    frameworks/av-caf/include \
+    frameworks/native-caf/include \
 
 LOCAL_MODULE := libdrmclearkeyplugin
 

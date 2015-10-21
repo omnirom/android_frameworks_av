@@ -6,7 +6,7 @@ LOCAL_SRC_FILES:=                     \
         SoftwareRenderer.cpp
 
 LOCAL_C_INCLUDES := \
-        $(TOP)/frameworks/native/include/media/openmax \
+        $(TOP)/frameworks/native-caf/include/media/openmax \
         $(TOP)/hardware/msm7k
 
 LOCAL_CFLAGS += -Werror

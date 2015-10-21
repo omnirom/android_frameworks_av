@@ -35,8 +35,8 @@ LOCAL_WHOLE_STATIC_LIBRARIES := \
     libdrmframeworkcommon
 
 LOCAL_C_INCLUDES += \
-    $(TOP)/frameworks/av/drm/libdrmframework/include \
-    $(TOP)/frameworks/av/include
+    $(TOP)/frameworks/av-caf/drm/libdrmframework/include \
+    $(TOP)/frameworks/av-caf/include
 
 
 

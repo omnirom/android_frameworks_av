@@ -13,7 +13,7 @@ LOCAL_SRC_FILES := \
 
 audio_policy_engine_includes_common := \
     $(LOCAL_PATH)/include \
-    $(TOPDIR)frameworks/av/services/audiopolicy/engine/interface
+    $(TOPDIR)frameworks/av-caf/services/audiopolicy/engine/interface
 
 LOCAL_CFLAGS += \
     -Wall \
@@ -29,7 +29,7 @@ LOCAL_C_INCLUDES := \
     $(call include-path-for, frameworks-av) \
     $(call include-path-for, audio-utils) \
     $(call include-path-for, bionic) \
-    $(TOPDIR)frameworks/av/services/audiopolicy/common/include
+    $(TOPDIR)frameworks/av-caf/services/audiopolicy/common/include
 
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PROXY_DEVICE)),true)

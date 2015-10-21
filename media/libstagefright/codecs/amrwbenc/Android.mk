@@ -1,6 +1,6 @@
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
-include frameworks/av/media/libstagefright/codecs/common/Config.mk
+include frameworks/av-caf/media/libstagefright/codecs/common/Config.mk
 
 
 
@@ -98,9 +98,9 @@ LOCAL_STATIC_LIBRARIES :=
 LOCAL_SHARED_LIBRARIES :=
 
 LOCAL_C_INCLUDES := \
-	frameworks/av/include \
-	frameworks/av/media/libstagefright/include \
-	frameworks/av/media/libstagefright/codecs/common/include \
+	frameworks/av-caf/include \
+	frameworks/av-caf/media/libstagefright/include \
+	frameworks/av-caf/media/libstagefright/codecs/common/include \
 	$(LOCAL_PATH)/src \
 	$(LOCAL_PATH)/inc
 
@@ -127,9 +127,9 @@ LOCAL_SRC_FILES := \
         SoftAMRWBEncoder.cpp
 
 LOCAL_C_INCLUDES := \
-	frameworks/av/media/libstagefright/include \
-	frameworks/av/media/libstagefright/codecs/common/include \
-	frameworks/native/include/media/openmax
+	frameworks/av-caf/media/libstagefright/include \
+	frameworks/av-caf/media/libstagefright/codecs/common/include \
+	frameworks/native-caf/include/media/openmax
 
 LOCAL_CFLAGS += -Werror
 

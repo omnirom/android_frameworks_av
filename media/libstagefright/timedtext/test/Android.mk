@@ -17,7 +17,7 @@ LOCAL_SRC_FILES := TimedTextSRTSource_test.cpp
 
 LOCAL_C_INCLUDES := \
     $(TOP)/external/expat/lib \
-    $(TOP)/frameworks/av/media/libstagefright/timedtext
+    $(TOP)/frameworks/av-caf/media/libstagefright/timedtext
 
 LOCAL_SHARED_LIBRARIES := \
     libbinder \

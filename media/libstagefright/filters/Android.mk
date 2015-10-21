@@ -13,7 +13,7 @@ LOCAL_SRC_FILES := \
         ZeroFilter.cpp
 
 LOCAL_C_INCLUDES := \
-        $(TOP)/frameworks/native/include/media/openmax \
+        $(TOP)/frameworks/native-caf/include/media/openmax \
         $(TOP)/frameworks/rs/cpp \
         $(TOP)/frameworks/rs \
 

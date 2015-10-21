@@ -11,8 +11,8 @@ LOCAL_SRC_FILES         := SoftMPEG2.cpp
 
 LOCAL_C_INCLUDES := $(TOP)/external/libmpeg2/decoder
 LOCAL_C_INCLUDES += $(TOP)/external/libmpeg2/common
-LOCAL_C_INCLUDES += $(TOP)/frameworks/av/media/libstagefright/include
-LOCAL_C_INCLUDES += $(TOP)/frameworks/native/include/media/openmax
+LOCAL_C_INCLUDES += $(TOP)/frameworks/av-caf/media/libstagefright/include
+LOCAL_C_INCLUDES += $(TOP)/frameworks/native-caf/include/media/openmax
 
 LOCAL_SHARED_LIBRARIES  := libstagefright
 LOCAL_SHARED_LIBRARIES  += libstagefright_omx
