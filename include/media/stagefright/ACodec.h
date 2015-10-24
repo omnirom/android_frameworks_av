@@ -205,6 +205,7 @@ private:
     bool mUseMetadataOnEncoderOutput;
     bool mEncoderComponent;
     bool mComponentAllocByName;
+    bool mFatalError;
     bool mShutdownInProgress;
     bool mExplicitShutdown;
 
