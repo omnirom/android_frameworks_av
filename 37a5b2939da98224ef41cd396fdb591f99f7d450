@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "b8f5b13e_99e80b7e",
+        "filename": "include/camera/CameraParameters.h",
+        "patchSetId": 1
+      },
+      "lineNbr": 22,
+      "author": {
+        "id": 1000124
+      },
+      "writtenOn": "2015-10-30T07:14:26Z",
+      "side": 1,
+      "message": "maybe because of this",
+      "revId": "37a5b2939da98224ef41cd396fdb591f99f7d450",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
