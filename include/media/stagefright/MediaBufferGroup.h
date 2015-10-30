@@ -33,6 +33,7 @@ public:
     ~MediaBufferGroup();
 
     void add_buffer(MediaBuffer *buffer);
+
     // If nonBlocking is false, it blocks until a buffer is available and
     // passes it to the caller in *buffer, while returning OK.
     // The returned buffer will have a reference count of 1.
