@@ -99,6 +99,8 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"highspeedcif", CAMCORDER_QUALITY_HIGH_SPEED_CIF},
     {"highspeedvga", CAMCORDER_QUALITY_HIGH_SPEED_VGA},
     {"highspeed4kdci", CAMCORDER_QUALITY_HIGH_SPEED_4KDCI},
+    {"1440p", CAMCORDER_QUALITY_1440P}
+    {"timelapse1440p", CAMCORDER_QUALITY_TIME_LAPSE_1440P},
 };
 
 #if LOG_NDEBUG
