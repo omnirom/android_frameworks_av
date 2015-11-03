@@ -13,6 +13,25 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by Dolby Laboratories, Inc. The portions of the
+** code that are surrounded by "DOLBY..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2011-2015 Dolby Laboratories, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+**
 */
 
 
@@ -1254,6 +1273,9 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
             effect->setDevice(mInDevice);
             effect->setMode(mAudioFlinger->getMode());
             effect->setAudioSource(mAudioSource);
+#ifdef DOLBY_DAP
+            EffectDapController::instance()->effectCreated(effect, this);
+#endif // DOLBY_END
         }
         // create effect handle and connect it to effect module
         handle = new EffectHandle(effect, client, effectClient, priority);
@@ -1346,6 +1368,9 @@ status_t AudioFlinger::ThreadBase::addEffect_l(const sp<EffectModule>& effect)
     effect->setDevice(mInDevice);
     effect->setMode(mAudioFlinger->getMode());
     effect->setAudioSource(mAudioSource);
+#ifdef DOLBY_DAP_HW
+    EffectDapController::instance()->updateOffload(this);
+#endif // DOLBY_END
     return NO_ERROR;
 }
 
@@ -2462,6 +2487,9 @@ ssize_t AudioFlinger::PlaybackThread::threadLoop_write()
             bytesWritten = framesWritten;
         }
         mLatchDValid = false;
+#ifdef DOLBY_AUDIO_DUMP
+        EffectDapController::instance()->dumpBuffer((char *)mSinkBuffer + offset, count);
+#endif // DOLBY_END
         status_t status = mNormalSink->getTimestamp(mLatchD.mTimestamp);
         if (status == NO_ERROR) {
             size_t totalFramesWritten = mNormalSink->framesWritten();
@@ -2525,6 +2553,10 @@ void AudioFlinger::PlaybackThread::threadLoop_exit()
             track->invalidate();
         }
     }
+#ifdef DOLBY_DAP_PREGAIN
+    // When a thread is closed set associated volume to 0
+    EffectDapController::instance()->updatePregain(mType, mOutput->flags, 0);
+#endif // DOLBY_END
 }
 
 /*
@@ -2859,6 +2891,13 @@ bool AudioFlinger::PlaybackThread::threadLoop()
             }
             // mMixerStatusIgnoringFastTracks is also updated internally
             mMixerStatus = prepareTracks_l(&tracksToRemove);
+#ifdef DOLBY_DAP_PREGAIN
+            // If there are no active tracks, then reset volume to zero for this thread.
+            if (mMixerStatus == MIXER_IDLE) {
+                ALOGV("EffectDapController: Reset volumes to zeros for threadType = %d flags = %d", mType, mOutput->flags);
+                EffectDapController::instance()->updatePregain(mType, mOutput->flags, 0);
+            }
+#endif // DOLBY_END
 
             // compare with previously applied list
             if (lastGeneration != mActiveTracksGeneration) {
@@ -3675,6 +3714,10 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
 
     float masterVolume = mMasterVolume;
     bool masterMute = mMasterMute;
+#ifdef DOLBY_DAP_PREGAIN
+    // The maximum volume of left channel and right channel for pregain calculation.
+    uint32_t max_vol = 0;
+#endif // DOLBY_END
 
     if (masterMute) {
         masterVolume = 0;
@@ -4012,6 +4055,12 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                 }
                 track->mHasVolumeController = false;
             }
+#ifdef DOLBY_DAP_PREGAIN
+            // Select the maximum volume by scanning all the active audio tracks but not the output one.
+            if (!track->isOutputTrack()) {
+                max_vol = max(max_vol, max(vl, vr));
+            }
+#endif // DOLBY_END
 
             // XXX: these things DON'T need to be done each time
             mAudioMixer->setBufferProvider(name, track);
@@ -4129,6 +4178,11 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                     if (track->isStopped()) {
                         track->reset();
                     }
+#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+                    // Since this track is being removed from active tracks, check if we
+                    // should re-enable content processing in DAP.
+                    EffectDapController::instance()->trackStateChanged(track->mId, track->mState);
+#endif // DOLBY_END
                     tracksToRemove->add(track);
                 }
             } else {
@@ -4239,6 +4293,19 @@ track_is_ready: ;
     if (fastTracks > 0) {
         mixerStatus = MIXER_TRACKS_READY;
     }
+#ifdef DOLBY_DAP_BYPASS_SOUND_TYPES
+    EffectDapController::instance()->checkForBypass(mActiveTracks, mOutput->flags);
+#endif // DOLBY_END
+#ifdef DOLBY_DAP_PREGAIN
+    // Skip the DS pregain setting if there're no active tracks, or all the active tracks are pausing ones,
+    // so that the last pregain will be adopted and zero volume level will not be sent in the 2 cases above.
+    if (mMixerStatusIgnoringFastTracks == MIXER_TRACKS_READY) {
+        EffectDapController::instance()->updatePregain(mType, mOutput->flags, max_vol);
+    }
+#endif // DOLBY_END
+#ifdef DOLBY_AUDIO_DUMP
+    EffectDapController::instance()->checkDumpEnable();
+#endif // DOLBY_END
     return mixerStatus;
 }
 
@@ -4506,6 +4573,10 @@ void AudioFlinger::DirectOutputThread::processVolume_l(Track *track, bool lastTr
             if (mOutput->stream->set_volume) {
                 mOutput->stream->set_volume(mOutput->stream, left, right);
             }
+#if defined(DOLBY_DAP_HW) && defined(DOLBY_DAP_PREGAIN)
+            // Update the volume set for the current thread
+            EffectDapController::instance()->updatePregain(mType, mOutput->flags, max(vl, vr));
+#endif // DOLBY_END
         }
     }
 }
