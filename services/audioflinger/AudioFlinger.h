@@ -18,7 +18,7 @@
 ** code that are surrounded by "DOLBY..." are copyrighted and
 ** licensed separately, as follows:
 **
-**  (C) 2011-2014 Dolby Laboratories, Inc.
+**  (C) 2011-2015 Dolby Laboratories, Inc.
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -83,7 +83,7 @@
 
 #include <media/nbaio/NBLog.h>
 #include <private/media/AudioTrackShared.h>
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
 #include "ds_config.h"
 #endif // DOLBY_END
 
@@ -786,7 +786,7 @@ private:
     sp<PatchPanel> mPatchPanel;
 
     bool        mSystemReady;
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
 #include "EffectDapController.h"
 #endif // DOLBY_END
 };

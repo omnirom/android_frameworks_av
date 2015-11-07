@@ -99,7 +99,7 @@
 #define ALOGVV(a...) do { } while(0)
 #endif
 
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
 #include "EffectDapController_impl.h"
 #endif // DOLBY_END
 namespace android {
@@ -240,7 +240,7 @@ AudioFlinger::AudioFlinger()
         mTeeSinkTrackEnabled = true;
     }
 #endif
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
     EffectDapController::mInstance = new EffectDapController(this);
 #endif // DOLBY_END
 }
@@ -272,7 +272,7 @@ void AudioFlinger::onFirstRef()
 
 AudioFlinger::~AudioFlinger()
 {
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
     delete EffectDapController::mInstance;
 #endif // DOLBY_END
     while (!mRecordThreads.isEmpty()) {
@@ -2748,7 +2748,7 @@ status_t AudioFlinger::moveEffects(int sessionId, audio_io_handle_t srcOutput,
 
     Mutex::Autolock _dl(dstThread->mLock);
     Mutex::Autolock _sl(srcThread->mLock);
-#ifdef DOLBY_DAP_MOVE_EFFECT
+#ifdef DOLBY_ENABLE
     if (sessionId == DOLBY_MOVE_EFFECT_SIGNAL) {
         return EffectDapController::instance()->moveEffect(AUDIO_SESSION_OUTPUT_MIX, srcThread, dstThread);
     }
@@ -2834,12 +2834,8 @@ status_t AudioFlinger::moveEffectChain_l(int sessionId,
     if (status != NO_ERROR) {
         for (size_t i = 0; i < removed.size(); i++) {
             srcThread->addEffect_l(removed[i]);
-#ifdef DOLBY_DAP_MOVE_EFFECT
-            // removeEffect_l() has stopped the effect if it was active so it must be restarted
-            if (effect->state() == EffectModule::ACTIVE ||
-                    effect->state() == EffectModule::STOPPING) {
-                effect->start();
-            }
+#ifdef DOLBY_ENABLE
+        EffectDapController::instance()->restartEffect(effect);
 #endif // DOLBY_END
             if (dstChain != 0 && reRegister) {
                 AudioSystem::unregisterEffect(removed[i]->id());

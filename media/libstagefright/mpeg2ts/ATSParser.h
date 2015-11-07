@@ -17,7 +17,7 @@
  * code that are surrounded by "DOLBY..." are copyrighted and
  * licensed separately, as follows:
  *
- *  (C) 2011-2012 Dolby Laboratories, Inc.
+ *  (C) 2011-2015 Dolby Laboratories, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -153,7 +153,7 @@ struct ATSParser : public RefBase {
         // Stream type 0x83 is non-standard,
         // it could be LPCM or TrueHD AC3
         STREAMTYPE_LPCM_AC3             = 0x83,
-#if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
+#ifdef DOLBY_ENABLE
         STREAMTYPE_EAC3                 = 0x87,
 #endif // DOLBY_END
     };

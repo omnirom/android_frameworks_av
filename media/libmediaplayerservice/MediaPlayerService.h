@@ -152,7 +152,7 @@ class MediaPlayerService : public BnMediaPlayerService
                 int event, void *me, void *info);
                void             deleteRecycledTrack_l();
                void             close_l();
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
                void             setDolbyParameters(const String8& keyValuePairs);
                void             updateTrackOnAudioProcessed(sp<AudioTrack> t, bool trackReused);
                bool             mProcessedAudio;

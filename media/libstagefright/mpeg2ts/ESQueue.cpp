@@ -52,7 +52,7 @@
 
 #include <inttypes.h>
 #include <netinet/in.h>
-#if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
+#ifdef DOLBY_ENABLE
 #include "DolbyESQueueExtImpl.h"
 #endif // DOLBY_END
 
@@ -62,7 +62,7 @@ ElementaryStreamQueue::ElementaryStreamQueue(Mode mode, uint32_t flags)
     : mMode(mode),
       mFlags(flags),
       mEOSReached(false) {
-#if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
+#ifdef DOLBY_ENABLE
     independent_streams_processed = 0;
 #endif // DOLBY_END
 }
@@ -413,7 +413,7 @@ status_t ElementaryStreamQueue::appendData(
                 size -= startOffset;
                 break;
             }
-#if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
+#ifdef DOLBY_ENABLE
             case EAC3:
             {
                 uint8_t *ptr = (uint8_t *)data;
@@ -550,7 +550,7 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
             return dequeueAccessUnitAAC();
         case AC3:
             return dequeueAccessUnitAC3();
-#if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
+#ifdef DOLBY_ENABLE
         case EAC3:
             return dequeueAccessUnitEAC3();
 #endif // DOLBY_END

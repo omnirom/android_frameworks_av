@@ -191,7 +191,7 @@ public:
                                         int id);
         virtual status_t unregisterEffect(int id)
         {
-#ifdef DOLBY_DAP_MOVE_EFFECT
+#ifdef DOLBY_ENABLE
             sp<EffectDescriptor> effectDesc = mEffects.valueFor(id);
             mDolbyAudioPolicy.effectRemoved(effectDesc);
 #endif // DOLBY_END
@@ -635,7 +635,7 @@ protected:
                                                           audio_policy_dev_state_t state,
                                                           const char *device_address,
                                                           const char *device_name);
-#if defined(DOLBY_UDC) || defined(DOLBY_DAP_MOVE_EFFECT)
+#ifdef DOLBY_ENABLE
 protected:
 #include "DolbyAudioPolicy.h"
         DolbyAudioPolicy mDolbyAudioPolicy;

@@ -17,7 +17,7 @@
  * code that are surrounded by "DOLBY..." are copyrighted and
  * licensed separately, as follows:
  *
- *  (C) 2011-2014 Dolby Laboratories, Inc.
+ *  (C) 2011-2015 Dolby Laboratories, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,7 +66,7 @@ const char *MEDIA_MIMETYPE_AUDIO_AAC_ADTS = "audio/aac-adts";
 const char *MEDIA_MIMETYPE_AUDIO_MSGSM = "audio/gsm";
 const char *MEDIA_MIMETYPE_AUDIO_AC3 = "audio/ac3";
 const char *MEDIA_MIMETYPE_AUDIO_EAC3 = "audio/eac3";
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
 const char *MEDIA_MIMETYPE_AUDIO_EAC3_JOC = "audio/eac3-joc";
 #endif // DOLBY_END
 

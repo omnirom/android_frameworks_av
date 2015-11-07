@@ -74,7 +74,7 @@
 #include <OMX_AsString.h>
 
 #include "include/avc_utils.h"
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
 #include "DolbyOMXCodecExtImpl.h"
 #endif // DOLBY_END
 
@@ -172,7 +172,7 @@ static void InitOMXParams(T *params) {
 }
 
 static bool IsSoftwareCodec(const char *componentName) {
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
     if (!strncmp("OMX.dolby.", componentName, 10)) {
         return true;
     }
@@ -291,7 +291,7 @@ uint32_t OMXCodec::getComponentQuirks(
     if (info->hasQuirk("output-buffers-are-unreadable")) {
         quirks |= kOutputBuffersAreUnreadable;
     }
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
     quirks |= getDolbyComponentQuirks(info);
 #endif // DOLBY_END
 
@@ -1540,7 +1540,7 @@ void OMXCodec::setComponentRole(
             "video_decoder.mpeg2", "video_encoder.mpeg2" },
         { MEDIA_MIMETYPE_AUDIO_AC3,
             "audio_decoder.ac3", "audio_encoder.ac3" },
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
         { MEDIA_MIMETYPE_AUDIO_EAC3,
             "audio_decoder.eac3", NULL },
         { MEDIA_MIMETYPE_AUDIO_EAC3_JOC,
@@ -4150,7 +4150,7 @@ void OMXCodec::initOutputFormat(const sp<MetaData> &inputFormat) {
                             ? numChannels : params.nChannels);
 
                 mOutputFormat->setInt32(kKeySampleRate, params.nSamplingRate);
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
                 setDolbyProcessedAudio();
 #endif // DOLBY_END
             } else if (audio_def->eEncoding == OMX_AUDIO_CodingAMR) {

@@ -59,7 +59,7 @@
 #include "avc_utils.h"
 #include "ATSParser.h"
 #include "mediaplayerservice/AVNuExtensions.h"
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
 #include "DolbyNuPlayerDecoderExtImpl.h"
 #endif // DOLBY_END
 
@@ -341,7 +341,7 @@ void NuPlayer::Decoder::onConfigure(const sp<AMessage> &format) {
 
     sp<AMessage> reply = new AMessage(kWhatCodecNotify, this);
     mCodec->setCallback(reply);
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
     setDolbyMessage();
 #endif // DOLBY_END
 
