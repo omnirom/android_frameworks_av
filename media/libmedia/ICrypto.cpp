@@ -301,7 +301,7 @@ status_t BnCrypto::onTransact(
                 secureBufferId = reinterpret_cast<void *>(static_cast<uintptr_t>(data.readInt64()));
                 AVMediaUtils::get()->readCustomData(&data, &secureBufferId);
             } else {
-                dstPtr = malloc(totalSize);
+                dstPtr = calloc(1, totalSize);
                 CHECK(dstPtr != NULL);
             }
 
