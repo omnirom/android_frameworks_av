@@ -17,7 +17,7 @@
  * code that are surrounded by "DOLBY..." are copyrighted and
  * licensed separately, as follows:
  *
- *  (C) 2011-2014 Dolby Laboratories, Inc.
+ *  (C) 2011-2015 Dolby Laboratories, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -645,7 +645,7 @@ static void dumpCodecProfiles(const sp<IOMX>& omx, bool queryDecoders) {
         MEDIA_MIMETYPE_AUDIO_MPEG, MEDIA_MIMETYPE_AUDIO_G711_MLAW,
         MEDIA_MIMETYPE_AUDIO_G711_ALAW, MEDIA_MIMETYPE_AUDIO_VORBIS,
         MEDIA_MIMETYPE_VIDEO_VP8, MEDIA_MIMETYPE_VIDEO_VP9
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
         ,
         MEDIA_MIMETYPE_AUDIO_AC3,
         MEDIA_MIMETYPE_AUDIO_EAC3

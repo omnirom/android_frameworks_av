@@ -53,7 +53,7 @@
 #include <media/stagefright/Utils.h>
 
 #include "include/AwesomePlayer.h"
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
 #include "DolbyAudioPlayerExtImpl.h"
 #endif // DOLBY_END
 
@@ -278,7 +278,7 @@ status_t AudioPlayer::start(bool sourceAlreadyStarted) {
 
     mStarted = true;
     mPlaying = true;
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
     setDolbyProcessedAudio(format);
 #endif // DOLBY_END
     mPinnedTimeUs = -1ll;

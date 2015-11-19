@@ -140,7 +140,7 @@ protected:
     void finishHandleDiscontinuity(bool flushOnTimeChange);
 
     void notifyResumeCompleteIfNecessary();
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
     void setDolbyMessage();
 #endif // DOLBY_END
 

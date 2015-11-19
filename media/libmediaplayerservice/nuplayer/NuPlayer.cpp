@@ -76,7 +76,7 @@
 #include "ESDS.h"
 #include <media/stagefright/Utils.h>
 #include "mediaplayerservice/AVNuExtensions.h"
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
 #include "DolbyNuPlayerExtImpl.h"
 #endif // DOLBY_END
 
@@ -1060,7 +1060,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                         break;                    // Finish anyways.
                 }
                 notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
             } else if (what == kWhatDlbCpProc) {
                 onDolbyMessageReceived();
 #endif // DOLBY_END

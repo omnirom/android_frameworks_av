@@ -81,7 +81,7 @@ static const struct {
 #ifdef QTI_FLAC_DECODER
     { "OMX.qti.audio.decoder.flac", "flacdec", "audio_decoder.flac" },
 #endif
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
     { "OMX.dolby.ac3.decoder", "ddpdec", "audio_decoder.ac3" },
     { "OMX.dolby.eac3.decoder", "ddpdec", "audio_decoder.eac3" },
     { "OMX.dolby.eac3_joc.decoder", "ddpdec", "audio_decoder.eac3_joc" },

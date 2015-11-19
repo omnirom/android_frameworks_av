@@ -789,7 +789,7 @@ status_t AudioFlinger::EffectModule::setAudioSource(audio_source_t source)
 
 void AudioFlinger::EffectModule::setSuspended(bool suspended)
 {
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
     EffectDapController::instance()->effectSuspended(this, suspended);
 #endif // DOLBY_END
     Mutex::Autolock _l(mLock);
@@ -1606,7 +1606,7 @@ status_t AudioFlinger::EffectChain::addEffect_l(const sp<EffectModule>& effect)
         ALOGV("addEffect_l() effect %p, added in chain %p at rank %d", effect.get(), this,
                 idx_insert);
     }
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
     return effect->configure();
 #else // DOLBY_END
     effect->configure();
@@ -1641,7 +1641,7 @@ size_t AudioFlinger::EffectChain::removeEffect_l(const sp<EffectModule>& effect)
             mEffects.removeAt(i);
             ALOGV("removeEffect_l() effect %p, removed from chain %p at rank %d", effect.get(),
                     this, i);
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
             if (effect->suspended() && EffectDapController::instance()->isDapEffect(effect)) {
                 effect->setSuspended(false);
             }

@@ -380,11 +380,9 @@ private:
 
     OMXCodec(const OMXCodec &);
     OMXCodec &operator=(const OMXCodec &);
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
     static uint32_t getDolbyComponentQuirks(const sp<MediaCodecInfo> &info);
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
     void setDolbyProcessedAudio();
-#endif
 #endif // DOLBY_END
 };
 

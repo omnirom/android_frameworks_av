@@ -52,7 +52,7 @@ struct ElementaryStreamQueue {
         H264,
         AAC,
         AC3,
-#if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
+#ifdef DOLBY_ENABLE
         EAC3,
 #endif // DOLBY_END
         MPEG_AUDIO,
@@ -99,7 +99,7 @@ private:
     sp<ABuffer> dequeueAccessUnitMPEG4Video();
     sp<ABuffer> dequeueAccessUnitPCMAudio();
     sp<ABuffer> dequeueAccessUnitMetadata();
-#if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
+#ifdef DOLBY_ENABLE
     sp<ABuffer> dequeueAccessUnitEAC3();
     unsigned independent_streams_processed;
     unsigned independent_stream_num_channels;

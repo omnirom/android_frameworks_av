@@ -17,7 +17,7 @@
  * code that are surrounded by "DOLBY..." are copyrighted and
  * licensed separately, as follows:
  *
- *  (C) 2011-2012 Dolby Laboratories, Inc.
+ *  (C) 2011-2015 Dolby Laboratories, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -626,7 +626,7 @@ MPEG2PSExtractor::Track::Track(
             mode = ElementaryStreamQueue::MPEG_AUDIO;
             break;
 
-#if defined(DOLBY_UDC) && defined(DOLBY_UDC_STREAMING_HLS)
+#ifdef DOLBY_ENABLE
         case ATSParser::STREAMTYPE_AC3:
             mode = ElementaryStreamQueue::AC3;
             break;

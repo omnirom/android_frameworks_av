@@ -58,7 +58,7 @@
 #include "audio_policy_conf.h"
 #include <ConfigParsingUtils.h>
 #include <policy.h>
-#if defined(DOLBY_UDC) || defined(DOLBY_DAP_MOVE_EFFECT)
+#ifdef DOLBY_ENABLE
 #include "DolbyAudioPolicy_impl.h"
 #endif // DOLBY_END
 
@@ -192,7 +192,7 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t device,
         }
 
         updateDevicesAndOutputs();
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE // DOLBY_UDC
         // Before closing the opened outputs, update endpoint property with device capabilities
         audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AUDIO_STREAM_MUSIC), true);
         mDolbyAudioPolicy.setEndpointSystemProperty(audioOutputDevice, mHwModules);
@@ -948,7 +948,7 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         addOutput(output, outputDesc);
         audio_io_handle_t dstOutput = getOutputForEffect();
         if (dstOutput == output) {
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
             status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, srcOutput, dstOutput);
             if (status == NO_ERROR) {
                 for (size_t i = 0; i < mEffects.size(); i++) {
@@ -1101,7 +1101,8 @@ status_t AudioPolicyManager::startOutput(audio_io_handle_t output,
     if (delayMs != 0) {
         usleep(delayMs * 1000);
     }
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
+    // DOLBY_UDC
     // It is observed that in some use-cases where multiple outputs are present eg. bluetooth and headphone,
     // the output for particular stream type is decided in this routine. Hence we must call
     // getDeviceForStrategy in order to get the current active output for this stream type and update
@@ -1111,17 +1112,13 @@ status_t AudioPolicyManager::startOutput(audio_io_handle_t output,
         audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AUDIO_STREAM_MUSIC), true);
         mDolbyAudioPolicy.setEndpointSystemProperty(audioOutputDevice, mHwModules);
     }
-#endif // DOLBY_UDC
-#ifdef DOLBY_DAP_MOVE_EFFECT
+    // DOLBY_DAP_MOVE_EFFECT
     // Note: The global effect can't be taken away from the deep-buffered output (source output) if there're still
     //       music playing on the deep-buffered output.
     sp<SwAudioOutputDescriptor> srcOutputDesc = mOutputs.valueFor(mDolbyAudioPolicy.output());
     if ((stream == AUDIO_STREAM_MUSIC) && mDolbyAudioPolicy.shouldMoveToOutput(output, outputDesc->mFlags) && srcOutputDesc != NULL &&
         ((srcOutputDesc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) == 0 || srcOutputDesc->mRefCount[AUDIO_STREAM_MUSIC] == 0)) {
-        status_t status = mpClientInterface->moveEffects(DOLBY_MOVE_EFFECT_SIGNAL, mDolbyAudioPolicy.output(), output);
-        if (status == NO_ERROR) {
-            mDolbyAudioPolicy.movedToOutput(output);
-        }
+        mDolbyAudioPolicy.movedToOutput(mpClientInterface, output);
     }
 #endif //DOLBY_END
 
@@ -1345,7 +1342,7 @@ void AudioPolicyManager::releaseOutput(audio_io_handle_t output,
             // output by default: move them back to the appropriate output.
             audio_io_handle_t dstOutput = getOutputForEffect();
             if (hasPrimaryOutput() && dstOutput != mPrimaryOutput->mIoHandle) {
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
                 status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX,
                                                                  mPrimaryOutput->mIoHandle, dstOutput);
                 if (status == NO_ERROR) {
@@ -1907,7 +1904,7 @@ status_t AudioPolicyManager::registerEffect(const effect_descriptor_t *desc,
             return INVALID_OPERATION;
         }
     }
-#ifdef DOLBY_DAP_MOVE_EFFECT
+#ifdef DOLBY_ENABLE
     status_t status = mEffects.registerEffect(desc, io, strategy, session, id);
     if (status == NO_ERROR) {
         sp<EffectDescriptor> effectDesc = mEffects.valueFor(id);
@@ -3908,7 +3905,7 @@ void AudioPolicyManager::checkOutputForStrategy(routing_strategy strategy)
                     if (moved.indexOf(effectDesc->mIo) < 0) {
                         ALOGV("checkOutputForStrategy() moving effect %d to output %d",
                               mEffects.keyAt(i), fxOutput);
-#ifdef DOLBY_DAP
+#ifdef DOLBY_ENABLE
                         status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, effectDesc->mIo,
                                                        fxOutput);
                         if (status != NO_ERROR) {

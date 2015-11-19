@@ -66,7 +66,7 @@
 #ifndef UINT32_MAX
 #define UINT32_MAX       (4294967295U)
 #endif
-#if defined(DOLBY_UDC) && defined(DEBUG_LOG_DDP_DECODER_EXTRA)
+#if defined(DOLBY_ENABLE) && defined(DEBUG_LOG_DDP_DECODER_EXTRA)
 #define DLOGD ALOGD
 #else
 #define DLOGD(...) ((void)0)
@@ -227,7 +227,7 @@ MPEG4DataSource::MPEG4DataSource(const sp<DataSource> &source)
       mCachedOffset(0),
       mCachedSize(0),
       mCache(NULL) {
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
       DLOGD("@DDP MPEG4DataSource::MPEG4DataSource");
 #endif // DOLBY_END
 }
@@ -338,7 +338,7 @@ static void hexdump(const void *_data, size_t size) {
 }
 
 static const char *FourCC2MIME(uint32_t fourcc) {
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
     DLOGD("@DDP FourCC2MIME");
 #endif // DOLBY_END
     switch (fourcc) {
@@ -365,7 +365,7 @@ static const char *FourCC2MIME(uint32_t fourcc) {
         case FOURCC('h', 'v', 'c', '1'):
         case FOURCC('h', 'e', 'v', '1'):
             return MEDIA_MIMETYPE_VIDEO_HEVC;
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
         case FOURCC('a', 'c', '-', '3'):
             DLOGD("@DDP Track FOURCC = 'ac-3'");
             return MEDIA_MIMETYPE_AUDIO_AC3;
@@ -374,7 +374,7 @@ static const char *FourCC2MIME(uint32_t fourcc) {
             return MEDIA_MIMETYPE_AUDIO_EAC3;
 #endif // DOLBY_END
         default:
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
             ALOGD("@DDP FourCC2Mime default (not found)");
 #endif // DOLBY_END
             CHECK(!"should not be here.");
@@ -410,7 +410,7 @@ MPEG4Extractor::MPEG4Extractor(const sp<DataSource> &source)
       mFileMetaData(new MetaData),
       mFirstSINF(NULL),
       mIsDrm(false) {
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
       DLOGD("@DDP MPEG4Extractor::MPEG4Extractor");
 #endif // DOLBY_END
 }
@@ -1364,7 +1364,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC('e', 'n', 'c', 'a'):
         case FOURCC('s', 'a', 'm', 'r'):
         case FOURCC('s', 'a', 'w', 'b'):
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
         case FOURCC('a', 'c', '-', '3'):
         case FOURCC('e', 'c', '-', '3'):
 #endif // DOLBY_END
@@ -1391,7 +1391,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 
             if (chunk_type != FOURCC('e', 'n', 'c', 'a')) {
                 // if the chunk type is enca, we'll get the type from the sinf/frma box later
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
                 const char *mime;
                 CHECK(mLastTrack->meta->findCString(kKeyMIMEType, &mime));
                 //Track mime-type should have been set at 'trak'
@@ -1401,10 +1401,8 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                     DLOGD("@DDP Set mimetype from %s to %s", mime, FourCC2MIME(chunk_type));
 #endif // DOLBY_END
                 mLastTrack->meta->setCString(kKeyMIMEType, FourCC2MIME(chunk_type));
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
                 DLOGD("@DDP FourCC:'%s'", FourCC2MIME(chunk_type));
-#endif // DOLBY_END
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
                 }
 #endif // DOLBY_END
                 AdjustChannelsAndRate(chunk_type, &num_channels, &sample_rate);
@@ -1429,7 +1427,27 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             break;
         }
 
-#ifdef DOLBY_UDC_VIRTUALIZE_AUDIO
+#ifdef DOLBY_ENABLE
+        case FOURCC('d', 'a', 'c', '3'):
+        {
+            uint8_t buffer[3];
+            if (chunk_data_size < (ssize_t)sizeof(buffer)) {
+                // 3 bytes for AC3Specific.
+                return ERROR_MALFORMED;
+            }
+
+            if (mDataSource->readAt(
+                        data_offset, buffer, sizeof(buffer)) < (ssize_t)sizeof(buffer)) {
+                return ERROR_IO;
+            }
+            uint32_t acmod = (buffer[1] >> 3) & 0x3; //acmod presents channels of DD
+            if (acmod > 2) {
+               mLastTrack->meta->setInt32(kKeyChannelCount, 6); //5.1 case
+            }
+            *offset += chunk_size;
+            break;
+        }
+
         case FOURCC('d', 'e', 'c', '3'):
         {
             //Only allowed on E-AC3 tracks
@@ -1457,18 +1475,31 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             DLOGD("@DDP - Valid EC3SpecificBox detected");
 
             uint8_t data_offset = 1;
+            uint32_t num_channels = 2;
             uint8_t num_ind_sub = (buffer[data_offset] & 0x7) + 1; //0 = One I substream
             DLOGD("@DDP - EC3SpecificBox reports num_ind_sub = %d", num_ind_sub);
 
             for (uint8_t i = 0; i < num_ind_sub; i++) {
-                data_offset+=3;
+                data_offset += 2;
+                uint32_t acmod = (buffer[data_offset] >> 1) & 0x3;
+                if(acmod > 2) {
+                    num_channels = 6;
+                }
+                data_offset++;
                 uint8_t num_dep_sub = (buffer[data_offset] >> 1) & 0xF;
+
                 DLOGD("@DDP - I%d : num_dep_sub = %d", i, num_dep_sub);
                 if (num_dep_sub > 0) {
                     data_offset++; //chan_loc byte
+                    if ((buffer[data_offset]>>1) & 0x1) { // Only support Lrs/Rrs case
+                        num_channels = 8;
+                    }
                 }
             }
 
+            if (num_channels != 2) {
+                mLastTrack->meta->setInt32(kKeyChannelCount, num_channels);
+            }
             if (chunk_data_size - (data_offset + 1) >= 2) {
                 //JOC requires at least 2 bytes extension data
                 data_offset++;
@@ -1482,7 +1513,6 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 ALOGE("@DDP - Invalid EC3SpecificBox extension data");
                 return ERROR_MALFORMED;
             }
-
             *offset += chunk_size;
             break;
         }
@@ -3391,7 +3421,7 @@ MPEG4Source::MPEG4Source(
       mBuffer(NULL),
       mWantsNALFragments(false),
       mSrcBuffer(NULL) {
-#ifdef DOLBY_UDC
+#ifdef DOLBY_ENABLE
       DLOGD("@DDP MPEG4Source::MPEG4Source");
 #endif // DOLBY_END
 
