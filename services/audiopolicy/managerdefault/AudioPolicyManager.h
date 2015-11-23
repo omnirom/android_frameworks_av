@@ -192,8 +192,7 @@ public:
         virtual status_t unregisterEffect(int id)
         {
 #ifdef DOLBY_ENABLE
-            sp<EffectDescriptor> effectDesc = mEffects.valueFor(id);
-            mDolbyAudioPolicy.effectRemoved(effectDesc);
+            mDolbyAudioPolicy.effectRemoved(&mEffects, id);
 #endif // DOLBY_END
             return mEffects.unregisterEffect(id);
         }

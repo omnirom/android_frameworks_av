@@ -1116,11 +1116,7 @@ status_t AudioPolicyManager::startOutput(audio_io_handle_t output,
     // DOLBY_DAP_MOVE_EFFECT
     // Note: The global effect can't be taken away from the deep-buffered output (source output) if there're still
     //       music playing on the deep-buffered output.
-    sp<SwAudioOutputDescriptor> srcOutputDesc = mOutputs.valueFor(mDolbyAudioPolicy.output());
-    if ((stream == AUDIO_STREAM_MUSIC) && mDolbyAudioPolicy.shouldMoveToOutput(output, outputDesc->mFlags) && srcOutputDesc != NULL &&
-        ((srcOutputDesc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) == 0 || srcOutputDesc->mRefCount[AUDIO_STREAM_MUSIC] == 0)) {
-        mDolbyAudioPolicy.movedToOutput(mpClientInterface, output);
-    }
+    mDolbyAudioPolicy.movedToOutput(stream, outputDesc, &mOutputs, mpClientInterface, output);
 #endif //DOLBY_END
 
     return status;
@@ -1906,12 +1902,7 @@ status_t AudioPolicyManager::registerEffect(const effect_descriptor_t *desc,
         }
     }
 #ifdef DOLBY_ENABLE
-    status_t status = mEffects.registerEffect(desc, io, strategy, session, id);
-    if (status == NO_ERROR) {
-        sp<EffectDescriptor> effectDesc = mEffects.valueFor(id);
-        mDolbyAudioPolicy.effectRegistered(effectDesc);
-    }
-    return status;
+    return mDolbyAudioPolicy.effectRegistered(desc, io, strategy, session, id, &mEffects);
 #else // DOLBY_END
     return mEffects.registerEffect(desc, io, strategy, session, id);
 #endif // LINE_ADDED_BY_DOLBY
