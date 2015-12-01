@@ -4381,7 +4381,9 @@ void AudioPolicyManager::checkOutputForAllStrategies()
 void AudioPolicyManager::checkA2dpSuspend()
 {
     audio_io_handle_t a2dpOutput = mOutputs.getA2dpOutput();
-    if (a2dpOutput == 0) {
+    bool a2dpOnPrimary = mOutputs.isA2dpOnPrimary();
+
+    if ((a2dpOutput == 0) && !a2dpOnPrimary) {
         mA2dpSuspended = false;
         return;
     }
@@ -4392,11 +4394,13 @@ void AudioPolicyManager::checkA2dpSuspend()
             ((mAvailableOutputDevices.types() & AUDIO_DEVICE_OUT_ALL_SCO) != 0);
 
     // if suspended, restore A2DP output if:
+    //      (A2DP output is present and not on primary output) &&
     //      ((SCO device is NOT connected) ||
     //       ((forced usage communication is NOT SCO) && (forced usage for record is NOT SCO) &&
     //        (phone state is NOT in call) && (phone state is NOT ringing)))
     //
     // if not suspended, suspend A2DP output if:
+    //      (A2DP output is present and not on primary output) &&
     //      (SCO device is connected) &&
     //       ((forced usage for communication is SCO) || (forced usage for record is SCO) ||
     //       ((phone state is in call) || (phone state is ringing)))
@@ -4410,7 +4414,9 @@ void AudioPolicyManager::checkA2dpSuspend()
               (mEngine->getPhoneState() != AUDIO_MODE_IN_CALL) &&
               (mEngine->getPhoneState() != AUDIO_MODE_RINGTONE))) {
 
-            mpClientInterface->restoreOutput(a2dpOutput);
+            if ((a2dpOutput != 0) && !a2dpOnPrimary) {
+                mpClientInterface->restoreOutput(a2dpOutput);
+            }
             mA2dpSuspended = false;
         }
     } else {
@@ -4422,7 +4428,9 @@ void AudioPolicyManager::checkA2dpSuspend()
               (mEngine->getPhoneState() == AUDIO_MODE_IN_CALL) ||
               (mEngine->getPhoneState() == AUDIO_MODE_RINGTONE))) {
 
-            mpClientInterface->suspendOutput(a2dpOutput);
+            if ((a2dpOutput != 0) && !a2dpOnPrimary) {
+                mpClientInterface->suspendOutput(a2dpOutput);
+            }
             mA2dpSuspended = true;
         }
     }

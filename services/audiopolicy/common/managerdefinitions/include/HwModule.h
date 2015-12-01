@@ -84,12 +84,13 @@ public:
     // TODO remove from here (split serialization)
     void dump(int fd);
 
+    OutputProfileCollection mOutputProfiles; // output profiles exposed by this module
+
 private:
     void refreshSupportedDevices();
 
     const String8 mName; // base name of the audio HW module (primary, a2dp ...)
     audio_module_handle_t mHandle;
-    OutputProfileCollection mOutputProfiles; // output profiles exposed by this module
     InputProfileCollection mInputProfiles;  // input profiles exposed by this module
     uint32_t mHalVersion; // audio HAL API version
     DeviceVector mDeclaredDevices; // devices declared in audio_policy configuration file.
