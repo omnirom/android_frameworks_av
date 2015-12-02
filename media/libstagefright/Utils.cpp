@@ -220,7 +220,7 @@ status_t convertMetaDataToMessage(
     }
 
     int32_t fps;
-    if (meta->findInt32(kKeyFrameRate, &fps)) {
+    if (meta->findInt32(kKeyFrameRate, &fps) && fps > 0) {
         msg->setInt32("frame-rate", fps);
     }
 
@@ -232,8 +232,10 @@ status_t convertMetaDataToMessage(
 
         const uint8_t *ptr = (const uint8_t *)data;
 
-        CHECK(size >= 7);
-        CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
+        if (size < 7 || ptr[0] != 1) {  // configurationVersion == 1
+            ALOGE("b/23680780");
+            return BAD_VALUE;
+        }
         uint8_t profile __unused = ptr[1];
         uint8_t level __unused = ptr[3];
 
@@ -259,7 +261,10 @@ status_t convertMetaDataToMessage(
         buffer->setRange(0, 0);
 
         for (size_t i = 0; i < numSeqParameterSets; ++i) {
-            CHECK(size >= 2);
+            if (size < 2) {
+                ALOGE("b/23680780");
+                return BAD_VALUE;
+            }
             size_t length = U16_AT(ptr);
 
             ptr += 2;
@@ -288,13 +293,19 @@ status_t convertMetaDataToMessage(
         }
         buffer->setRange(0, 0);
 
-        CHECK(size >= 1);
+        if (size < 1) {
+            ALOGE("b/23680780");
+            return BAD_VALUE;
+        }
         size_t numPictureParameterSets = *ptr;
         ++ptr;
         --size;
 
         for (size_t i = 0; i < numPictureParameterSets; ++i) {
-            CHECK(size >= 2);
+            if (size < 2) {
+                ALOGE("b/23680780");
+                return BAD_VALUE;
+            }
             size_t length = U16_AT(ptr);
 
             ptr += 2;
@@ -318,8 +329,10 @@ status_t convertMetaDataToMessage(
     } else if (meta->findData(kKeyHVCC, &type, &data, &size)) {
         const uint8_t *ptr = (const uint8_t *)data;
 
-        CHECK(size >= 7);
-        CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
+        if (size < 23 || ptr[0] != 1) {  // configurationVersion == 1
+            ALOGE("b/23680780");
+            return BAD_VALUE;
+        }
         uint8_t profile __unused = ptr[1] & 31;
         uint8_t level __unused = ptr[12];
         ptr += 22;
@@ -338,6 +351,10 @@ status_t convertMetaDataToMessage(
         buffer->setRange(0, 0);
 
         for (i = 0; i < numofArrays; i++) {
+            if (size < 3) {
+                ALOGE("b/23680780");
+                return BAD_VALUE;
+            }
             ptr += 1;
             size -= 1;
 
@@ -348,7 +365,10 @@ status_t convertMetaDataToMessage(
             size -= 2;
 
             for (j = 0; j < numofNals; j++) {
-                CHECK(size >= 2);
+                if (size < 2) {
+                    ALOGE("b/23680780");
+                    return BAD_VALUE;
+                }
                 size_t length = U16_AT(ptr);
 
                 ptr += 2;
@@ -666,7 +686,7 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
     }
 
     int32_t fps;
-    if (msg->findInt32("frame-rate", &fps)) {
+    if (msg->findInt32("frame-rate", &fps) && fps > 0) {
         meta->setInt32(kKeyFrameRate, fps);
     }
 
