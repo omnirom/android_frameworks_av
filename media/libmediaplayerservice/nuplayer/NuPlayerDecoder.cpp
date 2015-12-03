@@ -622,14 +622,6 @@ bool NuPlayer::Decoder::handleAnOutputBuffer(
     reply->setSize("buffer-ix", index);
     reply->setInt32("generation", mBufferGeneration);
 
-    if ((flags & MediaCodec::BUFFER_FLAG_DATACORRUPT) &&
-            AVNuUtils::get()->dropCorruptFrame()) {
-        ALOGV("[%s] dropping corrupt buffer at time %lld as requested.",
-                     mComponentName.c_str(), (long long)timeUs);
-        reply->post();
-        return true;
-    }
-
     if (eos) {
         ALOGI("[%s] saw output EOS", mIsAudio ? "audio" : "video");
 
@@ -645,6 +637,12 @@ bool NuPlayer::Decoder::handleAnOutputBuffer(
         }
 
         mSkipRenderingUntilMediaTimeUs = -1;
+    } else if ((flags & MediaCodec::BUFFER_FLAG_DATACORRUPT) &&
+            AVNuUtils::get()->dropCorruptFrame()) {
+        ALOGV("[%s] dropping corrupt buffer at time %lld as requested.",
+                     mComponentName.c_str(), (long long)timeUs);
+        reply->post();
+        return true;
     }
 
     mNumFramesTotal += !mIsAudio;
