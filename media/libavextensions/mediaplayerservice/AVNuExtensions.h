@@ -85,6 +85,7 @@ struct AVNuUtils {
 
     virtual void printFileName(int fd);
     virtual void checkFormatChange(bool *formatChange, const sp<ABuffer> &accessUnit);
+    virtual void overWriteAudioOutputFormat(sp <AMessage> &dst, const sp <AMessage> &src);
     virtual void addFlagsInMeta(const sp<ABuffer> &buffer, int32_t flags, bool isAudio);
     virtual bool dropCorruptFrame();
 
