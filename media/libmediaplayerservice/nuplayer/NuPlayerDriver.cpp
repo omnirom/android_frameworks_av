@@ -366,9 +366,9 @@ bool NuPlayerDriver::isPlaying() {
 }
 
 status_t NuPlayerDriver::setPlaybackSettings(const AudioPlaybackRate &rate) {
-    Mutex::Autolock autoLock(mLock);
     status_t err = mPlayer->setPlaybackSettings(rate);
     if (err == OK) {
+        Mutex::Autolock autoLock(mLock);
         if (rate.mSpeed == 0.f && mState == STATE_RUNNING) {
             mState = STATE_PAUSED;
             // try to update position
@@ -753,7 +753,8 @@ void NuPlayerDriver::notifyListener_l(
                         // the last little bit of audio. If we're looping, we need to restart it.
                         mAudioSink->start();
                     }
-                    break;
+                    // don't send completion event when looping
+                    return;
                 }
 
                 mPlayer->pause();
