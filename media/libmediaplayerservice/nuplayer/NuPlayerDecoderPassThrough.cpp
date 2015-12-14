@@ -213,6 +213,7 @@ sp<ABuffer> NuPlayer::DecoderPassThrough::aggregateBuffer(
     } else {
         // decided not to aggregate
         aggregate = accessUnit;
+        setPcmFormat(aggregate->meta());
     }
 
     return aggregate;
