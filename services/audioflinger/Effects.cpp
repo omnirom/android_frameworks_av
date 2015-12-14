@@ -1142,7 +1142,8 @@ status_t AudioFlinger::EffectHandle::enable()
                 t->broadcast_l();
             }
             if (!mEffect->isOffloadable()) {
-                if (thread->type() == ThreadBase::OFFLOAD) {
+                if (thread->type() == ThreadBase::OFFLOAD ||
+                   (thread->type() == ThreadBase::DIRECT && thread->mIsDirectPcm)) {
                     PlaybackThread *t = (PlaybackThread *)thread.get();
                     t->invalidateTracks(AUDIO_STREAM_MUSIC);
                 }
@@ -1179,7 +1180,8 @@ status_t AudioFlinger::EffectHandle::disable()
     sp<ThreadBase> thread = mEffect->thread().promote();
     if (thread != 0) {
         thread->checkSuspendOnEffectEnabled(mEffect, false, mEffect->sessionId());
-        if (thread->type() == ThreadBase::OFFLOAD) {
+        if ((thread->type() == ThreadBase::OFFLOAD) ||
+            (thread->type() == ThreadBase::DIRECT && thread->mIsDirectPcm)){
             PlaybackThread *t = (PlaybackThread *)thread.get();
             Mutex::Autolock _l(t->mLock);
             t->broadcast_l();
@@ -1462,8 +1464,10 @@ void AudioFlinger::EffectChain::process_l()
             (mSessionId == AUDIO_SESSION_OUTPUT_STAGE);
     // never process effects when:
     // - on an OFFLOAD thread
+    // - on DIRECT thread with directPcm flag enabled
     // - no more tracks are on the session and the effect tail has been rendered
-    bool doProcess = (thread->type() != ThreadBase::OFFLOAD);
+    bool doProcess = ((thread->type() != ThreadBase::OFFLOAD) &&
+                      (!(thread->type() == ThreadBase::DIRECT && thread->mIsDirectPcm)));
     if (!isGlobalSession) {
         bool tracksOnSession = (trackCnt() != 0);
 
