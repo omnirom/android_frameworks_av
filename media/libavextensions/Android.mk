@@ -14,6 +14,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/external/flac/include \
         $(TOP)/hardware/qcom/media/mm-core/inc \
         $(TOP)/frameworks/av/media/libstagefright \
+        $(TOP)/frameworks/av/media/libstagefright/mpeg2ts \
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 

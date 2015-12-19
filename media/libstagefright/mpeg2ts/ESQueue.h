@@ -38,6 +38,8 @@
 #define ES_QUEUE_H_
 
 #include <media/stagefright/foundation/ABase.h>
+#include <media/stagefright/foundation/ABuffer.h>
+#include <media/stagefright/MetaData.h>
 #include <utils/Errors.h>
 #include <utils/List.h>
 #include <utils/RefBase.h>
@@ -46,10 +48,12 @@ namespace android {
 
 struct ABuffer;
 class MetaData;
+struct AVUtils;
 
 struct ElementaryStreamQueue {
     enum Mode {
         H264,
+        H265,
         AAC,
         AC3,
 #ifdef DOLBY_ENABLE
@@ -67,6 +71,7 @@ struct ElementaryStreamQueue {
         kFlag_AlignedData = 1,
     };
     ElementaryStreamQueue(Mode mode, uint32_t flags = 0);
+    virtual ~ElementaryStreamQueue() {};
 
     status_t appendData(const void *data, size_t size, int64_t timeUs);
     void signalEOS();
@@ -76,7 +81,7 @@ struct ElementaryStreamQueue {
 
     sp<MetaData> getFormat();
 
-private:
+protected:
     struct RangeInfo {
         int64_t mTimestampUs;
         size_t mLength;
@@ -104,11 +109,15 @@ private:
     unsigned independent_streams_processed;
     unsigned independent_stream_num_channels;
 #endif // DOLBY_END
+    virtual sp<ABuffer> dequeueAccessUnitH265() {
+        return NULL;
+    };
 
     // consume a logical (compressed) access unit of size "size",
     // returns its timestamp in us (or -1 if no time information).
     int64_t fetchTimestamp(size_t size);
 
+private:
     DISALLOW_EVIL_CONSTRUCTORS(ElementaryStreamQueue);
 };
 
