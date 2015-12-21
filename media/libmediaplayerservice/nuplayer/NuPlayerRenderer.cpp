@@ -1537,6 +1537,13 @@ void NuPlayer::Renderer::onResume() {
             ALOGE("cannot start AudioSink err %d", err);
             notifyAudioTearDown();
         }
+        //Update anchor time after resuming playback.
+        if (offloadingAudio()) {
+            int64_t nowUs = ALooper::GetNowUs();
+            int64_t nowMediaUs =
+                mAudioFirstAnchorTimeMediaUs + getPlayedOutAudioDurationUs(nowUs);
+            mMediaClock->updateAnchor(nowMediaUs, nowUs, INT64_MAX);
+        }
     }
 
     {
