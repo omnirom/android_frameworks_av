@@ -104,6 +104,9 @@ void AVNuUtils::checkFormatChange(bool * /*formatChange*/,
         const sp<ABuffer> & /*accessUnit*/) {
 }
 
+void AVNuUtils::overWriteAudioOutputFormat(
+        sp <AMessage> & /*dst*/, const sp <AMessage> & /*src*/) {
+}
 void AVNuUtils::addFlagsInMeta(const sp<ABuffer> & /*buffer*/,
         int32_t /*flags*/, bool /*isAudio*/) {
 }
