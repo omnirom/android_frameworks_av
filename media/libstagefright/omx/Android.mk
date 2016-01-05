@@ -36,6 +36,10 @@ ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
 endif
 endif
 
+ifeq ($(DTS_CODEC_M_), true)
+  LOCAL_CFLAGS += -DDTS_CODEC_M_
+endif
+
 LOCAL_MODULE:= libstagefright_omx
 LOCAL_CFLAGS += -Werror -Wall
 LOCAL_CLANG := true
