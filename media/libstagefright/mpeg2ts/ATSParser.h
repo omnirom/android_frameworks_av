@@ -157,6 +157,10 @@ struct ATSParser : public RefBase {
 #ifdef DOLBY_ENABLE
         STREAMTYPE_EAC3                 = 0x87,
 #endif // DOLBY_END
+#ifdef DTS_CODEC_M_
+        // Stream type 0x06 for all DTS streams (including DTSHD)
+        STREAMTYPE_DTSHD                = 0x06,
+#endif
     };
 
 protected:
