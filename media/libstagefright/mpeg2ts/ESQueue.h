@@ -18,6 +18,11 @@
  * licensed separately, as follows:
  *
  *  (C) 2011-2015 Dolby Laboratories, Inc.
+ * This file was modified by DTS, Inc. The portions of the
+ * code that are surrounded by "DTS..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2015 DTS, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -64,6 +69,9 @@ struct ElementaryStreamQueue {
         MPEG4_VIDEO,
         PCM_AUDIO,
         METADATA,
+#ifdef DTS_CODEC_M_
+        DTSHD,
+#endif
     };
 
     enum Flags {
@@ -112,6 +120,9 @@ protected:
     virtual sp<ABuffer> dequeueAccessUnitH265() {
         return NULL;
     };
+#ifdef DTS_CODEC_M_
+    sp<ABuffer> dequeueAccessUnitDTS();
+#endif
 
     // consume a logical (compressed) access unit of size "size",
     // returns its timestamp in us (or -1 if no time information).

@@ -18,6 +18,11 @@
  * licensed separately, as follows:
  *
  *  (C) 2011-2015 Dolby Laboratories, Inc.
+ * This file was modified by DTS, Inc. The portions of the
+ * code that are surrounded by "DTS..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2015 DTS, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -666,6 +671,13 @@ ATSParser::Stream::Stream(
                     ElementaryStreamQueue::METADATA);
             break;
 
+#ifdef DTS_CODEC_M_
+        case STREAMTYPE_DTSHD:
+            mQueue = new ElementaryStreamQueue(
+                    ElementaryStreamQueue::DTSHD);
+            break;
+#endif
+
         default:
             break;
     }
@@ -788,6 +800,9 @@ bool ATSParser::Stream::isAudio() const {
 #ifdef DOLBY_ENABLE
         case STREAMTYPE_EAC3:
 #endif // DOLBY_END
+#ifdef DTS_CODEC_M_
+        case STREAMTYPE_DTSHD:
+#endif
             return true;
 
         default:

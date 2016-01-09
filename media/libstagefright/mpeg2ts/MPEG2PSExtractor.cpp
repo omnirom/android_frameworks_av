@@ -18,6 +18,7 @@
  * licensed separately, as follows:
  *
  *  (C) 2011-2015 Dolby Laboratories, Inc.
+ *  (C) 2015 DTS, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -625,6 +626,11 @@ MPEG2PSExtractor::Track::Track(
         case ATSParser::STREAMTYPE_MPEG2_AUDIO:
             mode = ElementaryStreamQueue::MPEG_AUDIO;
             break;
+#ifdef DTS_CODEC_M_
+        case ATSParser::STREAMTYPE_DTSHD:
+            mode = ElementaryStreamQueue::DTSHD;
+            break;
+#endif
 
 #ifdef DOLBY_ENABLE
         case ATSParser::STREAMTYPE_AC3:

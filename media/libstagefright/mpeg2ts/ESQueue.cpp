@@ -18,6 +18,7 @@
  * licensed separately, as follows:
  *
  *  (C) 2011-2015 Dolby Laboratories, Inc.
+ *  (C) 2015 DTS, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -198,6 +199,107 @@ static unsigned parseAC3SyncFrame(
 static bool IsSeeminglyValidAC3Header(const uint8_t *ptr, size_t size) {
     return parseAC3SyncFrame(ptr, size, NULL) > 0;
 }
+
+#ifdef DTS_CODEC_M_
+// Parse DTS header assuming the current ptr is start position of syncframe,
+// update metadata only if applicable, and return the payload size
+static unsigned parseDTSSyncFrame(
+        const uint8_t *ptr, size_t size, sp<MetaData> *metaData) {
+
+    #define DTS_SYNCWORD_CORE       0x7FFE8001
+    #define DTS_SYNCWORD_SUBSTREAM  0x64582025
+    #define DTS_SYNCWORD_LBR        0x0a801921
+    #define DTS_SYNCWORD_XLL        0x41a29547
+
+    ABitReader bits(ptr, size);
+    unsigned syncValue = 0;
+    static unsigned dtsChannelCount = 0;
+    static unsigned dtsSamplingRate = 0;
+    unsigned payloadSize = 0;
+
+    // Check for DTS core or substream sync
+    if (bits.numBitsLeft() < 32) {
+        return 0;
+    }
+
+    // Get the sync value
+    syncValue = bits.getBits(32);
+    if (!((syncValue == DTS_SYNCWORD_CORE) ||
+        (syncValue == DTS_SYNCWORD_SUBSTREAM))){
+        return 0;
+    }
+
+    if(syncValue == DTS_SYNCWORD_CORE) {
+        // Stream with a core
+        if (bits.numBitsLeft() < 1 + 5 + 1 + 7 + 14 + 6 + 4) { //FTYPE(1) + SHORT(5) + CRC(1) + NBLKS(7) + FSIZE(14) + AMODE(6) + SFREQ(4)
+            ALOGV("DTSHD Not enough bits left for further parsing");
+            return 0;
+        }
+        bits.skipBits(14);  //FTYPE(1) + SHORT(5) + CRC(1) + NBLKS(7)
+
+        // Get frame size
+        unsigned frameByteSize = bits.getBits(14) + 1;
+        payloadSize = frameByteSize;
+        ALOGV(" DTSHD Core Stream found with frame size = %d", frameByteSize);
+
+        // Get channel count
+        static const unsigned dtsChannelCountTable[] = { 1, 2, 2, 2, 2, 3, 3, 4, 4, 5, 6, 6, 6, 7, 8, 8 };
+        unsigned aMode = bits.getBits(6);
+        dtsChannelCount = (aMode < 16) ? dtsChannelCountTable[aMode] : 0;
+
+        // Get sampling freq
+        static const unsigned samplingRateTable[] = {   0, 8000, 16000, 32000, 0,
+                                                        0, 11025, 22050, 44100, 0,
+                                                        0, 12000, 24000, 48000, 0, 0};
+        unsigned srIndex = bits.getBits(4);
+        dtsSamplingRate = samplingRateTable[srIndex];
+
+    } else {
+        // Stream with extension substream
+        if (bits.numBitsLeft() < 2 + 2 + 1) { //UserDefinedBits(2) + nExtSSIndex(2) + bHeaderSizeType(1)
+            ALOGV("DTSHD Not enough bits left for further parsing");
+            return 0;
+        }
+        bits.skipBits(4); //UserDefinedBits(2) + nExtSSIndex(2)
+
+        unsigned bHeaderSizeType = bits.getBits(1);
+        unsigned numBits4Header = 0;
+        unsigned numBits4ExSSFsize = 0;
+
+        if(bHeaderSizeType == 0) {
+            numBits4Header = 8;
+            numBits4ExSSFsize = 16;
+        } else {
+            numBits4Header = 12;
+            numBits4ExSSFsize = 20;
+        }
+
+        if(bits.numBitsLeft() < numBits4Header + numBits4ExSSFsize) {
+            ALOGV("DTSHD Not enough bits left for further parsing");
+            return 0;
+        }
+        unsigned numExtHeadersize = bits.getBits(numBits4Header) + 1;
+        unsigned numExtSSFsize = bits.getBits(numBits4ExSSFsize) + 1;
+        unsigned frameByteSize = numExtSSFsize +  numExtHeadersize;
+        payloadSize = frameByteSize;
+        ALOGV(" DTSHD extension sub stream found with frame size = %d", frameByteSize);
+        dtsChannelCount = 8;
+        dtsSamplingRate = 48000;
+        }
+
+    if (metaData != NULL) {
+        (*metaData)->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_DTS);
+        (*metaData)->setInt32(kKeyChannelCount, dtsChannelCount);
+        (*metaData)->setInt32(kKeySampleRate, dtsSamplingRate);
+    }
+
+    return payloadSize;
+}
+
+static bool IsSeeminglyValidDTSHeader(const uint8_t *ptr, size_t size) {
+    return parseDTSSyncFrame(ptr, size, NULL) > 0;
+}
+#endif
 
 static bool IsSeeminglyValidADTSHeader(
         const uint8_t *ptr, size_t size, size_t *frameLength) {
@@ -478,6 +580,35 @@ status_t ElementaryStreamQueue::appendData(
                 break;
             }
 
+#ifdef DTS_CODEC_M_
+            case DTSHD:
+            {
+                uint8_t *ptr = (uint8_t *)data;
+
+                ssize_t startOffset = -1;
+                for (size_t i = 0; i < size; ++i) {
+                    if (IsSeeminglyValidDTSHeader(&ptr[i], size - i)) {
+                        startOffset = i;
+                        break;
+                    }
+                }
+
+                if (startOffset < 0) {
+                    return ERROR_MALFORMED;
+                }
+
+                if (startOffset > 0) {
+                    ALOGI("found something resembling an DTS Sync word at "
+                          "syncword at offset %zd",
+                          startOffset);
+                }
+
+                data = &ptr[startOffset];
+                size -= startOffset;
+                break;
+            }
+#endif
+
             default:
                 ALOGE("Unknown mode: %d", mMode);
                 return ERROR_MALFORMED;
@@ -566,6 +697,10 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
             return dequeueAccessUnitPCMAudio();
         case METADATA:
             return dequeueAccessUnitMetadata();
+#ifdef DTS_CODEC_M_
+        case DTSHD:
+            return dequeueAccessUnitDTS();
+#endif
         default:
             if (mMode != MPEG_AUDIO) {
                 ALOGE("Unknown mode");
@@ -623,6 +758,53 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAC3() {
 
     return accessUnit;
 }
+
+#ifdef DTS_CODEC_M_
+sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitDTS() {
+    unsigned syncStartPos = 0;  // in bytes
+    unsigned payloadSize = 0;
+    sp<MetaData> format = new MetaData;
+    while (true) {
+        if (syncStartPos + 2 >= mBuffer->size()) {
+            return NULL;
+        }
+
+        payloadSize = parseDTSSyncFrame(
+                mBuffer->data() + syncStartPos,
+                mBuffer->size() - syncStartPos,
+                &format);
+        if (payloadSize > 0) {
+            break;
+        }
+        ++syncStartPos;
+    }
+
+    if (mBuffer->size() < syncStartPos + payloadSize) {
+        ALOGV("Not enough buffer size for DTSHD");
+        return NULL;
+    }
+
+    if (mFormat == NULL) {
+        mFormat = format;
+    }
+
+    sp<ABuffer> accessUnit = new ABuffer(syncStartPos + payloadSize);
+    memcpy(accessUnit->data(), mBuffer->data(), syncStartPos + payloadSize);
+
+    int64_t timeUs = fetchTimestamp(syncStartPos + payloadSize);
+    CHECK_GE(timeUs, 0ll);
+    accessUnit->meta()->setInt64("timeUs", timeUs);
+
+    memmove(
+            mBuffer->data(),
+            mBuffer->data() + syncStartPos + payloadSize,
+            mBuffer->size() - syncStartPos - payloadSize);
+
+    mBuffer->setRange(0, mBuffer->size() - syncStartPos - payloadSize);
+
+    return accessUnit;
+}
+#endif
 
 sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitPCMAudio() {
     if (mBuffer->size() < 4) {
