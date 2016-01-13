@@ -47,7 +47,9 @@ static lib_entry_t *gCachedLibrary;  // last library accessed by getLibrary()
 
 int EffectLoadEffectConfig()
 {
-    if (access(AUDIO_EFFECT_VENDOR_CONFIG_FILE, R_OK) == 0) {
+    if (access(AUDIO_EFFECT_VENDOR_CONFIG_FILE2, R_OK) == 0) {
+        return loadEffectConfigFile(AUDIO_EFFECT_VENDOR_CONFIG_FILE2);
+    } else if (access(AUDIO_EFFECT_VENDOR_CONFIG_FILE, R_OK) == 0) {
         return loadEffectConfigFile(AUDIO_EFFECT_VENDOR_CONFIG_FILE);
     } else if (access(AUDIO_EFFECT_DEFAULT_CONFIG_FILE, R_OK) == 0) {
         return loadEffectConfigFile(AUDIO_EFFECT_DEFAULT_CONFIG_FILE);
