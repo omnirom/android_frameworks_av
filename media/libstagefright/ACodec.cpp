@@ -803,7 +803,8 @@ status_t ACodec::handleSetSurface(const sp<Surface> &surface) {
     }
 
     // push blank buffers to previous window if requested
-    if (mFlags & kFlagPushBlankBuffersToNativeWindowOnShutdown) {
+    if (mFlags & kFlagPushBlankBuffersToNativeWindowOnShutdown ||
+        mFlags & kFlagPushBlankBuffersToNativeWindowOnSwitch) {
         pushBlankBuffersToNativeWindow(mNativeWindow.get());
     }
 
@@ -956,10 +957,24 @@ status_t ACodec::setupNativeWindowSizeFormatAndUsage(
     *finalUsage = usage;
 
     ALOGV("gralloc usage: %#x(OMX) => %#x(ACodec)", omxUsage, usage);
+    int32_t width = 0, height = 0;
+    int32_t isAdaptivePlayback = 0;
+
+    if (mInputFormat->findInt32("adaptive-playback", &isAdaptivePlayback)
+            && isAdaptivePlayback
+            && mInputFormat->findInt32("max-width", &width)
+            && mInputFormat->findInt32("max-height", &height)) {
+        width = max(width, (int32_t)def.format.video.nFrameWidth);
+        height = max(height, (int32_t)def.format.video.nFrameHeight);
+        ALOGV("Adaptive playback width = %d, height = %d", width, height);
+    } else {
+        width = def.format.video.nFrameWidth;
+        height = def.format.video.nFrameHeight;
+    }
     err = setNativeWindowSizeFormatAndUsage(
             nativeWindow,
-            def.format.video.nFrameWidth,
-            def.format.video.nFrameHeight,
+            width,
+            height,
             def.format.video.eColorFormat,
             mRotationDegrees,
             usage);
@@ -1967,6 +1982,12 @@ status_t ACodec::configureCodec(
             if (msg->findInt32("push-blank-buffers-on-shutdown", &push)
                     && push != 0) {
                 mFlags |= kFlagPushBlankBuffersToNativeWindowOnShutdown;
+            }
+
+            int32_t val;
+            if (msg->findInt32("push-blank-buffers-on-switch", &val)
+                    && val != 0) {
+                mFlags |= kFlagPushBlankBuffersToNativeWindowOnSwitch;
             }
         }
 
