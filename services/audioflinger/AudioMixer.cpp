@@ -552,8 +552,8 @@ static inline bool setVolumeRampVariables(float newVolume, int32_t ramp,
     if (ramp != 0) {
         // when the ramp completes, *pPrevVolume is set to *pSetVolume, so there
         // is no computational mismatch; hence equality is checked here.
-        ALOGD_IF(*pPrevVolume != *pSetVolume, "previous float ramp hasn't finished,"
-                " prev:%f  set_to:%f", *pPrevVolume, *pSetVolume);
+        //ALOGD_IF(*pPrevVolume != *pSetVolume, "previous float ramp hasn't finished,"
+        //        " prev:%f  set_to:%f", *pPrevVolume, *pSetVolume);
         const float inc = (newVolume - *pPrevVolume) / ramp; // could be inf, nan, subnormal
         const float maxv = max(newVolume, *pPrevVolume); // could be inf, cannot be nan, subnormal
 
@@ -583,8 +583,8 @@ static inline bool setVolumeRampVariables(float newVolume, int32_t ramp,
         // integer volume is U4.12 (to use 16 bit multiplies), but ramping uses U4.28.
         // when the ramp completes, *pIntPrevVolume is set to *pIntSetVolume << 16, so there
         // is no computational mismatch; hence equality is checked here.
-        ALOGD_IF(*pIntPrevVolume != *pIntSetVolume << 16, "previous int ramp hasn't finished,"
-                " prev:%d  set_to:%d", *pIntPrevVolume, *pIntSetVolume << 16);
+        //ALOGD_IF(*pIntPrevVolume != *pIntSetVolume << 16, "previous int ramp hasn't finished,"
+        //        " prev:%d  set_to:%d", *pIntPrevVolume, *pIntSetVolume << 16);
         const int32_t inc = ((intVolume << 16) - *pIntPrevVolume) / ramp;
 
         if (inc != 0) { // inc must make forward progress
