@@ -52,6 +52,26 @@ void AVNuUtils::printFileName(int) {}
 
 bool AVNuUtils::dropCorruptFrame() { return false; }
 
+void AVNuUtils::setCodecOutputFormat(const sp<AMessage> &) {
+
+}
+
+bool AVNuUtils::isByteStreamModeEnabled(const sp<MetaData> &) {
+    return false;
+}
+
+void AVNuUtils::overWriteAudioOutputFormat(
+       sp <AMessage> & /*dst*/, const sp <AMessage> & /*src*/) {
+}
+
+bool AVNuUtils::pcmOffloadException(const sp<AMessage> &) {
+    return true;
+}
+
+uint32_t AVNuUtils::getFlags() {
+    return 0;
+}
+
 // ----- NO TRESSPASSING BEYOND THIS LINE ------
 AVNuUtils::AVNuUtils() {}
 

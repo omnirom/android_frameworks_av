@@ -27,11 +27,13 @@ cc_library_shared {
     ],
     export_shared_lib_headers: ["libbinder"],
     local_include_dirs: ["include"],
+    include_dirs: ["frameworks/av/media/libavextensions"],
     export_include_dirs: ["include"],
     // for memory heap analysis
     static_libs: [
         "libc_malloc_debug_backtrace",
         "libc_logging",
+        "libavmediaextentions",
     ],
     cflags: [
         "-Werror",

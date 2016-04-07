@@ -70,6 +70,11 @@ struct AVNuUtils {
 
     virtual void printFileName(int fd);
     virtual bool dropCorruptFrame();
+    virtual void setCodecOutputFormat(const sp<AMessage> &);
+    virtual bool isByteStreamModeEnabled(const sp<MetaData> &);
+    virtual void overWriteAudioOutputFormat(sp <AMessage> &dst, const sp <AMessage> &src);
+    virtual bool pcmOffloadException(const sp<AMessage> &);
+    virtual uint32_t getFlags();
 
     // ----- NO TRESSPASSING BEYOND THIS LINE ------
     DECLARE_LOADABLE_SINGLETON(AVNuUtils);
