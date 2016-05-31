@@ -1140,7 +1140,7 @@ off64_t MPEG4Writer::addSample_l(MediaBuffer *buffer) {
     return old_offset;
 }
 
-static void StripStartcode(MediaBuffer *buffer) {
+void MPEG4Writer::StripStartcode(MediaBuffer *buffer) {
     if (buffer->range_length() < 4) {
         return;
     }
@@ -2231,7 +2231,9 @@ status_t MPEG4Writer::Track::threadEntry() {
     MediaBuffer *buffer;
     const char *trackName = mIsAudio ? "Audio" : "Video";
     while (!mDone && (err = mSource->read(&buffer)) == OK) {
-        if (buffer->range_length() == 0) {
+        if (buffer == NULL) {
+            continue;
+        } else if (buffer->range_length() == 0) {
             buffer->release();
             buffer = NULL;
             ++nZeroLengthFrames;
@@ -2284,15 +2286,23 @@ status_t MPEG4Writer::Track::threadEntry() {
             continue;
         }
 
-        // Make a deep copy of the MediaBuffer and Metadata and release
-        // the original as soon as we can
-        MediaBuffer *copy = new MediaBuffer(buffer->range_length());
-        memcpy(copy->data(), (uint8_t *)buffer->data() + buffer->range_offset(),
-                buffer->range_length());
-        copy->set_range(0, buffer->range_length());
-        meta_data = new MetaData(*buffer->meta_data().get());
-        buffer->release();
-        buffer = NULL;
+        MediaBuffer *copy = NULL;
+        // Check if the upstream source hints it is OK to hold on to the
+        // buffer without releasing immediately and avoid cloning the buffer
+        if (AVUtils::get()->canDeferRelease(buffer->meta_data())) {
+            copy = buffer;
+            meta_data = new MetaData(*buffer->meta_data().get());
+        } else {
+            // Make a deep copy of the MediaBuffer and Metadata and release
+            // the original as soon as we can
+            copy = new MediaBuffer(buffer->range_length());
+            memcpy(copy->data(), (uint8_t *)buffer->data() + buffer->range_offset(),
+                    buffer->range_length());
+            copy->set_range(0, buffer->range_length());
+            meta_data = new MetaData(*buffer->meta_data().get());
+            buffer->release();
+            buffer = NULL;
+        }
 
         if (mIsAvc || mIsHEVC) StripStartcode(copy);
 
@@ -2393,7 +2403,11 @@ status_t MPEG4Writer::Track::threadEntry() {
                 cttsSampleCount = 0;      // No sample in ctts box is pending
             } else {
                 if (currCttsOffsetTimeTicks != lastCttsOffsetTimeTicks) {
-                    addOneCttsTableEntry(cttsSampleCount, lastCttsOffsetTimeTicks);
+                    // cttsSampleCount is 0 after writing the initial ctts entry
+                    // Avoid writing entry with 0 sample count
+                    if (cttsSampleCount != 0) {
+                        addOneCttsTableEntry(cttsSampleCount, lastCttsOffsetTimeTicks);
+                    }
                     lastCttsOffsetTimeTicks = currCttsOffsetTimeTicks;
                     cttsSampleCount = 1;  // One sample in ctts box is pending
                 } else {

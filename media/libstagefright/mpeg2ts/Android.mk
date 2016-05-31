@@ -11,10 +11,15 @@ LOCAL_SRC_FILES:=                 \
 
 LOCAL_C_INCLUDES:= \
 	$(TOP)/frameworks/av-caf/media/libstagefright \
-	$(TOP)/frameworks/native-caf/include/media/openmax
+	$(TOP)/frameworks/native-caf/include/media/openmax \
+        $(TOP)/frameworks/av-caf/media/libavextensions \
 
 LOCAL_CFLAGS += -Werror -Wall
 LOCAL_CLANG := true
+
+ifeq ($(DTS_CODEC_M_), true)
+  LOCAL_CFLAGS += -DDTS_CODEC_M_
+endif
 
 LOCAL_MODULE:= libstagefright_mpeg2ts
 
