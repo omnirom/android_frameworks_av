@@ -961,7 +961,17 @@ bool NuPlayer::Renderer::onDrainAudioQueue() {
             // (Case 1)
             // Must be a multiple of the frame size.  If it is not a multiple of a frame size, it
             // needs to fail, as we should not carry over fractional frames between calls.
-            CHECK_EQ(copy % mAudioSink->frameSize(), 0);
+
+            if (copy % mAudioSink->frameSize()) {
+                // CHECK_EQ(copy % mAudioSink->frameSize(), 0);
+                ALOGE("CHECK_EQ(copy % mAudioSink->frameSize(), 0) failed b/25372978");
+                ALOGE("mAudioSink->frameSize() %zu", mAudioSink->frameSize());
+                ALOGE("bytes to copy %zu", copy);
+                ALOGE("entry size %zu, entry offset %zu", entry->mBuffer->size(),
+                                                          entry->mOffset - written);
+                notifyEOS(true /*audio*/, UNKNOWN_ERROR);
+                return false;
+            }
 
             // (Case 2, 3, 4)
             // Return early to the caller.
@@ -1531,12 +1541,18 @@ void NuPlayer::Renderer::onResume() {
     }
 
     if (mHasAudio) {
-        status_t status = NO_ERROR;
         cancelAudioOffloadPauseTimeout();
-        status = mAudioSink->start();
-        if (offloadingAudio() && status != NO_ERROR && status != INVALID_OPERATION) {
-            ALOGD("received error :%d on resume for offload track posting TEAR_DOWN event",status);
+        status_t err = mAudioSink->start();
+        if (err != OK) {
+            ALOGE("cannot start AudioSink err %d", err);
             notifyAudioTearDown();
+        }
+        //Update anchor time after resuming playback.
+        if (offloadingAudio()) {
+            int64_t nowUs = ALooper::GetNowUs();
+            int64_t nowMediaUs =
+                mAudioFirstAnchorTimeMediaUs + getPlayedOutAudioDurationUs(nowUs);
+            mMediaClock->updateAnchor(nowMediaUs, nowUs, INT64_MAX);
         }
     }
 

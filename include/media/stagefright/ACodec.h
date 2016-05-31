@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2015 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 #ifndef A_CODEC_H_
@@ -146,6 +165,7 @@ protected:
         kFlagIsSecure                                 = 1,
         kFlagPushBlankBuffersToNativeWindowOnShutdown = 2,
         kFlagIsGrallocUsageProtected                  = 4,
+        kFlagPushBlankBuffersToNativeWindowOnSwitch = 1 << 7,
     };
 
     enum {
@@ -454,6 +474,11 @@ protected:
     }
 
     sp<IOMXObserver> createObserver();
+#ifdef DOLBY_ENABLE
+    status_t setDolbyParameterOnEndpChange();
+    void     setDolbyParameter(const sp<AMessage> &msg);
+    status_t setDolbyParameterOnProcessedAudio(const sp<AMessage> &params);
+#endif // DOLBY_END
 
     DISALLOW_EVIL_CONSTRUCTORS(ACodec);
 };
