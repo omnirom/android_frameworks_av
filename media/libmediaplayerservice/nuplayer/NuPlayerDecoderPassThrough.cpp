@@ -48,7 +48,6 @@ NuPlayer::DecoderPassThrough::DecoderPassThrough(
       // The offload read buffer size is 32 KB but 24 KB uses less power.
       mAggregateBufferSizeBytes(24 * 1024),
       mSkipRenderingUntilMediaTimeUs(-1ll),
-      mPaused(false),
       mReachedEOS(true),
       mPendingAudioErr(OK),
       mPendingBuffersToDrain(0),
@@ -214,6 +213,7 @@ sp<ABuffer> NuPlayer::DecoderPassThrough::aggregateBuffer(
     } else {
         // decided not to aggregate
         aggregate = accessUnit;
+        setPcmFormat(aggregate->meta());
     }
 
     return aggregate;

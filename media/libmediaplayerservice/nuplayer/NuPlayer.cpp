@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2014-2015 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 //#define LOG_NDEBUG 0
@@ -57,6 +76,9 @@
 #include "ESDS.h"
 #include <media/stagefright/Utils.h>
 #include "mediaplayerservice/AVNuExtensions.h"
+#ifdef DOLBY_ENABLE
+#include "DolbyNuPlayerExtImpl.h"
+#endif // DOLBY_END
 
 namespace android {
 
@@ -131,6 +153,23 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(FlushDecoderAction);
 };
 
+struct NuPlayer::InstantiateDecoderAction : public Action {
+    InstantiateDecoderAction(bool audio, sp<DecoderBase> *decoder)
+        : mAudio(audio),
+          mdecoder(decoder) {
+    }
+
+    virtual void execute(NuPlayer *player) {
+        player->instantiateDecoder(mAudio, mdecoder);
+    }
+
+private:
+    bool mAudio;
+    sp<DecoderBase> *mdecoder;
+
+    DISALLOW_EVIL_CONSTRUCTORS(InstantiateDecoderAction);
+};
+
 struct NuPlayer::PostMessageAction : public Action {
     PostMessageAction(const sp<AMessage> &msg)
         : mMessage(msg) {
@@ -189,6 +228,7 @@ NuPlayer::NuPlayer(pid_t pid)
       mPlaybackSettings(AUDIO_PLAYBACK_RATE_DEFAULT),
       mVideoFpsHint(-1.f),
       mStarted(false),
+      mResetting(false),
       mSourceStarted(false),
       mPaused(false),
       mPausedByClient(false),
@@ -913,10 +953,21 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                         audio ? "audio" : "video", formatChange);
 
                 if (formatChange) {
-                    mDeferredActions.push_back(
-                            new FlushDecoderAction(
+                    int32_t seamlessChange = 0;
+                    if (msg->findInt32("video-seamlessChange", &seamlessChange) && seamlessChange) {
+                        ALOGE("video decoder seamlessChange in smooth streaming mode, "
+                             "flush the video decoder");
+                        mDeferredActions.push_back(
+                                new FlushDecoderAction(FLUSH_CMD_NONE, FLUSH_CMD_FLUSH));
+                        mDeferredActions.push_back(new ResumeDecoderAction(false));
+                        processDeferredActions();
+                        break;
+                    } else {
+                        mDeferredActions.push_back(
+                                new FlushDecoderAction(
                                 audio ? FLUSH_CMD_SHUTDOWN : FLUSH_CMD_NONE,
                                 audio ? FLUSH_CMD_NONE : FLUSH_CMD_SHUTDOWN));
+                    }
                 }
 
                 mDeferredActions.push_back(
@@ -1020,6 +1071,10 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                         break;                    // Finish anyways.
                 }
                 notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
+#ifdef DOLBY_ENABLE
+            } else if (what == kWhatDlbCpProc) {
+                onDolbyMessageReceived();
+#endif // DOLBY_END
             } else {
                 ALOGV("Unhandled decoder notification %d '%c%c%c%c'.",
                       what,
@@ -1099,6 +1154,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 int32_t reason;
                 CHECK(msg->findInt32("reason", &reason));
                 ALOGV("Tear down audio with reason %d.", reason);
+                mAudioDecoder->pause();
                 mAudioDecoder.clear();
                 ++mAudioDecoderGeneration;
                 bool needsToCreateAudioDecoder = true;
@@ -1146,10 +1202,15 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
         {
             ALOGV("kWhatReset");
 
+            mResetting = true;
+
             mDeferredActions.push_back(
                     new FlushDecoderAction(
                         FLUSH_CMD_SHUTDOWN /* audio */,
                         FLUSH_CMD_SHUTDOWN /* video */));
+
+            mDeferredActions.push_back(
+                    new SimpleAction(&NuPlayer::closeAudioSink));
 
             mDeferredActions.push_back(
                     new SimpleAction(&NuPlayer::performReset));
@@ -1228,7 +1289,8 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
 }
 
 void NuPlayer::onResume() {
-    if (!mPaused) {
+    if (!mPaused || mResetting) {
+        ALOGD_IF(mResetting, "resetting, onResume discarded");
         return;
     }
     mPaused = false;
@@ -1509,7 +1571,10 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
     if (*decoder != NULL || (audio && mFlushingAudio == SHUT_DOWN)) {
         return OK;
     }
-
+    if (mSource == NULL) {
+        ALOGD("%s Ignore instantiate decoder after clearing source", __func__);
+        return INVALID_OPERATION;
+    }
     sp<AMessage> format = mSource->getFormat(audio);
 
     if (format == NULL) {
@@ -1582,7 +1647,8 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
     (*decoder)->configure(format);
 
     // allocate buffers to decrypt widevine source buffers
-    if (!audio && (mSourceFlags & Source::FLAG_SECURE)) {
+    if (!audio && ((mSourceFlags & Source::FLAG_SECURE) ||
+                   (mSourceFlags & Source::FLAG_USE_SET_BUFFERS))) {
         Vector<sp<ABuffer> > inputBufs;
         CHECK_EQ((*decoder)->getInputBuffers(&inputBufs), (status_t)OK);
 
@@ -1945,6 +2011,7 @@ void NuPlayer::performReset() {
     }
 
     mStarted = false;
+    mResetting = false;
     mSourceStarted = false;
 }
 

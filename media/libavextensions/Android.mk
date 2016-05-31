@@ -13,6 +13,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/native-caf/include/media/openmax \
         $(TOP)/external/flac/include \
         $(TOP)/frameworks/av-caf/media/libstagefright \
+        $(TOP)/frameworks/av-caf/media/libstagefright/mpeg2ts \
 
 ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
@@ -27,6 +28,7 @@ ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
 endif
 
 LOCAL_MODULE:= libavextensions
+LOCAL_CLANG := false
 
 LOCAL_MODULE_TAGS := optional
 
@@ -59,6 +61,7 @@ ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
 endif
 
 LOCAL_MODULE:= libavmediaextentions
+LOCAL_CLANG := false
 
 LOCAL_MODULE_TAGS := optional
 
@@ -97,6 +100,7 @@ ifeq ($(TARGET_ENABLE_QC_AV_ENHANCEMENTS),true)
 endif
 
 LOCAL_MODULE:= libavmediaserviceextensions
+LOCAL_CLANG := false
 
 LOCAL_MODULE_TAGS := optional
 

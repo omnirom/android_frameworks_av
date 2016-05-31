@@ -1465,13 +1465,13 @@ status_t StagefrightRecorder::setupCameraSource(
             return BAD_VALUE;
         }
 
-        mCameraSourceTimeLapse = CameraSourceTimeLapse::CreateFromCamera(
+        mCameraSourceTimeLapse = AVFactory::get()->CreateCameraSourceTimeLapseFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid,
                 videoSize, mFrameRate, mPreviewSurface,
                 mTimeBetweenCaptureUs);
         *cameraSource = mCameraSourceTimeLapse;
     } else {
-        *cameraSource = AVFactory::get()->CreateFromCamera(
+        *cameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid,
                 videoSize, mFrameRate,
                 mPreviewSurface);
@@ -1670,7 +1670,7 @@ status_t StagefrightRecorder::setupMPEG4orWEBMRecording() {
     if (mOutputFormat == OUTPUT_FORMAT_WEBM) {
         writer = new WebmWriter(mOutputFd);
     } else {
-        writer = mp4writer = new MPEG4Writer(mOutputFd);
+        writer = mp4writer = AVFactory::get()->CreateMPEG4Writer(mOutputFd);
     }
 
     if (mVideoSource < VIDEO_SOURCE_LIST_END) {
