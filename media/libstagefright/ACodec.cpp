@@ -12,6 +12,43 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2011-2015 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ **
+ ** This file was modified by DTS, Inc. The portions of the
+ ** code that are surrounded by "DTS..." are copyrighted and
+ ** licensed separately, as follows:
+ **
+ **  (C) 2015 DTS, Inc.
+ **
+ ** Licensed under the Apache License, Version 2.0 (the "License");
+ ** you may not use this file except in compliance with the License.
+ ** You may obtain a copy of the License at
+ **
+ **    http://www.apache.org/licenses/LICENSE-2.0
+ **
+ ** Unless required by applicable law or agreed to in writing, software
+ ** distributed under the License is distributed on an "AS IS" BASIS,
+ ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ ** See the License for the specific language governing permissions and
+ ** limitations under the License
  */
 
 //#define LOG_NDEBUG 0
@@ -53,6 +90,16 @@
 #include <OMX_AsString.h>
 
 #include "include/avc_utils.h"
+
+#include <stagefright/AVExtensions.h>
+#ifdef DOLBY_ENABLE
+#include "DolbyACodecExtImpl.h"
+#endif // DOLBY_END
+
+#ifdef DTS_CODEC_M_
+#include "include/DTSUtils.h"
+#include "include/OMX_Audio_DTS.h"
+#endif
 
 namespace android {
 
@@ -617,8 +664,8 @@ void ACodec::initiateShutdown(bool keepComponentAllocated) {
     msg->setInt32("keepComponentAllocated", keepComponentAllocated);
     msg->post();
     if (!keepComponentAllocated) {
-        // ensure shutdown completes in 10 seconds
-        (new AMessage(kWhatReleaseCodecInstance, this))->post(10000000);
+        // ensure shutdown completes in 30 seconds
+        (new AMessage(kWhatReleaseCodecInstance, this))->post(30000000);
     }
 }
 
@@ -756,7 +803,8 @@ status_t ACodec::handleSetSurface(const sp<Surface> &surface) {
     }
 
     // push blank buffers to previous window if requested
-    if (mFlags & kFlagPushBlankBuffersToNativeWindowOnShutdown) {
+    if (mFlags & kFlagPushBlankBuffersToNativeWindowOnShutdown ||
+        mFlags & kFlagPushBlankBuffersToNativeWindowOnSwitch) {
         pushBlankBuffersToNativeWindow(mNativeWindow.get());
     }
 
@@ -909,13 +957,45 @@ status_t ACodec::setupNativeWindowSizeFormatAndUsage(
     *finalUsage = usage;
 
     ALOGV("gralloc usage: %#x(OMX) => %#x(ACodec)", omxUsage, usage);
-    return setNativeWindowSizeFormatAndUsage(
+    int32_t width = 0, height = 0;
+    int32_t isAdaptivePlayback = 0;
+
+    if (mInputFormat->findInt32("adaptive-playback", &isAdaptivePlayback)
+            && isAdaptivePlayback
+            && mInputFormat->findInt32("max-width", &width)
+            && mInputFormat->findInt32("max-height", &height)) {
+        width = max(width, (int32_t)def.format.video.nFrameWidth);
+        height = max(height, (int32_t)def.format.video.nFrameHeight);
+        ALOGV("Adaptive playback width = %d, height = %d", width, height);
+    } else {
+        width = def.format.video.nFrameWidth;
+        height = def.format.video.nFrameHeight;
+    }
+    err = setNativeWindowSizeFormatAndUsage(
             nativeWindow,
-            def.format.video.nFrameWidth,
-            def.format.video.nFrameHeight,
+            width,
+            height,
             def.format.video.eColorFormat,
             mRotationDegrees,
             usage);
+    if (err == OK) {
+        OMX_CONFIG_RECTTYPE rect;
+        InitOMXParams(&rect);
+        rect.nPortIndex = kPortIndexOutput;
+        err = mOMX->getConfig(
+                mNode, OMX_IndexConfigCommonOutputCrop, &rect, sizeof(rect));
+        if (err == OK) {
+            ALOGV("rect size = %d, %d, %d, %d", rect.nLeft, rect.nTop, rect.nWidth, rect.nHeight);
+            android_native_rect_t crop;
+            crop.left = rect.nLeft;
+            crop.top = rect.nTop;
+            crop.right = rect.nLeft + rect.nWidth - 1;
+            crop.bottom = rect.nTop + rect.nHeight - 1;
+            ALOGV("crop update (%d, %d), (%d, %d)", crop.left, crop.top, crop.right, crop.bottom);
+            err = native_window_set_crop(nativeWindow, &crop);
+        }
+    }
+    return err;
 }
 
 status_t ACodec::configureOutputBuffersFromNativeWindow(
@@ -1583,6 +1663,14 @@ status_t ACodec::setComponentRole(
             "audio_decoder.ac3", "audio_encoder.ac3" },
         { MEDIA_MIMETYPE_AUDIO_EAC3,
             "audio_decoder.eac3", "audio_encoder.eac3" },
+#ifdef DOLBY_UDC
+        { MEDIA_MIMETYPE_AUDIO_EAC3_JOC,
+            "audio_decoder.eac3_joc", NULL },
+#endif // DOLBY_END
+#ifdef DTS_CODEC_M_
+        { MEDIA_MIMETYPE_AUDIO_DTS,
+            "audio_decoder.dts", "audio_encoder.dts" },
+#endif
     };
 
     static const size_t kNumMimeToRole =
@@ -1904,6 +1992,12 @@ status_t ACodec::configureCodec(
                     && push != 0) {
                 mFlags |= kFlagPushBlankBuffersToNativeWindowOnShutdown;
             }
+
+            int32_t val;
+            if (msg->findInt32("push-blank-buffers-on-switch", &val)
+                    && val != 0) {
+                mFlags |= kFlagPushBlankBuffersToNativeWindowOnSwitch;
+            }
         }
 
         int32_t rotationDegrees;
@@ -2007,6 +2101,25 @@ status_t ACodec::configureCodec(
                     sampleRate,
                     numChannels);
         }
+#ifdef DTS_CODEC_M_
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_DTS)) {
+        ALOGV(" (DTS) mime == MEDIA_MIMETYPE_AUDIO_DTS");
+        int32_t numChannels, sampleRate;
+        int32_t bitWidth = 24;
+        if (!msg->findInt32("channel-count", &numChannels)
+                || !msg->findInt32("sample-rate", &sampleRate)) {
+            ALOGE(" (DTS) missing channel count or sample rate for DTS decoder");
+            err = INVALID_OPERATION;
+        } else {
+            ALOGI(" (DTS) bit width to setup decoder %d", bitWidth);
+            err = DTSUtils::setupDecoder(mOMX, mNode, sampleRate, bitWidth);
+            // Also update output format bit-width so ACodec client too gets to know
+            outputFormat->setInt32("bit-width", bitWidth);
+        }
+        if (err != OK) {
+            return err;
+        }
+#endif
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AAC)) {
         int32_t numChannels, sampleRate;
         if (!msg->findInt32("channel-count", &numChannels)
@@ -2080,7 +2193,11 @@ status_t ACodec::configureCodec(
             }
             err = setupG711Codec(encoder, sampleRate, numChannels);
         }
+#ifdef QTI_FLAC_DECODER
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC) && encoder) {
+#else
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC)) {
+#endif
         int32_t numChannels = 0, sampleRate = 0, compressionLevel = -1;
         if (encoder &&
                 (!msg->findInt32("channel-count", &numChannels)
@@ -3519,6 +3636,8 @@ status_t ACodec::setupHEVCEncoderParameters(const sp<AMessage> &msg) {
         frameRate = (float)tmp;
     }
 
+    AVUtils::get()->setIntraPeriod(setPFramesSpacing(iFrameInterval, frameRate), 0, mOMX, mNode);
+
     OMX_VIDEO_PARAM_HEVCTYPE hevcType;
     InitOMXParams(&hevcType);
     hevcType.nPortIndex = kPortIndexOutput;
@@ -4420,6 +4539,23 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                     notify->setInt32("sample-rate", params.nSamplingRate);
                     break;
                 }
+#ifdef DTS_CODEC_M_
+                case OMX_AUDIO_CodingDTSHD:
+                {
+                    OMX_AUDIO_PARAM_DTSDECTYPE params;
+                    InitOMXParams(&params);
+                    params.nPortIndex = portIndex;
+
+                    CHECK_EQ((status_t)OK, mOMX->getParameter(
+                            mNode,
+                            (OMX_INDEXTYPE)OMX_IndexParamAudioDTSDec,
+                            &params,
+                            sizeof(params)));
+
+                    notify->setString("mime", MEDIA_MIMETYPE_AUDIO_DTS);
+                    break;
+                }
+#endif
 
                 default:
                     ALOGE("Unsupported audio coding: %s(%d)\n",
@@ -4622,6 +4758,7 @@ bool ACodec::BaseState::onMessageReceived(const sp<AMessage> &msg) {
             ALOGI("[%s] forcing the release of codec",
                     mCodec->mComponentName.c_str());
             status_t err = mCodec->mOMX->freeNode(mCodec->mNode);
+            mCodec->changeState(mCodec->mUninitializedState);
             ALOGE_IF("[%s] failed to release codec instance: err=%d",
                        mCodec->mComponentName.c_str(), err);
             sp<AMessage> notify = mCodec->mNotify->dup();
@@ -5695,6 +5832,15 @@ bool ACodec::LoadedState::onMessageReceived(const sp<AMessage> &msg) {
             handled = true;
             break;
         }
+#ifdef DOLBY_ENABLE
+        case ACodec::kWhatSetParameters:
+        {
+            mCodec->setDolbyParameter(msg);
+
+            handled = true;
+            break;
+        }
+#endif // DOLBY_END
 
         default:
             return BaseState::onMessageReceived(msg);
@@ -5902,6 +6048,9 @@ void ACodec::LoadedState::onStart() {
     if (err != OK) {
         mCodec->signalError(OMX_ErrorUndefined, makeNoSideEffectStatus(err));
     } else {
+#ifdef DOLBY_ENABLE
+        mCodec->setDolbyParameterOnEndpChange();
+#endif // DOLBY_END
         mCodec->changeState(mCodec->mLoadedToIdleState);
     }
 }
@@ -6375,6 +6524,9 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
             return err;
         }
     }
+#ifdef DOLBY_ENABLE
+    return setDolbyParameterOnProcessedAudio(params);
+#endif // DOLBY_END
 
     return OK;
 }
@@ -6477,8 +6629,34 @@ bool ACodec::OutputPortSettingsChangedState::onMessageReceived(
     bool handled = false;
 
     switch (msg->what()) {
-        case kWhatFlush:
         case kWhatShutdown:
+        {
+            int32_t keepComponentAllocated;
+            CHECK(msg->findInt32(
+                        "keepComponentAllocated", &keepComponentAllocated));
+
+            mCodec->mShutdownInProgress = true;
+            mCodec->mExplicitShutdown = true;
+            mCodec->mKeepComponentAllocated = keepComponentAllocated;
+
+            status_t err = mCodec->mOMX->sendCommand(
+                    mCodec->mNode, OMX_CommandStateSet, OMX_StateIdle);
+            if (err != OK) {
+                if (keepComponentAllocated) {
+                    mCodec->signalError(OMX_ErrorUndefined, FAILED_TRANSACTION);
+                }
+                // TODO: do some recovery here.
+            } else {
+                // This is technically not correct, but appears to be
+                // the only way to free the component instance using
+                // ExectingToIdleState.
+                mCodec->changeState(mCodec->mExecutingToIdleState);
+            }
+
+            handled = true;
+            break;
+        }
+        case kWhatFlush:
         case kWhatResume:
         case kWhatSetParameters:
         {
@@ -6545,15 +6723,6 @@ bool ACodec::OutputPortSettingsChangedState::onOMXEvent(
 
                 if (err != OK) {
                     mCodec->signalError(OMX_ErrorUndefined, makeNoSideEffectStatus(err));
-
-                    // This is technically not correct, but appears to be
-                    // the only way to free the component instance.
-                    // Controlled transitioning from excecuting->idle
-                    // and idle->loaded seem impossible probably because
-                    // the output port never finishes re-enabling.
-                    mCodec->mShutdownInProgress = true;
-                    mCodec->mKeepComponentAllocated = false;
-                    mCodec->changeState(mCodec->mLoadedState);
                 }
 
                 return true;

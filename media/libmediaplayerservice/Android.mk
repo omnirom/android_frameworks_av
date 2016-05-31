@@ -56,6 +56,7 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/native-caf/include/media/openmax                  \
     $(TOP)/external/tremolo/Tremolo                                 \
     $(TOP)/frameworks/av-caf/media/libavextensions                      \
+    $(TOP)/frameworks/av-caf/media/libstagefright/mpeg2ts               \
 
 LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall
 LOCAL_CLANG := true

@@ -43,7 +43,9 @@
 #include <media/stagefright/MediaHTTP.h>
 #include <media/stagefright/AudioSource.h>
 #include <media/stagefright/CameraSource.h>
+#include <media/stagefright/CameraSourceTimeLapse.h>
 #include <camera/CameraParameters.h>
+#include <media/stagefright/MPEG4Writer.h>
 
 #include "common/ExtensionsLoader.hpp"
 #include "stagefright/AVExtensions.h"
@@ -56,13 +58,14 @@ sp<ACodec> AVFactory::createACodec() {
 }
 
 MediaExtractor* AVFactory::createExtendedExtractor(
-         const sp<DataSource> &, const char *, const sp<AMessage> &) {
+         const sp<DataSource> &, const char *, const sp<AMessage> &,
+         const uint32_t) {
     return NULL;
 }
 
 sp<MediaExtractor> AVFactory::updateExtractor(
             sp<MediaExtractor> ext, const sp<DataSource> &,
-            const char *, const sp<AMessage> &) {
+            const char *, const sp<AMessage> &, const uint32_t) {
     return ext;
 }
 
@@ -88,7 +91,7 @@ AudioSource* AVFactory::createAudioSource(
                             channels, outSampleRate);
 }
 
-CameraSource* AVFactory::CreateFromCamera(
+CameraSource* AVFactory::CreateCameraSourceFromCamera(
             const sp<ICamera> &camera,
             const sp<ICameraRecordingProxy> &proxy,
             int32_t cameraId,
@@ -101,6 +104,31 @@ CameraSource* AVFactory::CreateFromCamera(
     return CameraSource::CreateFromCamera(camera, proxy, cameraId,
             clientName, clientUid, videoSize, frameRate, surface,
             storeMetaDataInVideoBuffers);
+}
+
+CameraSourceTimeLapse* AVFactory::CreateCameraSourceTimeLapseFromCamera(
+        const sp<ICamera> &camera,
+        const sp<ICameraRecordingProxy> &proxy,
+        int32_t cameraId,
+        const String16& clientName,
+        uid_t clientUid,
+        Size videoSize,
+        int32_t videoFrameRate,
+        const sp<IGraphicBufferProducer>& surface,
+        int64_t timeBetweenFrameCaptureUs,
+        bool storeMetaDataInVideoBuffers) {
+    return CameraSourceTimeLapse::CreateFromCamera(camera, proxy, cameraId,
+            clientName, clientUid, videoSize, videoFrameRate, surface,
+            timeBetweenFrameCaptureUs, storeMetaDataInVideoBuffers);
+}
+
+MPEG4Writer* AVFactory::CreateMPEG4Writer(int fd) {
+    return new MPEG4Writer(fd);
+}
+
+ElementaryStreamQueue* AVFactory::createESQueue(
+         ElementaryStreamQueue::Mode , uint32_t ) {
+    return NULL;
 }
 
 // ----- NO TRESSPASSING BEYOND THIS LINE ------
