@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "78f7b947_037932c2",
+        "filename": "media/libstagefright/Android.mk",
+        "patchSetId": 4
+      },
+      "lineNbr": 156,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2016-06-05T18:34:46Z",
+      "side": 1,
+      "message": "must be display-$/TARGET_QCOM_DISPLAY_VARIANT)",
+      "revId": "bd3711d41de3c5c0e87c5b53fcb12a8d39345848",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
