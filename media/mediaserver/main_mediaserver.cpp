@@ -38,6 +38,9 @@
 #include "service/AudioPolicyService.h"
 #include "SoundTriggerHwService.h"
 #include "RadioService.h"
+#ifdef AUDIO_LISTEN_ENABLED
+#include "ListenService.h"
+#endif
 
 using namespace android;
 
@@ -136,6 +139,10 @@ int main(int argc __unused, char** argv)
         AudioPolicyService::instantiate();
         SoundTriggerHwService::instantiate();
         RadioService::instantiate();
+#ifdef AUDIO_LISTEN_ENABLED
+        ALOGI("ListenService instantiated");
+        ListenService::instantiate();
+#endif
         registerExtensions();
         ProcessState::self()->startThreadPool();
         IPCThreadState::self()->joinThreadPool();

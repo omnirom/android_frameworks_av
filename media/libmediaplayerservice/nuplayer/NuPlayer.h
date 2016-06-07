@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2015 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 #ifndef NU_PLAYER_H_
@@ -109,6 +128,7 @@ public:
     struct SetSurfaceAction;
     struct ResumeDecoderAction;
     struct FlushDecoderAction;
+    struct InstantiateDecoderAction;
     struct PostMessageAction;
     struct SimpleAction;
 
@@ -201,6 +221,7 @@ protected:
     AVSyncSettings mSyncSettings;
     float mVideoFpsHint;
     bool mStarted;
+    bool mResetting;
     bool mSourceStarted;
 
     // Actual pause state, either as requested by client or due to buffering.
@@ -243,7 +264,7 @@ protected:
     void finishFlushIfPossible();
 
     void onStart(int64_t startPositionUs = -1);
-    void onResume();
+    virtual void onResume();
     void onPause();
 
     bool audioDecoderStillNeeded();
@@ -260,7 +281,7 @@ protected:
 
     void processDeferredActions();
 
-    void performSeek(int64_t seekTimeUs);
+    virtual void performSeek(int64_t seekTimeUs);
     void performDecoderFlush(FlushCommand audio, FlushCommand video);
     void performReset();
     void performScanSources();
@@ -278,6 +299,10 @@ protected:
     void sendTimedTextData(const sp<ABuffer> &buffer);
 
     void writeTrackInfo(Parcel* reply, const sp<AMessage> format) const;
+
+#ifdef DOLBY_ENABLE
+    void onDolbyMessageReceived();
+#endif // DOLBY_END
 
     DISALLOW_EVIL_CONSTRUCTORS(NuPlayer);
 };

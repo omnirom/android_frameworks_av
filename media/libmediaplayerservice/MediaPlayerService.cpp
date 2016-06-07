@@ -13,6 +13,25 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by Dolby Laboratories, Inc. The portions of the
+** code that are surrounded by "DOLBY..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2011-2015 Dolby Laboratories, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+**
 */
 
 // Proxy for media player implementations
@@ -83,6 +102,9 @@
 #include "HDCP.h"
 #include "HTTPBase.h"
 #include "RemoteDisplay.h"
+#ifdef DOLBY_ENABLE
+#include "DolbyMediaPlayerServiceExtImpl.h"
+#endif // DOLBY_END
 
 namespace {
 using android::media::Metadata;
@@ -1376,6 +1398,9 @@ MediaPlayerService::AudioOutput::AudioOutput(int sessionId, int uid, int pid,
 
     setMinBufferCount();
     mBitWidth = 16;
+#ifdef DOLBY_ENABLE
+    mProcessedAudio = false;
+#endif // DOLBY_END
 }
 
 MediaPlayerService::AudioOutput::~AudioOutput()
@@ -1475,6 +1500,9 @@ status_t MediaPlayerService::AudioOutput::getFramesWritten(uint32_t *frameswritt
 status_t MediaPlayerService::AudioOutput::setParameters(const String8& keyValuePairs)
 {
     Mutex::Autolock lock(mLock);
+#ifdef DOLBY_ENABLE
+    setDolbyParameters(keyValuePairs);
+#endif // DOLBY_END
     if (mTrack == 0) return NO_INIT;
     return mTrack->setParameters(keyValuePairs);
 }
@@ -1736,6 +1764,9 @@ status_t MediaPlayerService::AudioOutput::open(
                 mCallbackData->setOutput(this);
             }
             delete newcbd;
+#ifdef DOLBY_ENABLE
+            updateTrackOnAudioProcessed(mTrack, reuse);
+#endif // DOLBY_END
             return OK;
         }
     }
@@ -1779,6 +1810,9 @@ status_t MediaPlayerService::AudioOutput::open(
             res = t->attachAuxEffect(mAuxEffectId);
         }
     }
+#ifdef DOLBY_ENABLE
+    updateTrackOnAudioProcessed(t, false);
+#endif // DOLBY_END
     ALOGV("open() DONE status %d", res);
     return res;
 }

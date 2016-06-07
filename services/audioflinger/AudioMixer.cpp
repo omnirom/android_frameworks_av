@@ -308,6 +308,11 @@ bool AudioMixer::setChannelMasks(int name,
 void AudioMixer::track_t::unprepareForDownmix() {
     ALOGV("AudioMixer::unprepareForDownmix(%p)", this);
 
+    if (mPostDownmixReformatBufferProvider != NULL) {
+        delete mPostDownmixReformatBufferProvider;
+        mPostDownmixReformatBufferProvider = NULL;
+        reconfigureBufferProviders();
+    }
     mDownmixRequiresFormat = AUDIO_FORMAT_INVALID;
     if (downmixerBufferProvider != NULL) {
         // this track had previously been configured with a downmixer, delete it
@@ -363,18 +368,9 @@ status_t AudioMixer::track_t::prepareForDownmix()
 
 void AudioMixer::track_t::unprepareForReformat() {
     ALOGV("AudioMixer::unprepareForReformat(%p)", this);
-    bool requiresReconfigure = false;
     if (mReformatBufferProvider != NULL) {
         delete mReformatBufferProvider;
         mReformatBufferProvider = NULL;
-        requiresReconfigure = true;
-    }
-    if (mPostDownmixReformatBufferProvider != NULL) {
-        delete mPostDownmixReformatBufferProvider;
-        mPostDownmixReformatBufferProvider = NULL;
-        requiresReconfigure = true;
-    }
-    if (requiresReconfigure) {
         reconfigureBufferProviders();
     }
 }
@@ -785,7 +781,8 @@ bool AudioMixer::track_t::setResampler(uint32_t trackSampleRate, uint32_t devSam
 #ifdef QTI_RESAMPLER
                 if ((trackSampleRate <= QTI_RESAMPLER_MAX_SAMPLERATE) &&
                        (trackSampleRate > devSampleRate * 2) &&
-                       ((devSampleRate == 48000)||(devSampleRate == 44100))) {
+                       ((devSampleRate == 48000)||(devSampleRate == 44100)) &&
+                       (resamplerChannelCount <= 2)) {
                     quality = AudioResampler::QTI_QUALITY;
                 }
 #endif

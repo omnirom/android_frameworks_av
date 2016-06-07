@@ -13,6 +13,25 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by Dolby Laboratories, Inc. The portions of the
+** code that are surrounded by "DOLBY..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2011-2015 Dolby Laboratories, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+**
 */
 
 
@@ -770,6 +789,9 @@ status_t AudioFlinger::EffectModule::setAudioSource(audio_source_t source)
 
 void AudioFlinger::EffectModule::setSuspended(bool suspended)
 {
+#ifdef DOLBY_ENABLE
+    EffectDapController::instance()->effectSuspended(this, suspended);
+#endif // DOLBY_END
     Mutex::Autolock _l(mLock);
     mSuspended = suspended;
 }
@@ -1120,7 +1142,8 @@ status_t AudioFlinger::EffectHandle::enable()
                 t->broadcast_l();
             }
             if (!mEffect->isOffloadable()) {
-                if (thread->type() == ThreadBase::OFFLOAD) {
+                if (thread->type() == ThreadBase::OFFLOAD ||
+                   (thread->type() == ThreadBase::DIRECT && thread->mIsDirectPcm)) {
                     PlaybackThread *t = (PlaybackThread *)thread.get();
                     t->invalidateTracks(AUDIO_STREAM_MUSIC);
                 }
@@ -1157,7 +1180,8 @@ status_t AudioFlinger::EffectHandle::disable()
     sp<ThreadBase> thread = mEffect->thread().promote();
     if (thread != 0) {
         thread->checkSuspendOnEffectEnabled(mEffect, false, mEffect->sessionId());
-        if (thread->type() == ThreadBase::OFFLOAD) {
+        if ((thread->type() == ThreadBase::OFFLOAD) ||
+            (thread->type() == ThreadBase::DIRECT && thread->mIsDirectPcm)){
             PlaybackThread *t = (PlaybackThread *)thread.get();
             Mutex::Autolock _l(t->mLock);
             t->broadcast_l();
@@ -1440,8 +1464,10 @@ void AudioFlinger::EffectChain::process_l()
             (mSessionId == AUDIO_SESSION_OUTPUT_STAGE);
     // never process effects when:
     // - on an OFFLOAD thread
+    // - on DIRECT thread with directPcm flag enabled
     // - no more tracks are on the session and the effect tail has been rendered
-    bool doProcess = (thread->type() != ThreadBase::OFFLOAD);
+    bool doProcess = ((thread->type() != ThreadBase::OFFLOAD) &&
+                      (!(thread->type() == ThreadBase::DIRECT && thread->mIsDirectPcm)));
     if (!isGlobalSession) {
         bool tracksOnSession = (trackCnt() != 0);
 
@@ -1584,8 +1610,12 @@ status_t AudioFlinger::EffectChain::addEffect_l(const sp<EffectModule>& effect)
         ALOGV("addEffect_l() effect %p, added in chain %p at rank %d", effect.get(), this,
                 idx_insert);
     }
+#ifdef DOLBY_ENABLE
+    return effect->configure();
+#else // DOLBY_END
     effect->configure();
     return NO_ERROR;
+#endif // LINE_ADDED_BY_DOLBY
 }
 
 // removeEffect_l() must be called with PlaybackThread::mLock held
@@ -1615,6 +1645,11 @@ size_t AudioFlinger::EffectChain::removeEffect_l(const sp<EffectModule>& effect)
             mEffects.removeAt(i);
             ALOGV("removeEffect_l() effect %p, removed from chain %p at rank %d", effect.get(),
                     this, i);
+#ifdef DOLBY_ENABLE
+            if (effect->suspended() && EffectDapController::instance()->isDapEffect(effect)) {
+                effect->setSuspended(false);
+            }
+#endif // DOLBY_END
             break;
         }
     }

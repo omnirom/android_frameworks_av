@@ -31,6 +31,7 @@
 #include <media/AudioPolicyHelper.h>
 #include <media/AudioResamplerPublic.h>
 #include "media/AVMediaExtensions.h"
+#include <cutils/properties.h>
 
 #define WAIT_PERIOD_MS                  10
 #define WAIT_STREAM_END_TIMEOUT_SEC     120
@@ -168,7 +169,8 @@ AudioTrack::AudioTrack()
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
       mPreviousSchedulingGroup(SP_DEFAULT),
       mPausedPosition(0),
-      mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE)
+      mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
+      mPlaybackRateSet(false)
 {
     mAttributes.content_type = AUDIO_CONTENT_TYPE_UNKNOWN;
     mAttributes.usage = AUDIO_USAGE_UNKNOWN;
@@ -198,7 +200,8 @@ AudioTrack::AudioTrack(
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
       mPreviousSchedulingGroup(SP_DEFAULT),
       mPausedPosition(0),
-      mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE)
+      mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
+      mPlaybackRateSet(false)
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
             frameCount, flags, cbf, user, notificationFrames,
@@ -228,7 +231,8 @@ AudioTrack::AudioTrack(
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
       mPreviousSchedulingGroup(SP_DEFAULT),
       mPausedPosition(0),
-      mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE)
+      mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
+      mPlaybackRateSet(false)
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
             0 /*frameCount*/, flags, cbf, user, notificationFrames,
@@ -853,6 +857,14 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
     //set effective rates
     mProxy->setPlaybackRate(playbackRateTemp);
     mProxy->setSampleRate(effectiveRate); // FIXME: not quite "atomic" with setPlaybackRate
+
+    // fallback out of Direct PCM if setPlaybackRate is called on a track offloaded
+    // session. Do this by setting mPlaybackRateSet to true
+    if (mTrackOffloaded) {
+        mPlaybackRateSet = true;
+        android_atomic_or(CBLK_INVALID, &mCblk->mFlags);
+    }
+
     return NO_ERROR;
 }
 
@@ -1008,14 +1020,18 @@ status_t AudioTrack::getPosition(uint32_t *position)
             return NO_ERROR;
         }
 
-        if (AVMediaUtils::get()->AudioTrackGetPosition(this, position) == NO_ERROR) {
+        if (AVMediaUtils::get()->AudioTrackIsPcmOffloaded(mFormat) &&
+                AVMediaUtils::get()->AudioTrackGetPosition(this, position) == NO_ERROR) {
             return NO_ERROR;
         }
 
         if (mOutput != AUDIO_IO_HANDLE_NONE) {
             uint32_t halFrames; // actually unused
-            (void) AudioSystem::getRenderPosition(mOutput, &halFrames, &dspFrames);
-            // FIXME: on getRenderPosition() error, we return OK with frame position 0.
+            status_t status = AudioSystem::getRenderPosition(mOutput, &halFrames, &dspFrames);
+            if (status != NO_ERROR) {
+                ALOGW("failed to getRenderPosition for offload session status %d", status);
+                return INVALID_OPERATION;
+            }
         }
         // FIXME: dspFrames may not be zero in (mState == STATE_STOPPED || mState == STATE_FLUSHED)
         // due to hardware latency. We leave this behavior for now.
@@ -1140,11 +1156,16 @@ status_t AudioTrack::createTrack_l()
     audio_stream_type_t streamType = mStreamType;
     audio_attributes_t *attr = (mStreamType == AUDIO_STREAM_DEFAULT) ? &mAttributes : NULL;
 
-    status_t status;
-    status = AudioSystem::getOutputForAttr(attr, &output,
+    audio_offload_info_t tOffloadInfo = AUDIO_INFO_INITIALIZER;
+    if (mPlaybackRateSet == true && mOffloadInfo == NULL && mFormat == AUDIO_FORMAT_PCM_16_BIT) {
+        mOffloadInfo = &tOffloadInfo;
+    }
+    status_t status = AudioSystem::getOutputForAttr(attr, &output,
                                            (audio_session_t)mSessionId, &streamType, mClientUid,
                                            mSampleRate, mFormat, mChannelMask,
                                            mFlags, mSelectedDeviceId, mOffloadInfo);
+    //reset offload info if forced
+    mOffloadInfo = (mOffloadInfo == &tOffloadInfo) ? NULL : mOffloadInfo;
 
     if (status != NO_ERROR || output == AUDIO_IO_HANDLE_NONE) {
         ALOGE("Could not get audio output for session %d, stream type %d, usage %d, sample rate %u, format %#x,"
@@ -1152,6 +1173,7 @@ status_t AudioTrack::createTrack_l()
               mSessionId, streamType, mAttributes.usage, mSampleRate, mFormat, mChannelMask, mFlags);
         return BAD_VALUE;
     }
+    mTrackOffloaded = AVMediaUtils::get()->AudioTrackIsTrackOffloaded(output);
     {
     // Now that we have a reference to an I/O handle and have not yet handed it off to AudioFlinger,
     // we must release it ourselves if anything goes wrong.
@@ -1275,7 +1297,7 @@ status_t AudioTrack::createTrack_l()
         trackFlags |= IAudioFlinger::TRACK_OFFLOAD;
     }
 
-    if (mFlags & AUDIO_OUTPUT_FLAG_DIRECT) {
+    if ((mFlags & AUDIO_OUTPUT_FLAG_DIRECT) || mTrackOffloaded) {
         trackFlags |= IAudioFlinger::TRACK_DIRECT;
     }
 
@@ -2256,8 +2278,8 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
     }
 
     status_t status = UNKNOWN_ERROR;
-    //do not call Timestamp if its PCM offloaded
-    if (!AVMediaUtils::get()->AudioTrackIsPcmOffloaded(mFormat)) {
+    //call Timestamp only if its NOT PCM offloaded and NOT Track Offloaded
+    if (!AVMediaUtils::get()->AudioTrackIsPcmOffloaded(mFormat) && !mTrackOffloaded) {
         // The presented frame count must always lag behind the consumed frame count.
         // To avoid a race, read the presented frames first.  This ensures that presented <= consumed.
 
@@ -2269,7 +2291,8 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
 
     }
 
-    if (isOffloadedOrDirect_l() && !AVMediaUtils::get()->AudioTrackIsPcmOffloaded(mFormat)) {
+    if (isOffloadedOrDirect_l() && !AVMediaUtils::get()->AudioTrackIsPcmOffloaded(mFormat)
+        && !mTrackOffloaded) {
         if (isOffloaded_l() && (mState == STATE_PAUSED || mState == STATE_PAUSED_STOPPING)) {
             // use cached paused position in case another offloaded track is running.
             timestamp.mPosition = mPausedPosition;
@@ -2328,7 +2351,7 @@ status_t AudioTrack::getTimestamp(AudioTimestamp& timestamp)
     } else {
         // Update the mapping between local consumed (mPosition) and server consumed (mServer)
 
-        if (AVMediaUtils::get()->AudioTrackGetTimestamp(this, timestamp) == NO_ERROR) {
+        if (AVMediaUtils::get()->AudioTrackGetTimestamp(this, &timestamp) == NO_ERROR) {
             return NO_ERROR;
         }
 
