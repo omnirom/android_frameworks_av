@@ -153,7 +153,7 @@ LOCAL_SHARED_LIBRARIES += \
 LOCAL_CFLAGS += -Wno-multichar -Werror -Wno-error=deprecated-declarations -Wall
 
 ifeq ($(TARGET_USES_QCOM_BSP), true)
-    LOCAL_C_INCLUDES += hardware/qcom/display-caf-msm8992/libgralloc
+    LOCAL_C_INCLUDES += hardware/qcom/display-$(TARGET_QCOM_DISPLAY_VARIANT)/libgralloc
     LOCAL_CFLAGS += -DQTI_BSP
 endif
 
