@@ -697,6 +697,7 @@ status_t BnOMX::onTransact(
 
             size_t size = data.readInt64();
 
+<<<<<<< HEAD
             status_t err = NOT_ENOUGH_DATA;
             void *params = NULL;
             size_t pageSize = 0;
@@ -765,6 +766,40 @@ status_t BnOMX::onTransact(
                     }
                 } else {
                     ALOGE("couldn't map: %s", strerror(errno));
+=======
+            status_t err = NO_MEMORY;
+            void *params = calloc(size, 1);
+            if (params) {
+                err = data.read(params, size);
+                if (err != OK) {
+                    android_errorWriteLog(0x534e4554, "26914474");
+                } else {
+                    switch (code) {
+                        case GET_PARAMETER:
+                            err = getParameter(node, index, params, size);
+                            break;
+                        case SET_PARAMETER:
+                            err = setParameter(node, index, params, size);
+                            break;
+                        case GET_CONFIG:
+                            err = getConfig(node, index, params, size);
+                            break;
+                        case SET_CONFIG:
+                            err = setConfig(node, index, params, size);
+                            break;
+                        case SET_INTERNAL_OPTION:
+                        {
+                            InternalOptionType type =
+                                (InternalOptionType)data.readInt32();
+
+                            err = setInternalOption(node, index, type, params, size);
+                            break;
+                        }
+
+                        default:
+                            TRESPASS();
+                    }
+>>>>>>> LA.BF64.1.2.2-05240-8x92.0
                 }
             }
 
@@ -973,6 +1008,13 @@ status_t BnOMX::onTransact(
             MetadataBufferType type = kMetadataBufferTypeInvalid;
             status_t err = storeMetaDataInBuffers(node, port_index, enable, &type);
 
+<<<<<<< HEAD
+=======
+            if ((err != OK) && (type == kMetadataBufferTypeInvalid)) {
+                android_errorWriteLog(0x534e4554, "26324358");
+            }
+
+>>>>>>> LA.BF64.1.2.2-05240-8x92.0
             reply->writeInt32(type);
             reply->writeInt32(err);
 
