@@ -37,6 +37,7 @@ LOCAL_STATIC_LIBRARIES := \
 
 LOCAL_C_INCLUDES := \
     frameworks/av-caf/media/libmediaplayerservice \
+    frameworks/av-caf/media/libmedia \
     frameworks/av-caf/services/medialog \
     frameworks/av-caf/services/audioflinger \
     frameworks/av-caf/services/audiopolicy \
