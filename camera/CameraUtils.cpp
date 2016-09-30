@@ -15,7 +15,7 @@
  */
 
 #define LOG_TAG "CameraUtils"
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include <camera/CameraUtils.h>
 #include <media/hardware/HardwareAPI.h>

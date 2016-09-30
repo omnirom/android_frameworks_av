@@ -16,7 +16,7 @@
 */
 
 #define LOG_TAG "mediaserver"
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include <binder/IPCThreadState.h>
 #include <binder/ProcessState.h>

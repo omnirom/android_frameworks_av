@@ -15,7 +15,7 @@
  */
 
 #define LOG_TAG "SchedulingPolicyService"
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include <binder/IServiceManager.h>
 #include <utils/Mutex.h>

@@ -16,7 +16,7 @@
 
 #define LOG_TAG "Camera2Client"
 #define ATRACE_TAG ATRACE_TAG_CAMERA
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include <inttypes.h>
 #include <utils/Log.h>

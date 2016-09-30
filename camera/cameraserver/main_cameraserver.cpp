@@ -15,7 +15,7 @@
  */
 
 #define LOG_TAG "cameraserver"
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 // from LOCAL_C_INCLUDES
 #include "CameraService.h"

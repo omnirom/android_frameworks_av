@@ -16,7 +16,7 @@
 
 #define LOG_TAG "CameraDeviceClient"
 #define ATRACE_TAG ATRACE_TAG_CAMERA
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include <cutils/properties.h>
 #include <utils/Log.h>

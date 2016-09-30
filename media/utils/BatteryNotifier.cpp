@@ -15,7 +15,7 @@
  */
 
 #define LOG_TAG "BatteryNotifier"
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include "include/mediautils/BatteryNotifier.h"
 

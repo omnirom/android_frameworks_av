@@ -15,7 +15,7 @@
  */
 
 #define LOG_TAG "ISchedulingPolicyService"
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include <binder/Parcel.h>
 #include "ISchedulingPolicyService.h"

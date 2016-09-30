@@ -16,7 +16,7 @@
 
 #define LOG_TAG "Camera2-FrameProcessorBase"
 #define ATRACE_TAG ATRACE_TAG_CAMERA
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include <utils/Log.h>
 #include <utils/Trace.h>

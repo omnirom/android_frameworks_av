@@ -16,7 +16,7 @@
 */
 
 #define LOG_TAG "OutputConfiguration"
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 
 #include <utils/Log.h>
 
