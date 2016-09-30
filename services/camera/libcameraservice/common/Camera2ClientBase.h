@@ -126,7 +126,7 @@ protected:
     // that mBinderSerializationLock is locked when they're called
     mutable Mutex         mBinderSerializationLock;
 
-    /** CameraDeviceBase instance wrapping HAL3+ entry */
+    /** CameraDeviceBase instance wrapping HAL2+ entry */
 
     const int mDeviceVersion;
     sp<CameraDeviceBase>  mDevice;

@@ -166,7 +166,6 @@ public:
 
     virtual binder::Status onDeviceError(int errorCode,
             const CaptureResultExtras& resultExtras) {
-        (void) resultExtras;
         ALOGE("%s: onDeviceError occurred with: %d", __FUNCTION__, static_cast<int>(errorCode));
         Mutex::Autolock l(mLock);
         mError = true;
@@ -186,8 +185,6 @@ public:
 
     virtual binder::Status onCaptureStarted(const CaptureResultExtras& resultExtras,
             int64_t timestamp) {
-        (void) resultExtras;
-        (void) timestamp;
         Mutex::Autolock l(mLock);
         mLastStatus = RUNNING;
         mStatusesHit.push_back(mLastStatus);
@@ -198,8 +195,6 @@ public:
 
     virtual binder::Status onResultReceived(const CameraMetadata& metadata,
             const CaptureResultExtras& resultExtras) {
-        (void) metadata;
-        (void) resultExtras;
         Mutex::Autolock l(mLock);
         mLastStatus = SENT_RESULT;
         mStatusesHit.push_back(mLastStatus);
@@ -207,8 +202,7 @@ public:
         return binder::Status::ok();
     }
 
-    virtual binder::Status onPrepared(int streamId) {
-        (void) streamId;
+    virtual void onPrepared(int streamId) {
         Mutex::Autolock l(mLock);
         mLastStatus = PREPARED;
         mStatusesHit.push_back(mLastStatus);
@@ -544,11 +538,8 @@ TEST_F(CameraClientBinderTest, CheckBinderCameraDeviceUser) {
         requestList.push_back(request4);
 
         callbacks->clearStatus();
-        hardware::camera2::utils::SubmitInfo info3;
-        res = device->submitRequestList(requestList, /*streaming*/false,
-                /*out*/&info3);
-        EXPECT_TRUE(res.isOk()) << res;
-        EXPECT_LE(0, info3.mRequestId);
+        int requestId3 = device->submitRequestList(requestList, /*streaming*/false,
+                /*out*/&lastFrameNumber);
         EXPECT_TRUE(callbacks->waitForStatus(TestCameraDeviceCallbacks::SENT_RESULT));
         EXPECT_TRUE(callbacks->waitForIdle());
         EXPECT_LE(lastFrameNumberPrev, info3.mLastFrameNumber);

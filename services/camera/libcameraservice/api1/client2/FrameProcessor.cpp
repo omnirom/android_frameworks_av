@@ -176,7 +176,7 @@ status_t FrameProcessor::processFaceDetect(const CameraMetadata &frame,
 
         entry = frame.find(ANDROID_SCALER_CROP_REGION);
         if (entry.count < 4) {
-            ALOGE("%s: Camera %d: Unable to read crop region (count = %zu)",
+            ALOGE("%s: Camera %d: Unable to read crop region (count = %d)",
                     __FUNCTION__, client->getCameraId(), entry.count);
             return res;
         }

@@ -31,7 +31,7 @@ class IMemory;
 
 namespace camera2 {
 
-struct Parameters;
+class Parameters;
 class Camera2Heap;
 
 /**

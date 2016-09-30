@@ -27,7 +27,7 @@
 #include "gui/IGraphicBufferConsumer.h"
 #include "gui/BufferQueue.h"
 #include "camera/camera2/CaptureRequest.h"
-#include "device3/Camera3Device.h"
+#include "CameraDeviceFactory.h"
 
 
 namespace android {
@@ -78,7 +78,7 @@ status_t CameraFlashlight::createFlashlightControl(const String8& cameraId) {
             deviceVersion = info.device_version;
         }
 
-        if (deviceVersion >= CAMERA_DEVICE_API_VERSION_3_0) {
+        if (deviceVersion >= CAMERA_DEVICE_API_VERSION_2_0) {
             CameraDeviceClientFlashControl *flashControl =
                     new CameraDeviceClientFlashControl(*mCameraModule,
                                                        *mCallbacks);
@@ -193,6 +193,8 @@ status_t CameraFlashlight::findFlashUnits() {
 }
 
 bool CameraFlashlight::hasFlashUnit(const String8& cameraId) {
+    status_t res;
+
     Mutex::Autolock l(mLock);
     return hasFlashUnitLocked(cameraId);
 }
@@ -300,8 +302,7 @@ FlashControlBase::~FlashControlBase() {
 /////////////////////////////////////////////////////////////////////
 ModuleFlashControl::ModuleFlashControl(CameraModule& cameraModule,
         const camera_module_callbacks_t& callbacks) :
-        mCameraModule(&cameraModule) {
-    (void) callbacks;
+    mCameraModule(&cameraModule) {
 }
 
 ModuleFlashControl::~ModuleFlashControl() {
@@ -477,7 +478,7 @@ status_t CameraDeviceClientFlashControl::connectCameraDevice(
     }
 
     sp<CameraDeviceBase> device =
-            new Camera3Device(atoi(cameraId.string()));
+            CameraDeviceFactory::createDevice(atoi(cameraId.string()));
     if (device == NULL) {
         return NO_MEMORY;
     }
