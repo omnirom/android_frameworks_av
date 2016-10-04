@@ -26,6 +26,10 @@ LOCAL_C_INCLUDES := \
 	frameworks/av/media/libmediaplayerservice              \
 	frameworks/native/include/media/openmax
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+    LOCAL_CFLAGS += -DQCOM_HARDWARE
+endif
+
 LOCAL_CFLAGS += -Werror -Wall
 
 # enable experiments only in userdebug and eng builds

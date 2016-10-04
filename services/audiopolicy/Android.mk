@@ -43,6 +43,10 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= managerdefault/AudioPolicyManager.cpp
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+    LOCAL_CFLAGS += -DQCOM_HARDWARE
+endif
+
 LOCAL_SHARED_LIBRARIES := \
     libcutils \
     libutils \
