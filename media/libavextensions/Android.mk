@@ -12,9 +12,14 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax \
         $(TOP)/external/flac/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc \
         $(TOP)/frameworks/av/media/libstagefright \
         $(TOP)/frameworks/av/media/libstagefright/mpeg2ts \
+
+ifeq ($(TARGET_QCOM_MEDIA_VARIANT),)
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+else
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+endif
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 
@@ -40,8 +45,13 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/media/libavextensions \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/external/flac/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+        $(TOP)/external/flac/include
+
+ifeq ($(TARGET_QCOM_MEDIA_VARIANT),)
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+else
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+endif
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 
@@ -73,8 +83,13 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/media/libstagefright/rtsp \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/external/flac/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+        $(TOP)/external/flac/include
+
+ifeq ($(TARGET_QCOM_MEDIA_VARIANT),)
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+else
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+endif
 
 LOCAL_CFLAGS += -Wno-multichar -Werror
 
