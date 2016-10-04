@@ -15,7 +15,12 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/native/include/media/openmax \
         $(TOP)/external/flac/include \
         $(TOP)/system/core/base/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+
+ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),)
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+else
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+endif
 
 LOCAL_SHARED_LIBRARIES += \
         libhidlbase \
@@ -58,7 +63,12 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/native/include/media/openmax \
         $(TOP)/external/flac/include \
         $(TOP)/system/core/base/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
+
+ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),)
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
+else
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
+endif
 
 LOCAL_SHARED_LIBRARIES += \
         libhidlbase \
