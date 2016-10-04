@@ -16,7 +16,6 @@ cc_library_static {
         "frameworks/native/include/media/hardware",
         "frameworks/native/include/media/openmax",
         "external/flac/include",
-        "hardware/qcom/media/mm-core/inc",
     ],
     cflags: [
         "-Wno-multichar",
