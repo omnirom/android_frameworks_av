@@ -27,6 +27,10 @@ LOCAL_C_INCLUDES := \
 	$(TOP)/frameworks/native/include/media/openmax                \
 	$(TOP)/frameworks/av/media/libavextensions
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+    LOCAL_CFLAGS += -DQCOM_HARDWARE
+endif
+
 LOCAL_CFLAGS += -Werror -Wall
 
 # enable experiments only in userdebug and eng builds
