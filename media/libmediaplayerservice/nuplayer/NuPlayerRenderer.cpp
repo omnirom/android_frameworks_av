@@ -1958,10 +1958,12 @@ status_t NuPlayer::Renderer::onOpenAudioSink(
                 }
             }
 
+#ifdef QCOM_HARDWARE
             int32_t offloadBufferSize =
                                     AVUtils::get()->getAudioMaxInputBufferSize(
                                                    audioFormat,
                                                    format);
+#endif
             audio_offload_info_t offloadInfo = AUDIO_INFO_INITIALIZER;
             offloadInfo.duration_us = -1;
             format->findInt64(
@@ -1973,8 +1975,11 @@ status_t NuPlayer::Renderer::onOpenAudioSink(
             offloadInfo.stream_type = AUDIO_STREAM_MUSIC;
             offloadInfo.bit_rate = avgBitRate;
             offloadInfo.has_video = hasVideo;
-            offloadInfo.offload_buffer_size = offloadBufferSize;
             offloadInfo.is_streaming = isStreaming;
+#ifdef QCOM_HARDWARE
+            offloadInfo.bit_width = bitWidth;
+            offloadInfo.offload_buffer_size = offloadBufferSize;
+#endif
 
             if (memcmp(&mCurrentOffloadInfo, &offloadInfo, sizeof(offloadInfo)) == 0) {
                 ALOGV("openAudioSink: no change in offload mode");

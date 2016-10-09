@@ -709,8 +709,12 @@ sp<IOProfile> AudioPolicyManager::getProfileForDirectOutput(
     // only retain flags that will drive the direct output profile selection
     // if explicitly requested
     static const uint32_t kRelevantFlags =
-            (AUDIO_OUTPUT_FLAG_HW_AV_SYNC | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
-             AUDIO_OUTPUT_FLAG_VOIP_RX);
+            (AUDIO_OUTPUT_FLAG_HW_AV_SYNC | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD
+#ifdef QCOM_HARDWARE
+                | AUDIO_OUTPUT_FLAG_VOIP_RX);
+#else
+                );
+#endif
     flags =
         (audio_output_flags_t)((flags & kRelevantFlags) | AUDIO_OUTPUT_FLAG_DIRECT);
 
@@ -2220,7 +2224,9 @@ audio_io_handle_t AudioPolicyManager::selectOutputForMusicEffects()
 
     while (output == AUDIO_IO_HANDLE_NONE) {
         audio_io_handle_t outputOffloaded = AUDIO_IO_HANDLE_NONE;
+#ifdef QCOM_HARDWARE
         audio_io_handle_t outputDirect = AUDIO_IO_HANDLE_NONE;
+#endif
         audio_io_handle_t outputDeepBuffer = AUDIO_IO_HANDLE_NONE;
         audio_io_handle_t outputPrimary = AUDIO_IO_HANDLE_NONE;
 
@@ -2234,9 +2240,11 @@ audio_io_handle_t AudioPolicyManager::selectOutputForMusicEffects()
             if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
                 outputOffloaded = outputs[i];
             }
+#ifdef QCOM_HARDWARE
             if ((desc->mFlags == AUDIO_OUTPUT_FLAG_DIRECT) != 0) {
                 outputDirect = outputs[i];
             }
+#endif
             if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
                 outputDeepBuffer = outputs[i];
             }
@@ -2246,8 +2254,10 @@ audio_io_handle_t AudioPolicyManager::selectOutputForMusicEffects()
         }
         if (outputOffloaded != AUDIO_IO_HANDLE_NONE) {
             output = outputOffloaded;
+#ifdef QCOM_HARDWARE
         } else if (outputDirect != AUDIO_IO_HANDLE_NONE) {
             output = outputDirect;
+#endif
         } else if (outputDeepBuffer != AUDIO_IO_HANDLE_NONE) {
             output = outputDeepBuffer;
         } else if (outputPrimary != AUDIO_IO_HANDLE_NONE) {
@@ -3354,8 +3364,11 @@ status_t AudioPolicyManager::setMasterMono(bool mono)
         Vector<audio_io_handle_t> offloaded;
         for (size_t i = 0; i < mOutputs.size(); ++i) {
             sp<SwAudioOutputDescriptor> desc = mOutputs.valueAt(i);
-            if (desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD ||
-                desc->mFlags == AUDIO_OUTPUT_FLAG_DIRECT) {
+            if (desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD
+#ifdef QCOM_HARDWARE
+                 || desc->mFlags == AUDIO_OUTPUT_FLAG_DIRECT
+#endif
+                ) {
                 offloaded.push(desc->mIoHandle);
             }
         }

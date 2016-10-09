@@ -71,6 +71,10 @@ LOCAL_EXPORT_C_INCLUDE_DIRS := \
 	system/media/camera/include \
 	$(LOCAL_PATH)/include/camera
 
+ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+    LOCAL_CFLAGS += -DQCOM_HARDWARE
+endif
+
 LOCAL_CFLAGS += -Werror -Wall -Wextra
 
 LOCAL_MODULE:= libcamera_client
