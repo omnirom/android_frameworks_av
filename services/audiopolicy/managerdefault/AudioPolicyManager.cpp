@@ -672,8 +672,12 @@ sp<IOProfile> AudioPolicyManager::getProfileForDirectOutput(
     // only retain flags that will drive the direct output profile selection
     // if explicitly requested
     static const uint32_t kRelevantFlags =
-            (AUDIO_OUTPUT_FLAG_HW_AV_SYNC | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
-               AUDIO_OUTPUT_FLAG_VOIP_RX);
+            (AUDIO_OUTPUT_FLAG_HW_AV_SYNC | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD
+#ifdef QCOM_HARDWARE
+                | AUDIO_OUTPUT_FLAG_VOIP_RX);
+#else
+                );
+#endif
     flags =
         (audio_output_flags_t)((flags & kRelevantFlags) | AUDIO_OUTPUT_FLAG_DIRECT);
 
@@ -2071,9 +2075,11 @@ audio_io_handle_t AudioPolicyManager::selectOutputForEffects(
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
             outputOffloaded = outputs[i];
         }
+#ifdef QCOM_HARDWARE
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DIRECT_PCM) != 0) {
             outputDirectPcm = outputs[i];
         }
+#endif
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
             outputDeepBuffer = outputs[i];
         }

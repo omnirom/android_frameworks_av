@@ -89,7 +89,9 @@ const size_t DeviceConverter::mSize = sizeof(DeviceConverter::mTable) /
 template <>
 const OutputFlagConverter::Table OutputFlagConverter::mTable[] = {
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_DIRECT),
+#ifdef QCOM_HARDWARE
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_DIRECT_PCM),
+#endif
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_PRIMARY),
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_FAST),
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_DEEP_BUFFER),
@@ -99,7 +101,9 @@ const OutputFlagConverter::Table OutputFlagConverter::mTable[] = {
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_TTS),
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_RAW),
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_SYNC),
+#ifdef QCOM_HARDWARE
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_VOIP_RX),
+#endif
 };
 template<>
 const size_t OutputFlagConverter::mSize = sizeof(OutputFlagConverter::mTable) /
@@ -179,10 +183,12 @@ const OutputChannelConverter::Table OutputChannelConverter::mTable[] = {
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_QUAD),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_5POINT1),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_7POINT1),
+#ifdef QCOM_HARDWARE
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_2POINT1),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_SURROUND),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_PENTA),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_6POINT1),
+#endif
 };
 template<>
 const size_t OutputChannelConverter::mSize = sizeof(OutputChannelConverter::mTable) /
@@ -194,7 +200,9 @@ const InputChannelConverter::Table InputChannelConverter::mTable[] = {
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_IN_MONO),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_IN_STEREO),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_IN_FRONT_BACK),
+#ifdef QCOM_HARDWARE
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_IN_5POINT1),
+#endif
 };
 template<>
 const size_t InputChannelConverter::mSize = sizeof(InputChannelConverter::mTable) /
