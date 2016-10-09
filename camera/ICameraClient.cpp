@@ -50,12 +50,16 @@ public:
         data.writeInterfaceToken(ICameraClient::getInterfaceDescriptor());
         data.writeInt32(msgType);
         data.writeInt32(ext1);
+#ifdef QCOM_HARDWARE
         if ((msgType == CAMERA_MSG_PREVIEW_FRAME) && (ext1 == CAMERA_FRAME_DATA_FD)) {
             ALOGD("notifyCallback: CAMERA_MSG_PREVIEW_FRAME fd = %d", ext2);
             data.writeFileDescriptor(ext2);
         } else {
             data.writeInt32(ext2);
         }
+#else
+        data.writeInt32(ext2);
+#endif
         remote()->transact(NOTIFY_CALLBACK, data, &reply, IBinder::FLAG_ONEWAY);
     }
 
@@ -111,6 +115,7 @@ status_t BnCameraClient::onTransact(
             CHECK_INTERFACE(ICameraClient, data, reply);
             int32_t msgType = data.readInt32();
             int32_t ext1    = data.readInt32();
+#ifdef QCOM_HARDWARE
             int32_t ext2    = 0;
             if ((msgType == CAMERA_MSG_PREVIEW_FRAME) && (ext1 == CAMERA_FRAME_DATA_FD)) {
                 ext2 = data.readFileDescriptor();
@@ -118,6 +123,9 @@ status_t BnCameraClient::onTransact(
             } else {
                 ext2 = data.readInt32();
             }
+#else
+            int32_t ext2 = data.readInt32();
+#endif
             notifyCallback(msgType, ext1, ext2);
             return NO_ERROR;
         } break;
