@@ -81,4 +81,8 @@ LOCAL_CFLAGS += -Wall -Wextra -Werror
 
 LOCAL_MODULE:= libcameraservice
 
+ifeq ($(TARGET_HAS_CAMERA_HAL_V1),true)
+  LOCAL_CFLAGS += -DTARGET_HAS_CAMERA_HAL_V1
+endif
+
 include $(BUILD_SHARED_LIBRARY)
