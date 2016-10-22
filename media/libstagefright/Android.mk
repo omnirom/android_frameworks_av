@@ -131,6 +131,20 @@ ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
 LOCAL_CFLAGS += -DENABLE_STAGEFRIGHT_EXPERIMENTS
 endif
 
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
+LOCAL_CFLAGS += -DQTI_FLAC_DECODER
+endif
+endif
+
+ifeq ($(strip $(TARGET_DISABLE_OMX_VIDEO_CROP_OUTPUT)),true)
+LOCAL_CFLAGS += -DDISABLE_OMX_VIDEO_CROP_OUTPUT
+endif
+
+ifeq ($(TARGET_USES_MEDIA_EXTENSIONS),true)
+LOCAL_CFLAG += -DUSE_NATIVE_HANDLE_SOURCE
+endif
+
 LOCAL_CLANG := true
 LOCAL_SANITIZE := unsigned-integer-overflow signed-integer-overflow
 
