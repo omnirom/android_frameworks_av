@@ -140,6 +140,10 @@ LOCAL_CFLAGS += -DQTI_FLAC_DECODER
 endif
 endif
 
+ifeq ($(TARGET_HAS_CAMERA_HAL_V1),true)
+  LOCAL_CFLAGS += -TARGET_HAS_CAMERA_HAL_V1
+endif
+
 LOCAL_CLANG := true
 LOCAL_SANITIZE := unsigned-integer-overflow signed-integer-overflow
 
