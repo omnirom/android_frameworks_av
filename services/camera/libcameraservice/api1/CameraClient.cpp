@@ -520,6 +520,11 @@ void CameraClient::releaseRecordingFrameHandle(native_handle_t *handle) {
     metadata->pHandle = handle;
 
     mHardware->releaseRecordingFrame(dataPtr);
+
+    #ifdef TARGET_CAM_REQ_LEAK_FIX
+    native_handle_close(handle);
+    native_handle_delete(handle);
+    #endif
 }
 
 status_t CameraClient::setVideoBufferMode(int32_t videoBufferMode) {

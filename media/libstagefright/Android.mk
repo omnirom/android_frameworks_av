@@ -131,6 +131,10 @@ ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
 LOCAL_CFLAGS += -DENABLE_STAGEFRIGHT_EXPERIMENTS
 endif
 
+ifneq ($(TARGET_CAM_REQ_LEAK_FIX),false)
+LOCAL_CFLAG += -DTARGET_CAM_REQ_LEAK_FIX
+endif
+
 LOCAL_CLANG := true
 LOCAL_SANITIZE := unsigned-integer-overflow signed-integer-overflow
 
