@@ -82,4 +82,8 @@ LOCAL_CFLAGS += -Wall -Wextra -Werror
 
 LOCAL_MODULE:= libcameraservice
 
+ifeq ($(TARGET_USES_MEDIA_EXTENSIONS),true)
+LOCAL_CFLAGS += -DUSE_NATIVE_HANDLE_SOURCE
+endif
+
 include $(BUILD_SHARED_LIBRARY)
