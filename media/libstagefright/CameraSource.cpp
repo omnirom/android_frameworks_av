@@ -1138,10 +1138,13 @@ void CameraSource::releaseRecordingFrameHandle(native_handle_t* handle) {
         int64_t token = IPCThreadState::self()->clearCallingIdentity();
         mCamera->releaseRecordingFrameHandle(handle);
         IPCThreadState::self()->restoreCallingIdentity(token);
-    } else {
+    }
+    #ifndef TARGET_HAS_CAMERA_HAL_V1
+    else {
         native_handle_close(handle);
         native_handle_delete(handle);
     }
+    #endif
 }
 
 void CameraSource::recordingFrameHandleCallbackTimestamp(int64_t timestampUs,
