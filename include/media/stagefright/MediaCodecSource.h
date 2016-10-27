@@ -37,6 +37,9 @@ struct MediaCodecSource : public MediaSource,
                           public MediaBufferObserver {
     enum FlagBits {
         FLAG_USE_SURFACE_INPUT      = 1,
+#ifdef METADATA_CAMERA_SOURCE
+        FLAG_USE_METADATA_INPUT     = 2,
+#endif
         FLAG_PREFER_SOFTWARE_CODEC  = 4,  // used for testing only
     };
 

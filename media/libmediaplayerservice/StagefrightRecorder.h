@@ -24,7 +24,9 @@
 
 #include <system/audio.h>
 
+#ifndef METADATA_CAMERA_SOURCE
 #include <MetadataBufferType.h>
+#endif
 
 namespace android {
 
@@ -123,7 +125,12 @@ private:
 
     String8 mParams;
 
+#ifndef METADATA_CAMERA_SOURCE
     MetadataBufferType mMetaDataStoredInVideoBuffers;
+#else
+    bool mIsMetaDataStoredInVideoBuffers;
+#endif
+
     MediaProfiles *mEncoderProfiles;
 
     int64_t mPauseStartTimeUs;
