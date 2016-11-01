@@ -83,6 +83,7 @@ void NuPlayer::GenericSource::resetDataSource() {
     mHttpSource.clear();
     mUri.clear();
     mUriHeaders.clear();
+    mSources.clear();
     if (mFd >= 0) {
         close(mFd);
         mFd = -1;
