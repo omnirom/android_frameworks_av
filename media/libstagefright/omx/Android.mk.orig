@@ -56,14 +56,15 @@ LOCAL_EXPORT_C_INCLUDES := \
 LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := \
         android.hidl.memory@1.0
 
+<<<<<<< HEAD
 ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
 LOCAL_CFLAGS += -DQTI_FLAC_DECODER
 endif
-endif
-
+=======
 ifeq ($(TARGET_HAS_LEGACY_CAMERA_HAL1),true)
 LOCAL_CFLAGS += -DCAMCORDER_GRALLOC_SOURCE
+>>>>>>> 2abab51... OMXNodeInstance: Fix legacy HAL1 after merge of android-7.1.0_r7
 endif
 
 LOCAL_MODULE:= libstagefright_omx
