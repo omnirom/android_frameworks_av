@@ -264,7 +264,13 @@ sp<MediaExtractor> MediaExtractor::CreateFromService(
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MIDI)) {
         ret = new MidiExtractor(source);
     }
-
+    if (ret != NULL) {
+       if (isDrm) {
+          ret->setDrmFlag(true);
+       } else {
+          ret->setDrmFlag(false);
+       }
+    }
     return ret;
 }
 
