@@ -1611,7 +1611,12 @@ sp<IAudioRecord> AudioFlinger::openRecord(
     }
 
     // check calling permissions
+#ifndef TARGET_USES_NATIVE_WFD
     if (!recordingAllowed(opPackageName, tid, clientUid)) {
+#else
+    if (!isTrustedCallingUid(callingUid) &&
+                 !recordingAllowed(opPackageName, tid, callingUid)) {
+#endif
         ALOGE("openRecord() permission denied: recording not allowed");
         lStatus = PERMISSION_DENIED;
         goto Exit;
