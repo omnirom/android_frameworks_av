@@ -431,7 +431,7 @@ bool OMXNodeInstance::isProhibitedIndex_l(OMX_INDEXTYPE index) {
             || (index > (OMX_INDEXTYPE)OMX_IndexExtAudioStartUnused
                     && index <= (OMX_INDEXTYPE)OMX_IndexParamAudioProfileQuerySupported)
             || (index > (OMX_INDEXTYPE)OMX_IndexExtVideoStartUnused
-                    && index <= (OMX_INDEXTYPE)OMX_IndexConfigAndroidIntraRefresh)
+                    && index <= (OMX_INDEXTYPE)OMX_IndexConfigAndroidVideoTemporalLayering)
             || (index > (OMX_INDEXTYPE)OMX_IndexExtOtherStartUnused
                     && index <= (OMX_INDEXTYPE)OMX_IndexParamConsumerUsageBits)) {
         return false;
