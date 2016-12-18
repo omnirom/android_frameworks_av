@@ -1,3 +1,16 @@
+# This file was modified by Dolby Laboratories, Inc. The portions of the
+# code that are surrounded by "DOLBY..." are copyrighted and
+# licensed separately, as follows:
+#
+# (C)  2016 Dolby Laboratories, Inc.
+# All rights reserved.
+#
+# This program is protected under international and U.S. Copyright laws as
+# an unpublished work. This program is confidential and proprietary to the
+# copyright owners. Reproduction or disclosure, in whole or in part, or the
+# production of derivative works therefrom without the express permission of
+# the copyright owners is prohibited.
+#
 LOCAL_PATH:= $(call my-dir)
 
 #
@@ -43,6 +56,9 @@ LOCAL_STATIC_LIBRARIES :=       \
     libstagefright_rtsp         \
     libstagefright_timedtext    \
 
+LOCAL_WHOLE_STATIC_LIBRARIES := \
+    libavmediaserviceextensions \
+
 LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/av/media/libstagefright/include               \
     $(TOP)/frameworks/av/media/libstagefright/rtsp                  \
@@ -54,13 +70,20 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/native/include/media/hardware                 \
     $(TOP)/external/tremolo/Tremolo                                 \
     libcore/include                                                 \
+    $(TOP)/frameworks/av/media/libavextensions                      \
+    $(TOP)/frameworks/av/media/libstagefright/mpeg2ts               \
 
 LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall
+# DOLBY_START
+ifeq ($(strip $(DOLBY_ENABLE)),true)
+    LOCAL_CFLAGS += $(dolby_cflags)
+endif
+# DOLBY_END
 LOCAL_CLANG := true
 
 LOCAL_MODULE:= libmediaplayerservice
 
-LOCAL_32_BIT_ONLY := true
+#LOCAL_32_BIT_ONLY := true
 
 include $(BUILD_SHARED_LIBRARY)
 

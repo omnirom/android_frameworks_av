@@ -12,6 +12,24 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2014-2016 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #define LOG_TAG "APM_AudioPolicyManager"
@@ -46,6 +64,9 @@
 #include <Serializer.h>
 #include "TypeConverter.h"
 #include <policy.h>
+#ifdef DOLBY_ENABLE
+#include "DolbyAudioPolicy_impl.h"
+#endif // DOLBY_END
 
 namespace android {
 
@@ -180,6 +201,11 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t device,
         }
 
         updateDevicesAndOutputs();
+#ifdef DOLBY_ENABLE // DOLBY_UDC
+        // Before closing the opened outputs, update endpoint property with device capabilities
+        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AUDIO_STREAM_MUSIC), true);
+        mDolbyAudioPolicy.setEndpointSystemProperty(audioOutputDevice, mHwModules);
+#endif // DOLBY_END
         if (mEngine->getPhoneState() == AUDIO_MODE_IN_CALL && hasPrimaryOutput()) {
             audio_devices_t newDevice = getNewOutputDevice(mPrimaryOutput, false /*fromCache*/);
             updateCallRouting(newDevice);
@@ -646,7 +672,8 @@ sp<IOProfile> AudioPolicyManager::getProfileForDirectOutput(
     // only retain flags that will drive the direct output profile selection
     // if explicitly requested
     static const uint32_t kRelevantFlags =
-            (AUDIO_OUTPUT_FLAG_HW_AV_SYNC | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
+            (AUDIO_OUTPUT_FLAG_HW_AV_SYNC | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
+               AUDIO_OUTPUT_FLAG_VOIP_RX);
     flags =
         (audio_output_flags_t)((flags & kRelevantFlags) | AUDIO_OUTPUT_FLAG_DIRECT);
 
@@ -971,7 +998,23 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         addOutput(output, outputDesc);
         audio_io_handle_t dstOutput = getOutputForEffect();
         if (dstOutput == output) {
+#ifdef DOLBY_ENABLE
+            status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, srcOutput, dstOutput);
+            if (status == NO_ERROR) {
+                for (size_t i = 0; i < mEffects.size(); i++) {
+                    sp<EffectDescriptor> desc = mEffects.valueAt(i);
+                    if (desc->mSession == AUDIO_SESSION_OUTPUT_MIX) {
+                        // update the mIo member of EffectDescriptor for the global effect
+                        ALOGV("%s updating mIo", __FUNCTION__);
+                        desc->mIo = dstOutput;
+                    }
+                }
+            } else {
+                ALOGW("%s moveEffects from %d to %d failed", __FUNCTION__, srcOutput, dstOutput);
+            }
+#else // DOLBY_END
             mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, srcOutput, dstOutput);
+#endif // LINE_ADDED_BY_DOLBY
         }
         mPreviousOutputs = mOutputs;
         ALOGV("getOutput() returns new direct output %d", output);
@@ -1144,6 +1187,22 @@ status_t AudioPolicyManager::startOutput(audio_io_handle_t output,
     if (delayMs != 0) {
         usleep(delayMs * 1000);
     }
+#ifdef DOLBY_ENABLE
+    // DOLBY_UDC
+    // It is observed that in some use-cases where multiple outputs are present eg. bluetooth and headphone,
+    // the output for particular stream type is decided in this routine. Hence we must call
+    // getDeviceForStrategy in order to get the current active output for this stream type and update
+    // the dolby system property.
+    if (stream == AUDIO_STREAM_MUSIC)
+    {
+        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AUDIO_STREAM_MUSIC), true);
+        mDolbyAudioPolicy.setEndpointSystemProperty(audioOutputDevice, mHwModules);
+    }
+    // DOLBY_DAP_MOVE_EFFECT
+    // Note: The global effect can't be taken away from the deep-buffered output (source output) if there're still
+    //       music playing on the deep-buffered output.
+    mDolbyAudioPolicy.moveOutput(stream, outputDesc, &mOutputs, mpClientInterface, output);
+#endif //DOLBY_END
 
     return status;
 }
@@ -1384,8 +1443,25 @@ void AudioPolicyManager::releaseOutput(audio_io_handle_t output,
             // output by default: move them back to the appropriate output.
             audio_io_handle_t dstOutput = getOutputForEffect();
             if (hasPrimaryOutput() && dstOutput != mPrimaryOutput->mIoHandle) {
+#ifdef DOLBY_ENABLE
+                status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX,
+                                                                 mPrimaryOutput->mIoHandle, dstOutput);
+                if (status == NO_ERROR) {
+                    for (size_t i = 0; i < mEffects.size(); i++) {
+                        sp<EffectDescriptor> desc = mEffects.valueAt(i);
+                        if (desc->mSession == AUDIO_SESSION_OUTPUT_MIX) {
+                            // update the mIo member of EffectDescriptor for the global effect
+                            ALOGV("%s updating mIo", __FUNCTION__);
+                            desc->mIo = dstOutput;
+                        }
+                    }
+                } else {
+                    ALOGW("%s moveEffects from %d to %d failed", __FUNCTION__, mPrimaryOutput->mIoHandle, dstOutput);
+                }
+#else // DOLBY_END
                 mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX,
                                                mPrimaryOutput->mIoHandle, dstOutput);
+#endif // LINE_ADDED_BY_DOLBY
             }
             mpClientInterface->onAudioPortListUpdate();
         }
@@ -1987,12 +2063,16 @@ audio_io_handle_t AudioPolicyManager::selectOutputForEffects(
 
     audio_io_handle_t outputOffloaded = 0;
     audio_io_handle_t outputDeepBuffer = 0;
+    audio_io_handle_t outputDirectPcm = 0;
 
     for (size_t i = 0; i < outputs.size(); i++) {
         sp<SwAudioOutputDescriptor> desc = mOutputs.valueFor(outputs[i]);
         ALOGV("selectOutputForEffects outputs[%zu] flags %x", i, desc->mFlags);
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
             outputOffloaded = outputs[i];
+        }
+        if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DIRECT_PCM) != 0) {
+            outputDirectPcm = outputs[i];
         }
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
             outputDeepBuffer = outputs[i];
@@ -2003,6 +2083,9 @@ audio_io_handle_t AudioPolicyManager::selectOutputForEffects(
           outputOffloaded, outputDeepBuffer);
     if (outputOffloaded != 0) {
         return outputOffloaded;
+    }
+    if (outputDirectPcm != 0) {
+        return outputDirectPcm;
     }
     if (outputDeepBuffer != 0) {
         return outputDeepBuffer;
@@ -2040,7 +2123,11 @@ status_t AudioPolicyManager::registerEffect(const effect_descriptor_t *desc,
             return INVALID_OPERATION;
         }
     }
+#ifdef DOLBY_ENABLE
+    return mDolbyAudioPolicy.registerEffect(desc, io, strategy, session, id, &mEffects);
+#else // DOLBY_END
     return mEffects.registerEffect(desc, io, strategy, session, id);
+#endif // LINE_ADDED_BY_DOLBY
 }
 
 bool AudioPolicyManager::isStreamActive(audio_stream_type_t stream, uint32_t inPastMs) const
@@ -4191,7 +4278,7 @@ void AudioPolicyManager::checkOutputForStrategy(routing_strategy strategy)
 {
     audio_devices_t oldDevice = getDeviceForStrategy(strategy, true /*fromCache*/);
     audio_devices_t newDevice = getDeviceForStrategy(strategy, false /*fromCache*/);
-    SortedVector<audio_io_handle_t> srcOutputs = getOutputsForDevice(oldDevice, mPreviousOutputs);
+    SortedVector<audio_io_handle_t> srcOutputs = getOutputsForDevice(oldDevice, mOutputs);
     SortedVector<audio_io_handle_t> dstOutputs = getOutputsForDevice(newDevice, mOutputs);
 
     // also take into account external policy-related changes: add all outputs which are
@@ -4240,8 +4327,17 @@ void AudioPolicyManager::checkOutputForStrategy(routing_strategy strategy)
                     if (moved.indexOf(effectDesc->mIo) < 0) {
                         ALOGV("checkOutputForStrategy() moving effect %d to output %d",
                               mEffects.keyAt(i), fxOutput);
+#ifdef DOLBY_ENABLE
+                        status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, effectDesc->mIo,
+                                                       fxOutput);
+                        if (status != NO_ERROR) {
+                            ALOGW("%s moveEffects from %d to %d failed", __FUNCTION__, effectDesc->mIo, fxOutput);
+                            continue;
+                        }
+#else // DOLBY_END
                         mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, effectDesc->mIo,
                                                        fxOutput);
+#endif // LINE_ADDED_BY_DOLBY
                         moved.add(effectDesc->mIo);
                     }
                     effectDesc->mIo = fxOutput;
@@ -4275,7 +4371,7 @@ void AudioPolicyManager::checkOutputForAllStrategies()
 void AudioPolicyManager::checkA2dpSuspend()
 {
     audio_io_handle_t a2dpOutput = mOutputs.getA2dpOutput();
-    if (a2dpOutput == 0) {
+    if (a2dpOutput == 0 || mOutputs.isA2dpOnPrimary()) {
         mA2dpSuspended = false;
         return;
     }
@@ -4916,7 +5012,25 @@ sp<IOProfile> AudioPolicyManager::getInputProfile(audio_devices_t device,
                                              &format /*updatedFormat*/,
                                              channelMask,
                                              &channelMask /*updatedChannelMask*/,
-                                             (audio_output_flags_t) flags)) {
+                                             (audio_output_flags_t) flags,
+                                             true)) {
+
+                return profile;
+            }
+        }
+
+        for (size_t j = 0; j < mHwModules[i]->mInputProfiles.size(); j++)
+        {
+            sp<IOProfile> profile = mHwModules[i]->mInputProfiles[j];
+            // profile->log();
+            if (profile->isCompatibleProfile(device, address, samplingRate,
+                                             &samplingRate /*updatedSamplingRate*/,
+                                             format,
+                                             &format /*updatedFormat*/,
+                                             channelMask,
+                                             &channelMask /*updatedChannelMask*/,
+                                             (audio_output_flags_t) flags,
+                                              false)) {
 
                 return profile;
             }

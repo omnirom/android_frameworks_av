@@ -13,6 +13,25 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by Dolby Laboratories, Inc. The portions of the
+** code that are surrounded by "DOLBY..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2011-2016 Dolby Laboratories, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+**
 */
 
 // Proxy for media player implementations
@@ -21,6 +40,7 @@
 #define LOG_TAG "MediaPlayerService"
 #include <utils/Log.h>
 
+#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -81,6 +101,9 @@
 #include "HDCP.h"
 #include "HTTPBase.h"
 #include "RemoteDisplay.h"
+#ifdef DOLBY_ENABLE
+#include "DolbyMediaPlayerServiceExtImpl.h"
+#endif // DOLBY_END
 
 namespace {
 using android::media::Metadata;
@@ -684,10 +707,20 @@ sp<MediaPlayerBase> MediaPlayerService::Client::setDataSource_pre(
 
     sp<IServiceManager> sm = defaultServiceManager();
     sp<IBinder> binder = sm->getService(String16("media.extractor"));
+    if (binder == NULL) {
+        ALOGE("Unable to connect to media extractor service");
+        return NULL;
+    }
+
     mExtractorDeathListener = new ServiceDeathNotifier(binder, p, MEDIAEXTRACTOR_PROCESS_DEATH);
     binder->linkToDeath(mExtractorDeathListener);
 
     binder = sm->getService(String16("media.codec"));
+    if (binder == NULL) {
+        ALOGE("Unable to connect to media codec service");
+        return NULL;
+    }
+
     mCodecDeathListener = new ServiceDeathNotifier(binder, p, MEDIACODEC_PROCESS_DEATH);
     binder->linkToDeath(mCodecDeathListener);
 
@@ -770,8 +803,7 @@ status_t MediaPlayerService::Client::setDataSource(
 
 status_t MediaPlayerService::Client::setDataSource(int fd, int64_t offset, int64_t length)
 {
-    ALOGV("setDataSource fd=%d (%s), offset=%lld, length=%lld",
-            fd, nameForFd(fd).c_str(), (long long) offset, (long long) length);
+    ALOGV("setDataSource fd=%d, offset=%" PRId64 ", length=%" PRId64 "", fd, offset, length);
     struct stat sb;
     int ret = fstat(fd, &sb);
     if (ret != 0) {
@@ -779,11 +811,11 @@ status_t MediaPlayerService::Client::setDataSource(int fd, int64_t offset, int64
         return UNKNOWN_ERROR;
     }
 
-    ALOGV("st_dev  = %llu", static_cast<unsigned long long>(sb.st_dev));
+    ALOGV("st_dev  = %" PRIu64 "", static_cast<uint64_t>(sb.st_dev));
     ALOGV("st_mode = %u", sb.st_mode);
     ALOGV("st_uid  = %lu", static_cast<unsigned long>(sb.st_uid));
     ALOGV("st_gid  = %lu", static_cast<unsigned long>(sb.st_gid));
-    ALOGV("st_size = %llu", static_cast<unsigned long long>(sb.st_size));
+    ALOGV("st_size = %" PRId64 "", sb.st_size);
 
     if (offset >= sb.st_size) {
         ALOGE("offset error");
@@ -791,7 +823,7 @@ status_t MediaPlayerService::Client::setDataSource(int fd, int64_t offset, int64
     }
     if (offset + length > sb.st_size) {
         length = sb.st_size - offset;
-        ALOGV("calculated length = %lld", (long long)length);
+        ALOGV("calculated length = %" PRId64 "\n", length);
     }
 
     player_type playerType = MediaPlayerFactory::getPlayerType(this,
@@ -1290,10 +1322,17 @@ void MediaPlayerService::Client::notify(
         if (msg == MEDIA_PLAYBACK_COMPLETE && client->mNextClient != NULL) {
             if (client->mAudioOutput != NULL)
                 client->mAudioOutput->switchToNextOutput();
-            client->mNextClient->start();
-            if (client->mNextClient->mClient != NULL) {
+
+            ALOGD("gapless:current track played back");
+            ALOGD("gapless:try to do a gapless switch to next track");
+
+            if (client->mNextClient->start() == NO_ERROR &&
+                client->mNextClient->mClient != NULL) {
                 client->mNextClient->mClient->notify(
                         MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            } else if (client->mClient != NULL) {
+                client->mClient->notify(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN , 0, obj);
+                ALOGE("gapless:start playback for next track failed");
             }
         }
     }
@@ -1409,6 +1448,9 @@ MediaPlayerService::AudioOutput::AudioOutput(audio_session_t sessionId, int uid,
     }
 
     setMinBufferCount();
+#ifdef DOLBY_ENABLE
+    mProcessedAudio = false;
+#endif // DOLBY_END
 }
 
 MediaPlayerService::AudioOutput::~AudioOutput()
@@ -1541,7 +1583,11 @@ int64_t MediaPlayerService::AudioOutput::getPlayedOutDurationUs(int64_t nowUs) c
         //        numFramesPlayed, (long long)numFramesPlayedAt);
     } else {                         // case 3: transitory at new track or audio fast tracks.
         res = mTrack->getPosition(&numFramesPlayed);
-        CHECK_EQ(res, (status_t)OK);
+        if (res != OK) {
+            // return with invalid duration to indicate playback position should
+            // be queried from MediaClock using system clock
+            return -1;
+        }
         numFramesPlayedAt = nowUs;
         numFramesPlayedAt += 1000LL * mTrack->latency() / 2; /* XXX */
         //ALOGD("getPosition: %u %lld", numFramesPlayed, (long long)numFramesPlayedAt);
@@ -1582,6 +1628,9 @@ status_t MediaPlayerService::AudioOutput::getFramesWritten(uint32_t *frameswritt
 status_t MediaPlayerService::AudioOutput::setParameters(const String8& keyValuePairs)
 {
     Mutex::Autolock lock(mLock);
+#ifdef DOLBY_ENABLE
+    setDolbyParameters(keyValuePairs);
+#endif // DOLBY_END
     if (mTrack == 0) return NO_INIT;
     return mTrack->setParameters(keyValuePairs);
 }
@@ -1613,6 +1662,12 @@ void MediaPlayerService::AudioOutput::setAudioStreamType(audio_stream_type_t str
     // do not allow direct stream type modification if attributes have been set
     if (mAttributes == NULL) {
         mStreamType = streamType;
+        // No attributes are set, for mediaPlayer playback, force populate attributes
+        // This is done to ensure that we qualify for a direct output
+        mAttributes = (audio_attributes_t *) calloc(1, sizeof(audio_attributes_t));
+        if (mAttributes != NULL) {
+            stream_type_to_audio_attributes(mStreamType, mAttributes);
+        }
     }
 }
 
@@ -1677,6 +1732,18 @@ status_t MediaPlayerService::AudioOutput::open(
             ((cb == NULL) || (offloadInfo == NULL))) {
         return BAD_VALUE;
     }
+
+    // Attributes if still NULL indicate that the application did not even set the
+    // stream type, hence populating attributes based on default stream type.
+    if (mAttributes == NULL) {
+        // For mediaPlayer playback, force populate attributes
+        // This is done to ensure that we qualify for a direct output
+        mAttributes = (audio_attributes_t *) calloc(1, sizeof(audio_attributes_t));
+        if (mAttributes != NULL) {
+            stream_type_to_audio_attributes(mStreamType, mAttributes);
+        }
+    }
+
 
     // compute frame count for the AudioTrack internal buffer
     size_t frameCount;
@@ -1844,6 +1911,13 @@ status_t MediaPlayerService::AudioOutput::open(
                       mRecycledTrack->frameCount(), t->frameCount());
                 reuse = false;
             }
+            // If recycled and new tracks are not on the same output,
+            // don't reuse the recycled one.
+            if (mRecycledTrack->getOutput() != t->getOutput()) {
+                ALOGV("effect chain if exists has already moved to new output, \
+                        giving up reusing recycled track.");
+                reuse = false;
+            }
         }
 
         if (reuse) {
@@ -1855,6 +1929,9 @@ status_t MediaPlayerService::AudioOutput::open(
                 mCallbackData->setOutput(this);
             }
             delete newcbd;
+#ifdef DOLBY_ENABLE
+            updateTrackOnAudioProcessed(mTrack, reuse);
+#endif // DOLBY_END
             return updateTrack();
         }
     }
@@ -1896,6 +1973,9 @@ status_t MediaPlayerService::AudioOutput::updateTrack() {
             res = mTrack->attachAuxEffect(mAuxEffectId);
         }
     }
+#ifdef DOLBY_ENABLE
+    updateTrackOnAudioProcessed(mTrack, false);
+#endif // DOLBY_END
     ALOGV("updateTrack() DONE status %d", res);
     return res;
 }

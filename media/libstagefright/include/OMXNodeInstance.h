@@ -151,7 +151,7 @@ private:
     OMX::node_id mNodeID;
     OMX_HANDLETYPE mHandle;
     sp<IOMXObserver> mObserver;
-    bool mDying;
+    atomic_bool mDying;
     bool mSailed;  // configuration is set (no more meta-mode changes)
     bool mQueriedProhibitedExtensions;
     SortedVector<OMX_INDEXTYPE> mProhibitedExtensions;

@@ -37,6 +37,7 @@
 #include "../../libstagefright/include/NuCachedSource2.h"
 #include "../../libstagefright/include/WVMExtractor.h"
 #include "../../libstagefright/include/HTTPBase.h"
+#include "mediaplayerservice/AVNuExtensions.h"
 
 namespace android {
 
@@ -59,6 +60,7 @@ NuPlayer::GenericSource::GenericSource(
       mFetchTimedTextDataGeneration(0),
       mDurationUs(-1ll),
       mAudioIsVorbis(false),
+      mIsByteMode(false),
       mIsWidevine(false),
       mIsSecure(false),
       mIsStreaming(false),
@@ -78,6 +80,7 @@ void NuPlayer::GenericSource::resetDataSource() {
     mHttpSource.clear();
     mUri.clear();
     mUriHeaders.clear();
+    mSources.clear();
     if (mFd >= 0) {
         close(mFd);
         mFd = -1;
@@ -244,6 +247,10 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
                     mAudioIsVorbis = true;
                 } else {
                     mAudioIsVorbis = false;
+                }
+
+                if (AVNuUtils::get()->isByteStreamModeEnabled(meta)) {
+                    mIsByteMode = true;
                 }
             }
         } else if (!strncasecmp(mime, "video/", 6)) {
@@ -1392,6 +1399,11 @@ void NuPlayer::GenericSource::readBuffer(
             track = &mAudioTrack;
             if (mIsWidevine) {
                 maxBuffers = 8;
+            } else if (mIsByteMode) {
+                // byte stream mode is enabled only for mp3 & aac
+                // and the parser gives a huge chunk of data per read,
+                // so reading one buffer is sufficient.
+                maxBuffers = 1;
             } else {
                 maxBuffers = 64;
             }
@@ -1427,7 +1439,6 @@ void NuPlayer::GenericSource::readBuffer(
     if (mIsWidevine || couldReadMultiple) {
         options.setNonBlocking();
     }
-
     for (size_t numBuffers = 0; numBuffers < maxBuffers; ) {
         Vector<MediaBuffer *> mediaBuffers;
         status_t err = NO_ERROR;

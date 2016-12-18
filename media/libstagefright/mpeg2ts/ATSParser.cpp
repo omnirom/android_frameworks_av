@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2011-2016 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 //#define LOG_NDEBUG 0
@@ -38,6 +57,7 @@
 #include <utils/Vector.h>
 
 #include <inttypes.h>
+#include <stagefright/AVExtensions.h>
 
 namespace android {
 
@@ -603,6 +623,12 @@ ATSParser::Stream::Stream(
                     (mProgram->parserFlags() & ALIGNED_VIDEO_DATA)
                         ? ElementaryStreamQueue::kFlag_AlignedData : 0);
             break;
+        case STREAMTYPE_H265:
+            mQueue = AVFactory::get()->createESQueue(
+                    ElementaryStreamQueue::H265,
+                    (mProgram->parserFlags() & ALIGNED_VIDEO_DATA)
+                        ? ElementaryStreamQueue::kFlag_AlignedData : 0);
+            break;
         case STREAMTYPE_MPEG2_AUDIO_ADTS:
             mQueue = new ElementaryStreamQueue(ElementaryStreamQueue::AAC);
             break;
@@ -628,6 +654,12 @@ ATSParser::Stream::Stream(
             mQueue = new ElementaryStreamQueue(
                     ElementaryStreamQueue::AC3);
             break;
+#ifdef DOLBY_ENABLE
+        case STREAMTYPE_EAC3:
+            mQueue = new ElementaryStreamQueue(
+                    ElementaryStreamQueue::EAC3);
+            break;
+#endif // DOLBY_END
 
         case STREAMTYPE_METADATA:
             mQueue = new ElementaryStreamQueue(
@@ -740,6 +772,7 @@ status_t ATSParser::Stream::parse(
 bool ATSParser::Stream::isVideo() const {
     switch (mStreamType) {
         case STREAMTYPE_H264:
+        case STREAMTYPE_H265:
         case STREAMTYPE_MPEG1_VIDEO:
         case STREAMTYPE_MPEG2_VIDEO:
         case STREAMTYPE_MPEG4_VIDEO:
@@ -757,6 +790,9 @@ bool ATSParser::Stream::isAudio() const {
         case STREAMTYPE_MPEG2_AUDIO_ADTS:
         case STREAMTYPE_LPCM_AC3:
         case STREAMTYPE_AC3:
+#ifdef DOLBY_ENABLE
+        case STREAMTYPE_EAC3:
+#endif // DOLBY_END
             return true;
 
         default:
@@ -1089,9 +1125,11 @@ void ATSParser::Stream::onPayloadData(
                      mElementaryPID, mStreamType);
 
                 const char *mime;
-                if (meta->findCString(kKeyMIMEType, &mime)
-                        && !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC)
-                        && !IsIDR(accessUnit)) {
+                if (meta->findCString(kKeyMIMEType, &mime) &&
+                        ((!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC)
+                           && !IsIDR(accessUnit)) ||
+                         (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC)
+                          && !AVUtils::get()->IsHevcIDR(accessUnit)))) {
                     continue;
                 }
                 mSource = new AnotherPacketSource(meta);

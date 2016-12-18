@@ -13,6 +13,25 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by Dolby Laboratories, Inc. The portions of the
+** code that are surrounded by "DOLBY..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2011-2016 Dolby Laboratories, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+**
 */
 
 
@@ -80,6 +99,9 @@
 #define ALOGVV(a...) do { } while(0)
 #endif
 
+#ifdef DOLBY_ENABLE
+#include "EffectDapController_impl.h"
+#endif // DOLBY_END
 namespace android {
 
 static const char kDeadlockedString[] = "AudioFlinger may be deadlocked\n";
@@ -225,6 +247,9 @@ AudioFlinger::AudioFlinger()
         mTeeSinkTrackEnabled = true;
     }
 #endif
+#ifdef DOLBY_ENABLE
+    EffectDapController::mInstance = new EffectDapController(this);
+#endif // DOLBY_END
 }
 
 void AudioFlinger::onFirstRef()
@@ -252,6 +277,9 @@ void AudioFlinger::onFirstRef()
 
 AudioFlinger::~AudioFlinger()
 {
+#ifdef DOLBY_ENABLE
+    delete EffectDapController::mInstance;
+#endif // DOLBY_END
     while (!mRecordThreads.isEmpty()) {
         // closeInput_nonvirtual() will remove specified entry from mRecordThreads
         closeInput_nonvirtual(mRecordThreads.keyAt(0));
@@ -1121,9 +1149,24 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             }
             mHardwareStatus = AUDIO_HW_IDLE;
         }
-        // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
+
         AudioParameter param = AudioParameter(keyValuePairs);
-        String8 value;
+        String8 value, key;
+        key = String8("SND_CARD_STATUS");
+        if (param.get(key, value) == NO_ERROR) {
+            ALOGV("Set keySoundCardStatus:%s", value.string());
+            if ((value.find("OFFLINE", 0) != -1)) {
+                ALOGV("OFFLINE detected - call InvalidateTracks()");
+                for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+                    PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+                    if (thread->getOutput()->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+                         thread->invalidateTracks(AUDIO_STREAM_MUSIC);
+                    }
+                }
+            }
+        }
+
+        // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
         if (param.get(String8(AUDIO_PARAMETER_KEY_BT_NREC), value) == NO_ERROR) {
             bool btNrecIsOff = (value == AUDIO_PARAMETER_VALUE_OFF);
             if (mBtNrecIsOff != btNrecIsOff) {
@@ -1426,6 +1469,9 @@ AudioFlinger::Client::Client(const sp<AudioFlinger>& audioFlinger, pid_t pid)
     size_t heapSize = kClientSharedHeapSizeBytes;
     // Increase heap size on non low ram devices to limit risk of reconnection failure for
     // invalidated tracks
+    kClientSharedHeapSizeMultiplier =
+        property_get_int32("audio.heap.size.multiplier",
+            kClientSharedHeapSizeMultiplier);
     if (!audioFlinger->isLowRamDevice()) {
         heapSize *= kClientSharedHeapSizeMultiplier;
     }
@@ -1885,7 +1931,11 @@ sp<AudioFlinger::PlaybackThread> AudioFlinger::openOutput_l(audio_module_handle_
                 || !isValidPcmSinkFormat(config->format)
                 || !isValidPcmSinkChannelMask(config->channel_mask)) {
             thread = new DirectOutputThread(this, outputStream, *output, devices, mSystemReady);
-            ALOGV("openOutput_l() created direct output: ID %d thread %p", *output, thread);
+            ALOGV("openOutput_l() created direct output: ID %d thread %p ", *output, thread);
+            //Check if this is DirectPCM, if so
+            if (flags & AUDIO_OUTPUT_FLAG_DIRECT_PCM) {
+                thread->mIsDirectPcm = true;
+            }
         } else {
             thread = new MixerThread(this, outputStream, *output, devices, mSystemReady);
             ALOGV("openOutput_l() created mixer output: ID %d thread %p", *output, thread);
@@ -2829,6 +2879,11 @@ status_t AudioFlinger::moveEffects(audio_session_t sessionId, audio_io_handle_t 
 
     Mutex::Autolock _dl(dstThread->mLock);
     Mutex::Autolock _sl(srcThread->mLock);
+#ifdef DOLBY_ENABLE
+    if (static_cast<int>(sessionId) == DOLBY_MOVE_EFFECT_SIGNAL) {
+        return EffectDapController::instance()->moveEffect(AUDIO_SESSION_OUTPUT_MIX, srcThread, dstThread);
+    }
+#endif // DOLBY_END
     return moveEffectChain_l(sessionId, srcThread, dstThread, false);
 }
 
@@ -2907,6 +2962,9 @@ status_t AudioFlinger::moveEffectChain_l(audio_session_t sessionId,
     if (status != NO_ERROR) {
         for (size_t i = 0; i < removed.size(); i++) {
             srcThread->addEffect_l(removed[i]);
+#ifdef DOLBY_ENABLE
+            EffectDapController::instance()->restartEffect(effect);
+#endif // DOLBY_END
             if (dstChain != 0 && reRegister) {
                 AudioSystem::unregisterEffect(removed[i]->id());
                 AudioSystem::registerEffect(&removed[i]->desc(),

@@ -26,6 +26,7 @@
 #include <utils/Log.h>
 #include <private/media/AudioTrackShared.h>
 #include <media/IAudioFlinger.h>
+#include "SeempLog.h"
 
 #define WAIT_PERIOD_MS          10
 
@@ -271,7 +272,12 @@ status_t AudioRecord::set(
     mStatus = NO_ERROR;
     mUserData = user;
     // TODO: add audio hardware input latency here
-    mLatency = (1000 * mFrameCount) / mSampleRate;
+    if (mTransfer == TRANSFER_CALLBACK ||
+            mTransfer == TRANSFER_SYNC) {
+        mLatency = (1000 * mNotificationFramesAct) / sampleRate;
+    } else {
+        mLatency = (1000 * mFrameCount) / sampleRate;
+    }
     mMarkerPosition = 0;
     mMarkerReached = false;
     mNewPosition = 0;
@@ -291,6 +297,7 @@ status_t AudioRecord::set(
 status_t AudioRecord::start(AudioSystem::sync_event_t event, audio_session_t triggerSession)
 {
     ALOGV("start, sync event %d trigger session %d", event, triggerSession);
+    SEEMPLOG_RECORD(71,"");
 
     AutoMutex lock(mLock);
     if (mActive) {

@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2015-2016 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 #ifndef NU_PLAYER_H_
@@ -41,7 +60,7 @@ struct NuPlayer : public AHandler {
 
     void setDataSourceAsync(const sp<IStreamSource> &source);
 
-    void setDataSourceAsync(
+    virtual void setDataSourceAsync(
             const sp<IMediaHTTPService> &httpService,
             const char *url,
             const KeyedVector<String8, String8> *headers);
@@ -86,12 +105,15 @@ protected:
     virtual ~NuPlayer();
 
     virtual void onMessageReceived(const sp<AMessage> &msg);
-
+    virtual bool ifDecodedPCMOffload() {return false;}
+    virtual void setDecodedPcmOffload(bool /*decodePcmOffload*/) {}
+    virtual bool canOffloadDecodedPCMStream(const sp<MetaData> /*meta*/,
+            bool /*hasVideo*/, bool /*isStreaming*/, audio_stream_type_t /*streamType*/) {return false;}
+    static bool IsHTTPLiveURL(const char *url);
 public:
     struct NuPlayerStreamListener;
     struct Source;
 
-private:
     struct Decoder;
     struct DecoderBase;
     struct DecoderPassThrough;
@@ -109,6 +131,7 @@ private:
     struct PostMessageAction;
     struct SimpleAction;
 
+protected:
     enum {
         kWhatSetDataSource              = '=DaS',
         kWhatPrepare                    = 'prep',
@@ -231,7 +254,7 @@ private:
             int64_t currentPositionUs, bool forceNonOffload, bool needsToCreateAudioDecoder);
     void determineAudioModeChange(const sp<AMessage> &audioFormat);
 
-    status_t instantiateDecoder(
+    virtual status_t instantiateDecoder(
             bool audio, sp<DecoderBase> *decoder, bool checkAudioModeChange = true);
 
     status_t onInstantiateSecureDecoders();
@@ -263,14 +286,14 @@ private:
 
     void processDeferredActions();
 
-    void performSeek(int64_t seekTimeUs);
+    virtual void performSeek(int64_t seekTimeUs);
     void performDecoderFlush(FlushCommand audio, FlushCommand video);
     void performReset();
     void performScanSources();
     void performSetSurface(const sp<Surface> &wrapper);
     void performResumeDecoders(bool needNotify);
 
-    void onSourceNotify(const sp<AMessage> &msg);
+    virtual void onSourceNotify(const sp<AMessage> &msg);
     void onClosedCaptionNotify(const sp<AMessage> &msg);
 
     void queueDecoderShutdown(
@@ -281,6 +304,9 @@ private:
     void sendTimedTextData(const sp<ABuffer> &buffer);
 
     void writeTrackInfo(Parcel* reply, const sp<AMessage> format) const;
+#ifdef DOLBY_ENABLE
+    void onDolbyMessageReceived();
+#endif // DOLBY_END
 
     DISALLOW_EVIL_CONSTRUCTORS(NuPlayer);
 };

@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2016 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 //#define LOG_NDEBUG 0
@@ -41,6 +60,7 @@
 
 #include <cutils/properties.h>
 #include <expat.h>
+#include <stagefright/AVExtensions.h>
 
 namespace android {
 
@@ -175,8 +195,9 @@ MediaCodecList::MediaCodecList()
     : mInitCheck(NO_INIT),
       mUpdate(false),
       mGlobalSettings(new AMessage()) {
-    parseTopLevelXMLFile("/etc/media_codecs.xml");
-    parseTopLevelXMLFile("/etc/media_codecs_performance.xml", true/* ignore_errors */);
+    parseTopLevelXMLFile(AVUtils::get()->getCustomCodecsLocation());
+    parseTopLevelXMLFile(AVUtils::get()->getCustomCodecsPerformanceLocation(),
+                            true/* ignore_errors */);
     parseTopLevelXMLFile(kProfilingResults, true/* ignore_errors */);
 }
 
@@ -944,7 +965,13 @@ status_t MediaCodecList::addLimit(const char **attrs) {
     // complexity: range + default
     bool found;
 
-    if (name == "aspect-ratio" || name == "bitrate" || name == "block-count"
+    // VT specific limits
+    if (name.find("vt-") == 0) {
+        AString value;
+        if (msg->findString("value", &value) && value.size()) {
+            mCurrentInfo->addDetail(name, value);
+        }
+    } else if (name == "aspect-ratio" || name == "bitrate" || name == "block-count"
             || name == "blocks-per-second" || name == "complexity"
             || name == "frame-rate" || name == "quality" || name == "size"
             || name == "measured-blocks-per-second" || name.startsWith("measured-frame-rate-")) {
@@ -1123,6 +1150,9 @@ const sp<AMessage> MediaCodecList::getGlobalSettings() const {
 //static
 bool MediaCodecList::isSoftwareCodec(const AString &componentName) {
     return componentName.startsWithIgnoreCase("OMX.google.")
+#ifdef DOLBY_ENABLE
+        || componentName.startsWithIgnoreCase("OMX.dolby.")
+#endif
         || !componentName.startsWithIgnoreCase("OMX.");
 }
 

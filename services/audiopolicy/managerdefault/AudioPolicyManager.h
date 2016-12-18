@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2014-2016 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 #pragma once
@@ -173,6 +192,9 @@ public:
                                         int id);
         virtual status_t unregisterEffect(int id)
         {
+#ifdef DOLBY_ENABLE
+            mDolbyAudioPolicy.effectRemoved(&mEffects, id);
+#endif // DOLBY_END
             return mEffects.unregisterEffect(id);
         }
         virtual status_t setEffectEnabled(int id, bool enabled)
@@ -382,7 +404,7 @@ protected:
         // must be called every time a condition that affects the output choice for a given strategy
         // changes: connected device, phone state, force use...
         // Must be called before updateDevicesAndOutputs()
-        void checkOutputForStrategy(routing_strategy strategy);
+        virtual void checkOutputForStrategy(routing_strategy strategy);
 
         // Same as checkOutputForStrategy() but for a all strategies in order of priority
         void checkOutputForAllStrategies();
@@ -394,7 +416,7 @@ protected:
         // must be called every time a condition that affects the device choice for a given output is
         // changed: connected device, phone state, force use, output start, output stop..
         // see getDeviceForStrategy() for the use of fromCache parameter
-        audio_devices_t getNewOutputDevice(const sp<AudioOutputDescriptor>& outputDesc,
+        virtual audio_devices_t getNewOutputDevice(const sp<AudioOutputDescriptor>& outputDesc,
                                            bool fromCache);
 
         // updates cache of device used by all strategies (mDeviceForStrategy[])
@@ -481,12 +503,12 @@ protected:
 
         // if argument "device" is different from AUDIO_DEVICE_NONE,  startSource() will force
         // the re-evaluation of the output device.
-        status_t startSource(sp<AudioOutputDescriptor> outputDesc,
+        virtual status_t startSource(sp<AudioOutputDescriptor> outputDesc,
                              audio_stream_type_t stream,
                              audio_devices_t device,
                              const char *address,
                              uint32_t *delayMs);
-        status_t stopSource(sp<AudioOutputDescriptor> outputDesc,
+        virtual status_t stopSource(sp<AudioOutputDescriptor> outputDesc,
                             audio_stream_type_t stream,
                             bool forceDeviceUpdate);
 
@@ -593,7 +615,7 @@ private:
         // If any, resolve any "dynamic" fields of an Audio Profiles collection
         void updateAudioProfiles(audio_devices_t device, audio_io_handle_t ioHandle,
                 AudioProfileVector &profiles);
-
+protected:
         // updates device caching and output for streams that can influence the
         //    routing of notifications
         void handleNotificationRoutingForStream(audio_stream_type_t stream);
@@ -608,7 +630,7 @@ private:
                 SortedVector<audio_io_handle_t>& outputs /*out*/);
         uint32_t curAudioPortGeneration() const { return mAudioPortGeneration; }
         // internal method to return the output handle for the given device and format
-        audio_io_handle_t getOutputForDevice(
+        virtual audio_io_handle_t getOutputForDevice(
                 audio_devices_t device,
                 audio_session_t session,
                 audio_stream_type_t stream,
@@ -644,7 +666,7 @@ private:
                                                         AudioMix **policyMix = NULL);
 
         // Called by setDeviceConnectionState().
-        status_t setDeviceConnectionStateInt(audio_devices_t device,
+        virtual status_t setDeviceConnectionStateInt(audio_devices_t device,
                                                           audio_policy_dev_state_t state,
                                                           const char *device_address,
                                                           const char *device_name);
@@ -653,6 +675,11 @@ private:
             param.addInt(String8(AUDIO_PARAMETER_MONO_OUTPUT), (int)mMasterMono);
             mpClientInterface->setParameters(output, param.toString());
         }
+#ifdef DOLBY_ENABLE
+protected:
+#include "DolbyAudioPolicy.h"
+        DolbyAudioPolicy mDolbyAudioPolicy;
+#endif // DOLBY_END
 };
 
 };

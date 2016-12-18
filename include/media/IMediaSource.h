@@ -135,6 +135,7 @@ public:
     // |readMultiple| if supported, always allows the nonblocking option.
     virtual bool supportNonblockingRead() = 0;
 
+
     // Causes this source to suspend pulling data from its upstream source
     // until a subsequent read-with-seek. Currently only supported by
     // OMXCodec.

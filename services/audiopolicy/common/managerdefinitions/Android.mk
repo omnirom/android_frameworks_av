@@ -34,6 +34,11 @@ LOCAL_C_INCLUDES := \
     $(TOPDIR)frameworks/av/services/audiopolicy \
     $(TOPDIR)frameworks/av/services/audiopolicy/utilities \
 
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FORMATS)),true)
+LOCAL_CFLAGS     += -DAUDIO_EXTN_FORMATS_ENABLED
+endif
+endif
 ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
 
 LOCAL_SRC_FILES += src/Serializer.cpp
@@ -55,12 +60,18 @@ LOCAL_SRC_FILES += \
 
 endif #ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
 
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PROXY_DEVICE)),true)
+LOCAL_CFLAGS += -DAUDIO_EXTN_AFE_PROXY_ENABLED
+endif
+endif
+
 LOCAL_EXPORT_C_INCLUDE_DIRS := \
     $(LOCAL_PATH)/include
 
 LOCAL_MULTILIB := $(AUDIOSERVER_MULTILIB)
 
-LOCAL_CFLAGS := -Wall -Werror
+LOCAL_CFLAGS += -Wall -Werror
 
 LOCAL_MODULE := libaudiopolicycomponents
 

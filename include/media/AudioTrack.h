@@ -32,6 +32,7 @@ namespace android {
 struct audio_track_cblk_t;
 class AudioTrackClientProxy;
 class StaticAudioTrackClientProxy;
+struct ExtendedMediaUtils;
 
 // ----------------------------------------------------------------------------
 
@@ -559,6 +560,7 @@ public:
      */
             status_t    reload();
 
+public:
     /* Returns a handle on the audio output used by this AudioTrack.
      *
      * Parameters:
@@ -568,9 +570,7 @@ public:
      *  handle on audio hardware output, or AUDIO_IO_HANDLE_NONE if the
      *  track needed to be re-created but that failed
      */
-private:
             audio_io_handle_t    getOutput() const;
-public:
 
     /* Selects the audio device to use for output of this AudioTrack. A value of
      * AUDIO_PORT_HANDLE_NONE indicates default (AudioPolicyManager) routing.
@@ -1088,6 +1088,8 @@ protected:
     // For Device Selection API
     //  a value of AUDIO_PORT_HANDLE_NONE indicated default (AudioPolicyManager) routing.
     audio_port_handle_t     mSelectedDeviceId;
+    bool                    mTrackOffloaded;
+    bool                    mPlaybackRateSet;
 
 private:
     class DeathNotifier : public IBinder::DeathRecipient {
@@ -1105,6 +1107,7 @@ private:
     pid_t                   mClientPid;
 
     sp<AudioSystem::AudioDeviceCallback> mDeviceCallback;
+    friend struct ExtendedMediaUtils;
 };
 
 }; // namespace android

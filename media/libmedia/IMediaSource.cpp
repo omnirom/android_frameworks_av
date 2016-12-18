@@ -186,7 +186,6 @@ public:
                 ret, bufferCount, mBuffersSinceStop);
         return ret;
     }
-
     // Binder proxy adds readMultiple support.
     virtual bool supportReadMultiple() {
         return true;

@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2015-2016 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 #ifndef A_CODEC_H_
@@ -114,8 +133,11 @@ struct ACodec : public AHierarchicalStateMachine, public CodecBase {
 
 protected:
     virtual ~ACodec();
+    virtual status_t setupCustomCodec(
+            status_t err, const char *mime, const sp<AMessage> &msg);
+    virtual status_t GetVideoCodingTypeFromMime(
+            const char *mime, OMX_VIDEO_CODINGTYPE *codingType);
 
-private:
     struct BaseState;
     struct UninitializedState;
     struct LoadedState;
@@ -340,12 +362,11 @@ private:
             uint32_t portIndex, IOMX::buffer_id bufferID,
             ssize_t *index = NULL);
 
-    status_t setComponentRole(bool isEncoder, const char *mime);
-    static const char *getComponentRole(bool isEncoder, const char *mime);
+    virtual status_t setComponentRole(bool isEncoder, const char *mime);
+    virtual const char *getComponentRole(bool isEncoder, const char *mime);
     static status_t setComponentRole(
             const sp<IOMX> &omx, IOMX::node_id node, const char *role);
-
-    status_t configureCodec(const char *mime, const sp<AMessage> &msg);
+    virtual status_t configureCodec(const char *mime, const sp<AMessage> &msg);
 
     status_t configureTunneledVideoPlayback(int32_t audioHwSync,
             const sp<ANativeWindow> &nativeWindow);
@@ -358,11 +379,11 @@ private:
 
     status_t setSupportedOutputFormat(bool getLegacyFlexibleFormat);
 
-    status_t setupVideoDecoder(
+    virtual status_t setupVideoDecoder(
             const char *mime, const sp<AMessage> &msg, bool usingNativeBuffers, bool haveSwRenderer,
             sp<AMessage> &outputformat);
 
-    status_t setupVideoEncoder(
+    virtual status_t setupVideoEncoder(
             const char *mime, const sp<AMessage> &msg,
             sp<AMessage> &outputformat, sp<AMessage> &inputformat);
 
@@ -503,7 +524,7 @@ private:
     status_t configureBitrate(
             int32_t bitrate, OMX_VIDEO_CONTROLRATETYPE bitrateMode);
 
-    status_t setupErrorCorrectionParameters();
+    virtual status_t setupErrorCorrectionParameters();
 
     status_t initNativeWindow();
 
@@ -545,7 +566,7 @@ private:
     void addKeyFormatChangesToRenderBufferNotification(sp<AMessage> &notify);
     void sendFormatChange();
 
-    status_t getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify);
+    virtual status_t getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify);
 
     void signalError(
             OMX_ERRORTYPE error = OMX_ErrorUndefined,
@@ -557,10 +578,34 @@ private:
         DescribeColorFormat2Params &describeParams);
 
     status_t requestIDRFrame();
-    status_t setParameters(const sp<AMessage> &params);
+    virtual status_t setParameters(const sp<AMessage> &params);
 
     // Send EOS on input stream.
     void onSignalEndOfInputStream();
+#ifdef DOLBY_ENABLE
+    status_t setDolbyParameterOnEndpChange();
+    void     setDolbyParameter(const sp<AMessage> &msg);
+    status_t setDolbyParameterOnProcessedAudio(const sp<AMessage> &params);
+#endif // DOLBY_END
+
+    virtual void setBFrames(OMX_VIDEO_PARAM_MPEG4TYPE *mpeg4type) {}
+    virtual void setBFrames(OMX_VIDEO_PARAM_AVCTYPE *h264type,
+        const int32_t iFramesInterval, const int32_t frameRate) {}
+
+    virtual status_t getVQZIPInfo(const sp<AMessage> &msg) {
+        return OK;
+    }
+
+    virtual status_t setDSModeHint(sp<AMessage>& msg,
+        OMX_U32 flags, int64_t timeUs) {
+        return UNKNOWN_ERROR;
+    }
+
+    virtual bool getDSModeHint(const sp<AMessage>& msg) {
+        return false;
+    }
+
+    sp<IOMXObserver> createObserver();
 
     DISALLOW_EVIL_CONSTRUCTORS(ACodec);
 };

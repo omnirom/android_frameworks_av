@@ -18,6 +18,7 @@
 #define LOG_TAG "MediaRecorderService"
 #include <utils/Log.h>
 
+#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -39,6 +40,7 @@
 
 #include "StagefrightRecorder.h"
 #include <gui/IGraphicBufferProducer.h>
+#include "mediaplayerservice/AVMediaServiceExtensions.h"
 
 namespace android {
 
@@ -163,7 +165,7 @@ status_t MediaRecorderClient::setAudioEncoder(int ae)
 
 status_t MediaRecorderClient::setOutputFile(int fd, int64_t offset, int64_t length)
 {
-    ALOGV("setOutputFile(%d, %lld, %lld)", fd, (long long)offset, (long long)length);
+    ALOGV("setOutputFile(%d, %" PRId64 ", %" PRId64 ")", fd, offset, length);
     Mutex::Autolock lock(mLock);
     if (mRecorder == NULL) {
         ALOGE("recorder is not initialized");
@@ -325,7 +327,7 @@ MediaRecorderClient::MediaRecorderClient(const sp<MediaPlayerService>& service, 
 {
     ALOGV("Client constructor");
     mPid = pid;
-    mRecorder = new StagefrightRecorder(opPackageName);
+    mRecorder = AVMediaServiceFactory::get()->createStagefrightRecorder(opPackageName);
     mMediaPlayerService = service;
 }
 
@@ -369,11 +371,21 @@ status_t MediaRecorderClient::setListener(const sp<IMediaRecorderClient>& listen
 
     sp<IServiceManager> sm = defaultServiceManager();
     sp<IBinder> binder = sm->getService(String16("media.camera"));
+    if (binder == NULL) {
+        ALOGE("Unable to connect to camera service");
+        return NO_INIT;
+    }
+
     mCameraDeathListener = new ServiceDeathNotifier(binder, listener,
             MediaPlayerService::CAMERA_PROCESS_DEATH);
     binder->linkToDeath(mCameraDeathListener);
 
     binder = sm->getService(String16("media.codec"));
+    if (binder == NULL) {
+        ALOGE("Unable to connect to media codec service");
+        return NO_INIT;
+    }
+
     mCodecDeathListener = new ServiceDeathNotifier(binder, listener,
             MediaPlayerService::MEDIACODEC_PROCESS_DEATH);
     binder->linkToDeath(mCodecDeathListener);
