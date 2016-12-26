@@ -1380,6 +1380,11 @@ status_t AudioFlinger::PlaybackThread::checkEffectCompatibility_l(
     case DIRECT:
         // Reject any effect on Direct output threads for now, since the format of
         // mSinkBuffer is not guaranteed to be compatible with effect processing (PCM 16 stereo).
+        // Exception: allow effects for Direct PCM
+        if (mIsDirectPcm) {
+            // Allow effects when direct PCM enabled on Direct output
+            break;
+        }
         ALOGW("checkEffectCompatibility_l(): effect %s on DIRECT output thread %s",
                 desc->name, mThreadName);
         return BAD_VALUE;
