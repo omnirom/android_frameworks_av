@@ -1439,6 +1439,10 @@ status_t AudioTrack::createTrack_l()
     }
     ALOG_ASSERT(track != 0);
 
+    if (mTrackOffloaded) {
+        flags = (audio_output_flags_t)(flags & ~AUDIO_OUTPUT_FLAG_DIRECT);
+    }
+
     // AudioFlinger now owns the reference to the I/O handle,
     // so we are no longer responsible for releasing it.
 
