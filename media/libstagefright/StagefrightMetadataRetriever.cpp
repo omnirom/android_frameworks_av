@@ -55,8 +55,6 @@ StagefrightMetadataRetriever::StagefrightMetadataRetriever()
     : mParsedMetaData(false),
       mAlbumArt(NULL) {
     ALOGV("StagefrightMetadataRetriever()");
-
-    DataSource::RegisterDefaultSniffers();
 }
 
 StagefrightMetadataRetriever::~StagefrightMetadataRetriever() {
@@ -784,11 +782,6 @@ void StagefrightMetadataRetriever::parseMetaData() {
                         METADATA_KEY_MIMETYPE, String8("audio/x-matroska"));
             }
         }
-    }
-
-    // To check whether the media file is drm-protected
-    if (mExtractor->getDrmFlag()) {
-        mMetaData.add(METADATA_KEY_IS_DRM, String8("1"));
     }
 }
 

@@ -143,9 +143,7 @@ sp<IMediaExtractor> MediaExtractor::Create(
         const sp<DataSource> &source, const char *mime) {
     ALOGV("MediaExtractor::Create %s", mime);
 
-    char value[PROPERTY_VALUE_MAX];
-    if (property_get("media.stagefright.extractremote", value, NULL)
-            && (!strcmp("0", value) || !strcasecmp("false", value))) {
+    if (!property_get_bool("media.stagefright.extractremote", true)) {
         // local extractor
         ALOGW("creating media extractor in calling process");
         return CreateFromService(source, mime);
@@ -162,6 +160,8 @@ sp<IMediaExtractor> MediaExtractor::Create(
             if (!strncmp(drmMime, "drm+es_based+", 13)) {
                 // DRMExtractor sets container metadata kKeyIsDRM to 1
                 return new DRMExtractor(source, drmMime + 14);
+            } else {
+                mime = drmMime + 20; // get real mimetype after "drm+container_based+" prefix
             }
         }
 
@@ -185,14 +185,14 @@ sp<MediaExtractor> MediaExtractor::CreateFromService(
         const sp<DataSource> &source, const char *mime) {
 
     ALOGV("MediaExtractor::CreateFromService %s", mime);
-    DataSource::RegisterDefaultSniffers();
+    RegisterDefaultSniffers();
 
     sp<AMessage> meta;
 
     String8 tmp;
     if (mime == NULL) {
         float confidence;
-        if (!source->sniff(&tmp, &confidence, &meta)) {
+        if (!sniff(source, &tmp, &confidence, &meta)) {
             ALOGV("FAILED to autodetect media content.");
 
             return NULL;
@@ -201,28 +201,6 @@ sp<MediaExtractor> MediaExtractor::CreateFromService(
         mime = tmp.string();
         ALOGV("Autodetected media content as '%s' with confidence %.2f",
              mime, confidence);
-    }
-
-    bool isDrm = false;
-    // DRM MIME type syntax is "drm+type+original" where
-    // type is "es_based" or "container_based" and
-    // original is the content's cleartext MIME type
-    if (!strncmp(mime, "drm+", 4)) {
-        const char *originalMime = strchr(mime+4, '+');
-        if (originalMime == NULL) {
-            // second + not found
-            return NULL;
-        }
-        ++originalMime;
-        if (!strncmp(mime, "drm+es_based+", 13)) {
-            // DRMExtractor sets container metadata kKeyIsDRM to 1
-            return new DRMExtractor(source, originalMime);
-        } else if (!strncmp(mime, "drm+container_based+", 20)) {
-            mime = originalMime;
-            isDrm = true;
-        } else {
-            return NULL;
-        }
     }
 
     MediaExtractor *ret = NULL;
@@ -252,15 +230,80 @@ sp<MediaExtractor> MediaExtractor::CreateFromService(
         ret = new MidiExtractor(source);
     }
 
-    if (ret != NULL) {
-       if (isDrm) {
-           ret->setDrmFlag(true);
-       } else {
-           ret->setDrmFlag(false);
-       }
-    }
-
     return ret;
 }
+
+Mutex MediaExtractor::gSnifferMutex;
+List<MediaExtractor::SnifferFunc> MediaExtractor::gSniffers;
+bool MediaExtractor::gSniffersRegistered = false;
+
+// static
+bool MediaExtractor::sniff(
+        const sp<DataSource> &source, String8 *mimeType, float *confidence, sp<AMessage> *meta) {
+    *mimeType = "";
+    *confidence = 0.0f;
+    meta->clear();
+
+    {
+        Mutex::Autolock autoLock(gSnifferMutex);
+        if (!gSniffersRegistered) {
+            return false;
+        }
+    }
+
+    for (List<SnifferFunc>::iterator it = gSniffers.begin();
+         it != gSniffers.end(); ++it) {
+        String8 newMimeType;
+        float newConfidence;
+        sp<AMessage> newMeta;
+        if ((*it)(source, &newMimeType, &newConfidence, &newMeta)) {
+            if (newConfidence > *confidence) {
+                *mimeType = newMimeType;
+                *confidence = newConfidence;
+                *meta = newMeta;
+            }
+        }
+    }
+
+    return *confidence > 0.0;
+}
+
+// static
+void MediaExtractor::RegisterSniffer_l(SnifferFunc func) {
+    for (List<SnifferFunc>::iterator it = gSniffers.begin();
+         it != gSniffers.end(); ++it) {
+        if (*it == func) {
+            return;
+        }
+    }
+
+    gSniffers.push_back(func);
+}
+
+// static
+void MediaExtractor::RegisterDefaultSniffers() {
+    Mutex::Autolock autoLock(gSnifferMutex);
+    if (gSniffersRegistered) {
+        return;
+    }
+
+    RegisterSniffer_l(SniffMPEG4);
+    RegisterSniffer_l(SniffMatroska);
+    RegisterSniffer_l(SniffOgg);
+    RegisterSniffer_l(SniffWAV);
+    RegisterSniffer_l(SniffFLAC);
+    RegisterSniffer_l(SniffAMR);
+    RegisterSniffer_l(SniffMPEG2TS);
+    RegisterSniffer_l(SniffMP3);
+    RegisterSniffer_l(SniffAAC);
+    RegisterSniffer_l(SniffMPEG2PS);
+    RegisterSniffer_l(SniffMidi);
+
+    if (property_get_bool("drm.service.enabled", false)) {
+        RegisterSniffer_l(SniffDRM);
+    }
+    gSniffersRegistered = true;
+}
+
 
 }  // namespace android

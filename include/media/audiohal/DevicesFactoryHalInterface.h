@@ -26,8 +26,6 @@ namespace android {
 class DevicesFactoryHalInterface : public RefBase
 {
   public:
-    virtual ~DevicesFactoryHalInterface() {}
-
     // Opens a device with the specified name. To close the device, it is
     // necessary to release references to the returned object.
     virtual status_t openDevice(const char *name, sp<DeviceHalInterface> *device) = 0;
@@ -37,6 +35,8 @@ class DevicesFactoryHalInterface : public RefBase
   protected:
     // Subclasses can not be constructed directly by clients.
     DevicesFactoryHalInterface() {}
+
+    virtual ~DevicesFactoryHalInterface() {}
 };
 
 } // namespace android

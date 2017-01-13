@@ -36,6 +36,13 @@ namespace android {
 #include <arm_neon.h>
 #endif
 
+#if defined(__SSSE3__)  // Should be supported in x86 ABI for both 32 & 64-bit.
+#define USE_SSE (true)
+#include <tmmintrin.h>
+#else
+#define USE_SSE (false)
+#endif
+
 template<typename T, typename U>
 struct is_same
 {
@@ -119,7 +126,7 @@ int32_t mulAdd(int32_t in, int32_t v, int32_t a)
 static inline
 int32_t mulAddRL(int left, uint32_t inRL, int16_t v, int32_t a)
 {
-#if USE_INLINE_ASSEMBLY
+#if 0 // USE_INLINE_ASSEMBLY Seems to fail with Clang b/34110890
     int32_t out;
     if (left) {
         asm( "smlabb %[out], %[v], %[inRL], %[a] \n"
@@ -142,7 +149,7 @@ int32_t mulAddRL(int left, uint32_t inRL, int16_t v, int32_t a)
 static inline
 int32_t mulAddRL(int left, uint32_t inRL, int32_t v, int32_t a)
 {
-#if USE_INLINE_ASSEMBLY
+#if 0 // USE_INLINE_ASSEMBLY Seems to fail with Clang b/34110890
     int32_t out;
     if (left) {
         asm( "smlawb %[out], %[v], %[inRL], %[a] \n"

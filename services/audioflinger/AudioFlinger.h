@@ -19,11 +19,14 @@
 #define ANDROID_AUDIO_FLINGER_H
 
 #include "Configuration.h"
+#include <deque>
+#include <map>
 #include <stdint.h>
 #include <sys/types.h>
 #include <limits.h>
 
 #include <cutils/compiler.h>
+#include <cutils/properties.h>
 
 #include <media/IAudioFlinger.h>
 #include <media/IAudioFlingerClient.h>
@@ -114,7 +117,8 @@ public:
                                 pid_t tid,
                                 audio_session_t *sessionId,
                                 int clientUid,
-                                status_t *status /*non-NULL*/);
+                                status_t *status /*non-NULL*/,
+                                audio_port_handle_t portId);
 
     virtual sp<IAudioRecord> openRecord(
                                 audio_io_handle_t input,
@@ -131,7 +135,8 @@ public:
                                 size_t *notificationFrames,
                                 sp<IMemory>& cblk,
                                 sp<IMemory>& buffers,
-                                status_t *status /*non-NULL*/);
+                                status_t *status /*non-NULL*/,
+                                audio_port_handle_t portId);
 
     virtual     uint32_t    sampleRate(audio_io_handle_t ioHandle) const;
     virtual     audio_format_t format(audio_io_handle_t output) const;
@@ -223,6 +228,7 @@ public:
                         audio_io_handle_t io,
                         audio_session_t sessionId,
                         const String16& opPackageName,
+                        pid_t pid,
                         status_t *status /*non-NULL*/,
                         int *id,
                         int *enabled);
@@ -589,6 +595,7 @@ private:
                 void        removeNotificationClient(pid_t pid);
                 bool isNonOffloadableGlobalEffectEnabled_l();
                 void onNonOffloadableGlobalEffectEnable();
+                bool isSessionAcquired_l(audio_session_t audioSession);
 
                 // Store an effect chain to mOrphanEffectChains keyed vector.
                 // Called when a thread exits and effects are still attached to it.

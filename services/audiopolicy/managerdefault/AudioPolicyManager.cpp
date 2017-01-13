@@ -333,6 +333,47 @@ audio_policy_dev_state_t AudioPolicyManager::getDeviceConnectionState(audio_devi
             AUDIO_POLICY_DEVICE_STATE_AVAILABLE : AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE;
 }
 
+status_t AudioPolicyManager::handleDeviceConfigChange(audio_devices_t device,
+                                                      const char *device_address,
+                                                      const char *device_name)
+{
+    status_t status;
+
+    ALOGV("handleDeviceConfigChange(() device: 0x%X, address %s name %s",
+          device, device_address, device_name);
+
+    // Check if the device is currently connected
+    sp<DeviceDescriptor> devDesc =
+            mHwModules.getDeviceDescriptor(device, device_address, device_name);
+    ssize_t index = mAvailableOutputDevices.indexOf(devDesc);
+    if (index < 0) {
+        // Nothing to do: device is not connected
+        return NO_ERROR;
+    }
+
+    // Toggle the device state: UNAVAILABLE -> AVAILABLE
+    // This will force reading again the device configuration
+    status = setDeviceConnectionState(device,
+                                      AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
+                                      device_address, device_name);
+    if (status != NO_ERROR) {
+        ALOGW("handleDeviceConfigChange() error disabling connection state: %d",
+              status);
+        return status;
+    }
+
+    status = setDeviceConnectionState(device,
+                                      AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
+                                      device_address, device_name);
+    if (status != NO_ERROR) {
+        ALOGW("handleDeviceConfigChange() error enabling connection state: %d",
+              status);
+        return status;
+    }
+
+    return NO_ERROR;
+}
+
 uint32_t AudioPolicyManager::updateCallRouting(audio_devices_t rxDevice, uint32_t delayMs)
 {
     bool createTxPatch = false;
@@ -341,7 +382,7 @@ uint32_t AudioPolicyManager::updateCallRouting(audio_devices_t rxDevice, uint32_
     DeviceVector deviceList;
     uint32_t muteWaitMs = 0;
 
-    if(!hasPrimaryOutput()) {
+    if(!hasPrimaryOutput() || mPrimaryOutput->device() == AUDIO_DEVICE_OUT_STUB) {
         return muteWaitMs;
     }
     audio_devices_t txDevice = getDeviceAndMixForInputSource(AUDIO_SOURCE_VOICE_COMMUNICATION);
@@ -718,12 +759,10 @@ status_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t *attr,
                                               audio_session_t session,
                                               audio_stream_type_t *stream,
                                               uid_t uid,
-                                              uint32_t samplingRate,
-                                              audio_format_t format,
-                                              audio_channel_mask_t channelMask,
+                                              const audio_config_t *config,
                                               audio_output_flags_t flags,
                                               audio_port_handle_t selectedDeviceId,
-                                              const audio_offload_info_t *offloadInfo)
+                                              audio_port_handle_t *portId)
 {
     audio_attributes_t attributes;
     if (attr != NULL) {
@@ -741,10 +780,16 @@ status_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t *attr,
         }
         stream_type_to_audio_attributes(*stream, &attributes);
     }
+
+    // TODO: check for existing client for this port ID
+    if (*portId == AUDIO_PORT_HANDLE_NONE) {
+        *portId = AudioPort::getNextUniqueId();
+    }
+
     sp<SwAudioOutputDescriptor> desc;
     if (mPolicyMixes.getOutputForAttr(attributes, uid, desc) == NO_ERROR) {
         ALOG_ASSERT(desc != 0, "Invalid desc returned by getOutputForAttr");
-        if (!audio_has_proportional_frames(format)) {
+        if (!audio_has_proportional_frames(config->format)) {
             return BAD_VALUE;
         }
         *stream = streamTypefromAttributesInt(&attributes);
@@ -782,11 +827,11 @@ status_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t *attr,
     }
 
     ALOGV("getOutputForAttr() device 0x%x, samplingRate %d, format %x, channelMask %x, flags %x",
-          device, samplingRate, format, channelMask, flags);
+          device, config->sample_rate, config->format, config->channel_mask, flags);
 
     *output = getOutputForDevice(device, session, *stream,
-                                 samplingRate, format, channelMask,
-                                 flags, offloadInfo);
+                                 config->sample_rate, config->format, config->channel_mask,
+                                 flags, &config->offload_info);
     if (*output == AUDIO_IO_HANDLE_NONE) {
         mOutputRoutes.removeRoute(session);
         return INVALID_OPERATION;
@@ -1411,16 +1456,15 @@ status_t AudioPolicyManager::getInputForAttr(const audio_attributes_t *attr,
                                              audio_io_handle_t *input,
                                              audio_session_t session,
                                              uid_t uid,
-                                             uint32_t samplingRate,
-                                             audio_format_t format,
-                                             audio_channel_mask_t channelMask,
+                                             const audio_config_base_t *config,
                                              audio_input_flags_t flags,
                                              audio_port_handle_t selectedDeviceId,
-                                             input_type_t *inputType)
+                                             input_type_t *inputType,
+                                             audio_port_handle_t *portId)
 {
     ALOGV("getInputForAttr() source %d, samplingRate %d, format %d, channelMask %x,"
             "session %d, flags %#x",
-          attr->source, samplingRate, format, channelMask, session, flags);
+          attr->source, config->sample_rate, config->format, config->channel_mask, session, flags);
 
     *input = AUDIO_IO_HANDLE_NONE;
     *inputType = API_INPUT_INVALID;
@@ -1436,6 +1480,11 @@ status_t AudioPolicyManager::getInputForAttr(const audio_attributes_t *attr,
         inputSource = AUDIO_SOURCE_MIC;
     }
     halInputSource = inputSource;
+
+    // TODO: check for existing client for this port ID
+    if (*portId == AUDIO_PORT_HANDLE_NONE) {
+        *portId = AudioPort::getNextUniqueId();
+    }
 
     // Explicit routing?
     sp<DeviceDescriptor> deviceDesc;
@@ -1486,12 +1535,13 @@ status_t AudioPolicyManager::getInputForAttr(const audio_attributes_t *attr,
     }
 
     *input = getInputForDevice(device, address, session, uid, inputSource,
-                               samplingRate, format, channelMask, flags,
+                               config->sample_rate, config->format, config->channel_mask, flags,
                                policyMix);
     if (*input == AUDIO_IO_HANDLE_NONE) {
         mInputRoutes.removeRoute(session);
         return INVALID_OPERATION;
     }
+
     ALOGV("getInputForAttr() returns input type = %d", *inputType);
     return NO_ERROR;
 }
@@ -4477,9 +4527,7 @@ audio_devices_t AudioPolicyManager::getNewInputDevice(const sp<AudioInputDescrip
 
 bool AudioPolicyManager::streamsMatchForvolume(audio_stream_type_t stream1,
                                                audio_stream_type_t stream2) {
-    return ((stream1 == stream2) ||
-            ((stream1 == AUDIO_STREAM_ACCESSIBILITY) && (stream2 == AUDIO_STREAM_MUSIC)) ||
-            ((stream1 == AUDIO_STREAM_MUSIC) && (stream2 == AUDIO_STREAM_ACCESSIBILITY)));
+    return (stream1 == stream2);
 }
 
 uint32_t AudioPolicyManager::getStrategyForStream(audio_stream_type_t stream) {
@@ -5288,6 +5336,7 @@ audio_stream_type_t AudioPolicyManager::streamTypefromAttributesInt(const audio_
     switch (attr->usage) {
     case AUDIO_USAGE_MEDIA:
     case AUDIO_USAGE_GAME:
+    case AUDIO_USAGE_ASSISTANT:
     case AUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE:
         return AUDIO_STREAM_MUSIC;
     case AUDIO_USAGE_ASSISTANCE_ACCESSIBILITY:
@@ -5343,6 +5392,7 @@ bool AudioPolicyManager::isValidAttributes(const audio_attributes_t *paa)
     case AUDIO_USAGE_ASSISTANCE_SONIFICATION:
     case AUDIO_USAGE_GAME:
     case AUDIO_USAGE_VIRTUAL_SOURCE:
+    case AUDIO_USAGE_ASSISTANT:
         break;
     default:
         return false;

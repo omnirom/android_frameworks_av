@@ -164,7 +164,12 @@ public:
     //  UNDERRUN    write() has not been called frequently enough, or with enough frames to keep up.
     //              An underrun event is counted, and the caller should re-try this operation.
     //  WOULD_BLOCK Determining how many frames can be written without blocking would itself block.
-    virtual ssize_t availableToWrite() const { return SSIZE_MAX; }
+    virtual ssize_t availableToWrite() {
+        if (!mNegotiated) {
+            return NEGOTIATE;
+        }
+        return SSIZE_MAX;
+    }
 
     // Transfer data to sink from single input buffer.  Implies a copy.
     // Inputs:
@@ -215,7 +220,7 @@ public:
     // Returns NO_ERROR if a timestamp is available.  The timestamp includes the total number
     // of frames presented to an external observer, together with the value of CLOCK_MONOTONIC
     // as of this presentation count.  The timestamp parameter is undefined if error is returned.
-    virtual status_t getTimestamp(ExtendedTimestamp &timestamp) { return INVALID_OPERATION; }
+    virtual status_t getTimestamp(ExtendedTimestamp& /*timestamp*/) { return INVALID_OPERATION; }
 
 protected:
     NBAIO_Sink(const NBAIO_Format& format = Format_Invalid) : NBAIO_Port(format), mFramesWritten(0)
@@ -313,7 +318,7 @@ public:
 
     // Invoked asynchronously by corresponding sink when a new timestamp is available.
     // Default implementation ignores the timestamp.
-    virtual void    onTimestamp(const ExtendedTimestamp& timestamp) { }
+    virtual void    onTimestamp(const ExtendedTimestamp& /*timestamp*/) { }
 
 protected:
     NBAIO_Source(const NBAIO_Format& format = Format_Invalid) : NBAIO_Port(format), mFramesRead(0)

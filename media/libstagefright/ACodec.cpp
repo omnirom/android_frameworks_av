@@ -53,6 +53,7 @@
 #include <OMX_AsString.h>
 
 #include "include/avc_utils.h"
+#include "include/ACodecBufferChannel.h"
 #include "include/DataConverter.h"
 #include "include/SecureBuffer.h"
 #include "include/SharedMemoryBuffer.h"
@@ -564,14 +565,19 @@ ACodec::ACodec()
 ACodec::~ACodec() {
 }
 
-void ACodec::setNotificationMessage(const sp<AMessage> &msg) {
-    mNotify = msg;
-}
-
 void ACodec::initiateSetup(const sp<AMessage> &msg) {
     msg->setWhat(kWhatSetup);
     msg->setTarget(this);
     msg->post();
+}
+
+std::shared_ptr<BufferChannelBase> ACodec::getBufferChannel() {
+    if (!mBufferChannel) {
+        mBufferChannel = std::make_shared<ACodecBufferChannel>(
+                new AMessage(kWhatInputBufferFilled, this),
+                new AMessage(kWhatOutputBufferDrained, this));
+    }
+    return mBufferChannel;
 }
 
 void ACodec::signalSetParameters(const sp<AMessage> &params) {
@@ -882,6 +888,8 @@ status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
                 info.mStatus = BufferInfo::OWNED_BY_US;
                 info.mFenceFd = -1;
                 info.mRenderInfo = NULL;
+                info.mGraphicBuffer = NULL;
+                info.mNewGraphicBuffer = false;
 
                 if (mode == IOMX::kPortModePresetSecureBuffer) {
                     void *ptr = NULL;
@@ -934,20 +942,17 @@ status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
         return err;
     }
 
-    sp<AMessage> notify = mNotify->dup();
-    notify->setInt32("what", CodecBase::kWhatBuffersAllocated);
-
-    notify->setInt32("portIndex", portIndex);
-
-    sp<PortDescription> desc = new PortDescription;
-
+    std::vector<ACodecBufferChannel::BufferAndId> array(mBuffers[portIndex].size());
     for (size_t i = 0; i < mBuffers[portIndex].size(); ++i) {
-        const BufferInfo &info = mBuffers[portIndex][i];
-        desc->addBuffer(info.mBufferID, info.mData);
+        array[i] = {mBuffers[portIndex][i].mData, mBuffers[portIndex][i].mBufferID};
     }
-
-    notify->setObject("portDesc", desc);
-    notify->post();
+    if (portIndex == kPortIndexInput) {
+        mBufferChannel->setInputBufferArray(array);
+    } else if (portIndex == kPortIndexOutput) {
+        mBufferChannel->setOutputBufferArray(array);
+    } else {
+        TRESPASS();
+    }
 
     return OK;
 }
@@ -1124,6 +1129,7 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
         info.mIsReadFence = false;
         info.mRenderInfo = NULL;
         info.mGraphicBuffer = graphicBuffer;
+        info.mNewGraphicBuffer = false;
 
         // TODO: We shouln't need to create MediaCodecBuffer. In metadata mode
         //       OMX doesn't use the shared memory buffer, but some code still
@@ -1198,6 +1204,7 @@ status_t ACodec::allocateOutputMetadataBuffers() {
         info.mFenceFd = -1;
         info.mRenderInfo = NULL;
         info.mGraphicBuffer = NULL;
+        info.mNewGraphicBuffer = false;
         info.mDequeuedAt = mDequeueCounter;
 
         info.mData = new MediaCodecBuffer(mOutputFormat, new ABuffer(bufferSize));
@@ -1229,7 +1236,7 @@ status_t ACodec::submitOutputMetadataBuffer() {
     }
 
     ALOGV("[%s] submitting output meta buffer ID %u for graphic buffer %p",
-          mComponentName.c_str(), info->mBufferID, info->mGraphicBuffer.get());
+          mComponentName.c_str(), info->mBufferID, info->mGraphicBuffer->handle);
 
     --mMetadataBuffersToSubmit;
     info->checkWriteFence("submitOutputMetadataBuffer");
@@ -1309,8 +1316,6 @@ void ACodec::onFrameRendered(int64_t mediaTimeUs, nsecs_t systemNano) {
 }
 
 void ACodec::notifyOfRenderedFrames(bool dropIncomplete, FrameRenderTracker::Info *until) {
-    sp<AMessage> msg = mNotify->dup();
-    msg->setInt32("what", CodecBase::kWhatOutputFramesRendered);
     std::list<FrameRenderTracker::Info> done =
         mRenderTracker.checkFencesAndGetRenderedFrames(until, dropIncomplete);
 
@@ -1326,9 +1331,7 @@ void ACodec::notifyOfRenderedFrames(bool dropIncomplete, FrameRenderTracker::Inf
         }
     }
 
-    if (MediaCodec::CreateFramesRenderedMessage(done, msg)) {
-        msg->post();
-    }
+    mCallback->onOutputFramesRendered(done);
 }
 
 ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
@@ -1374,7 +1377,11 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
                     break;
                 }
 
-                ALOGV("dequeued buffer %p", info->mGraphicBuffer->getNativeBuffer());
+                ALOGV("dequeued buffer #%u with age %u, graphicBuffer %p",
+                        (unsigned)(info - &mBuffers[kPortIndexOutput][0]),
+                        mDequeueCounter - info->mDequeuedAt,
+                        info->mGraphicBuffer->handle);
+
                 info->mStatus = BufferInfo::OWNED_BY_US;
                 info->setWriteFence(fenceFd, "dequeueBufferFromNativeWindow");
                 updateRenderInfoForDequeuedBuffer(buf, fenceFd, info);
@@ -1420,6 +1427,7 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
 
     // discard buffer in LRU info and replace with new buffer
     oldest->mGraphicBuffer = new GraphicBuffer(buf, false);
+    oldest->mNewGraphicBuffer = true;
     oldest->mStatus = BufferInfo::OWNED_BY_US;
     oldest->setWriteFence(fenceFd, "dequeueBufferFromNativeWindow for oldest");
     mRenderTracker.untrackFrame(oldest->mRenderInfo);
@@ -1428,13 +1436,19 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
     ALOGV("replaced oldest buffer #%u with age %u, graphicBuffer %p",
             (unsigned)(oldest - &mBuffers[kPortIndexOutput][0]),
             mDequeueCounter - oldest->mDequeuedAt,
-            oldest->mGraphicBuffer->getNativeBuffer());
+            oldest->mGraphicBuffer->handle);
 
     updateRenderInfoForDequeuedBuffer(buf, fenceFd, oldest);
     return oldest;
 }
 
 status_t ACodec::freeBuffersOnPort(OMX_U32 portIndex) {
+    if (portIndex == kPortIndexInput) {
+        mBufferChannel->setInputBufferArray({});
+    } else {
+        mBufferChannel->setOutputBufferArray({});
+    }
+
     status_t err = OK;
     for (size_t i = mBuffers[portIndex].size(); i > 0;) {
         i--;
@@ -1534,7 +1548,13 @@ ACodec::BufferInfo *ACodec::findBufferByID(
 
 status_t ACodec::fillBuffer(BufferInfo *info) {
     status_t err;
-    if (!storingMetadataInDecodedBuffers()) {
+    // Even in dynamic ANW buffer mode, if the graphic buffer is not changing,
+    // send sPreset instead of the same graphic buffer, so that OMX server
+    // side doesn't update the meta. In theory it should make no difference,
+    // however when the same buffer is parcelled again, a new handle could be
+    // created on server side, and some decoder doesn't recognize the handle
+    // even if it's the same buffer.
+    if (!storingMetadataInDecodedBuffers() || !info->mNewGraphicBuffer) {
         err = mOMXNode->fillBuffer(
             info->mBufferID, OMXBuffer::sPreset, info->mFenceFd);
     } else {
@@ -1542,6 +1562,7 @@ status_t ACodec::fillBuffer(BufferInfo *info) {
             info->mBufferID, info->mGraphicBuffer, info->mFenceFd);
     }
 
+    info->mNewGraphicBuffer = false;
     info->mFenceFd = -1;
     if (err == OK) {
         info->mStatus = BufferInfo::OWNED_BY_COMPONENT;
@@ -5072,25 +5093,6 @@ void ACodec::onOutputFormatChanged(sp<const AMessage> expectedFormat) {
     }
 }
 
-void ACodec::addKeyFormatChangesToRenderBufferNotification(sp<AMessage> &notify) {
-    AString mime;
-    CHECK(mOutputFormat->findString("mime", &mime));
-
-    if (mime == MEDIA_MIMETYPE_VIDEO_RAW && mNativeWindow != NULL) {
-        // notify renderer of the crop change and dataspace change
-        // NOTE: native window uses extended right-bottom coordinate
-        int32_t left, top, right, bottom;
-        if (mOutputFormat->findRect("crop", &left, &top, &right, &bottom)) {
-            notify->setRect("crop", left, top, right + 1, bottom + 1);
-        }
-
-        int32_t dataSpace;
-        if (mOutputFormat->findInt32("android._dataspace", &dataSpace)) {
-            notify->setInt32("dataspace", dataSpace);
-        }
-    }
-}
-
 void ACodec::sendFormatChange() {
     AString mime;
     CHECK(mOutputFormat->findString("mime", &mime));
@@ -5118,8 +5120,6 @@ void ACodec::sendFormatChange() {
 }
 
 void ACodec::signalError(OMX_ERRORTYPE error, status_t internalError) {
-    sp<AMessage> notify = mNotify->dup();
-    notify->setInt32("what", CodecBase::kWhatError);
     ALOGE("signalError(omxError %#x, internalError %d)", error, internalError);
 
     if (internalError == UNKNOWN_ERROR) { // find better error code
@@ -5132,10 +5132,7 @@ void ACodec::signalError(OMX_ERRORTYPE error, status_t internalError) {
     }
 
     mFatalError = true;
-
-    notify->setInt32("err", internalError);
-    notify->setInt32("actionCode", ACTION_CODE_FATAL); // could translate from OMX error.
-    notify->post();
+    mCallback->onError(internalError, ACTION_CODE_FATAL);
 }
 
 status_t ACodec::requestIDRFrame() {
@@ -5153,29 +5150,6 @@ status_t ACodec::requestIDRFrame() {
             OMX_IndexConfigVideoIntraVOPRefresh,
             &params,
             sizeof(params));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-ACodec::PortDescription::PortDescription() {
-}
-
-void ACodec::PortDescription::addBuffer(
-        IOMX::buffer_id id, const sp<MediaCodecBuffer> &buffer) {
-    mBufferIDs.push_back(id);
-    mBuffers.push_back(buffer);
-}
-
-size_t ACodec::PortDescription::countBuffers() {
-    return mBufferIDs.size();
-}
-
-IOMX::buffer_id ACodec::PortDescription::bufferIDAt(size_t index) const {
-    return mBufferIDs.itemAt(index);
-}
-
-sp<MediaCodecBuffer> ACodec::PortDescription::bufferAt(size_t index) const {
-    return mBuffers.itemAt(index);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -5262,9 +5236,7 @@ bool ACodec::BaseState::onMessageReceived(const sp<AMessage> &msg) {
             status_t err = mCodec->mOMXNode->freeNode();
             ALOGE_IF("[%s] failed to release codec instance: err=%d",
                        mCodec->mComponentName.c_str(), err);
-            sp<AMessage> notify = mCodec->mNotify->dup();
-            notify->setInt32("what", CodecBase::kWhatReleaseCompleted);
-            notify->post();
+            mCodec->mCallback->onReleaseCompleted();
             break;
         }
 
@@ -5488,21 +5460,9 @@ void ACodec::BaseState::postFillThisBuffer(BufferInfo *info) {
 
     CHECK_EQ((int)info->mStatus, (int)BufferInfo::OWNED_BY_US);
 
-    sp<AMessage> notify = mCodec->mNotify->dup();
-    notify->setInt32("what", CodecBase::kWhatFillThisBuffer);
-    notify->setInt32("buffer-id", info->mBufferID);
-
     info->mData->setFormat(mCodec->mInputFormat);
-    notify->setObject("buffer", info->mData);
+    mCodec->mBufferChannel->fillThisBuffer(info->mBufferID);
     info->mData.clear();
-
-    sp<AMessage> reply = new AMessage(kWhatInputBufferFilled, mCodec);
-    reply->setInt32("buffer-id", info->mBufferID);
-
-    notify->setMessage("reply", reply);
-
-    notify->post();
-
     info->mStatus = BufferInfo::OWNED_BY_UPSTREAM;
 }
 
@@ -5515,17 +5475,9 @@ void ACodec::BaseState::onInputBufferFilled(const sp<AMessage> &msg) {
     PortMode mode = getPortMode(kPortIndexInput);
     int32_t discarded = 0;
     if (msg->findInt32("discarded", &discarded) && discarded) {
-        /* these are unfilled buffers returned by client */
-        CHECK(msg->findInt32("err", &err));
-
-        if (err == OK) {
-            /* buffers with no errors are returned on MediaCodec.flush */
-            mode = KEEP_BUFFERS;
-        } else {
-            ALOGV("[%s] saw error %d instead of an input buffer",
-                 mCodec->mComponentName.c_str(), err);
-            eos = true;
-        }
+        // these are unfilled buffers returned by client
+        // buffers are returned on MediaCodec.flush
+        mode = KEEP_BUFFERS;
     }
     sp<RefBase> obj;
     CHECK(msg->findObject("buffer", &obj));
@@ -5852,8 +5804,6 @@ bool ACodec::BaseState::onOMXFillBufferDone(
                 break;
             }
 
-            sp<AMessage> reply =
-                new AMessage(kWhatOutputBufferDrained, mCodec);
             sp<MediaCodecBuffer> buffer = info->mData;
 
             if (mCodec->mOutputFormat != mCodec->mLastOutputFormat && rangeLength > 0) {
@@ -5861,12 +5811,7 @@ bool ACodec::BaseState::onOMXFillBufferDone(
                 if (mCodec->mBaseOutputFormat == mCodec->mOutputFormat) {
                     mCodec->onOutputFormatChanged(mCodec->mOutputFormat);
                 }
-                mCodec->addKeyFormatChangesToRenderBufferNotification(reply);
                 mCodec->sendFormatChange();
-            } else if (rangeLength > 0 && mCodec->mNativeWindow != NULL) {
-                // If potentially rendering onto a surface, always save key format data (crop &
-                // data space) so that we can set it if and once the buffer is rendered.
-                mCodec->addKeyFormatChangesToRenderBufferNotification(reply);
             }
             buffer->setFormat(mCodec->mOutputFormat);
 
@@ -5909,29 +5854,16 @@ bool ACodec::BaseState::onOMXFillBufferDone(
             }
             buffer->meta()->setInt64("timeUs", timeUs);
 
-            sp<AMessage> notify = mCodec->mNotify->dup();
-            notify->setInt32("what", CodecBase::kWhatDrainThisBuffer);
-            notify->setInt32("buffer-id", info->mBufferID);
-            notify->setObject("buffer", buffer);
             info->mData.clear();
-            notify->setInt32("flags", flags);
 
-            reply->setInt32("buffer-id", info->mBufferID);
-
-            notify->setMessage("reply", reply);
-
-            notify->post();
+            mCodec->mBufferChannel->drainThisBuffer(info->mBufferID, flags);
 
             info->mStatus = BufferInfo::OWNED_BY_DOWNSTREAM;
 
             if (flags & OMX_BUFFERFLAG_EOS) {
                 ALOGV("[%s] saw output EOS", mCodec->mComponentName.c_str());
 
-                sp<AMessage> notify = mCodec->mNotify->dup();
-                notify->setInt32("what", CodecBase::kWhatEOS);
-                notify->setInt32("err", mCodec->mInputEOSResult);
-                notify->post();
-
+                mCodec->mCallback->onEos(mCodec->mInputEOSResult);
                 mCodec->mPortEOS[kPortIndexOutput] = true;
             }
             break;
@@ -5972,30 +5904,33 @@ void ACodec::BaseState::onOutputBufferDrained(const sp<AMessage> &msg) {
         return;
     }
     info->mData = buffer;
-
-    android_native_rect_t crop;
-    if (msg->findRect("crop", &crop.left, &crop.top, &crop.right, &crop.bottom)
-            && memcmp(&crop, &mCodec->mLastNativeWindowCrop, sizeof(crop)) != 0) {
-        mCodec->mLastNativeWindowCrop = crop;
-        status_t err = native_window_set_crop(mCodec->mNativeWindow.get(), &crop);
-        ALOGW_IF(err != NO_ERROR, "failed to set crop: %d", err);
-    }
-
-    int32_t dataSpace;
-    if (msg->findInt32("dataspace", &dataSpace)
-            && dataSpace != mCodec->mLastNativeWindowDataSpace) {
-        status_t err = native_window_set_buffers_data_space(
-                mCodec->mNativeWindow.get(), (android_dataspace)dataSpace);
-        mCodec->mLastNativeWindowDataSpace = dataSpace;
-        ALOGW_IF(err != NO_ERROR, "failed to set dataspace: %d", err);
-    }
-
     int32_t render;
     if (mCodec->mNativeWindow != NULL
             && msg->findInt32("render", &render) && render != 0
             && !discarded && buffer->size() != 0) {
         ATRACE_NAME("render");
         // The client wants this buffer to be rendered.
+
+        android_native_rect_t crop;
+        if (buffer->format()->findRect("crop", &crop.left, &crop.top, &crop.right, &crop.bottom)) {
+            // NOTE: native window uses extended right-bottom coordinate
+            ++crop.right;
+            ++crop.bottom;
+            if (memcmp(&crop, &mCodec->mLastNativeWindowCrop, sizeof(crop)) != 0) {
+                mCodec->mLastNativeWindowCrop = crop;
+                status_t err = native_window_set_crop(mCodec->mNativeWindow.get(), &crop);
+                ALOGW_IF(err != NO_ERROR, "failed to set crop: %d", err);
+            }
+        }
+
+        int32_t dataSpace;
+        if (buffer->format()->findInt32("android._dataspace", &dataSpace)
+                && dataSpace != mCodec->mLastNativeWindowDataSpace) {
+            status_t err = native_window_set_buffers_data_space(
+                    mCodec->mNativeWindow.get(), (android_dataspace)dataSpace);
+            mCodec->mLastNativeWindowDataSpace = dataSpace;
+            ALOGW_IF(err != NO_ERROR, "failed to set dataspace: %d", err);
+        }
 
         // save buffers sent to the surface so we can get render time when they return
         int64_t mediaTimeUs = -1;
@@ -6150,22 +6085,18 @@ bool ACodec::UninitializedState::onMessageReceived(const sp<AMessage> &msg) {
                         "keepComponentAllocated", &keepComponentAllocated));
             ALOGW_IF(keepComponentAllocated,
                      "cannot keep component allocated on shutdown in Uninitialized state");
-
-            sp<AMessage> notify = mCodec->mNotify->dup();
-            notify->setInt32("what", keepComponentAllocated ?
-                    CodecBase::kWhatStopCompleted : CodecBase::kWhatReleaseCompleted);
-            notify->post();
-
+            if (keepComponentAllocated) {
+                mCodec->mCallback->onStopCompleted();
+            } else {
+                mCodec->mCallback->onReleaseCompleted();
+            }
             handled = true;
             break;
         }
 
         case ACodec::kWhatFlush:
         {
-            sp<AMessage> notify = mCodec->mNotify->dup();
-            notify->setInt32("what", CodecBase::kWhatFlushCompleted);
-            notify->post();
-
+            mCodec->mCallback->onFlushCompleted();
             handled = true;
             break;
         }
@@ -6293,14 +6224,7 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
     omxNode->setQuirks(quirks);
     mCodec->mOMX = omx;
     mCodec->mOMXNode = omxNode;
-
-    {
-        sp<AMessage> notify = mCodec->mNotify->dup();
-        notify->setInt32("what", CodecBase::kWhatComponentAllocated);
-        notify->setString("componentName", mCodec->mComponentName.c_str());
-        notify->post();
-    }
-
+    mCodec->mCallback->onComponentAllocated(mCodec->mComponentName.c_str());
     mCodec->changeState(mCodec->mLoadedState);
 
     return true;
@@ -6349,10 +6273,11 @@ void ACodec::LoadedState::onShutdown(bool keepComponentAllocated) {
     }
 
     if (mCodec->mExplicitShutdown) {
-        sp<AMessage> notify = mCodec->mNotify->dup();
-        notify->setInt32("what", keepComponentAllocated ?
-                CodecBase::kWhatStopCompleted : CodecBase::kWhatReleaseCompleted);
-        notify->post();
+        if (keepComponentAllocated) {
+            mCodec->mCallback->onStopCompleted();
+        } else {
+            mCodec->mCallback->onReleaseCompleted();
+        }
         mCodec->mExplicitShutdown = false;
     }
 }
@@ -6404,10 +6329,7 @@ bool ACodec::LoadedState::onMessageReceived(const sp<AMessage> &msg) {
 
         case ACodec::kWhatFlush:
         {
-            sp<AMessage> notify = mCodec->mNotify->dup();
-            notify->setInt32("what", CodecBase::kWhatFlushCompleted);
-            notify->post();
-
+            mCodec->mCallback->onFlushCompleted();
             handled = true;
             break;
         }
@@ -6440,13 +6362,7 @@ bool ACodec::LoadedState::onConfigureComponent(
         return false;
     }
 
-    {
-        sp<AMessage> notify = mCodec->mNotify->dup();
-        notify->setInt32("what", CodecBase::kWhatComponentConfigured);
-        notify->setMessage("input-format", mCodec->mInputFormat);
-        notify->setMessage("output-format", mCodec->mOutputFormat);
-        notify->post();
-    }
+    mCodec->mCallback->onComponentConfigured(mCodec->mInputFormat, mCodec->mOutputFormat);
 
     return true;
 }
@@ -6568,9 +6484,6 @@ void ACodec::LoadedState::onCreateInputSurface(
         const sp<AMessage> & /* msg */) {
     ALOGV("onCreateInputSurface");
 
-    sp<AMessage> notify = mCodec->mNotify->dup();
-    notify->setInt32("what", CodecBase::kWhatInputSurfaceCreated);
-
     sp<IGraphicBufferProducer> bufferProducer;
     status_t err = mCodec->mOMX->createInputSurface(
             &bufferProducer, &mCodec->mGraphicBufferSource);
@@ -6580,10 +6493,9 @@ void ACodec::LoadedState::onCreateInputSurface(
     }
 
     if (err == OK) {
-        notify->setMessage("input-format", mCodec->mInputFormat);
-        notify->setMessage("output-format", mCodec->mOutputFormat);
-
-        notify->setObject("input-surface",
+        mCodec->mCallback->onInputSurfaceCreated(
+                mCodec->mInputFormat,
+                mCodec->mOutputFormat,
                 new BufferProducerWrapper(bufferProducer));
     } else {
         // Can't use mCodec->signalError() here -- MediaCodec won't forward
@@ -6591,17 +6503,12 @@ void ACodec::LoadedState::onCreateInputSurface(
         // send a kWhatInputSurfaceCreated with an error value instead.
         ALOGE("[%s] onCreateInputSurface returning error %d",
                 mCodec->mComponentName.c_str(), err);
-        notify->setInt32("err", err);
+        mCodec->mCallback->onInputSurfaceCreationFailed(err);
     }
-    notify->post();
 }
 
-void ACodec::LoadedState::onSetInputSurface(
-        const sp<AMessage> &msg) {
+void ACodec::LoadedState::onSetInputSurface(const sp<AMessage> &msg) {
     ALOGV("onSetInputSurface");
-
-    sp<AMessage> notify = mCodec->mNotify->dup();
-    notify->setInt32("what", CodecBase::kWhatInputSurfaceAccepted);
 
     sp<RefBase> obj;
     CHECK(msg->findObject("input-surface", &obj));
@@ -6611,17 +6518,16 @@ void ACodec::LoadedState::onSetInputSurface(
     status_t err = setupInputSurface();
 
     if (err == OK) {
-        notify->setMessage("input-format", mCodec->mInputFormat);
-        notify->setMessage("output-format", mCodec->mOutputFormat);
+        mCodec->mCallback->onInputSurfaceAccepted(
+                mCodec->mInputFormat, mCodec->mOutputFormat);
     } else {
         // Can't use mCodec->signalError() here -- MediaCodec won't forward
         // the error through because it's in the "configured" state.  We
         // send a kWhatInputSurfaceAccepted with an error value instead.
         ALOGE("[%s] onSetInputSurface returning error %d",
                 mCodec->mComponentName.c_str(), err);
-        notify->setInt32("err", err);
+        mCodec->mCallback->onInputSurfaceDeclined(err);
     }
-    notify->post();
 }
 
 void ACodec::LoadedState::onStart() {
@@ -6667,12 +6573,18 @@ void ACodec::LoadedToIdleState::stateEntered() {
 
 status_t ACodec::LoadedToIdleState::allocateBuffers() {
     status_t err = mCodec->allocateBuffersOnPort(kPortIndexInput);
-
     if (err != OK) {
         return err;
     }
 
-    return mCodec->allocateBuffersOnPort(kPortIndexOutput);
+    err = mCodec->allocateBuffersOnPort(kPortIndexOutput);
+    if (err != OK) {
+        return err;
+    }
+
+    mCodec->mCallback->onStartCompleted();
+
+    return OK;
 }
 
 bool ACodec::LoadedToIdleState::onMessageReceived(const sp<AMessage> &msg) {
@@ -6699,9 +6611,7 @@ bool ACodec::LoadedToIdleState::onMessageReceived(const sp<AMessage> &msg) {
         case kWhatFlush:
         {
             // We haven't even started yet, so we're flushed alright...
-            sp<AMessage> notify = mCodec->mNotify->dup();
-            notify->setInt32("what", CodecBase::kWhatFlushCompleted);
-            notify->post();
+            mCodec->mCallback->onFlushCompleted();
             return true;
         }
 
@@ -6771,10 +6681,7 @@ bool ACodec::IdleToExecutingState::onMessageReceived(const sp<AMessage> &msg) {
         case kWhatFlush:
         {
             // We haven't even started yet, so we're flushed alright...
-            sp<AMessage> notify = mCodec->mNotify->dup();
-            notify->setInt32("what", CodecBase::kWhatFlushCompleted);
-            notify->post();
-
+            mCodec->mCallback->onFlushCompleted();
             return true;
         }
 
@@ -7149,17 +7056,11 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
 }
 
 void ACodec::onSignalEndOfInputStream() {
-    sp<AMessage> notify = mNotify->dup();
-    notify->setInt32("what", CodecBase::kWhatSignaledInputEOS);
-
     status_t err = INVALID_OPERATION;
     if (mGraphicBufferSource != NULL) {
         err = statusFromBinderStatus(mGraphicBufferSource->signalEndOfInputStream());
     }
-    if (err != OK) {
-        notify->setInt32("err", err);
-    }
-    notify->post();
+    mCallback->onSignaledInputEOS(err);
 }
 
 bool ACodec::ExecutingState::onOMXFrameRendered(int64_t mediaTimeUs, nsecs_t systemNano) {
@@ -7291,6 +7192,7 @@ bool ACodec::OutputPortSettingsChangedState::onOMXEvent(
                     err = mCodec->allocateBuffersOnPort(kPortIndexOutput);
                     ALOGE_IF(err != OK, "Failed to allocate output port buffers after port "
                             "reconfiguration: (%d)", err);
+                    mCodec->mCallback->onOutputBuffersChanged();
                 }
 
                 if (err != OK) {
@@ -7636,9 +7538,7 @@ void ACodec::FlushingState::changeStateIfWeOwnAllBuffers() {
 
         mCodec->mRenderTracker.clear(systemTime(CLOCK_MONOTONIC));
 
-        sp<AMessage> notify = mCodec->mNotify->dup();
-        notify->setInt32("what", CodecBase::kWhatFlushCompleted);
-        notify->post();
+        mCodec->mCallback->onFlushCompleted();
 
         mCodec->mPortEOS[kPortIndexInput] =
             mCodec->mPortEOS[kPortIndexOutput] = false;

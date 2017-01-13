@@ -37,6 +37,7 @@
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/AString.h>
+#include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/foundation/hexdump.h>
 #include <media/stagefright/ACodec.h>
 #include <media/stagefright/BufferProducerWrapper.h>
@@ -66,6 +67,9 @@ static bool isResourceError(status_t err) {
 
 static const int kMaxRetry = 2;
 static const int kMaxReclaimWaitTimeInUs = 500000;  // 0.5s
+static const int kNumBuffersAlign = 16;
+
+////////////////////////////////////////////////////////////////////////////////
 
 struct ResourceManagerClient : public BnResourceManagerClient {
     explicit ResourceManagerClient(MediaCodec* codec) : mMediaCodec(codec) {}
@@ -170,6 +174,216 @@ bool MediaCodec::ResourceManagerServiceProxy::reclaimResource(
     }
     return mService->reclaimResource(mPid, resources);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+MediaCodec::BufferInfo::BufferInfo() : mOwnedByClient(false) {}
+
+////////////////////////////////////////////////////////////////////////////////
+
+namespace {
+
+enum {
+    kWhatFillThisBuffer      = 'fill',
+    kWhatDrainThisBuffer     = 'drai',
+    kWhatEOS                 = 'eos ',
+    kWhatStartCompleted      = 'Scom',
+    kWhatStopCompleted       = 'scom',
+    kWhatReleaseCompleted    = 'rcom',
+    kWhatFlushCompleted      = 'fcom',
+    kWhatError               = 'erro',
+    kWhatComponentAllocated  = 'cAll',
+    kWhatComponentConfigured = 'cCon',
+    kWhatInputSurfaceCreated = 'isfc',
+    kWhatInputSurfaceAccepted = 'isfa',
+    kWhatSignaledInputEOS    = 'seos',
+    kWhatOutputFramesRendered = 'outR',
+    kWhatOutputBuffersChanged = 'outC',
+};
+
+class BufferCallback : public CodecBase::BufferCallback {
+public:
+    explicit BufferCallback(const sp<AMessage> &notify);
+    virtual ~BufferCallback() = default;
+
+    virtual void onInputBufferAvailable(
+            size_t index, const sp<MediaCodecBuffer> &buffer) override;
+    virtual void onOutputBufferAvailable(
+            size_t index, const sp<MediaCodecBuffer> &buffer) override;
+private:
+    const sp<AMessage> mNotify;
+};
+
+BufferCallback::BufferCallback(const sp<AMessage> &notify)
+    : mNotify(notify) {}
+
+void BufferCallback::onInputBufferAvailable(
+        size_t index, const sp<MediaCodecBuffer> &buffer) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatFillThisBuffer);
+    notify->setSize("index", index);
+    notify->setObject("buffer", buffer);
+    notify->post();
+}
+
+void BufferCallback::onOutputBufferAvailable(
+        size_t index, const sp<MediaCodecBuffer> &buffer) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatDrainThisBuffer);
+    notify->setSize("index", index);
+    notify->setObject("buffer", buffer);
+    notify->post();
+}
+
+class CodecCallback : public CodecBase::CodecCallback {
+public:
+    explicit CodecCallback(const sp<AMessage> &notify);
+    virtual ~CodecCallback() = default;
+
+    virtual void onEos(status_t err) override;
+    virtual void onStartCompleted() override;
+    virtual void onStopCompleted() override;
+    virtual void onReleaseCompleted() override;
+    virtual void onFlushCompleted() override;
+    virtual void onError(status_t err, enum ActionCode actionCode) override;
+    virtual void onComponentAllocated(const char *componentName) override;
+    virtual void onComponentConfigured(
+            const sp<AMessage> &inputFormat, const sp<AMessage> &outputFormat) override;
+    virtual void onInputSurfaceCreated(
+            const sp<AMessage> &inputFormat,
+            const sp<AMessage> &outputFormat,
+            const sp<BufferProducerWrapper> &inputSurface) override;
+    virtual void onInputSurfaceCreationFailed(status_t err) override;
+    virtual void onInputSurfaceAccepted(
+            const sp<AMessage> &inputFormat,
+            const sp<AMessage> &outputFormat) override;
+    virtual void onInputSurfaceDeclined(status_t err) override;
+    virtual void onSignaledInputEOS(status_t err) override;
+    virtual void onOutputFramesRendered(const std::list<FrameRenderTracker::Info> &done) override;
+    virtual void onOutputBuffersChanged() override;
+private:
+    const sp<AMessage> mNotify;
+};
+
+CodecCallback::CodecCallback(const sp<AMessage> &notify) : mNotify(notify) {}
+
+void CodecCallback::onEos(status_t err) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatEOS);
+    notify->setInt32("err", err);
+    notify->post();
+}
+
+void CodecCallback::onStartCompleted() {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatStartCompleted);
+    notify->post();
+}
+
+void CodecCallback::onStopCompleted() {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatStopCompleted);
+    notify->post();
+}
+
+void CodecCallback::onReleaseCompleted() {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatReleaseCompleted);
+    notify->post();
+}
+
+void CodecCallback::onFlushCompleted() {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatFlushCompleted);
+    notify->post();
+}
+
+void CodecCallback::onError(status_t err, enum ActionCode actionCode) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatError);
+    notify->setInt32("err", err);
+    notify->setInt32("actionCode", actionCode);
+    notify->post();
+}
+
+void CodecCallback::onComponentAllocated(const char *componentName) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatComponentAllocated);
+    notify->setString("componentName", componentName);
+    notify->post();
+}
+
+void CodecCallback::onComponentConfigured(
+        const sp<AMessage> &inputFormat, const sp<AMessage> &outputFormat) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatComponentConfigured);
+    notify->setMessage("input-format", inputFormat);
+    notify->setMessage("output-format", outputFormat);
+    notify->post();
+}
+
+void CodecCallback::onInputSurfaceCreated(
+        const sp<AMessage> &inputFormat,
+        const sp<AMessage> &outputFormat,
+        const sp<BufferProducerWrapper> &inputSurface) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatInputSurfaceCreated);
+    notify->setMessage("input-format", inputFormat);
+    notify->setMessage("output-format", outputFormat);
+    notify->setObject("input-surface", inputSurface);
+    notify->post();
+}
+
+void CodecCallback::onInputSurfaceCreationFailed(status_t err) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatInputSurfaceCreated);
+    notify->setInt32("err", err);
+    notify->post();
+}
+
+void CodecCallback::onInputSurfaceAccepted(
+        const sp<AMessage> &inputFormat,
+        const sp<AMessage> &outputFormat) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatInputSurfaceAccepted);
+    notify->setMessage("input-format", inputFormat);
+    notify->setMessage("output-format", outputFormat);
+    notify->post();
+}
+
+void CodecCallback::onInputSurfaceDeclined(status_t err) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatInputSurfaceAccepted);
+    notify->setInt32("err", err);
+    notify->post();
+}
+
+void CodecCallback::onSignaledInputEOS(status_t err) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatSignaledInputEOS);
+    if (err != OK) {
+        notify->setInt32("err", err);
+    }
+    notify->post();
+}
+
+void CodecCallback::onOutputFramesRendered(const std::list<FrameRenderTracker::Info> &done) {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatOutputFramesRendered);
+    if (MediaCodec::CreateFramesRenderedMessage(done, notify)) {
+        notify->post();
+    }
+}
+
+void CodecCallback::onOutputBuffersChanged() {
+    sp<AMessage> notify(mNotify->dup());
+    notify->setInt32("what", kWhatOutputBuffersChanged);
+    notify->post();
+}
+
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
 
 // static
 sp<MediaCodec> MediaCodec::CreateByType(
@@ -370,7 +584,13 @@ status_t MediaCodec::init(const AString &name, bool nameIsType, bool encoder) {
 
     mLooper->registerHandler(this);
 
-    mCodec->setNotificationMessage(new AMessage(kWhatCodecNotify, this));
+    mCodec->setCallback(
+            std::unique_ptr<CodecBase::CodecCallback>(
+                    new CodecCallback(new AMessage(kWhatCodecNotify, this))));
+    mBufferChannel = mCodec->getBufferChannel();
+    mBufferChannel->setCallback(
+            std::unique_ptr<CodecBase::BufferCallback>(
+                    new BufferCallback(new AMessage(kWhatCodecNotify, this))));
 
     sp<AMessage> msg = new AMessage(kWhatInit, this);
     msg->setString("name", name);
@@ -597,14 +817,9 @@ status_t MediaCodec::stop() {
 }
 
 bool MediaCodec::hasPendingBuffer(int portIndex) {
-    const Vector<BufferInfo> &buffers = mPortBuffers[portIndex];
-    for (size_t i = 0; i < buffers.size(); ++i) {
-        const BufferInfo &info = buffers.itemAt(i);
-        if (info.mOwnedByClient) {
-            return true;
-        }
-    }
-    return false;
+    return std::any_of(
+            mPortBuffers[portIndex].begin(), mPortBuffers[portIndex].end(),
+            [](const BufferInfo &info) { return info.mOwnedByClient; });
 }
 
 bool MediaCodec::hasPendingBuffer() {
@@ -911,14 +1126,14 @@ status_t MediaCodec::getBufferAndFormat(
     // we also don't want mOwnedByClient to change during this
     Mutex::Autolock al(mBufferLock);
 
-    Vector<BufferInfo> *buffers = &mPortBuffers[portIndex];
-    if (index >= buffers->size()) {
+    std::vector<BufferInfo> &buffers = mPortBuffers[portIndex];
+    if (index >= buffers.size()) {
         ALOGE("getBufferAndFormat - trying to get buffer with "
-              "bad index (index=%zu buffer_size=%zu)", index, buffers->size());
+              "bad index (index=%zu buffer_size=%zu)", index, buffers.size());
         return INVALID_OPERATION;
     }
 
-    const BufferInfo &info = buffers->itemAt(index);
+    const BufferInfo &info = buffers[index];
     if (!info.mOwnedByClient) {
         ALOGE("getBufferAndFormat - invalid operation "
               "(the index %zu is not owned by client)", index);
@@ -1016,7 +1231,7 @@ bool MediaCodec::handleDequeueOutputBuffer(const sp<AReplyToken> &replyID, bool 
         }
 
         const sp<MediaCodecBuffer> &buffer =
-            mPortBuffers[kPortIndexOutput].itemAt(index).mData;
+            mPortBuffers[kPortIndexOutput][index].mData;
 
         response->setSize("index", index);
         response->setSize("offset", buffer->offset());
@@ -1027,19 +1242,8 @@ bool MediaCodec::handleDequeueOutputBuffer(const sp<AReplyToken> &replyID, bool 
 
         response->setInt64("timeUs", timeUs);
 
-        int32_t omxFlags;
-        CHECK(buffer->meta()->findInt32("omxFlags", &omxFlags));
-
-        uint32_t flags = 0;
-        if (omxFlags & OMX_BUFFERFLAG_SYNCFRAME) {
-            flags |= BUFFER_FLAG_SYNCFRAME;
-        }
-        if (omxFlags & OMX_BUFFERFLAG_CODECCONFIG) {
-            flags |= BUFFER_FLAG_CODECCONFIG;
-        }
-        if (omxFlags & OMX_BUFFERFLAG_EOS) {
-            flags |= BUFFER_FLAG_EOS;
-        }
+        int32_t flags;
+        CHECK(buffer->meta()->findInt32("flags", &flags));
 
         response->setInt32("flags", flags);
         response->postReply(replyID);
@@ -1056,7 +1260,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             CHECK(msg->findInt32("what", &what));
 
             switch (what) {
-                case CodecBase::kWhatError:
+                case kWhatError:
                 {
                     int32_t err, actionCode;
                     CHECK(msg->findInt32("err", &err));
@@ -1191,7 +1395,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatComponentAllocated:
+                case kWhatComponentAllocated:
                 {
                     CHECK_EQ(mState, INITIALIZING);
                     setState(INITIALIZED);
@@ -1223,7 +1427,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatComponentConfigured:
+                case kWhatComponentConfigured:
                 {
                     if (mState == UNINITIALIZED || mState == INITIALIZED) {
                         // In case a kWhatError message came in and replied with error,
@@ -1252,7 +1456,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatInputSurfaceCreated:
+                case kWhatInputSurfaceCreated:
                 {
                     // response to initiateCreateInputSurface()
                     status_t err = NO_ERROR;
@@ -1276,7 +1480,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatInputSurfaceAccepted:
+                case kWhatInputSurfaceAccepted:
                 {
                     // response to initiateSetInputSurface()
                     status_t err = NO_ERROR;
@@ -1292,7 +1496,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatSignaledInputEOS:
+                case kWhatSignaledInputEOS:
                 {
                     // response to signalEndOfInputStream()
                     sp<AMessage> response = new AMessage;
@@ -1304,79 +1508,28 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-
-                case CodecBase::kWhatBuffersAllocated:
+                case kWhatStartCompleted:
                 {
-                    Mutex::Autolock al(mBufferLock);
-                    int32_t portIndex;
-                    CHECK(msg->findInt32("portIndex", &portIndex));
-
-                    ALOGV("%s buffers allocated",
-                          portIndex == kPortIndexInput ? "input" : "output");
-
-                    CHECK(portIndex == kPortIndexInput
-                            || portIndex == kPortIndexOutput);
-
-                    mPortBuffers[portIndex].clear();
-                    mPortBufferArrays[portIndex].clear();
-
-                    Vector<BufferInfo> *buffers = &mPortBuffers[portIndex];
-
-                    sp<RefBase> obj;
-                    CHECK(msg->findObject("portDesc", &obj));
-
-                    sp<CodecBase::PortDescription> portDesc =
-                        static_cast<CodecBase::PortDescription *>(obj.get());
-
-                    size_t numBuffers = portDesc->countBuffers();
-
-                    size_t totalSize = 0;
-                    for (size_t i = 0; i < numBuffers; ++i) {
-                        if (portIndex == kPortIndexInput && mCrypto != NULL) {
-                            totalSize += portDesc->bufferAt(i)->capacity();
-                        }
+                    CHECK_EQ(mState, STARTING);
+                    if (mIsVideo) {
+                        addResource(
+                                MediaResource::kGraphicMemory,
+                                MediaResource::kUnspecifiedSubType,
+                                getGraphicBufferSize());
                     }
-
-                    if (totalSize) {
-                        mDealer = new MemoryDealer(totalSize, "MediaCodec");
-                    }
-
-                    for (size_t i = 0; i < numBuffers; ++i) {
-                        BufferInfo info;
-                        info.mBufferID = portDesc->bufferIDAt(i);
-                        info.mOwnedByClient = false;
-                        sp<MediaCodecBuffer> buffer = portDesc->bufferAt(i);
-                        if (portIndex == kPortIndexInput && mCrypto != NULL) {
-                            info.mSharedEncryptedBuffer = mDealer->allocate(buffer->capacity());
-                            buffer = new SharedMemoryBuffer(
-                                    mInputFormat, info.mSharedEncryptedBuffer);
-                        }
-                        buffers->push_back(info);
-                        mPortBufferArrays[portIndex].push_back(buffer);
-                    }
-
-                    if (portIndex == kPortIndexOutput) {
-                        if (mState == STARTING) {
-                            // We're always allocating output buffers after
-                            // allocating input buffers, so this is a good
-                            // indication that now all buffers are allocated.
-                            if (mIsVideo) {
-                                addResource(
-                                        MediaResource::kGraphicMemory,
-                                        MediaResource::kUnspecifiedSubType,
-                                        getGraphicBufferSize());
-                            }
-                            setState(STARTED);
-                            (new AMessage)->postReply(mReplyID);
-                        } else {
-                            mFlags |= kFlagOutputBuffersChanged;
-                            postActivityNotificationIfPossible();
-                        }
-                    }
+                    setState(STARTED);
+                    (new AMessage)->postReply(mReplyID);
                     break;
                 }
 
-                case CodecBase::kWhatOutputFramesRendered:
+                case kWhatOutputBuffersChanged:
+                {
+                    mFlags |= kFlagOutputBuffersChanged;
+                    postActivityNotificationIfPossible();
+                    break;
+                }
+
+                case kWhatOutputFramesRendered:
                 {
                     // ignore these in all states except running, and check that we have a
                     // notification set
@@ -1388,7 +1541,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatFillThisBuffer:
+                case kWhatFillThisBuffer:
                 {
                     /* size_t index = */updateBuffers(kPortIndexInput, msg);
 
@@ -1398,9 +1551,6 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                         returnBuffersToCodecOnPort(kPortIndexInput);
                         break;
                     }
-
-                    // TODO: hold reference of buffer from downstream when
-                    // mPortBuffers is removed.
 
                     if (!mCSD.empty()) {
                         ssize_t index = dequeuePortBuffer(kPortIndexInput);
@@ -1446,7 +1596,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatDrainThisBuffer:
+                case kWhatDrainThisBuffer:
                 {
                     /* size_t index = */updateBuffers(kPortIndexOutput, msg);
 
@@ -1460,12 +1610,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     sp<RefBase> obj;
                     CHECK(msg->findObject("buffer", &obj));
                     sp<MediaCodecBuffer> buffer = static_cast<MediaCodecBuffer *>(obj.get());
-                    // TODO: hold buffer's reference when we remove mPortBuffers
 
-                    int32_t omxFlags;
-                    CHECK(msg->findInt32("flags", &omxFlags));
-
-                    buffer->meta()->setInt32("omxFlags", omxFlags);
                     if (mOutputFormat != buffer->format()) {
                         mOutputFormat = buffer->format();
                         ALOGV("[%s] output format changed to: %s",
@@ -1498,7 +1643,9 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                             // Before we announce the format change we should
                             // collect codec specific data and amend the output
                             // format as necessary.
-                            if (omxFlags & OMX_BUFFERFLAG_CODECCONFIG) {
+                            int32_t flags = 0;
+                            (void) buffer->meta()->findInt32("flags", &flags);
+                            if (flags & BUFFER_FLAG_CODECCONFIG) {
                                 status_t err =
                                     amendOutputFormatWithCodecSpecificData(buffer);
 
@@ -1543,14 +1690,14 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatEOS:
+                case kWhatEOS:
                 {
                     // We already notify the client of this by using the
                     // corresponding flag in "onOutputBufferReady".
                     break;
                 }
 
-                case CodecBase::kWhatStopCompleted:
+                case kWhatStopCompleted:
                 {
                     if (mState != STOPPING) {
                         ALOGW("Received kWhatStopCompleted in state %d", mState);
@@ -1561,7 +1708,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatReleaseCompleted:
+                case kWhatReleaseCompleted:
                 {
                     if (mState != RELEASING) {
                         ALOGW("Received kWhatReleaseCompleted in state %d", mState);
@@ -1578,7 +1725,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
-                case CodecBase::kWhatFlushCompleted:
+                case kWhatFlushCompleted:
                 {
                     if (mState != FLUSHING) {
                         ALOGW("received FlushCompleted message in state %d",
@@ -1721,6 +1868,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             mCrypto = static_cast<ICrypto *>(crypto);
+            mBufferChannel->setCrypto(mCrypto);
 
             uint32_t flags;
             CHECK(msg->findInt32("flags", (int32_t *)&flags));
@@ -2148,10 +2296,10 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             // createInputSurface(), or persistent set by setInputSurface()),
             // give the client an empty input buffers array.
             if (portIndex != kPortIndexInput || !mHaveInputSurface) {
-                const Vector<sp<MediaCodecBuffer>> &srcBuffers = mPortBufferArrays[portIndex];
-
-                for (size_t i = 0; i < srcBuffers.size(); ++i) {
-                    dstBuffers->push_back(srcBuffers[i]);
+                if (portIndex == kPortIndexInput) {
+                    mBufferChannel->getInputBufferArray(dstBuffers);
+                } else {
+                    mBufferChannel->getOutputBufferArray(dstBuffers);
                 }
             }
 
@@ -2280,13 +2428,12 @@ void MediaCodec::extractCSD(const sp<AMessage> &format) {
 status_t MediaCodec::queueCSDInputBuffer(size_t bufferIndex) {
     CHECK(!mCSD.empty());
 
-    const BufferInfo *info =
-        &mPortBuffers[kPortIndexInput].itemAt(bufferIndex);
+    const BufferInfo &info = mPortBuffers[kPortIndexInput][bufferIndex];
 
     sp<ABuffer> csd = *mCSD.begin();
     mCSD.erase(mCSD.begin());
 
-    const sp<MediaCodecBuffer> &codecInputData = info->mData;
+    const sp<MediaCodecBuffer> &codecInputData = info.mData;
 
     if (csd->size() > codecInputData->capacity()) {
         return -EINVAL;
@@ -2354,31 +2501,19 @@ void MediaCodec::returnBuffersToCodecOnPort(int32_t portIndex, bool isReclaim) {
     CHECK(portIndex == kPortIndexInput || portIndex == kPortIndexOutput);
     Mutex::Autolock al(mBufferLock);
 
-    Vector<BufferInfo> *buffers = &mPortBuffers[portIndex];
+    for (size_t i = 0; i < mPortBuffers[portIndex].size(); ++i) {
+        BufferInfo *info = &mPortBuffers[portIndex][i];
 
-    for (size_t i = 0; i < buffers->size(); ++i) {
-        BufferInfo *info = &buffers->editItemAt(i);
-
-        if (info->mNotify != NULL) {
-            sp<AMessage> msg = info->mNotify;
-            msg->setObject("buffer", (info->mSecureData != nullptr)
-                    ? info->mSecureData : info->mData);
-            msg->setInt32("discarded", true);
-            info->mNotify = NULL;
+        if (info->mData != nullptr) {
+            sp<MediaCodecBuffer> buffer = info->mData;
             if (isReclaim && info->mOwnedByClient) {
                 ALOGD("port %d buffer %zu still owned by client when codec is reclaimed",
                         portIndex, i);
             } else {
                 info->mOwnedByClient = false;
                 info->mData.clear();
-                info->mSecureData.clear();
             }
-
-            if (portIndex == kPortIndexInput) {
-                /* no error, just returning buffers */
-                msg->setInt32("err", OK);
-            }
-            msg->post();
+            mBufferChannel->discardBuffer(buffer);
         }
     }
 
@@ -2388,37 +2523,22 @@ void MediaCodec::returnBuffersToCodecOnPort(int32_t portIndex, bool isReclaim) {
 size_t MediaCodec::updateBuffers(
         int32_t portIndex, const sp<AMessage> &msg) {
     CHECK(portIndex == kPortIndexInput || portIndex == kPortIndexOutput);
-
-    uint32_t bufferID;
-    CHECK(msg->findInt32("buffer-id", (int32_t*)&bufferID));
+    size_t index;
+    CHECK(msg->findSize("index", &index));
     sp<RefBase> obj;
     CHECK(msg->findObject("buffer", &obj));
     sp<MediaCodecBuffer> buffer = static_cast<MediaCodecBuffer *>(obj.get());
 
-    Vector<BufferInfo> *buffers = &mPortBuffers[portIndex];
-
-    for (size_t i = 0; i < buffers->size(); ++i) {
-        BufferInfo *info = &buffers->editItemAt(i);
-
-        if (info->mBufferID == bufferID) {
-            CHECK(info->mNotify == NULL);
-            CHECK(msg->findMessage("reply", &info->mNotify));
-
-            if (portIndex == kPortIndexInput && mCrypto != NULL) {
-                info->mSecureData = buffer;
-                info->mData = mPortBufferArrays[portIndex][i];
-            } else {
-                info->mData = buffer;
-            }
-            mAvailPortBuffers[portIndex].push_back(i);
-
-            return i;
+    {
+        Mutex::Autolock al(mBufferLock);
+        if (mPortBuffers[portIndex].size() <= index) {
+            mPortBuffers[portIndex].resize(align(index + 1, kNumBuffersAlign));
         }
+        mPortBuffers[portIndex][index].mData = buffer;
     }
+    mAvailPortBuffers[portIndex].push_back(index);
 
-    TRESPASS();
-
-    return 0;
+    return index;
 }
 
 status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
@@ -2483,9 +2603,9 @@ status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
         return -ERANGE;
     }
 
-    BufferInfo *info = &mPortBuffers[kPortIndexInput].editItemAt(index);
+    BufferInfo *info = &mPortBuffers[kPortIndexInput][index];
 
-    if (info->mNotify == NULL || !info->mOwnedByClient) {
+    if (info->mData == nullptr || !info->mOwnedByClient) {
         return -EACCES;
     }
 
@@ -2493,69 +2613,44 @@ status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
         return -EINVAL;
     }
 
-    sp<AMessage> reply = info->mNotify;
     info->mData->setRange(offset, size);
+    info->mData->meta()->setInt64("timeUs", timeUs);
+    if (flags & BUFFER_FLAG_EOS) {
+        info->mData->meta()->setInt32("eos", true);
+    }
+
+    if (flags & BUFFER_FLAG_CODECCONFIG) {
+        info->mData->meta()->setInt32("csd", true);
+    }
 
     sp<MediaCodecBuffer> buffer = info->mData;
+    status_t err = OK;
     if (mCrypto != NULL) {
         AString *errorDetailMsg;
         CHECK(msg->findPointer("errorDetailMsg", (void **)&errorDetailMsg));
 
-        void *dst_pointer = nullptr;
-        ICrypto::DestinationType dst_type = ICrypto::kDestinationTypeOpaqueHandle;
-
-        if ((mFlags & kFlagIsSecure) == 0) {
-            dst_pointer = info->mSecureData->base();
-            dst_type = ICrypto::kDestinationTypeVmPointer;
-        } else {
-            sp<SecureBuffer> secureData = static_cast<SecureBuffer *>(info->mSecureData.get());
-            dst_pointer = secureData->getDestinationPointer();
-            dst_type = secureData->getDestinationType();
-        }
-
-        ssize_t result = mCrypto->decrypt(
-                dst_type,
+        err = mBufferChannel->queueSecureInputBuffer(
+                buffer,
+                (mFlags & kFlagIsSecure),
                 key,
                 iv,
                 mode,
                 pattern,
-                info->mSharedEncryptedBuffer,
-                offset,
                 subSamples,
                 numSubSamples,
-                dst_pointer,
                 errorDetailMsg);
-
-        if (result < 0) {
-            return result;
-        }
-
-        info->mSecureData->setRange(0, result);
-        buffer = info->mSecureData;
-    }
-    buffer->meta()->setInt64("timeUs", timeUs);
-
-    if (flags & BUFFER_FLAG_EOS) {
-        buffer->meta()->setInt32("eos", true);
+    } else {
+        err = mBufferChannel->queueInputBuffer(buffer);
     }
 
-    if (flags & BUFFER_FLAG_CODECCONFIG) {
-        buffer->meta()->setInt32("csd", true);
-    }
-
-    // synchronization boundary for getBufferAndFormat
-    {
+    if (err == OK) {
+        // synchronization boundary for getBufferAndFormat
         Mutex::Autolock al(mBufferLock);
         info->mOwnedByClient = false;
+        info->mData.clear();
     }
-    info->mData.clear();
-    info->mSecureData.clear();
-    reply->setObject("buffer", buffer);
-    reply->post();
 
-    info->mNotify = NULL;
-
-    return OK;
+    return err;
 }
 
 //static
@@ -2592,23 +2687,24 @@ status_t MediaCodec::onReleaseOutputBuffer(const sp<AMessage> &msg) {
         return -ERANGE;
     }
 
-    BufferInfo *info = &mPortBuffers[kPortIndexOutput].editItemAt(index);
+    BufferInfo *info = &mPortBuffers[kPortIndexOutput][index];
 
-    if (info->mNotify == NULL || !info->mOwnedByClient) {
+    if (info->mData == nullptr || !info->mOwnedByClient) {
         return -EACCES;
     }
 
     // synchronization boundary for getBufferAndFormat
+    sp<MediaCodecBuffer> buffer;
     {
         Mutex::Autolock al(mBufferLock);
         info->mOwnedByClient = false;
+        buffer = info->mData;
+        info->mData.clear();
     }
 
-    if (render && info->mData != NULL && info->mData->size() != 0) {
-        info->mNotify->setInt32("render", true);
-
+    if (render && buffer->size() != 0) {
         int64_t mediaTimeUs = -1;
-        info->mData->meta()->findInt64("timeUs", &mediaTimeUs);
+        buffer->meta()->findInt64("timeUs", &mediaTimeUs);
 
         int64_t renderTimeNs = 0;
         if (!msg->findInt64("timestampNs", &renderTimeNs)) {
@@ -2616,12 +2712,11 @@ status_t MediaCodec::onReleaseOutputBuffer(const sp<AMessage> &msg) {
             ALOGV("using buffer PTS of %lld", (long long)mediaTimeUs);
             renderTimeNs = mediaTimeUs * 1000;
         }
-        info->mNotify->setInt64("timestampNs", renderTimeNs);
 
         if (mSoftRenderer != NULL) {
             std::list<FrameRenderTracker::Info> doneFrames = mSoftRenderer->render(
-                    info->mData->data(), info->mData->size(),
-                    mediaTimeUs, renderTimeNs, NULL, info->mData->format());
+                    buffer->data(), buffer->size(),
+                    mediaTimeUs, renderTimeNs, NULL, buffer->format());
 
             // if we are running, notify rendered frames
             if (!doneFrames.empty() && mState == STARTED && mOnFrameRenderedNotification != NULL) {
@@ -2633,12 +2728,10 @@ status_t MediaCodec::onReleaseOutputBuffer(const sp<AMessage> &msg) {
                 }
             }
         }
+        mBufferChannel->renderOutputBuffer(buffer, renderTimeNs);
+    } else {
+        mBufferChannel->discardBuffer(buffer);
     }
-
-    info->mNotify->setObject("buffer", info->mData);
-    info->mData.clear();
-    info->mNotify->post();
-    info->mNotify.clear();
 
     return OK;
 }
@@ -2655,7 +2748,7 @@ ssize_t MediaCodec::dequeuePortBuffer(int32_t portIndex) {
     size_t index = *availBuffers->begin();
     availBuffers->erase(availBuffers->begin());
 
-    BufferInfo *info = &mPortBuffers[portIndex].editItemAt(index);
+    BufferInfo *info = &mPortBuffers[portIndex][index];
     CHECK(!info->mOwnedByClient);
     {
         Mutex::Autolock al(mBufferLock);
@@ -2759,7 +2852,7 @@ void MediaCodec::onOutputBufferAvailable() {
     int32_t index;
     while ((index = dequeuePortBuffer(kPortIndexOutput)) >= 0) {
         const sp<MediaCodecBuffer> &buffer =
-            mPortBuffers[kPortIndexOutput].itemAt(index).mData;
+            mPortBuffers[kPortIndexOutput][index].mData;
         sp<AMessage> msg = mCallback->dup();
         msg->setInt32("callbackID", CB_OUTPUT_AVAILABLE);
         msg->setInt32("index", index);
@@ -2771,19 +2864,8 @@ void MediaCodec::onOutputBufferAvailable() {
 
         msg->setInt64("timeUs", timeUs);
 
-        int32_t omxFlags;
-        CHECK(buffer->meta()->findInt32("omxFlags", &omxFlags));
-
-        uint32_t flags = 0;
-        if (omxFlags & OMX_BUFFERFLAG_SYNCFRAME) {
-            flags |= BUFFER_FLAG_SYNCFRAME;
-        }
-        if (omxFlags & OMX_BUFFERFLAG_CODECCONFIG) {
-            flags |= BUFFER_FLAG_CODECCONFIG;
-        }
-        if (omxFlags & OMX_BUFFERFLAG_EOS) {
-            flags |= BUFFER_FLAG_EOS;
-        }
+        int32_t flags;
+        CHECK(buffer->meta()->findInt32("flags", &flags));
 
         msg->setInt32("flags", flags);
 
@@ -2814,7 +2896,6 @@ void MediaCodec::onOutputFormatChanged() {
         msg->post();
     }
 }
-
 
 void MediaCodec::postActivityNotificationIfPossible() {
     if (mActivityNotify == NULL) {

@@ -512,8 +512,11 @@ sp<NBLog::Writer> AudioFlinger::newWriter_l(size_t size, const char *name)
         return new NBLog::Writer();
     }
 success:
+    NBLog::Shared *sharedRawPtr = (NBLog::Shared *) shared->pointer();
+    new((void *) sharedRawPtr) NBLog::Shared(); // placement new here, but the corresponding
+                                                // explicit destructor not needed since it is POD
     mediaLogService->registerWriter(shared, size, name);
-    return new NBLog::Writer(size, shared);
+    return new NBLog::Writer(shared, size);
 }
 
 void AudioFlinger::unregisterWriter(const sp<NBLog::Writer>& writer)
@@ -547,7 +550,8 @@ sp<IAudioTrack> AudioFlinger::createTrack(
         pid_t tid,
         audio_session_t *sessionId,
         int clientUid,
-        status_t *status)
+        status_t *status,
+        audio_port_handle_t portId)
 {
     sp<PlaybackThread::Track> track;
     sp<TrackHandle> trackHandle;
@@ -640,7 +644,8 @@ sp<IAudioTrack> AudioFlinger::createTrack(
         ALOGV("createTrack() lSessionId: %d", lSessionId);
 
         track = thread->createTrack_l(client, streamType, sampleRate, format,
-                channelMask, frameCount, sharedBuffer, lSessionId, flags, tid, clientUid, &lStatus);
+                channelMask, frameCount, sharedBuffer, lSessionId, flags, tid,
+                clientUid, &lStatus, portId);
         LOG_ALWAYS_FATAL_IF((lStatus == NO_ERROR) && (track == 0));
         // we don't abort yet if lStatus != NO_ERROR; there is still work to be done regardless
 
@@ -1320,7 +1325,7 @@ void AudioFlinger::removeNotificationClient(pid_t pid)
     ALOGV("%d died, releasing its sessions", pid);
     size_t num = mAudioSessionRefs.size();
     bool removed = false;
-    for (size_t i = 0; i< num; ) {
+    for (size_t i = 0; i < num; ) {
         AudioSessionRef *ref = mAudioSessionRefs.itemAt(i);
         ALOGV(" pid %d @ %zu", ref->mPid, i);
         if (ref->mPid == pid) {
@@ -1445,7 +1450,8 @@ sp<IAudioRecord> AudioFlinger::openRecord(
         size_t *notificationFrames,
         sp<IMemory>& cblk,
         sp<IMemory>& buffers,
-        status_t *status)
+        status_t *status,
+        audio_port_handle_t portId)
 {
     sp<RecordThread::RecordTrack> recordTrack;
     sp<RecordHandle> recordHandle;
@@ -1529,7 +1535,7 @@ sp<IAudioRecord> AudioFlinger::openRecord(
 
         recordTrack = thread->createRecordTrack_l(client, sampleRate, format, channelMask,
                                                   frameCount, lSessionId, notificationFrames,
-                                                  clientUid, flags, tid, &lStatus);
+                                                  clientUid, flags, tid, &lStatus, portId);
         LOG_ALWAYS_FATAL_IF((lStatus == NO_ERROR) && (recordTrack == 0));
 
         if (lStatus == NO_ERROR) {
@@ -2087,9 +2093,10 @@ sp<AudioFlinger::RecordThread> AudioFlinger::openInput_l(audio_module_handle_t m
     sp<StreamInHalInterface> inStream;
     status_t status = inHwHal->openInputStream(
             *input, devices, &halconfig, flags, address.string(), source, &inStream);
-    ALOGV("openInput_l() openInputStream returned input %p, SamplingRate %d"
+    ALOGV("openInput_l() openInputStream returned input %p, devices %x, SamplingRate %d"
            ", Format %#x, Channels %x, flags %#x, status %d addr %s",
             inStream.get(),
+            devices,
             halconfig.sample_rate,
             halconfig.format,
             halconfig.channel_mask,
@@ -2315,7 +2322,7 @@ void AudioFlinger::acquireAudioSessionId(audio_session_t audioSession, pid_t pid
     }
 
     size_t num = mAudioSessionRefs.size();
-    for (size_t i = 0; i< num; i++) {
+    for (size_t i = 0; i < num; i++) {
         AudioSessionRef *ref = mAudioSessionRefs.editItemAt(i);
         if (ref->mSessionid == audioSession && ref->mPid == caller) {
             ref->mCnt++;
@@ -2336,7 +2343,7 @@ void AudioFlinger::releaseAudioSessionId(audio_session_t audioSession, pid_t pid
         caller = pid;
     }
     size_t num = mAudioSessionRefs.size();
-    for (size_t i = 0; i< num; i++) {
+    for (size_t i = 0; i < num; i++) {
         AudioSessionRef *ref = mAudioSessionRefs.itemAt(i);
         if (ref->mSessionid == audioSession && ref->mPid == caller) {
             ref->mCnt--;
@@ -2352,6 +2359,18 @@ void AudioFlinger::releaseAudioSessionId(audio_session_t audioSession, pid_t pid
     // If the caller is mediaserver it is likely that the session being released was acquired
     // on behalf of a process not in notification clients and we ignore the warning.
     ALOGW_IF(caller != getpid_cached, "session id %d not found for pid %d", audioSession, caller);
+}
+
+bool AudioFlinger::isSessionAcquired_l(audio_session_t audioSession)
+{
+    size_t num = mAudioSessionRefs.size();
+    for (size_t i = 0; i < num; i++) {
+        AudioSessionRef *ref = mAudioSessionRefs.itemAt(i);
+        if (ref->mSessionid == audioSession) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void AudioFlinger::purgeStaleEffects_l() {
@@ -2593,6 +2612,7 @@ sp<IEffect> AudioFlinger::createEffect(
         audio_io_handle_t io,
         audio_session_t sessionId,
         const String16& opPackageName,
+        pid_t pid,
         status_t *status,
         int *id,
         int *enabled)
@@ -2601,7 +2621,15 @@ sp<IEffect> AudioFlinger::createEffect(
     sp<EffectHandle> handle;
     effect_descriptor_t desc;
 
-    pid_t pid = IPCThreadState::self()->getCallingPid();
+    const uid_t callingUid = IPCThreadState::self()->getCallingUid();
+    if (pid == -1 || !isTrustedCallingUid(callingUid)) {
+        const pid_t callingPid = IPCThreadState::self()->getCallingPid();
+        ALOGW_IF(pid != -1 && pid != callingPid,
+                 "%s uid %d pid %d tried to pass itself off as pid %d",
+                 __func__, callingUid, callingPid, pid);
+        pid = callingPid;
+    }
+
     ALOGV("createEffect pid %d, effectClient %p, priority %d, sessionId %d, io %d, factory %p",
             pid, effectClient.get(), priority, sessionId, io, mEffectsFactoryHal.get());
 
@@ -2767,8 +2795,9 @@ sp<IEffect> AudioFlinger::createEffect(
         sp<Client> client = registerPid(pid);
 
         // create effect on selected output thread
+        bool pinned = (sessionId > AUDIO_SESSION_OUTPUT_MIX) && isSessionAcquired_l(sessionId);
         handle = thread->createEffect_l(client, effectClient, priority, sessionId,
-                &desc, enabled, &lStatus);
+                &desc, enabled, &lStatus, pinned);
         if (handle != 0 && id != NULL) {
             *id = handle->id();
         }
@@ -2965,7 +2994,7 @@ bool AudioFlinger::updateOrphanEffectChains(const sp<AudioFlinger::EffectModule>
     ALOGV("updateOrphanEffectChains session %d index %zd", session, index);
     if (index >= 0) {
         sp<EffectChain> chain = mOrphanEffectChains.valueAt(index);
-        if (chain->removeEffect_l(effect) == 0) {
+        if (chain->removeEffect_l(effect, true) == 0) {
             ALOGV("updateOrphanEffectChains removing effect chain at index %zd", index);
             mOrphanEffectChains.removeItemsAt(index);
         }

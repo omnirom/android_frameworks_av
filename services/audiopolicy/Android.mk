@@ -4,19 +4,9 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= \
     service/AudioPolicyService.cpp \
-    service/AudioPolicyEffects.cpp
-
-ifeq ($(USE_LEGACY_AUDIO_POLICY), 1)
-LOCAL_SRC_FILES += \
-    service/AudioPolicyInterfaceImplLegacy.cpp \
-    service/AudioPolicyClientImplLegacy.cpp
-
-    LOCAL_CFLAGS += -DUSE_LEGACY_AUDIO_POLICY
-else
-LOCAL_SRC_FILES += \
+    service/AudioPolicyEffects.cpp \
     service/AudioPolicyInterfaceImpl.cpp \
     service/AudioPolicyClientImpl.cpp
-endif
 
 LOCAL_C_INCLUDES := \
     $(TOPDIR)frameworks/av/services/audioflinger \
@@ -32,15 +22,11 @@ LOCAL_SHARED_LIBRARIES := \
     libbinder \
     libaudioclient \
     libhardware_legacy \
-    libserviceutility
-
-ifneq ($(USE_LEGACY_AUDIO_POLICY), 1)
-LOCAL_SHARED_LIBRARIES += \
-    libaudiopolicymanager
-endif
+    libserviceutility \
+    libaudiopolicymanager \
+    libmedia_helper
 
 LOCAL_STATIC_LIBRARIES := \
-    libmedia_helper \
     libaudiopolicycomponents
 
 LOCAL_MULTILIB := $(AUDIOSERVER_MULTILIB)
@@ -51,8 +37,6 @@ LOCAL_CFLAGS += -fvisibility=hidden
 LOCAL_CFLAGS += -Wall -Werror
 
 include $(BUILD_SHARED_LIBRARY)
-
-ifneq ($(USE_LEGACY_AUDIO_POLICY), 1)
 
 include $(CLEAR_VARS)
 
@@ -92,12 +76,10 @@ LOCAL_C_INCLUDES += \
 LOCAL_STATIC_LIBRARIES := \
     libaudiopolicycomponents
 
-LOCAL_WHOLE_STATIC_LIBRARIES := libmedia_helper
+LOCAL_SHARED_LIBRARIES += libmedia_helper
 
 ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
-LOCAL_STATIC_LIBRARIES += libxml2
-
-LOCAL_SHARED_LIBRARIES += libicuuc
+LOCAL_SHARED_LIBRARIES += libicuuc libxml2
 
 LOCAL_CFLAGS += -DUSE_XML_AUDIO_POLICY_CONF
 endif #ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
@@ -135,7 +117,6 @@ LOCAL_MODULE:= libaudiopolicymanager
 
 include $(BUILD_SHARED_LIBRARY)
 
-endif
 endif
 
 #######################################################################

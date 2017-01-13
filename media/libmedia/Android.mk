@@ -26,6 +26,7 @@ LOCAL_SRC_FILES += \
     IMediaPlayer.cpp \
     IMediaRecorder.cpp \
     IMediaSource.cpp \
+    IMediaAnalyticsService.cpp \
     IRemoteDisplay.cpp \
     IRemoteDisplayClient.cpp \
     IResourceManagerClient.cpp \
@@ -34,6 +35,7 @@ LOCAL_SRC_FILES += \
     MediaCodecBuffer.cpp \
     MediaCodecInfo.cpp \
     MediaDefs.cpp \
+    MediaAnalyticsItem.cpp \
     MediaUtils.cpp \
     Metadata.cpp \
     mediarecorder.cpp \
@@ -57,11 +59,10 @@ LOCAL_SRC_FILES += \
 LOCAL_SHARED_LIBRARIES := \
 	libui liblog libcutils libutils libbinder libsonivox libicuuc libicui18n libexpat \
         libcamera_client libstagefright_foundation \
-        libgui libdl libaudioutils libaudioclient
+        libgui libdl libaudioutils libaudioclient \
+        libmedia_helper
 
-LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := libbinder
-
-LOCAL_WHOLE_STATIC_LIBRARIES := libmedia_helper
+LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := libbinder libsonivox
 
 # for memory heap analysis
 LOCAL_STATIC_LIBRARIES := libc_malloc_debug_backtrace libc_logging

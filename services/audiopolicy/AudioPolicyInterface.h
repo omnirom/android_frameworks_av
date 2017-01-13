@@ -89,6 +89,10 @@ public:
     // retrieve a device connection status
     virtual audio_policy_dev_state_t getDeviceConnectionState(audio_devices_t device,
                                                                           const char *device_address) = 0;
+    // indicate a change in device configuration
+    virtual status_t handleDeviceConfigChange(audio_devices_t device,
+                                              const char *device_address,
+                                              const char *device_name) = 0;
     // indicate a change in phone state. Valid phones states are defined by audio_mode_t
     virtual void setPhoneState(audio_mode_t state) = 0;
     // force using a specific device category for the specified usage
@@ -116,12 +120,10 @@ public:
                                         audio_session_t session,
                                         audio_stream_type_t *stream,
                                         uid_t uid,
-                                        uint32_t samplingRate,
-                                        audio_format_t format,
-                                        audio_channel_mask_t channelMask,
+                                        const audio_config_t *config,
                                         audio_output_flags_t flags,
                                         int selectedDeviceId,
-                                        const audio_offload_info_t *offloadInfo) = 0;
+                                        audio_port_handle_t *portId) = 0;
     // indicates to the audio policy manager that the output starts being used by corresponding stream.
     virtual status_t startOutput(audio_io_handle_t output,
                                  audio_stream_type_t stream,
@@ -140,12 +142,11 @@ public:
                                      audio_io_handle_t *input,
                                      audio_session_t session,
                                      uid_t uid,
-                                     uint32_t samplingRate,
-                                     audio_format_t format,
-                                     audio_channel_mask_t channelMask,
+                                     const audio_config_base_t *config,
                                      audio_input_flags_t flags,
                                      audio_port_handle_t selectedDeviceId,
-                                     input_type_t *inputType) = 0;
+                                     input_type_t *inputType,
+                                     audio_port_handle_t *portId) = 0;
     // indicates to the audio policy manager that the input starts being used.
     virtual status_t startInput(audio_io_handle_t input,
                                 audio_session_t session,

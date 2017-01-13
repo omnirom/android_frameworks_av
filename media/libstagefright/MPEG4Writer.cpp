@@ -435,8 +435,6 @@ MPEG4Writer::MPEG4Writer(int fd)
       mStartTimestampUs(-1ll),
       mLatitudex10000(0),
       mLongitudex10000(0),
-      mHasAudioTrack(false),
-      mHasVideoTrack(false),
       mAreGeoTagsAvailable(false),
       mStartTimeOffsetMs(-1),
       mMetaKeys(new AMessage()) {
@@ -539,22 +537,6 @@ status_t MPEG4Writer::addSource(const sp<IMediaSource> &source) {
 
     const char *mime;
     source->getFormat()->findCString(kKeyMIMEType, &mime);
-
-    if (!strncasecmp(mime, "audio/", 6)) {
-        if (mHasAudioTrack) {
-            ALOGE("At most one audio track can be added");
-            return ERROR_UNSUPPORTED;
-        }
-        mHasAudioTrack = true;
-    }
-
-    if (!strncasecmp(mime, "video/", 6)) {
-        if (mHasVideoTrack) {
-            ALOGE("At most one video track can be added");
-            return ERROR_UNSUPPORTED;
-        }
-        mHasVideoTrack = true;
-    }
 
     if (Track::getFourCCForMime(mime) == NULL) {
         ALOGE("Unsupported mime '%s'", mime);
@@ -1128,9 +1110,7 @@ static bool isTestModeEnabled() {
 
     // Test mode is enabled only if rw.media.record.test system
     // property is enabled.
-    char value[PROPERTY_VALUE_MAX];
-    if (property_get("rw.media.record.test", value, NULL) &&
-        (!strcasecmp(value, "true") || !strcasecmp(value, "1"))) {
+    if (property_get_bool("rw.media.record.test", false)) {
         return true;
     }
     return false;
@@ -3329,13 +3309,22 @@ void MPEG4Writer::Track::writeHdlrBox() {
 
 void MPEG4Writer::Track::writeMdhdBox(uint32_t now) {
     int64_t trakDurationUs = getDurationUs();
+    int64_t mdhdDuration = (trakDurationUs * mTimeScale + 5E5) / 1E6;
     mOwner->beginBox("mdhd");
-    mOwner->writeInt32(0);             // version=0, flags=0
-    mOwner->writeInt32(now);           // creation time
-    mOwner->writeInt32(now);           // modification time
-    mOwner->writeInt32(mTimeScale);    // media timescale
-    int32_t mdhdDuration = (trakDurationUs * mTimeScale + 5E5) / 1E6;
-    mOwner->writeInt32(mdhdDuration);  // use media timescale
+
+    if (mdhdDuration > UINT32_MAX) {
+        mOwner->writeInt32((1 << 24));            // version=1, flags=0
+        mOwner->writeInt64((int64_t)now);         // creation time
+        mOwner->writeInt64((int64_t)now);         // modification time
+        mOwner->writeInt32(mTimeScale);           // media timescale
+        mOwner->writeInt64(mdhdDuration);         // media timescale
+    } else {
+        mOwner->writeInt32(0);                      // version=0, flags=0
+        mOwner->writeInt32(now);                    // creation time
+        mOwner->writeInt32(now);                    // modification time
+        mOwner->writeInt32(mTimeScale);             // media timescale
+        mOwner->writeInt32((int32_t)mdhdDuration);  // use media timescale
+    }
     // Language follows the three letter standard ISO-639-2/T
     // 'e', 'n', 'g' for "English", for instance.
     // Each character is packed as the difference between its ASCII value and 0x60.

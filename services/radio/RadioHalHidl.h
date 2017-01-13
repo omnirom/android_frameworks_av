@@ -86,7 +86,6 @@ public:
 
                     void     onCallback(radio_hal_event_t *halEvent);
                     void     handleHwFailure();
-                    status_t checkHidlStatus(Status hidlStatus);
 
             sp<ITuner> mHalTuner;
             sp<TunerCallbackInterface>  mCallback;

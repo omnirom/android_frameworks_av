@@ -44,6 +44,7 @@ public:
         kStreamedFromLocalHost = 2,
         kIsCachingDataSource   = 4,
         kIsHTTPBasedSource     = 8,
+        kIsLocalFileSource     = 16,
     };
 
     static sp<DataSource> CreateFromURI(
@@ -96,28 +97,17 @@ public:
         return String8("<unspecified>");
     }
 
-    virtual status_t reconnectAtOffset(off64_t offset) {
+    virtual status_t reconnectAtOffset(off64_t /*offset*/) {
         return ERROR_UNSUPPORTED;
     }
 
     ////////////////////////////////////////////////////////////////////////////
 
-    bool sniff(String8 *mimeType, float *confidence, sp<AMessage> *meta);
-
-    // The sniffer can optionally fill in "meta" with an AMessage containing
-    // a dictionary of values that helps the corresponding extractor initialize
-    // its state without duplicating effort already exerted by the sniffer.
-    typedef bool (*SnifferFunc)(
-            const sp<DataSource> &source, String8 *mimeType,
-            float *confidence, sp<AMessage> *meta);
-
-    static void RegisterDefaultSniffers();
-
     // for DRM
-    virtual sp<DecryptHandle> DrmInitialization(const char *mime = NULL) {
+    virtual sp<DecryptHandle> DrmInitialization(const char * /*mime*/ = NULL) {
         return NULL;
     }
-    virtual void getDrmInfo(sp<DecryptHandle> &handle, DrmManagerClient **client) {};
+    virtual void getDrmInfo(sp<DecryptHandle> &/*handle*/, DrmManagerClient ** /*client*/) {};
 
     virtual String8 getUri() {
         return String8();
@@ -131,12 +121,6 @@ protected:
     virtual ~DataSource() {}
 
 private:
-    static Mutex gSnifferMutex;
-    static List<SnifferFunc> gSniffers;
-    static bool gSniffersRegistered;
-
-    static void RegisterSniffer_l(SnifferFunc func);
-
     DataSource(const DataSource &);
     DataSource &operator=(const DataSource &);
 };

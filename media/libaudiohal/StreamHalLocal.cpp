@@ -96,6 +96,12 @@ status_t StreamHalLocal::dump(int fd) {
     return mStream->dump(mStream, fd);
 }
 
+status_t StreamHalLocal::setHalThreadPriority(int) {
+    // Don't need to do anything as local hal is executed by audioflinger directly
+    // on the same thread.
+    return OK;
+}
+
 StreamOutHalLocal::StreamOutHalLocal(audio_stream_out_t *stream, sp<DeviceHalLocal> device)
         : StreamHalLocal(&stream->common, device), mStream(stream) {
 }
@@ -215,6 +221,26 @@ status_t StreamOutHalLocal::getPresentationPosition(uint64_t *frames, struct tim
     return mStream->get_presentation_position(mStream, frames, timestamp);
 }
 
+status_t StreamOutHalLocal::start() {
+    if (mStream->start == NULL) return INVALID_OPERATION;
+    return mStream->start(mStream);
+}
+
+status_t StreamOutHalLocal::stop() {
+    if (mStream->stop == NULL) return INVALID_OPERATION;
+    return mStream->stop(mStream);
+}
+
+status_t StreamOutHalLocal::createMmapBuffer(int32_t minSizeFrames,
+                                  struct audio_mmap_buffer_info *info) {
+    if (mStream->create_mmap_buffer == NULL) return INVALID_OPERATION;
+    return mStream->create_mmap_buffer(mStream, minSizeFrames, info);
+}
+
+status_t StreamOutHalLocal::getMmapPosition(struct audio_mmap_position *position) {
+    if (mStream->get_mmap_position == NULL) return INVALID_OPERATION;
+    return mStream->get_mmap_position(mStream, position);
+}
 
 StreamInHalLocal::StreamInHalLocal(audio_stream_in_t *stream, sp<DeviceHalLocal> device)
         : StreamHalLocal(&stream->common, device), mStream(stream) {
@@ -253,6 +279,27 @@ status_t StreamInHalLocal::getInputFramesLost(uint32_t *framesLost) {
 status_t StreamInHalLocal::getCapturePosition(int64_t *frames, int64_t *time) {
     if (mStream->get_capture_position == NULL) return INVALID_OPERATION;
     return mStream->get_capture_position(mStream, frames, time);
+}
+
+status_t StreamInHalLocal::start() {
+    if (mStream->start == NULL) return INVALID_OPERATION;
+    return mStream->start(mStream);
+}
+
+status_t StreamInHalLocal::stop() {
+    if (mStream->stop == NULL) return INVALID_OPERATION;
+    return mStream->stop(mStream);
+}
+
+status_t StreamInHalLocal::createMmapBuffer(int32_t minSizeFrames,
+                                  struct audio_mmap_buffer_info *info) {
+    if (mStream->create_mmap_buffer == NULL) return INVALID_OPERATION;
+    return mStream->create_mmap_buffer(mStream, minSizeFrames, info);
+}
+
+status_t StreamInHalLocal::getMmapPosition(struct audio_mmap_position *position) {
+    if (mStream->get_mmap_position == NULL) return INVALID_OPERATION;
+    return mStream->get_mmap_position(mStream, position);
 }
 
 } // namespace android

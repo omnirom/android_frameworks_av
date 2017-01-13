@@ -75,7 +75,8 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
             uid_t clientUid,
             bool isOut,
             alloc_type alloc,
-            track_type type)
+            track_type type,
+            audio_port_handle_t portId)
     :   RefBase(),
         mThread(thread),
         mClient(client),
@@ -96,7 +97,8 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
         mId(android_atomic_inc(&nextTrackId)),
         mTerminated(false),
         mType(type),
-        mThreadIoHandle(thread->id())
+        mThreadIoHandle(thread->id()),
+        mPortId(portId)
 {
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
     if (!isTrustedCallingUid(callingUid) || clientUid == AUDIO_UID_INVALID) {
@@ -343,12 +345,13 @@ AudioFlinger::PlaybackThread::Track::Track(
             audio_session_t sessionId,
             uid_t uid,
             audio_output_flags_t flags,
-            track_type type)
+            track_type type,
+            audio_port_handle_t portId)
     :   TrackBase(thread, client, sampleRate, format, channelMask, frameCount,
                   (sharedBuffer != 0) ? sharedBuffer->pointer() : buffer,
                   sessionId, uid, true /*isOut*/,
                   (type == TYPE_PATCH) ? ( buffer == NULL ? ALLOC_LOCAL : ALLOC_NONE) : ALLOC_CBLK,
-                  type),
+                  type, portId),
     mFillingUpStatus(FS_INVALID),
     // mRetryCount initialized later when needed
     mSharedBuffer(sharedBuffer),
@@ -459,7 +462,7 @@ void AudioFlinger::PlaybackThread::Track::destroy()
 /*static*/ void AudioFlinger::PlaybackThread::Track::appendDumpHeader(String8& result)
 {
     result.append("    Name Active Client Type      Fmt Chn mask Session fCount S F SRate  "
-                  "L dB  R dB    Server Main buf  Aux Buf Flags UndFrmCnt\n");
+                  "L dB  R dB    Server Main buf  Aux buf Flags UndFrmCnt  Flushed\n");
 }
 
 void AudioFlinger::PlaybackThread::Track::dump(char* buffer, size_t size, bool active)
@@ -526,7 +529,7 @@ void AudioFlinger::PlaybackThread::Track::dump(char* buffer, size_t size, bool a
         break;
     }
     snprintf(&buffer[8], size-8, " %6s %6u %4u %08X %08X %7u %6zu %1c %1d %5u %5.2g %5.2g  "
-                                 "%08X %p %p 0x%03X %9u%c\n",
+                                 "%08X %08zX %08zX 0x%03X %9u%c %7u\n",
             active ? "yes" : "no",
             (mClient == 0) ? getpid_cached : mClient->pid(),
             mStreamType,
@@ -540,11 +543,12 @@ void AudioFlinger::PlaybackThread::Track::dump(char* buffer, size_t size, bool a
             20.0 * log10(float_from_gain(gain_minifloat_unpack_left(vlr))),
             20.0 * log10(float_from_gain(gain_minifloat_unpack_right(vlr))),
             mCblk->mServer,
-            mMainBuffer,
-            mAuxBuffer,
+            (size_t)mMainBuffer, // use %zX as %p appends 0x
+            (size_t)mAuxBuffer,  // use %zX as %p appends 0x
             mCblk->mFlags,
             mAudioTrackServerProxy->getUnderrunFrames(),
-            nowInUnderrun);
+            nowInUnderrun,
+            (unsigned)mAudioTrackServerProxy->framesFlushed() % 10000000); // 7 digits
 }
 
 uint32_t AudioFlinger::PlaybackThread::Track::sampleRate() const {
@@ -1476,13 +1480,14 @@ AudioFlinger::RecordThread::RecordTrack::RecordTrack(
             audio_session_t sessionId,
             uid_t uid,
             audio_input_flags_t flags,
-            track_type type)
+            track_type type,
+            audio_port_handle_t portId)
     :   TrackBase(thread, client, sampleRate, format,
                   channelMask, frameCount, buffer, sessionId, uid, false /*isOut*/,
                   (type == TYPE_DEFAULT) ?
                           ((flags & AUDIO_INPUT_FLAG_FAST) ? ALLOC_PIPE : ALLOC_CBLK) :
                           ((buffer == NULL) ? ALLOC_LOCAL : ALLOC_NONE),
-                  type),
+                  type, portId),
         mOverflow(false),
         mFramesToDrop(0),
         mResamplerBufferProvider(NULL), // initialize in case of early constructor exit

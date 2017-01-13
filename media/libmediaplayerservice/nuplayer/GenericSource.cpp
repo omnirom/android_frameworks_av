@@ -33,7 +33,6 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
-#include "../../libstagefright/include/DRMExtractor.h"
 #include "../../libstagefright/include/NuCachedSource2.h"
 #include "../../libstagefright/include/HTTPBase.h"
 
@@ -68,7 +67,6 @@ NuPlayer::GenericSource::GenericSource(
       mPendingReadBufferTypes(0) {
     mBufferingMonitor = new BufferingMonitor(notify);
     resetDataSource();
-    DataSource::RegisterDefaultSniffers();
 }
 
 void NuPlayer::GenericSource::resetDataSource() {
@@ -145,10 +143,6 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
 
     if (extractor == NULL) {
         return UNKNOWN_ERROR;
-    }
-
-    if (extractor->getDrmFlag()) {
-        checkDrmStatus(mDataSource);
     }
 
     mFileMeta = extractor->getMetaData();
@@ -262,18 +256,6 @@ status_t NuPlayer::GenericSource::startSources() {
     }
 
     return OK;
-}
-
-void NuPlayer::GenericSource::checkDrmStatus(const sp<DataSource>& dataSource) {
-    dataSource->getDrmInfo(mDecryptHandle, &mDrmManagerClient);
-    if (mDecryptHandle != NULL) {
-        CHECK(mDrmManagerClient);
-        if (RightsStatus::RIGHTS_VALID != mDecryptHandle->status) {
-            sp<AMessage> msg = dupNotify();
-            msg->setInt32("what", kWhatDrmNoLicense);
-            msg->post();
-        }
-    }
 }
 
 int64_t NuPlayer::GenericSource::getLastReadPosition() {

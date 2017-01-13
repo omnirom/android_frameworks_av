@@ -31,7 +31,13 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
 
+#include <media/IMediaAnalyticsService.h>
+
+static const int kDumpLockRetries = 50;
+static const int kDumpLockSleepUs = 20000;
+
 namespace android {
+
 
 NuPlayerDriver::NuPlayerDriver(pid_t pid)
     : mState(STATE_IDLE),
@@ -41,13 +47,19 @@ NuPlayerDriver::NuPlayerDriver(pid_t pid)
       mDurationUs(-1),
       mPositionUs(-1),
       mSeekInProgress(false),
+      mPlayingTimeUs(0),
       mLooper(new ALooper),
       mPlayerFlags(0),
+      mAnalyticsItem(NULL),
       mAtEOS(false),
       mLooping(false),
       mAutoLoop(false) {
-    ALOGV("NuPlayerDriver(%p)", this);
+    ALOGD("NuPlayerDriver(%p) created, clientPid(%d)", this, pid);
     mLooper->setName("NuPlayerDriver Looper");
+
+    // set up an analytics record
+    mAnalyticsItem = new MediaAnalyticsItem("nuplayer");
+    mAnalyticsItem->generateSessionID();
 
     mLooper->start(
             false, /* runOnCallingThread */
@@ -63,6 +75,15 @@ NuPlayerDriver::NuPlayerDriver(pid_t pid)
 NuPlayerDriver::~NuPlayerDriver() {
     ALOGV("~NuPlayerDriver(%p)", this);
     mLooper->stop();
+
+    // finalize any pending metrics, usually a no-op.
+    finalizeMetrics("destructor");
+    logMetrics("destructor");
+
+    if (mAnalyticsItem != NULL) {
+        delete mAnalyticsItem;
+        mAnalyticsItem = NULL;
+    }
 }
 
 status_t NuPlayerDriver::initCheck() {
@@ -450,8 +471,103 @@ status_t NuPlayerDriver::getDuration(int *msec) {
     return OK;
 }
 
+void NuPlayerDriver::finalizeMetrics(const char *where) {
+    if (where == NULL) {
+        where = "unknown";
+    }
+    ALOGD("finalizeMetrics(%p) from %s at state %d", this, where, mState);
+
+    // gather the final stats for this record
+    Vector<sp<AMessage>> trackStats;
+    mPlayer->getStats(&trackStats);
+
+    if (trackStats.size() > 0) {
+        for (size_t i = 0; i < trackStats.size(); ++i) {
+            const sp<AMessage> &stats = trackStats.itemAt(i);
+
+            AString mime;
+            stats->findString("mime", &mime);
+
+            AString name;
+            stats->findString("component-name", &name);
+
+            if (mime.startsWith("video/")) {
+                int32_t width, height;
+                mAnalyticsItem->setCString("video/mime", mime.c_str());
+                if (!name.empty()) {
+                    mAnalyticsItem->setCString("video/codec", name.c_str());
+                }
+
+                if (stats->findInt32("width", &width)
+                        && stats->findInt32("height", &height)) {
+                    mAnalyticsItem->setInt32("wid", width);
+                    mAnalyticsItem->setInt32("ht", height);
+                }
+
+                int64_t numFramesTotal = 0;
+                int64_t numFramesDropped = 0;
+                stats->findInt64("frames-total", &numFramesTotal);
+                stats->findInt64("frames-dropped-output", &numFramesDropped);
+
+                mAnalyticsItem->setInt64("frames", numFramesTotal);
+                mAnalyticsItem->setInt64("dropped", numFramesDropped);
+
+
+            } else if (mime.startsWith("audio/")) {
+                mAnalyticsItem->setCString("audio/mime", mime.c_str());
+                if (!name.empty()) {
+                    mAnalyticsItem->setCString("audio/codec", name.c_str());
+                }
+            }
+        }
+
+        // getDuration() uses mLock for mutex -- careful where we use it.
+        int duration_ms = -1;
+        getDuration(&duration_ms);
+        if (duration_ms != -1) {
+            mAnalyticsItem->setInt64("duration", duration_ms);
+        }
+
+        if (mPlayingTimeUs > 0) {
+            mAnalyticsItem->setInt64("playing", (mPlayingTimeUs+500)/1000 );
+        }
+    }
+}
+
+
+void NuPlayerDriver::logMetrics(const char *where) {
+    if (where == NULL) {
+        where = "unknown";
+    }
+    ALOGD("logMetrics(%p) from %s at state %d", this, where, mState);
+
+    if (mAnalyticsItem == NULL || mAnalyticsItem->isEnabled() == false) {
+        return;
+    }
+
+    // only bother to log non-empty records
+    if (mAnalyticsItem->count() > 0) {
+
+        mAnalyticsItem->setFinalized(true);
+        mAnalyticsItem->selfrecord();
+
+        // re-init in case we prepare() and start() again.
+        delete mAnalyticsItem ;
+        mAnalyticsItem = new MediaAnalyticsItem("nuplayer");
+        if (mAnalyticsItem) {
+            mAnalyticsItem->generateSessionID();
+        }
+    } else {
+        ALOGV("did not have anything to record");
+    }
+}
+
 status_t NuPlayerDriver::reset() {
     ALOGD("reset(%p) at state %d", this, mState);
+
+    finalizeMetrics("reset");
+    logMetrics("reset");
+
     Mutex::Autolock autoLock(mLock);
 
     switch (mState) {
@@ -478,9 +594,7 @@ status_t NuPlayerDriver::reset() {
         notifyListener_l(MEDIA_STOPPED);
     }
 
-    char value[PROPERTY_VALUE_MAX];
-    if (property_get("persist.debug.sf.stats", value, NULL) &&
-            (!strcmp("1", value) || !strcasecmp("true", value))) {
+    if (property_get_bool("persist.debug.sf.stats", false)) {
         Vector<String16> args;
         dump(-1, args);
     }
@@ -495,6 +609,7 @@ status_t NuPlayerDriver::reset() {
     mDurationUs = -1;
     mPositionUs = -1;
     mLooping = false;
+    mPlayingTimeUs = 0;
 
     return OK;
 }
@@ -626,6 +741,11 @@ void NuPlayerDriver::notifyDuration(int64_t durationUs) {
     mDurationUs = durationUs;
 }
 
+void NuPlayerDriver::notifyMorePlayingTimeUs(int64_t playingUs) {
+    Mutex::Autolock autoLock(mLock);
+    mPlayingTimeUs += playingUs;
+}
+
 void NuPlayerDriver::notifySeekComplete() {
     ALOGV("notifySeekComplete(%p)", this);
     Mutex::Autolock autoLock(mLock);
@@ -658,6 +778,24 @@ status_t NuPlayerDriver::dump(
 
     AString logString(" NuPlayer\n");
     char buf[256] = {0};
+
+    bool locked = false;
+    for (int i = 0; i < kDumpLockRetries; ++i) {
+        if (mLock.tryLock() == NO_ERROR) {
+            locked = true;
+            break;
+        }
+        usleep(kDumpLockSleepUs);
+    }
+
+    if (locked) {
+        snprintf(buf, sizeof(buf), "  state(%d), atEOS(%d), looping(%d), autoLoop(%d)\n",
+                mState, mAtEOS, mLooping, mAutoLoop);
+        mLock.unlock();
+    } else {
+        snprintf(buf, sizeof(buf), "  NPD(%p) lock is taken\n", this);
+    }
+    logString.append(buf);
 
     for (size_t i = 0; i < trackStats.size(); ++i) {
         const sp<AMessage> &stats = trackStats.itemAt(i);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
+ * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,25 +14,7 @@
  * limitations under the License.
  */
 
-//#define LOG_NDEBUG 0
-#define LOG_TAG "CodecBase"
+package android.hardware;
 
-#include <inttypes.h>
-
-#include <media/stagefright/CodecBase.h>
-
-namespace android {
-
-CodecBase::CodecBase() {
-}
-
-CodecBase::~CodecBase() {
-}
-
-CodecBase::PortDescription::PortDescription() {
-}
-
-CodecBase::PortDescription::~PortDescription() {
-}
-
-}  // namespace android
+/** @hide */
+parcelable CameraStatus cpp_header "camera/CameraBase.h";

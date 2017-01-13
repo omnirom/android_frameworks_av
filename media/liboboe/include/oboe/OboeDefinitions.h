@@ -19,12 +19,19 @@
 
 #include <stdint.h>
 
-typedef int32_t  oboe_handle_t;
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef int32_t  oboe_handle_t; // negative handles are error codes
 typedef int32_t  oboe_result_t;
 typedef int32_t  oboe_sample_rate_t;
 /** This is used for small quantities such as the number of frames in a buffer. */
 typedef int32_t  oboe_size_frames_t;
-/** This is used for large quantities, such as the number of frames that have
+/** This is used for small quantities such as the number of bytes in a frame. */
+typedef int32_t  oboe_size_bytes_t;
+/**
+ * This is used for large quantities, such as the number of frames that have
  * been played since a stream was started.
  * At 48000 Hz, a 32-bit integer would wrap around in just over 12 hours.
  */
@@ -53,7 +60,7 @@ enum oboe_direction_t {
     OBOE_DIRECTION_COUNT // This should always be last.
 };
 
-enum {
+enum oboe_datatype_t {
     OBOE_AUDIO_DATATYPE_INT16,
     OBOE_AUDIO_DATATYPE_INT32,
     OBOE_AUDIO_DATATYPE_INT824,
@@ -62,7 +69,7 @@ enum {
     OBOE_AUDIO_DATATYPE_COUNT // This should always be last.
 };
 
-enum {
+enum oboe_content_t {
     OBOE_AUDIO_CONTENT_PCM,
     OBOE_AUDIO_CONTENT_MP3,
     OBOE_AUDIO_CONTENT_AAC,
@@ -73,7 +80,7 @@ enum {
     OBOE_AUDIO_CONTENT_COUNT // This should always be last.
 };
 
-enum {
+enum oboe_wrapper_t {
     OBOE_AUDIO_WRAPPER_NONE,
     OBOE_AUDIO_WRAPPER_IEC61937, // Add new values below.
     OBOE_AUDIO_WRAPPER_COUNT // This should always be last.
@@ -81,7 +88,8 @@ enum {
 
 /**
  * Fields packed into oboe_audio_format_t, from most to least significant bits.
- *   Reserved:8
+ *   Invalid:1
+ *   Reserved:7
  *   Wrapper:8
  *   Content:8
  *   Data Type:8
@@ -93,7 +101,7 @@ enum {
                 OBOE_AUDIO_FORMAT(dataType, content, OBOE_AUDIO_WRAPPER_NONE)
 
 #define OBOE_AUDIO_FORMAT_DATA_TYPE(format) \
-    (format & 0x0FF)
+    ((oboe_datatype_t)(format & 0x0FF))
 
 // Define some common formats.
 #define OBOE_AUDIO_FORMAT_PCM16  \
@@ -102,6 +110,9 @@ enum {
                 OBOE_AUDIO_FORMAT_RAW(OBOE_AUDIO_DATATYPE_FLOAT32, OBOE_AUDIO_CONTENT_PCM)
 #define OBOE_AUDIO_FORMAT_PCM824 \
                 OBOE_AUDIO_FORMAT_RAW(OBOE_AUDIO_DATATYPE_INT824, OBOE_AUDIO_CONTENT_PCM)
+#define OBOE_AUDIO_FORMAT_PCM32 \
+                OBOE_AUDIO_FORMAT_RAW(OBOE_AUDIO_DATATYPE_INT32, OBOE_AUDIO_CONTENT_PCM)
+#define OBOE_AUDIO_FORMAT_INVALID ((oboe_audio_format_t)-1)
 
 enum {
     OBOE_OK,
@@ -122,7 +133,8 @@ enum {
     OBOE_ERROR_NULL,
     OBOE_ERROR_TIMEOUT,
     OBOE_ERROR_WOULD_BLOCK,
-    OBOE_ERROR_INVALID_ORDER
+    OBOE_ERROR_INVALID_ORDER,
+    OBOE_ERROR_OUT_OF_RANGE
 };
 
 typedef enum {
@@ -133,19 +145,19 @@ typedef enum {
 
 typedef enum
 {
-    OBOE_STATE_UNINITIALIZED = 0,
-    OBOE_STATE_OPEN,
-    OBOE_STATE_STARTING,
-    OBOE_STATE_STARTED,
-    OBOE_STATE_PAUSING,
-    OBOE_STATE_PAUSED,
-    OBOE_STATE_FLUSHING,
-    OBOE_STATE_FLUSHED,
-    OBOE_STATE_STOPPING,
-    OBOE_STATE_STOPPED,
-    OBOE_STATE_CLOSING,
-    OBOE_STATE_CLOSED,
-} oboe_state_t;
+    OBOE_STREAM_STATE_UNINITIALIZED = 0,
+    OBOE_STREAM_STATE_OPEN,
+    OBOE_STREAM_STATE_STARTING,
+    OBOE_STREAM_STATE_STARTED,
+    OBOE_STREAM_STATE_PAUSING,
+    OBOE_STREAM_STATE_PAUSED,
+    OBOE_STREAM_STATE_FLUSHING,
+    OBOE_STREAM_STATE_FLUSHED,
+    OBOE_STREAM_STATE_STOPPING,
+    OBOE_STREAM_STATE_STOPPED,
+    OBOE_STREAM_STATE_CLOSING,
+    OBOE_STREAM_STATE_CLOSED,
+} oboe_stream_state_t;
 
 // TODO review API
 typedef enum {
@@ -173,5 +185,9 @@ typedef enum {
     OBOE_SHARING_MODE_PUBLIC_MIX,
     OBOE_SHARING_MODE_COUNT // This should always be last.
 } oboe_sharing_mode_t;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // OBOE_OBOEDEFINITIONS_H

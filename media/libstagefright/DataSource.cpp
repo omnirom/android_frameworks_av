@@ -16,23 +16,9 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "DataSource"
 
-#include "include/AMRExtractor.h"
-
-#include "include/AACExtractor.h"
 #include "include/CallbackDataSource.h"
-#include "include/DRMExtractor.h"
-#include "include/FLACExtractor.h"
 #include "include/HTTPBase.h"
-#include "include/MidiExtractor.h"
-#include "include/MP3Extractor.h"
-#include "include/MPEG2PSExtractor.h"
-#include "include/MPEG2TSExtractor.h"
-#include "include/MPEG4Extractor.h"
 #include "include/NuCachedSource2.h"
-#include "include/OggExtractor.h"
-#include "include/WAVExtractor.h"
-
-#include "matroska/MatroskaExtractor.h"
 
 #include <media/IMediaHTTPConnection.h>
 #include <media/IMediaHTTPService.h>
@@ -43,11 +29,14 @@
 #include <media/stagefright/FileSource.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MediaHTTP.h>
+#include <media/stagefright/Utils.h>
 #include <utils/String8.h>
 
 #include <cutils/properties.h>
 
 #include <private/android_filesystem_config.h>
+
+#include <arpa/inet.h>
 
 namespace android {
 
@@ -110,79 +99,6 @@ status_t DataSource::getSize(off64_t *size) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-Mutex DataSource::gSnifferMutex;
-List<DataSource::SnifferFunc> DataSource::gSniffers;
-bool DataSource::gSniffersRegistered = false;
-
-bool DataSource::sniff(
-        String8 *mimeType, float *confidence, sp<AMessage> *meta) {
-    *mimeType = "";
-    *confidence = 0.0f;
-    meta->clear();
-
-    {
-        Mutex::Autolock autoLock(gSnifferMutex);
-        if (!gSniffersRegistered) {
-            return false;
-        }
-    }
-
-    for (List<SnifferFunc>::iterator it = gSniffers.begin();
-         it != gSniffers.end(); ++it) {
-        String8 newMimeType;
-        float newConfidence;
-        sp<AMessage> newMeta;
-        if ((*it)(this, &newMimeType, &newConfidence, &newMeta)) {
-            if (newConfidence > *confidence) {
-                *mimeType = newMimeType;
-                *confidence = newConfidence;
-                *meta = newMeta;
-            }
-        }
-    }
-
-    return *confidence > 0.0;
-}
-
-// static
-void DataSource::RegisterSniffer_l(SnifferFunc func) {
-    for (List<SnifferFunc>::iterator it = gSniffers.begin();
-         it != gSniffers.end(); ++it) {
-        if (*it == func) {
-            return;
-        }
-    }
-
-    gSniffers.push_back(func);
-}
-
-// static
-void DataSource::RegisterDefaultSniffers() {
-    Mutex::Autolock autoLock(gSnifferMutex);
-    if (gSniffersRegistered) {
-        return;
-    }
-
-    RegisterSniffer_l(SniffMPEG4);
-    RegisterSniffer_l(SniffMatroska);
-    RegisterSniffer_l(SniffOgg);
-    RegisterSniffer_l(SniffWAV);
-    RegisterSniffer_l(SniffFLAC);
-    RegisterSniffer_l(SniffAMR);
-    RegisterSniffer_l(SniffMPEG2TS);
-    RegisterSniffer_l(SniffMP3);
-    RegisterSniffer_l(SniffAAC);
-    RegisterSniffer_l(SniffMPEG2PS);
-    RegisterSniffer_l(SniffMidi);
-
-    char value[PROPERTY_VALUE_MAX];
-    if (property_get("drm.service.enabled", value, NULL)
-            && (!strcmp(value, "1") || !strcasecmp(value, "true"))) {
-        RegisterSniffer_l(SniffDRM);
-    }
-    gSniffersRegistered = true;
-}
 
 // static
 sp<DataSource> DataSource::CreateFromURI(

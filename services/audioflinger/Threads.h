@@ -295,7 +295,8 @@ public:
                                     audio_session_t sessionId,
                                     effect_descriptor_t *desc,
                                     int *enabled,
-                                    status_t *status /*non-NULL*/);
+                                    status_t *status /*non-NULL*/,
+                                    bool pinned);
 
                 // return values for hasAudioSession (bit field)
                 enum effect_state {
@@ -334,7 +335,9 @@ public:
                 status_t addEffect_l(const sp< EffectModule>& effect);
                 // remove and effect module. Also removes the effect chain is this was the last
                 // effect
-                void removeEffect_l(const sp< EffectModule>& effect);
+                void removeEffect_l(const sp< EffectModule>& effect, bool release = false);
+                // disconnect an effect handle from module and destroy module if last handle
+                void disconnectEffectHandle(EffectHandle *handle, bool unpinIfLast);
                 // detach all tracks connected to an auxiliary effect
     virtual     void detachAuxEffect_l(int effectId __unused) {}
                 // returns a combination of:
@@ -400,11 +403,11 @@ protected:
                     effect_uuid_t mType;    // effect type UUID
                 };
 
-                void        acquireWakeLock(int uid = -1);
-                virtual void acquireWakeLock_l(int uid = -1);
+                void        acquireWakeLock();
+                virtual void acquireWakeLock_l();
                 void        releaseWakeLock();
                 void        releaseWakeLock_l();
-                void        updateWakeLockUids_l(const SortedVector<int> &uids);
+                void        updateWakeLockUids_l(const SortedVector<uid_t> &uids);
                 void        getPowerManager_l();
                 void setEffectSuspended_l(const effect_uuid_t *type,
                                           bool suspend,
@@ -478,8 +481,92 @@ protected:
                 static const size_t     kLogSize = 4 * 1024;
                 sp<NBLog::Writer>       mNBLogWriter;
                 bool                    mSystemReady;
-                bool                    mNotifiedBatteryStart;
                 ExtendedTimestamp       mTimestamp;
+
+                // ActiveTracks is a sorted vector of track type T representing the
+                // active tracks of threadLoop() to be considered by the locked prepare portion.
+                // ActiveTracks should be accessed with the ThreadBase lock held.
+                //
+                // During processing and I/O, the threadLoop does not hold the lock;
+                // hence it does not directly use ActiveTracks.  Care should be taken
+                // to hold local strong references or defer removal of tracks
+                // if the threadLoop may still be accessing those tracks due to mix, etc.
+                //
+                // This class updates power information appropriately.
+                //
+
+                template <typename T>
+                class ActiveTracks {
+                public:
+                    ActiveTracks()
+                        : mActiveTracksGeneration(0)
+                        , mLastActiveTracksGeneration(0)
+                    { }
+
+                    ~ActiveTracks() {
+                        ALOGW_IF(!mActiveTracks.isEmpty(),
+                                "ActiveTracks should be empty in destructor");
+                    }
+                    // returns the last track added (even though it may have been
+                    // subsequently removed from ActiveTracks).
+                    //
+                    // Used for DirectOutputThread to ensure a flush is called when transitioning
+                    // to a new track (even though it may be on the same session).
+                    // Used for OffloadThread to ensure that volume and mixer state is
+                    // taken from the latest track added.
+                    //
+                    // The latest track is saved with a weak pointer to prevent keeping an
+                    // otherwise useless track alive. Thus the function will return nullptr
+                    // if the latest track has subsequently been removed and destroyed.
+                    sp<T> getLatest() {
+                        return mLatestActiveTrack.promote();
+                    }
+
+                    // SortedVector methods
+                    ssize_t         add(const sp<T> &track);
+                    ssize_t         remove(const sp<T> &track);
+                    size_t          size() const {
+                        return mActiveTracks.size();
+                    }
+                    ssize_t         indexOf(const sp<T>& item) {
+                        return mActiveTracks.indexOf(item);
+                    }
+                    sp<T>           operator[](size_t index) const {
+                        return mActiveTracks[index];
+                    }
+                    typename SortedVector<sp<T>>::iterator begin() {
+                        return mActiveTracks.begin();
+                    }
+                    typename SortedVector<sp<T>>::iterator end() {
+                        return mActiveTracks.end();
+                    }
+
+                    // Due to Binder recursion optimization, clear() and updatePowerState()
+                    // cannot be called from a Binder thread because they may call back into
+                    // the original calling process (system server) for BatteryNotifier
+                    // (which requires a Java environment that may not be present).
+                    // Hence, call clear() and updatePowerState() only from the
+                    // ThreadBase thread.
+                    void            clear();
+                    // periodically called in the threadLoop() to update power state uids.
+                    void            updatePowerState(sp<ThreadBase> thread, bool force = false);
+
+                private:
+                    SortedVector<uid_t> getWakeLockUids() {
+                        SortedVector<uid_t> wakeLockUids;
+                        for (const sp<T> &track : mActiveTracks) {
+                            wakeLockUids.add(track->uid());
+                        }
+                        return wakeLockUids; // moved by underlying SharedBuffer
+                    }
+
+                    std::map<uid_t, std::pair<ssize_t /* previous */, ssize_t /* current */>>
+                                        mBatteryCounter;
+                    SortedVector<sp<T>> mActiveTracks;
+                    int                 mActiveTracksGeneration;
+                    int                 mLastActiveTracksGeneration;
+                    wp<T>               mLatestActiveTrack; // latest track added to ActiveTracks
+                };
 };
 
 // --- PlaybackThread ---
@@ -558,6 +645,10 @@ protected:
     virtual     void        preExit();
 
     virtual     bool        keepWakeLock() const { return true; }
+    virtual     void        acquireWakeLock_l() {
+                                ThreadBase::acquireWakeLock_l();
+                                mActiveTracks.updatePowerState(this, true /* force */);
+                            }
 
 public:
 
@@ -588,7 +679,8 @@ public:
                                 audio_output_flags_t *flags,
                                 pid_t tid,
                                 uid_t uid,
-                                status_t *status /*non-NULL*/);
+                                status_t *status /*non-NULL*/,
+                                audio_port_handle_t portId);
 
                 AudioStreamOut* getOutput() const;
                 AudioStreamOut* clearOutput();
@@ -730,10 +822,7 @@ private:
     bool                            mMasterMute;
                 void        setMasterMute_l(bool muted) { mMasterMute = muted; }
 protected:
-    SortedVector< wp<Track> >       mActiveTracks;  // FIXME check if this could be sp<>
-    SortedVector<int>               mWakeLockUids;
-    int                             mActiveTracksGeneration;
-    wp<Track>                       mLatestActiveTrack; // latest track added to mActiveTracks
+    ActiveTracks<Track>     mActiveTracks;
 
     // Allocate a track name for a given channel mask.
     //   Returns name >= 0 if successful, -1 on failure.
@@ -861,6 +950,82 @@ private:
     uint32_t                mScreenState;   // cached copy of gScreenState
     static const size_t     kFastMixerLogSize = 4 * 1024;
     sp<NBLog::Writer>       mFastMixerNBLogWriter;
+
+    // Do not call from a sched_fifo thread as it uses a system time call
+    // and obtains a local mutex.
+    class LocalLog {
+    public:
+        void log(const char *fmt, ...) {
+            va_list val;
+            va_start(val, fmt);
+
+            // format to buffer
+            char buffer[512];
+            int length = vsnprintf(buffer, sizeof(buffer), fmt, val);
+            if (length >= (signed)sizeof(buffer)) {
+                length = sizeof(buffer) - 1;
+            }
+
+            // strip out trailing newline
+            while (length > 0 && buffer[length - 1] == '\n') {
+                buffer[--length] = 0;
+            }
+
+            // store in circular array
+            AutoMutex _l(mLock);
+            mLog.emplace_back(
+                    std::make_pair(systemTime(SYSTEM_TIME_REALTIME), std::string(buffer)));
+            if (mLog.size() > kLogSize) {
+                mLog.pop_front();
+            }
+
+            va_end(val);
+        }
+
+        void dump(int fd, const Vector<String16>& args, const char *prefix = "") {
+            if (!AudioFlinger::dumpTryLock(mLock)) return; // a local lock, shouldn't happen
+            if (mLog.size() > 0) {
+                bool dumpAll = false;
+                for (const auto &arg : args) {
+                    if (arg == String16("--locallog")) {
+                        dumpAll = true;
+                    }
+                }
+
+                dprintf(fd, "Local Log:\n");
+                auto it = mLog.begin();
+                if (!dumpAll) {
+                    const size_t lines =
+                            (size_t)property_get_int32("audio.locallog.lines", kLogPrint);
+                    if (mLog.size() > lines) {
+                        it += (mLog.size() - lines);
+                    }
+                }
+                for (; it != mLog.end(); ++it) {
+                    const int64_t ns = it->first;
+                    const int ns_per_sec = 1000000000;
+                    const time_t sec = ns / ns_per_sec;
+                    struct tm tm;
+                    localtime_r(&sec, &tm);
+
+                    dprintf(fd, "%s%02d-%02d %02d:%02d:%02d.%03d %s\n",
+                            prefix,
+                            tm.tm_mon + 1, // localtime_r uses months in 0 - 11 range
+                            tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+                            (int)(ns % ns_per_sec / 1000000),
+                            it->second.c_str());
+                }
+            }
+            mLock.unlock();
+        }
+
+    private:
+        Mutex mLock;
+        static const size_t kLogSize = 256; // full history
+        static const size_t kLogPrint = 32; // default print history
+        std::deque<std::pair<int64_t, std::string>> mLog;
+    } mLocalLog;
+
 public:
     virtual     bool        hasFastMixer() const = 0;
     virtual     FastTrackUnderruns getFastTrackUnderruns(size_t fastIndex __unused) const
@@ -899,8 +1064,8 @@ protected:
     virtual     uint32_t    suspendSleepTimeUs() const;
     virtual     void        cacheParameters_l();
 
-    virtual void acquireWakeLock_l(int uid = -1) {
-        PlaybackThread::acquireWakeLock_l(uid);
+    virtual void acquireWakeLock_l() {
+        PlaybackThread::acquireWakeLock_l();
         if (hasFastMixer()) {
             mFastMixer->setBoottimeOffset(
                     mTimestamp.mTimebaseOffset[ExtendedTimestamp::TIMEBASE_BOOTTIME]);
@@ -1288,7 +1453,8 @@ public:
                     uid_t uid,
                     audio_input_flags_t *flags,
                     pid_t tid,
-                    status_t *status /*non-NULL*/);
+                    status_t *status /*non-NULL*/,
+                    audio_port_handle_t portId);
 
             status_t    start(RecordTrack* recordTrack,
                               AudioSystem::sync_event_t event,
@@ -1339,6 +1505,11 @@ public:
     virtual status_t    checkEffectCompatibility_l(const effect_descriptor_t *desc,
                                                    audio_session_t sessionId);
 
+    virtual void        acquireWakeLock_l() {
+                            ThreadBase::acquireWakeLock_l();
+                            mActiveTracks.updatePowerState(this, true /* force */);
+                        }
+
 private:
             // Enter standby if not already in standby, and set mStandby flag
             void    standbyIfNotAlreadyInStandby();
@@ -1350,9 +1521,8 @@ private:
             SortedVector < sp<RecordTrack> >    mTracks;
             // mActiveTracks has dual roles:  it indicates the current active track(s), and
             // is used together with mStartStopCond to indicate start()/stop() progress
-            SortedVector< sp<RecordTrack> >     mActiveTracks;
-            // generation counter for mActiveTracks
-            int                                 mActiveTracksGen;
+            ActiveTracks<RecordTrack>           mActiveTracks;
+
             Condition                           mStartStopCond;
 
             // resampler converts input at HAL Hz to output at AudioRecord client Hz

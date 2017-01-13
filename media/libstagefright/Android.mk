@@ -4,6 +4,7 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:=                         \
         ACodec.cpp                        \
+        ACodecBufferChannel.cpp           \
         AACExtractor.cpp                  \
         AACWriter.cpp                     \
         AMRExtractor.cpp                  \
@@ -14,7 +15,6 @@ LOCAL_SRC_FILES:=                         \
         CallbackDataSource.cpp            \
         CameraSource.cpp                  \
         CameraSourceTimeLapse.cpp         \
-        CodecBase.cpp                     \
         DataConverter.cpp                 \
         DataSource.cpp                    \
         DataURISource.cpp                 \
@@ -108,9 +108,9 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_mpeg2ts \
         libstagefright_id3 \
         libFLAC \
-        libmedia_helper \
 
 LOCAL_SHARED_LIBRARIES += \
+        libmedia_helper \
         libstagefright_foundation \
         libdl \
         libRScpp \

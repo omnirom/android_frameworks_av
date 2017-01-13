@@ -34,15 +34,13 @@ LOCAL_MULTILIB := $(AUDIOSERVER_MULTILIB)
 LOCAL_MODULE := libaudiopolicyenginedefault
 LOCAL_MODULE_TAGS := optional
 
-LOCAL_WHOLE_STATIC_LIBRARIES := libmedia_helper
-
 LOCAL_STATIC_LIBRARIES := \
     libaudiopolicycomponents \
-    libxml2
 
 LOCAL_SHARED_LIBRARIES += \
     liblog \
     libcutils \
     libutils \
+    libmedia_helper
 
 include $(BUILD_SHARED_LIBRARY)

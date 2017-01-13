@@ -16,6 +16,9 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "NuPlayer"
+
+#include <inttypes.h>
+
 #include <utils/Log.h>
 
 #include "NuPlayer.h"
@@ -1287,6 +1290,8 @@ void NuPlayer::onResume() {
     } else {
         ALOGW("resume called when renderer is gone or not set");
     }
+
+    mLastStartedPlayingTimeNs = systemTime();
 }
 
 status_t NuPlayer::onInstantiateSecureDecoders() {
@@ -1342,26 +1347,26 @@ void NuPlayer::onStart(int64_t startPositionUs, MediaPlayerSeekMode mode) {
         flags |= Renderer::FLAG_REAL_TIME;
     }
 
-    sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
-    sp<MetaData> videoMeta = mSource->getFormatMeta(false /* audio */);
-    if (audioMeta == NULL && videoMeta == NULL) {
+    bool hasAudio = (mSource->getFormat(true /* audio */) != NULL);
+    bool hasVideo = (mSource->getFormat(false /* audio */) != NULL);
+    if (!hasAudio && !hasVideo) {
         ALOGE("no metadata for either audio or video source");
         mSource->stop();
         mSourceStarted = false;
         notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, ERROR_MALFORMED);
         return;
     }
-    ALOGV_IF(audioMeta == NULL, "no metadata for audio source");  // video only stream
+    ALOGV_IF(!hasAudio, "no metadata for audio source");  // video only stream
+
+    sp<MetaData> audioMeta = mSource->getFormatMeta(true /* audio */);
 
     audio_stream_type_t streamType = AUDIO_STREAM_MUSIC;
     if (mAudioSink != NULL) {
         streamType = mAudioSink->getAudioStreamType();
     }
 
-    sp<AMessage> videoFormat = mSource->getFormat(false /* audio */);
-
     mOffloadAudio =
-        canOffloadStream(audioMeta, (videoFormat != NULL), mSource->isStreaming(), streamType)
+        canOffloadStream(audioMeta, hasVideo, mSource->isStreaming(), streamType)
                 && (mPlaybackSettings.mSpeed == 1.f && mPlaybackSettings.mPitch == 1.f);
     if (mOffloadAudio) {
         flags |= Renderer::FLAG_OFFLOAD_AUDIO;
@@ -1396,6 +1401,8 @@ void NuPlayer::onStart(int64_t startPositionUs, MediaPlayerSeekMode mode) {
         mAudioDecoder->setRenderer(mRenderer);
     }
 
+    mLastStartedPlayingTimeNs = systemTime();
+
     postScanSources();
 }
 
@@ -1413,6 +1420,16 @@ void NuPlayer::onPause() {
         mRenderer->pause();
     } else {
         ALOGW("pause called when renderer is gone or not set");
+    }
+
+    sp<NuPlayerDriver> driver = mDriver.promote();
+    if (driver != NULL) {
+        int64_t now = systemTime();
+        int64_t played = now - mLastStartedPlayingTimeNs;
+        ALOGD("played from %" PRId64 " to %" PRId64 " = %" PRId64 ,
+              mLastStartedPlayingTimeNs, now, played);
+
+        driver->notifyMorePlayingTimeUs((played+500)/1000);
     }
 }
 
@@ -1658,9 +1675,7 @@ status_t NuPlayer::instantiateDecoder(
         // directly queuing to display, as this will even improve textureview
         // playback.
         {
-            char value[PROPERTY_VALUE_MAX];
-            if (property_get("persist.sys.media.avsync", value, NULL) &&
-                    (!strcmp("1", value) || !strcasecmp("true", value))) {
+            if (property_get_bool("persist.sys.media.avsync", false)) {
                 format->setInt32("auto-frc", 1);
             }
         }
@@ -1697,6 +1712,16 @@ void NuPlayer::updateVideoSize(
     if (inputFormat == NULL) {
         ALOGW("Unknown video size, reporting 0x0!");
         notifyListener(MEDIA_SET_VIDEO_SIZE, 0, 0);
+        return;
+    }
+    int32_t err = OK;
+    inputFormat->findInt32("err", &err);
+    if (err == -EWOULDBLOCK) {
+        ALOGW("Video meta is not available yet!");
+        return;
+    }
+    if (err != OK) {
+        ALOGW("Something is wrong with video meta!");
         return;
     }
 
