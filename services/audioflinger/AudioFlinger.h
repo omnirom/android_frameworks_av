@@ -48,19 +48,20 @@
 #include <system/audio.h>
 #include <system/audio_policy.h>
 
+#include <media/audiohal/EffectBufferHalInterface.h>
 #include <media/audiohal/StreamHalInterface.h>
 #include <media/AudioBufferProvider.h>
+#include <media/AudioMixer.h>
 #include <media/ExtendedAudioBufferProvider.h>
+#include <media/LinearMap.h>
 
 #include "FastCapture.h"
 #include "FastMixer.h"
 #include <media/nbaio/NBAIO.h>
 #include "AudioWatchdog.h"
-#include "AudioMixer.h"
 #include "AudioStreamOut.h"
 #include "SpdifStreamOut.h"
 #include "AudioHwDevice.h"
-#include "LinearMap.h"
 
 #include <powermanager/IPowerManager.h>
 
@@ -79,6 +80,7 @@ class DevicesFactoryHalInterface;
 class EffectsFactoryHalInterface;
 class FastMixer;
 class PassthruBufferProvider;
+class RecordBufferConverter;
 class ServerProxy;
 
 // ----------------------------------------------------------------------------

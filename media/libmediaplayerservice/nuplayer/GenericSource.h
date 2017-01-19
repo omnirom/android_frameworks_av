@@ -50,6 +50,10 @@ struct NuPlayer::GenericSource : public NuPlayer::Source {
 
     status_t setDataSource(const sp<DataSource>& dataSource);
 
+    virtual status_t getDefaultBufferingSettings(
+            BufferingSettings* buffering /* nonnull */) override;
+    virtual status_t setBufferingSettings(const BufferingSettings& buffering) override;
+
     virtual void prepareAsync();
 
     virtual void start();
@@ -119,6 +123,9 @@ private:
     public:
         explicit BufferingMonitor(const sp<AMessage> &notify);
 
+        void getDefaultBufferingSettings(BufferingSettings *buffering /* nonnull */);
+        status_t setBufferingSettings(const BufferingSettings &buffering);
+
         // Set up state.
         void prepare(const sp<NuCachedSource2> &cachedSource,
                 int64_t durationUs,
@@ -167,6 +174,7 @@ private:
 
         mutable Mutex mLock;
 
+        BufferingSettings mSettings;
         bool mOffloadAudio;
         int64_t mFirstDequeuedBufferRealUs;
         int64_t mFirstDequeuedBufferMediaUs;
@@ -244,6 +252,9 @@ private:
 
     void onGetFormatMeta(const sp<AMessage>& msg) const;
     sp<MetaData> doGetFormatMeta(bool audio) const;
+
+    void onGetTrackInfo(const sp<AMessage>& msg) const;
+    sp<AMessage> doGetTrackInfo(size_t trackIndex) const;
 
     void onGetSelectedTrack(const sp<AMessage>& msg) const;
     ssize_t doGetSelectedTrack(media_track_type type) const;

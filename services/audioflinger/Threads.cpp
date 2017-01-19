@@ -29,6 +29,7 @@
 #include <cutils/properties.h>
 #include <media/AudioParameter.h>
 #include <media/AudioResamplerPublic.h>
+#include <media/RecordBufferConverter.h>
 #include <media/TypeConverter.h>
 #include <utils/Log.h>
 #include <utils/Trace.h>
@@ -56,8 +57,6 @@
 #include <powermanager/PowerManager.h>
 
 #include "AudioFlinger.h"
-#include "AudioMixer.h"
-#include "BufferProviders.h"
 #include "FastMixer.h"
 #include "FastCapture.h"
 #include "ServiceUtilities.h"
@@ -1265,6 +1264,7 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
     bool chainCreated = false;
     bool effectCreated = false;
     bool effectRegistered = false;
+    audio_unique_id_t effectId = AUDIO_UNIQUE_ID_USE_UNSPECIFIED;
 
     lStatus = initCheck();
     if (lStatus != NO_ERROR) {
@@ -1298,15 +1298,16 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
         ALOGV("createEffect_l() got effect %p on chain %p", effect.get(), chain.get());
 
         if (effect == 0) {
-            audio_unique_id_t id = mAudioFlinger->nextUniqueId(AUDIO_UNIQUE_ID_USE_EFFECT);
+            effectId = mAudioFlinger->nextUniqueId(AUDIO_UNIQUE_ID_USE_EFFECT);
             // Check CPU and memory usage
-            lStatus = AudioSystem::registerEffect(desc, mId, chain->strategy(), sessionId, id);
+            lStatus = AudioSystem::registerEffect(
+                    desc, mId, chain->strategy(), sessionId, effectId);
             if (lStatus != NO_ERROR) {
                 goto Exit;
             }
             effectRegistered = true;
             // create a new effect module if none present in the chain
-            lStatus = chain->createEffect_l(effect, this, desc, id, sessionId, pinned);
+            lStatus = chain->createEffect_l(effect, this, desc, effectId, sessionId, pinned);
             if (lStatus != NO_ERROR) {
                 goto Exit;
             }
@@ -1335,7 +1336,7 @@ Exit:
             chain->removeEffect_l(effect);
         }
         if (effectRegistered) {
-            AudioSystem::unregisterEffect(effect->id());
+            AudioSystem::unregisterEffect(effectId);
         }
         if (chainCreated) {
             removeEffectChain_l(chain);
@@ -2759,9 +2760,14 @@ void AudioFlinger::PlaybackThread::invalidateTracks(audio_stream_type_t streamTy
 status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& chain)
 {
     audio_session_t session = chain->sessionId();
-    int16_t* buffer = reinterpret_cast<int16_t*>(mEffectBufferEnabled
-            ? mEffectBuffer : mSinkBuffer);
-    bool ownsBuffer = false;
+    sp<EffectBufferHalInterface> halInBuffer, halOutBuffer;
+    status_t result = EffectBufferHalInterface::mirror(
+            mEffectBufferEnabled ? mEffectBuffer : mSinkBuffer,
+            mEffectBufferEnabled ? mEffectBufferSize : mSinkBufferSize,
+            &halInBuffer);
+    if (result != OK) return result;
+    halOutBuffer = halInBuffer;
+    int16_t *buffer = reinterpret_cast<int16_t*>(halInBuffer->externalData());
 
     ALOGV("addEffectChain_l() %p on thread %p for session %d", chain.get(), this, session);
     if (session > AUDIO_SESSION_OUTPUT_MIX) {
@@ -2769,10 +2775,13 @@ status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& c
         // the sink buffer as input
         if (mType != DIRECT) {
             size_t numSamples = mNormalFrameCount * mChannelCount;
-            buffer = new int16_t[numSamples];
-            memset(buffer, 0, numSamples * sizeof(int16_t));
-            ALOGV("addEffectChain_l() creating new input buffer %p session %d", buffer, session);
-            ownsBuffer = true;
+            status_t result = EffectBufferHalInterface::allocate(
+                    numSamples * sizeof(int16_t),
+                    &halInBuffer);
+            if (result != OK) return result;
+            buffer = halInBuffer->audioBuffer()->s16;
+            ALOGV("addEffectChain_l() creating new input buffer %p session %d",
+                    buffer, session);
         }
 
         // Attach all tracks with same session ID to this chain.
@@ -2795,9 +2804,8 @@ status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& c
         }
     }
     chain->setThread(this);
-    chain->setInBuffer(buffer, ownsBuffer);
-    chain->setOutBuffer(reinterpret_cast<int16_t*>(mEffectBufferEnabled
-            ? mEffectBuffer : mSinkBuffer));
+    chain->setInBuffer(halInBuffer);
+    chain->setOutBuffer(halOutBuffer);
     // Effect chain for session AUDIO_SESSION_OUTPUT_STAGE is inserted at end of effect
     // chains list in order to be processed last as it contains output stage effects.
     // Effect chain for session AUDIO_SESSION_OUTPUT_MIX is inserted before
@@ -6931,252 +6939,6 @@ void AudioFlinger::RecordThread::ResamplerBufferProvider::releaseBuffer(
     buffer->frameCount = 0;
 }
 
-AudioFlinger::RecordThread::RecordBufferConverter::RecordBufferConverter(
-        audio_channel_mask_t srcChannelMask, audio_format_t srcFormat,
-        uint32_t srcSampleRate,
-        audio_channel_mask_t dstChannelMask, audio_format_t dstFormat,
-        uint32_t dstSampleRate) :
-            mSrcChannelMask(AUDIO_CHANNEL_INVALID), // updateParameters will set following vars
-            // mSrcFormat
-            // mSrcSampleRate
-            // mDstChannelMask
-            // mDstFormat
-            // mDstSampleRate
-            // mSrcChannelCount
-            // mDstChannelCount
-            // mDstFrameSize
-            mBuf(NULL), mBufFrames(0), mBufFrameSize(0),
-            mResampler(NULL),
-            mIsLegacyDownmix(false),
-            mIsLegacyUpmix(false),
-            mRequiresFloat(false),
-            mInputConverterProvider(NULL)
-{
-    (void)updateParameters(srcChannelMask, srcFormat, srcSampleRate,
-            dstChannelMask, dstFormat, dstSampleRate);
-}
-
-AudioFlinger::RecordThread::RecordBufferConverter::~RecordBufferConverter() {
-    free(mBuf);
-    delete mResampler;
-    delete mInputConverterProvider;
-}
-
-size_t AudioFlinger::RecordThread::RecordBufferConverter::convert(void *dst,
-        AudioBufferProvider *provider, size_t frames)
-{
-    if (mInputConverterProvider != NULL) {
-        mInputConverterProvider->setBufferProvider(provider);
-        provider = mInputConverterProvider;
-    }
-
-    if (mResampler == NULL) {
-        ALOGVV("NO RESAMPLING sampleRate:%u mSrcFormat:%#x mDstFormat:%#x",
-                mSrcSampleRate, mSrcFormat, mDstFormat);
-
-        AudioBufferProvider::Buffer buffer;
-        for (size_t i = frames; i > 0; ) {
-            buffer.frameCount = i;
-            status_t status = provider->getNextBuffer(&buffer);
-            if (status != OK || buffer.frameCount == 0) {
-                frames -= i; // cannot fill request.
-                break;
-            }
-            // format convert to destination buffer
-            convertNoResampler(dst, buffer.raw, buffer.frameCount);
-
-            dst = (int8_t*)dst + buffer.frameCount * mDstFrameSize;
-            i -= buffer.frameCount;
-            provider->releaseBuffer(&buffer);
-        }
-    } else {
-         ALOGVV("RESAMPLING mSrcSampleRate:%u mDstSampleRate:%u mSrcFormat:%#x mDstFormat:%#x",
-                 mSrcSampleRate, mDstSampleRate, mSrcFormat, mDstFormat);
-
-         // reallocate buffer if needed
-         if (mBufFrameSize != 0 && mBufFrames < frames) {
-             free(mBuf);
-             mBufFrames = frames;
-             (void)posix_memalign(&mBuf, 32, mBufFrames * mBufFrameSize);
-         }
-        // resampler accumulates, but we only have one source track
-        memset(mBuf, 0, frames * mBufFrameSize);
-        frames = mResampler->resample((int32_t*)mBuf, frames, provider);
-        // format convert to destination buffer
-        convertResampler(dst, mBuf, frames);
-    }
-    return frames;
-}
-
-status_t AudioFlinger::RecordThread::RecordBufferConverter::updateParameters(
-        audio_channel_mask_t srcChannelMask, audio_format_t srcFormat,
-        uint32_t srcSampleRate,
-        audio_channel_mask_t dstChannelMask, audio_format_t dstFormat,
-        uint32_t dstSampleRate)
-{
-    // quick evaluation if there is any change.
-    if (mSrcFormat == srcFormat
-            && mSrcChannelMask == srcChannelMask
-            && mSrcSampleRate == srcSampleRate
-            && mDstFormat == dstFormat
-            && mDstChannelMask == dstChannelMask
-            && mDstSampleRate == dstSampleRate) {
-        return NO_ERROR;
-    }
-
-    ALOGV("RecordBufferConverter updateParameters srcMask:%#x dstMask:%#x"
-            "  srcFormat:%#x dstFormat:%#x  srcRate:%u dstRate:%u",
-            srcChannelMask, dstChannelMask, srcFormat, dstFormat, srcSampleRate, dstSampleRate);
-    const bool valid =
-            audio_is_input_channel(srcChannelMask)
-            && audio_is_input_channel(dstChannelMask)
-            && audio_is_valid_format(srcFormat) && audio_is_linear_pcm(srcFormat)
-            && audio_is_valid_format(dstFormat) && audio_is_linear_pcm(dstFormat)
-            && (srcSampleRate <= dstSampleRate * AUDIO_RESAMPLER_DOWN_RATIO_MAX)
-            ; // no upsampling checks for now
-    if (!valid) {
-        return BAD_VALUE;
-    }
-
-    mSrcFormat = srcFormat;
-    mSrcChannelMask = srcChannelMask;
-    mSrcSampleRate = srcSampleRate;
-    mDstFormat = dstFormat;
-    mDstChannelMask = dstChannelMask;
-    mDstSampleRate = dstSampleRate;
-
-    // compute derived parameters
-    mSrcChannelCount = audio_channel_count_from_in_mask(srcChannelMask);
-    mDstChannelCount = audio_channel_count_from_in_mask(dstChannelMask);
-    mDstFrameSize = mDstChannelCount * audio_bytes_per_sample(mDstFormat);
-
-    // do we need to resample?
-    delete mResampler;
-    mResampler = NULL;
-    if (mSrcSampleRate != mDstSampleRate) {
-        mResampler = AudioResampler::create(AUDIO_FORMAT_PCM_FLOAT,
-                mSrcChannelCount, mDstSampleRate);
-        mResampler->setSampleRate(mSrcSampleRate);
-        mResampler->setVolume(AudioMixer::UNITY_GAIN_FLOAT, AudioMixer::UNITY_GAIN_FLOAT);
-    }
-
-    // are we running legacy channel conversion modes?
-    mIsLegacyDownmix = (mSrcChannelMask == AUDIO_CHANNEL_IN_STEREO
-                            || mSrcChannelMask == AUDIO_CHANNEL_IN_FRONT_BACK)
-                   && mDstChannelMask == AUDIO_CHANNEL_IN_MONO;
-    mIsLegacyUpmix = mSrcChannelMask == AUDIO_CHANNEL_IN_MONO
-                   && (mDstChannelMask == AUDIO_CHANNEL_IN_STEREO
-                            || mDstChannelMask == AUDIO_CHANNEL_IN_FRONT_BACK);
-
-    // do we need to process in float?
-    mRequiresFloat = mResampler != NULL || mIsLegacyDownmix || mIsLegacyUpmix;
-
-    // do we need a staging buffer to convert for destination (we can still optimize this)?
-    // we use mBufFrameSize > 0 to indicate both frame size as well as buffer necessity
-    if (mResampler != NULL) {
-        mBufFrameSize = max(mSrcChannelCount, FCC_2)
-                * audio_bytes_per_sample(AUDIO_FORMAT_PCM_FLOAT);
-    } else if (mIsLegacyUpmix || mIsLegacyDownmix) { // legacy modes always float
-        mBufFrameSize = mDstChannelCount * audio_bytes_per_sample(AUDIO_FORMAT_PCM_FLOAT);
-    } else if (mSrcChannelMask != mDstChannelMask && mDstFormat != mSrcFormat) {
-        mBufFrameSize = mDstChannelCount * audio_bytes_per_sample(mSrcFormat);
-    } else {
-        mBufFrameSize = 0;
-    }
-    mBufFrames = 0; // force the buffer to be resized.
-
-    // do we need an input converter buffer provider to give us float?
-    delete mInputConverterProvider;
-    mInputConverterProvider = NULL;
-    if (mRequiresFloat && mSrcFormat != AUDIO_FORMAT_PCM_FLOAT) {
-        mInputConverterProvider = new ReformatBufferProvider(
-                audio_channel_count_from_in_mask(mSrcChannelMask),
-                mSrcFormat,
-                AUDIO_FORMAT_PCM_FLOAT,
-                256 /* provider buffer frame count */);
-    }
-
-    // do we need a remixer to do channel mask conversion
-    if (!mIsLegacyDownmix && !mIsLegacyUpmix && mSrcChannelMask != mDstChannelMask) {
-        (void) memcpy_by_index_array_initialization_from_channel_mask(
-                mIdxAry, ARRAY_SIZE(mIdxAry), mDstChannelMask, mSrcChannelMask);
-    }
-    return NO_ERROR;
-}
-
-void AudioFlinger::RecordThread::RecordBufferConverter::convertNoResampler(
-        void *dst, const void *src, size_t frames)
-{
-    // src is native type unless there is legacy upmix or downmix, whereupon it is float.
-    if (mBufFrameSize != 0 && mBufFrames < frames) {
-        free(mBuf);
-        mBufFrames = frames;
-        (void)posix_memalign(&mBuf, 32, mBufFrames * mBufFrameSize);
-    }
-    // do we need to do legacy upmix and downmix?
-    if (mIsLegacyUpmix || mIsLegacyDownmix) {
-        void *dstBuf = mBuf != NULL ? mBuf : dst;
-        if (mIsLegacyUpmix) {
-            upmix_to_stereo_float_from_mono_float((float *)dstBuf,
-                    (const float *)src, frames);
-        } else /*mIsLegacyDownmix */ {
-            downmix_to_mono_float_from_stereo_float((float *)dstBuf,
-                    (const float *)src, frames);
-        }
-        if (mBuf != NULL) {
-            memcpy_by_audio_format(dst, mDstFormat, mBuf, AUDIO_FORMAT_PCM_FLOAT,
-                    frames * mDstChannelCount);
-        }
-        return;
-    }
-    // do we need to do channel mask conversion?
-    if (mSrcChannelMask != mDstChannelMask) {
-        void *dstBuf = mBuf != NULL ? mBuf : dst;
-        memcpy_by_index_array(dstBuf, mDstChannelCount,
-                src, mSrcChannelCount, mIdxAry, audio_bytes_per_sample(mSrcFormat), frames);
-        if (dstBuf == dst) {
-            return; // format is the same
-        }
-    }
-    // convert to destination buffer
-    const void *convertBuf = mBuf != NULL ? mBuf : src;
-    memcpy_by_audio_format(dst, mDstFormat, convertBuf, mSrcFormat,
-            frames * mDstChannelCount);
-}
-
-void AudioFlinger::RecordThread::RecordBufferConverter::convertResampler(
-        void *dst, /*not-a-const*/ void *src, size_t frames)
-{
-    // src buffer format is ALWAYS float when entering this routine
-    if (mIsLegacyUpmix) {
-        ; // mono to stereo already handled by resampler
-    } else if (mIsLegacyDownmix
-            || (mSrcChannelMask == mDstChannelMask && mSrcChannelCount == 1)) {
-        // the resampler outputs stereo for mono input channel (a feature?)
-        // must convert to mono
-        downmix_to_mono_float_from_stereo_float((float *)src,
-                (const float *)src, frames);
-    } else if (mSrcChannelMask != mDstChannelMask) {
-        // convert to mono channel again for channel mask conversion (could be skipped
-        // with further optimization).
-        if (mSrcChannelCount == 1) {
-            downmix_to_mono_float_from_stereo_float((float *)src,
-                (const float *)src, frames);
-        }
-        // convert to destination format (in place, OK as float is larger than other types)
-        if (mDstFormat != AUDIO_FORMAT_PCM_FLOAT) {
-            memcpy_by_audio_format(src, mDstFormat, src, AUDIO_FORMAT_PCM_FLOAT,
-                    frames * mSrcChannelCount);
-        }
-        // channel convert and save to dst
-        memcpy_by_index_array(dst, mDstChannelCount,
-                src, mSrcChannelCount, mIdxAry, audio_bytes_per_sample(mDstFormat), frames);
-        return;
-    }
-    // convert to destination format and save to dst
-    memcpy_by_audio_format(dst, mDstFormat, src, AUDIO_FORMAT_PCM_FLOAT,
-            frames * mDstChannelCount);
-}
 
 bool AudioFlinger::RecordThread::checkForNewParameter_l(const String8& keyValuePair,
                                                         status_t& status)

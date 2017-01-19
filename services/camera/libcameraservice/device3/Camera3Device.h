@@ -95,10 +95,12 @@ class Camera3Device :
     // idle state
     status_t capture(CameraMetadata &request, int64_t *lastFrameNumber = NULL) override;
     status_t captureList(const List<const CameraMetadata> &requests,
+            const std::list<const SurfaceMap> &surfaceMaps,
             int64_t *lastFrameNumber = NULL) override;
     status_t setStreamingRequest(const CameraMetadata &request,
             int64_t *lastFrameNumber = NULL) override;
     status_t setStreamingRequestList(const List<const CameraMetadata> &requests,
+            const std::list<const SurfaceMap> &surfaceMaps,
             int64_t *lastFrameNumber = NULL) override;
     status_t clearStreamingRequest(int64_t *lastFrameNumber = NULL) override;
 
@@ -114,6 +116,12 @@ class Camera3Device :
             android_dataspace dataSpace, camera3_stream_rotation_t rotation, int *id,
             int streamSetId = camera3::CAMERA3_STREAM_SET_ID_INVALID,
             uint32_t consumerUsage = 0) override;
+    status_t createStream(const std::vector<sp<Surface>>& consumers,
+            bool hasDeferredConsumer, uint32_t width, uint32_t height, int format,
+            android_dataspace dataSpace, camera3_stream_rotation_t rotation, int *id,
+            int streamSetId = camera3::CAMERA3_STREAM_SET_ID_INVALID,
+            uint32_t consumerUsage = 0) override;
+
     status_t createInputStream(
             uint32_t width, uint32_t height, int format,
             int *id) override;
@@ -254,9 +262,57 @@ class Camera3Device :
         std::mutex mInflightLock;
 
         status_t pushInflightBufferLocked(int32_t frameNumber, int32_t streamId,
-                buffer_handle_t *buffer);
+                buffer_handle_t *buffer, int acquireFence);
         // Cache of buffer handles keyed off (frameNumber << 32 | streamId)
-        std::unordered_map<uint64_t, buffer_handle_t*> mInflightBufferMap;
+        // value is a pair of (buffer_handle_t*, acquire_fence FD)
+        std::unordered_map<uint64_t, std::pair<buffer_handle_t*, int>> mInflightBufferMap;
+
+        struct BufferHasher {
+            size_t operator()(const buffer_handle_t& buf) const {
+                if (buf == nullptr)
+                    return 0;
+
+                size_t result = 1;
+                result = 31 * result + buf->numFds;
+                result = 31 * result + buf->numInts;
+                int length = buf->numFds + buf->numInts;
+                for (int i = 0; i < length; i++) {
+                    result = 31 * result + buf->data[i];
+                }
+                return result;
+            }
+        };
+
+        struct BufferComparator {
+            bool operator()(const buffer_handle_t& buf1, const buffer_handle_t& buf2) const {
+                if (buf1->numFds == buf2->numFds && buf1->numInts == buf2->numInts) {
+                    int length = buf1->numFds + buf1->numInts;
+                    for (int i = 0; i < length; i++) {
+                        if (buf1->data[i] != buf2->data[i]) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        std::mutex mBufferIdMapLock; // protecting mBufferIdMaps and mNextBufferId
+        typedef std::unordered_map<const buffer_handle_t, uint64_t,
+                BufferHasher, BufferComparator> BufferIdMap;
+        // stream ID -> per stream buffer ID map
+        std::unordered_map<int, BufferIdMap> mBufferIdMaps;
+        uint64_t mNextBufferId = 1; // 0 means no buffer
+        static const uint64_t BUFFER_ID_NO_BUFFER = 0;
+
+        // method to extract buffer's unique ID
+        // TODO: we should switch to use gralloc mapper's getBackingStore API
+        //       once we ran in binderized gralloc mode, but before that is ready,
+        //       we need to rely on the conventional buffer queue behavior where
+        //       buffer_handle_t's FD won't change.
+        // return pair of (newlySeenBuffer?, bufferId)
+        std::pair<bool, uint64_t> getBufferId(const buffer_handle_t& buf, int streamId);
     };
 
     std::unique_ptr<HalInterface> mInterface;
@@ -342,6 +398,7 @@ class Camera3Device :
         camera3_stream_buffer_t             mInputBuffer;
         Vector<sp<camera3::Camera3OutputStreamInterface> >
                                             mOutputStreams;
+        SurfaceMap                          mOutputSurfaces;
         CaptureResultExtras                 mResultExtras;
         // Used to cancel AE precapture trigger for devices doesn't support
         // CONTROL_AE_PRECAPTURE_TRIGGER_CANCEL
@@ -360,11 +417,18 @@ class Camera3Device :
 
     status_t convertMetadataListToRequestListLocked(
             const List<const CameraMetadata> &metadataList,
+            const std::list<const SurfaceMap> &surfaceMaps,
             bool repeating,
             /*out*/
             RequestList *requestList);
 
-    status_t submitRequestsHelper(const List<const CameraMetadata> &requests, bool repeating,
+    void convertToRequestList(List<const CameraMetadata>& requests,
+            std::list<const SurfaceMap>& surfaceMaps,
+            const CameraMetadata& request);
+
+    status_t submitRequestsHelper(const List<const CameraMetadata> &requests,
+                                  const std::list<const SurfaceMap> &surfaceMaps,
+                                  bool repeating,
                                   int64_t *lastFrameNumber = NULL);
 
 
@@ -436,13 +500,15 @@ class Camera3Device :
      * Do common work for setting up a streaming or single capture request.
      * On success, will transition to ACTIVE if in IDLE.
      */
-    sp<CaptureRequest> setUpRequestLocked(const CameraMetadata &request);
+    sp<CaptureRequest> setUpRequestLocked(const CameraMetadata &request,
+                                          const SurfaceMap &surfaceMap);
 
     /**
      * Build a CaptureRequest request from the CameraDeviceBase request
      * settings.
      */
-    sp<CaptureRequest> createCaptureRequest(const CameraMetadata &request);
+    sp<CaptureRequest> createCaptureRequest(const CameraMetadata &request,
+                                            const SurfaceMap &surfaceMap);
 
     /**
      * Take the currently-defined set of streams and configure the HAL to use

@@ -21,21 +21,26 @@
 #include <utils/Log.h>
 
 #include "ConversionHelperHidl.h"
+#include "EffectBufferHalHidl.h"
 #include "EffectHalHidl.h"
 #include "HidlUtils.h"
 
+using ::android::hardware::audio::effect::V2_0::AudioBuffer;
+using ::android::hardware::audio::effect::V2_0::MessageQueueFlagBits;
 using ::android::hardware::audio::effect::V2_0::Result;
 using ::android::hardware::hidl_vec;
+using ::android::hardware::MQDescriptorSync;
 using ::android::hardware::Return;
 using ::android::hardware::Status;
 
 namespace android {
 
 EffectHalHidl::EffectHalHidl(const sp<IEffect>& effect, uint64_t effectId)
-        : mEffect(effect), mEffectId(effectId) {
+        : mEffect(effect), mEffectId(effectId), mBuffersChanged(true) {
 }
 
 EffectHalHidl::~EffectHalHidl() {
+    close();
 }
 
 // static
@@ -64,33 +69,121 @@ status_t EffectHalHidl::analyzeResult(const Result& result) {
     }
 }
 
-status_t EffectHalHidl::process(audio_buffer_t */*inBuffer*/, audio_buffer_t */*outBuffer*/) {
-    // Idea -- intercept set buffer config command, capture audio format, use it
-    // for determining frame size in bytes on input and output.
+status_t EffectHalHidl::setInBuffer(const sp<EffectBufferHalInterface>& buffer) {
+    if (mInBuffer == 0 || buffer->audioBuffer() != mInBuffer->audioBuffer()) {
+        mBuffersChanged = true;
+    }
+    mInBuffer = buffer;
     return OK;
 }
 
-status_t EffectHalHidl::processReverse(audio_buffer_t */*inBuffer*/, audio_buffer_t */*outBuffer*/) {
+status_t EffectHalHidl::setOutBuffer(const sp<EffectBufferHalInterface>& buffer) {
+    if (mOutBuffer == 0 || buffer->audioBuffer() != mOutBuffer->audioBuffer()) {
+        mBuffersChanged = true;
+    }
+    mOutBuffer = buffer;
     return OK;
+}
+
+status_t EffectHalHidl::process() {
+    return processImpl(static_cast<uint32_t>(MessageQueueFlagBits::REQUEST_PROCESS));
+}
+
+status_t EffectHalHidl::processReverse() {
+    return processImpl(static_cast<uint32_t>(MessageQueueFlagBits::REQUEST_PROCESS_REVERSE));
+}
+
+status_t EffectHalHidl::prepareForProcessing() {
+    std::unique_ptr<StatusMQ> tempStatusMQ;
+    Result retval;
+    Return<void> ret = mEffect->prepareForProcessing(
+            [&](Result r, const MQDescriptorSync<Result>& statusMQ) {
+                retval = r;
+                if (retval == Result::OK) {
+                    tempStatusMQ.reset(new StatusMQ(statusMQ));
+                    if (tempStatusMQ->isValid() && tempStatusMQ->getEventFlagWord()) {
+                        EventFlag::createEventFlag(tempStatusMQ->getEventFlagWord(), &mEfGroup);
+                    }
+                }
+            });
+    if (!ret.isOk() || retval != Result::OK) {
+        return ret.isOk() ? analyzeResult(retval) : FAILED_TRANSACTION;
+    }
+    if (!tempStatusMQ || !tempStatusMQ->isValid() || !mEfGroup) {
+        ALOGE_IF(!tempStatusMQ, "Failed to obtain status message queue for effects");
+        ALOGE_IF(tempStatusMQ && !tempStatusMQ->isValid(),
+                "Status message queue for effects is invalid");
+        ALOGE_IF(!mEfGroup, "Event flag creation for effects failed");
+        return NO_INIT;
+    }
+    mStatusMQ = std::move(tempStatusMQ);
+    return OK;
+}
+
+status_t EffectHalHidl::processImpl(uint32_t mqFlag) {
+    if (mEffect == 0 || mInBuffer == 0 || mOutBuffer == 0) return NO_INIT;
+    status_t status;
+    if (!mStatusMQ && (status = prepareForProcessing()) != OK) {
+        return status;
+    }
+    if (mBuffersChanged && (status = setProcessBuffers()) != OK) {
+        return status;
+    }
+    // The data is already in the buffers, just need to flush it and wake up the server side.
+    std::atomic_thread_fence(std::memory_order_release);
+    mEfGroup->wake(mqFlag);
+    uint32_t efState = 0;
+retry:
+    status_t ret = mEfGroup->wait(
+            static_cast<uint32_t>(MessageQueueFlagBits::DONE_PROCESSING), &efState, NS_PER_SEC);
+    if (efState & static_cast<uint32_t>(MessageQueueFlagBits::DONE_PROCESSING)) {
+        Result retval = Result::NOT_INITIALIZED;
+        mStatusMQ->read(&retval);
+        if (retval == Result::OK || retval == Result::INVALID_STATE) {
+            // Sync back the changed contents of the buffer.
+            std::atomic_thread_fence(std::memory_order_acquire);
+        }
+        return analyzeResult(retval);
+    }
+    if (ret == -EAGAIN) {
+        // This normally retries no more than once.
+        goto retry;
+    }
+    return ret;
+}
+
+status_t EffectHalHidl::setProcessBuffers() {
+    Return<Result> ret = mEffect->setProcessBuffers(
+            reinterpret_cast<EffectBufferHalHidl*>(mInBuffer.get())->hidlBuffer(),
+            reinterpret_cast<EffectBufferHalHidl*>(mOutBuffer.get())->hidlBuffer());
+    if (ret.isOk() && ret == Result::OK) {
+        mBuffersChanged = false;
+        return OK;
+    }
+    return ret.isOk() ? analyzeResult(ret) : FAILED_TRANSACTION;
 }
 
 status_t EffectHalHidl::command(uint32_t cmdCode, uint32_t cmdSize, void *pCmdData,
         uint32_t *replySize, void *pReplyData) {
     if (mEffect == 0) return NO_INIT;
     hidl_vec<uint8_t> hidlData;
-    hidlData.setToExternal(reinterpret_cast<uint8_t*>(pCmdData), cmdSize);
+    if (pCmdData != nullptr && cmdSize > 0) {
+        hidlData.setToExternal(reinterpret_cast<uint8_t*>(pCmdData), cmdSize);
+    }
     status_t status;
+    uint32_t replySizeStub = 0;
+    if (replySize == nullptr) replySize = &replySizeStub;
     Return<void> ret = mEffect->command(cmdCode, hidlData, *replySize,
             [&](int32_t s, const hidl_vec<uint8_t>& result) {
                 status = s;
                 if (status == 0) {
                     if (*replySize > result.size()) *replySize = result.size();
-                    if (pReplyData && *replySize > 0) {
+                    if (pReplyData != nullptr && *replySize > 0) {
                         memcpy(pReplyData, &result[0], *replySize);
                     }
                 }
             });
-    return status;
+    return ret.isOk() ? status : FAILED_TRANSACTION;
 }
 
 status_t EffectHalHidl::getDescriptor(effect_descriptor_t *pDescriptor) {
@@ -103,7 +196,13 @@ status_t EffectHalHidl::getDescriptor(effect_descriptor_t *pDescriptor) {
                     effectDescriptorToHal(result, pDescriptor);
                 }
             });
-    return ret.isOk() ? analyzeResult(retval) : UNKNOWN_ERROR;
+    return ret.isOk() ? analyzeResult(retval) : FAILED_TRANSACTION;
+}
+
+status_t EffectHalHidl::close() {
+    if (mEffect == 0) return NO_INIT;
+    Return<Result> ret = mEffect->close();
+    return ret.isOk() ? analyzeResult(ret) : FAILED_TRANSACTION;
 }
 
 } // namespace android

@@ -38,6 +38,8 @@
 #define cpu_to_le16(x)  htole16(x)
 #define cpu_to_le32(x)  htole32(x)
 
+#define FUNCTIONFS_ENDPOINT_ALLOC       _IOR('g', 131, __u32)
+
 namespace {
 
 constexpr char FFS_MTP_EP_IN[] = "/dev/usb-ffs/mtp/ep1";
@@ -105,6 +107,7 @@ const struct usb_interface_descriptor mtp_interface_desc = {
     .bInterfaceClass = USB_CLASS_STILL_IMAGE,
     .bInterfaceSubClass = 1,
     .bInterfaceProtocol = 1,
+    .iInterface = 1,
 };
 
 const struct usb_interface_descriptor ptp_interface_desc = {
@@ -257,14 +260,23 @@ const struct ss_func_desc ptp_ss_descriptors = {
     .intr_comp = ss_intr_comp,
 };
 
+#define STR_INTERFACE "MTP"
 const struct {
     struct usb_functionfs_strings_head header;
+    struct {
+        __le16 code;
+        const char str1[sizeof(STR_INTERFACE)];
+    } __attribute__((packed)) lang0;
 } __attribute__((packed)) strings = {
     .header = {
         .magic = cpu_to_le32(FUNCTIONFS_STRINGS_MAGIC),
         .length = cpu_to_le32(sizeof(strings)),
-        .str_count = cpu_to_le32(0),
-        .lang_count = cpu_to_le32(0),
+        .str_count = cpu_to_le32(1),
+        .lang_count = cpu_to_le32(1),
+    },
+    .lang0 = {
+        .code = cpu_to_le16(0x0409),
+        .str1 = STR_INTERFACE,
     },
 };
 
@@ -467,6 +479,24 @@ void MtpFfsHandle::close() {
     mLock.unlock();
 }
 
+class ScopedEndpointBufferAlloc {
+private:
+    const int mFd;
+    const unsigned int mAllocSize;
+public:
+    ScopedEndpointBufferAlloc(int fd, unsigned alloc_size) :
+        mFd(fd),
+        mAllocSize(alloc_size) {
+        if (ioctl(mFd, FUNCTIONFS_ENDPOINT_ALLOC, static_cast<__u32>(mAllocSize)))
+            PLOG(DEBUG) << "FFS endpoint alloc failed!";
+    }
+
+    ~ScopedEndpointBufferAlloc() {
+        if (ioctl(mFd, FUNCTIONFS_ENDPOINT_ALLOC, static_cast<__u32>(0)))
+            PLOG(DEBUG) << "FFS endpoint alloc reset failed!";
+    }
+};
+
 /* Read from USB and write to a local file. */
 int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
     // When receiving files, the incoming length is given in 32 bits.
@@ -494,6 +524,7 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
     bool write = false;
 
     posix_fadvise(mfr.fd, 0, 0, POSIX_FADV_SEQUENTIAL | POSIX_FADV_NOREUSE);
+    ScopedEndpointBufferAlloc(mBulkOut, mMaxRead);
 
     // Break down the file into pieces that fit in buffers
     while (file_length > 0 || write) {
@@ -608,6 +639,8 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
     offset += init_read_len;
     if (writeHandle(mBulkIn, data, packet_size) == -1) return -1;
     if (file_length == 0) return 0;
+
+    ScopedEndpointBufferAlloc(mBulkIn, mMaxWrite);
 
     // Break down the file into pieces that fit in buffers
     while(file_length > 0) {
