@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 - 2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013 - 2017, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -54,7 +54,8 @@ sp<ACodec> AVFactory::createACodec() {
 }
 
 MediaExtractor* AVFactory::createExtendedExtractor(
-         const sp<DataSource> &, const char *, const sp<AMessage> &) {
+         const sp<DataSource> &, const char *, const sp<AMessage> &,
+         const uint32_t) {
     return NULL;
 }
 
