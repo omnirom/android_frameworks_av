@@ -145,6 +145,10 @@ ifeq ($(TARGET_HAS_LEGACY_CAMERA_HAL1),true)
 LOCAL_CFLAGS += -DCAMCORDER_GRALLOC_SOURCE
 endif
 
+ifeq ($(TARGET_OMX_LEGACY_RESCALING),true)
+LOCAL_CFLAGS += -DUSE_LEGACY_RESCALING
+endif
+
 LOCAL_CFLAGS += -Wno-multichar -Werror -Wno-error=deprecated-declarations -Wall
 
 # enable experiments only in userdebug and eng builds
