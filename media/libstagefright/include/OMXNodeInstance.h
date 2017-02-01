@@ -18,6 +18,8 @@
 
 #define OMX_NODE_INSTANCE_H_
 
+#include <atomic>
+
 #include <media/IOMX.h>
 #include <utils/RefBase.h>
 #include <utils/threads.h>
@@ -25,11 +27,14 @@
 #include <utils/SortedVector.h>
 #include "OmxNodeOwner.h"
 
+#include <android/hidl/memory/1.0/IMemory.h>
+
 namespace android {
 class IOMXBufferSource;
 class IOMXObserver;
 struct OMXMaster;
 class OMXBuffer;
+typedef hidl::memory::V1_0::IMemory IHidlMemory;
 
 struct OMXNodeInstance : public BnOMXNode {
     OMXNodeInstance(
@@ -111,7 +116,7 @@ private:
     OMX_HANDLETYPE mHandle;
     sp<IOMXObserver> mObserver;
     sp<CallbackDispatcher> mDispatcher;
-    bool mDying;
+    std::atomic_bool mDying;
     bool mSailed;  // configuration is set (no more meta-mode changes)
     bool mQueriedProhibitedExtensions;
     SortedVector<OMX_INDEXTYPE> mProhibitedExtensions;
@@ -182,7 +187,7 @@ private:
 
     status_t useBuffer_l(
             OMX_U32 portIndex, const sp<IMemory> &params,
-            IOMX::buffer_id *buffer);
+            const sp<IHidlMemory> &hParams, IOMX::buffer_id *buffer);
 
     status_t useGraphicBuffer_l(
             OMX_U32 portIndex, const sp<GraphicBuffer> &graphicBuffer,

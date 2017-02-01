@@ -420,8 +420,8 @@ sp<MetaData> MakeAVCCodecSpecificData(const sp<ABuffer> &accessUnit) {
     meta->setInt32(kKeyWidth, width);
     meta->setInt32(kKeyHeight, height);
 
-    if (sarWidth > 1 || sarHeight > 1) {
-        // We treat 0:0 (unspecified) as 1:1.
+    if ((sarWidth > 0 && sarHeight > 0) && (sarWidth != 1 || sarHeight != 1)) {
+        // We treat *:0 and 0:* (unspecified) as 1:1.
 
         meta->setInt32(kKeySARWidth, sarWidth);
         meta->setInt32(kKeySARHeight, sarHeight);
@@ -457,7 +457,10 @@ bool IsIDRInternal(const sp<T> &buffer) {
     const uint8_t *nalStart;
     size_t nalSize;
     while (getNextNALUnit(&data, &size, &nalStart, &nalSize, true) == OK) {
-        CHECK_GT(nalSize, 0u);
+        if (nalSize == 0u) {
+            ALOGW("skipping empty nal unit from potentially malformed bitstream");
+            continue;
+        }
 
         unsigned nalType = nalStart[0] & 0x1f;
 
