@@ -113,7 +113,11 @@ LOCAL_SHARED_LIBRARIES += \
         libstagefright_foundation \
         libdl \
         libRScpp \
-	libhidlbase \
+        libhidlbase \
+        libhidlmemory \
+        android.hidl.memory@1.0 \
+        android.hardware.media.omx@1.0 \
+        android.hardware.media.omx@1.0-utils \
 
 LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := libmedia
 
