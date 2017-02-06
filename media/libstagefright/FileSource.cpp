@@ -16,6 +16,9 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "FileSource"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_EXTRACT
+#define __CLASS__ "FileSource"
+
 #include <utils/Log.h>
 
 #include <media/stagefright/foundation/ADebug.h>
@@ -201,6 +204,7 @@ void FileSource::getDrmInfo(sp<DecryptHandle> &handle, DrmManagerClient **client
 }
 
 ssize_t FileSource::readAtDRM(off64_t offset, void *data, size_t size) {
+    VTRACE_METHOD();
     size_t DRM_CACHE_SIZE = 1024;
     if (mDrmBuf == NULL) {
         mDrmBuf = new unsigned char[DRM_CACHE_SIZE];
@@ -214,8 +218,11 @@ ssize_t FileSource::readAtDRM(off64_t offset, void *data, size_t size) {
     } else if (size <= DRM_CACHE_SIZE) {
         /* Buffer new data */
         mDrmBufOffset =  offset + mOffset;
-        mDrmBufSize = mDrmManagerClient->pread(mDecryptHandle, mDrmBuf,
-                DRM_CACHE_SIZE, offset + mOffset);
+        {
+            VTRACE_SCOPE("DrmManagerClient::pread");
+            mDrmBufSize = mDrmManagerClient->pread(mDecryptHandle, mDrmBuf,
+                    DRM_CACHE_SIZE, offset + mOffset);
+        }
         if (mDrmBufSize > 0) {
             int64_t dataRead = 0;
             dataRead = size > static_cast<size_t>(mDrmBufSize) ? mDrmBufSize : size;
@@ -226,6 +233,7 @@ ssize_t FileSource::readAtDRM(off64_t offset, void *data, size_t size) {
         }
     } else {
         /* Too big chunk to cache. Call DRM directly */
+        VTRACE_SCOPE("DrmManagerClient::pread");
         return mDrmManagerClient->pread(mDecryptHandle, data, size, offset + mOffset);
     }
 }

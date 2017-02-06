@@ -16,6 +16,8 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "NuPlayerDriver"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_NUPLAYER
+#define __CLASS__ "NuPlayerDriver"
 #include <inttypes.h>
 #include <utils/Log.h>
 #include <cutils/properties.h>
@@ -75,6 +77,7 @@ NuPlayerDriver::NuPlayerDriver(pid_t pid)
       mAtEOS(false),
       mLooping(false),
       mAutoLoop(false) {
+    VTRACE_METHOD();
     ALOGD("NuPlayerDriver(%p) created, clientPid(%d)", this, pid);
     mLooper->setName("NuPlayerDriver Looper");
 
@@ -120,6 +123,7 @@ status_t NuPlayerDriver::setDataSource(
         const sp<IMediaHTTPService> &httpService,
         const char *url,
         const KeyedVector<String8, String8> *headers) {
+    VTRACE_METHOD();
     ALOGV("setDataSource(%p) url(%s)", this, uriDebugString(url, false).c_str());
     Mutex::Autolock autoLock(mLock);
 
@@ -139,6 +143,7 @@ status_t NuPlayerDriver::setDataSource(
 }
 
 status_t NuPlayerDriver::setDataSource(int fd, int64_t offset, int64_t length) {
+    VTRACE_METHOD();
     ALOGV("setDataSource(%p) file(%d)", this, fd);
     Mutex::Autolock autoLock(mLock);
 
@@ -159,6 +164,7 @@ status_t NuPlayerDriver::setDataSource(int fd, int64_t offset, int64_t length) {
 }
 
 status_t NuPlayerDriver::setDataSource(const sp<IStreamSource> &source) {
+    VTRACE_METHOD();
     ALOGV("setDataSource(%p) stream source", this);
     Mutex::Autolock autoLock(mLock);
 
@@ -178,6 +184,7 @@ status_t NuPlayerDriver::setDataSource(const sp<IStreamSource> &source) {
 }
 
 status_t NuPlayerDriver::setDataSource(const sp<DataSource> &source) {
+    VTRACE_METHOD();
     ALOGV("setDataSource(%p) callback source", this);
     Mutex::Autolock autoLock(mLock);
 
@@ -198,6 +205,7 @@ status_t NuPlayerDriver::setDataSource(const sp<DataSource> &source) {
 
 status_t NuPlayerDriver::setVideoSurfaceTexture(
         const sp<IGraphicBufferProducer> &bufferProducer) {
+    VTRACE_METHOD();
     ALOGV("setVideoSurfaceTexture(%p)", this);
     Mutex::Autolock autoLock(mLock);
 
@@ -309,6 +317,7 @@ status_t NuPlayerDriver::prepareAsync() {
 }
 
 status_t NuPlayerDriver::start() {
+    VTRACE_METHOD();
     ALOGD("start(%p), state is %d, eos is %d", this, mState, mAtEOS);
     Mutex::Autolock autoLock(mLock);
     return start_l();
@@ -358,6 +367,7 @@ status_t NuPlayerDriver::start_l() {
 }
 
 status_t NuPlayerDriver::stop() {
+    VTRACE_METHOD();
     ALOGD("stop(%p)", this);
     Mutex::Autolock autoLock(mLock);
 
@@ -386,6 +396,7 @@ status_t NuPlayerDriver::stop() {
 }
 
 status_t NuPlayerDriver::pause() {
+    VTRACE_METHOD();
     ALOGD("pause(%p)", this);
     // The NuPlayerRenderer may get flushed if pause for long enough, e.g. the pause timeout tear
     // down for audio offload mode. If that happens, the NuPlayerRenderer will no longer know the
@@ -451,6 +462,7 @@ status_t NuPlayerDriver::getSyncSettings(AVSyncSettings *sync, float *videoFps) 
 }
 
 status_t NuPlayerDriver::seekTo(int msec, MediaPlayerSeekMode mode) {
+    VTRACE_METHOD();
     ALOGD("seekTo(%p) (%d ms, %d) at state %d", this, msec, mode, mState);
     Mutex::Autolock autoLock(mLock);
 
@@ -612,6 +624,7 @@ void NuPlayerDriver::logMetrics(const char *where) {
 }
 
 status_t NuPlayerDriver::reset() {
+    VTRACE_METHOD();
     ALOGD("reset(%p) at state %d", this, mState);
 
     updateMetrics("reset");
@@ -807,6 +820,7 @@ void NuPlayerDriver::notifyMorePlayingTimeUs(int64_t playingUs) {
 }
 
 void NuPlayerDriver::notifySeekComplete() {
+    VTRACE_METHOD();
     ALOGV("notifySeekComplete(%p)", this);
     Mutex::Autolock autoLock(mLock);
     mSeekInProgress = false;

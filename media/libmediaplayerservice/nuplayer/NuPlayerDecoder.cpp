@@ -16,6 +16,8 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "NuPlayerDecoder"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_CODEC
+#define __CLASS__ "NuPlayer::Decoder"
 #include <utils/Log.h>
 #include <inttypes.h>
 
@@ -133,6 +135,7 @@ status_t NuPlayer::Decoder::setVideoSurface(const sp<Surface> &surface) {
 }
 
 void NuPlayer::Decoder::onMessageReceived(const sp<AMessage> &msg) {
+    VTRACE_METHOD();
     ALOGV("[%s] onMessage: %s", mComponentName.c_str(), msg->debugString().c_str());
 
     switch (msg->what()) {

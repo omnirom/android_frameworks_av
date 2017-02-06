@@ -16,6 +16,8 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "MediaMuxer"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_MUX
+#define __CLASS__ "MediaMuxer"
 
 #include "webm/WebmWriter.h"
 
@@ -42,6 +44,7 @@ namespace android {
 MediaMuxer::MediaMuxer(int fd, OutputFormat format)
     : mFormat(format),
       mState(UNINITIALIZED) {
+    VTRACE_METHOD();
     if (format == OUTPUT_FORMAT_MPEG_4 || format == OUTPUT_FORMAT_THREE_GPP) {
         mWriter = AVFactory::get()->CreateMPEG4Writer(fd);
     } else if (format == OUTPUT_FORMAT_WEBM) {
