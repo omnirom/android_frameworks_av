@@ -35,6 +35,7 @@
 
 #include "AsyncIO.h"
 #include "MtpFfsHandle.h"
+#include "mtp.h"
 
 #define cpu_to_le16(x)  htole16(x)
 #define cpu_to_le32(x)  htole32(x)
@@ -58,10 +59,15 @@ constexpr int MAX_FILE_CHUNK_SIZE = 3145728;
 // To get good performance, override these with
 // higher values per device using the properties
 // sys.usb.ffs.max_read and sys.usb.ffs.max_write
-constexpr int USB_FFS_MAX_WRITE = 32768;
-constexpr int USB_FFS_MAX_READ = 32768;
+constexpr int USB_FFS_MAX_WRITE = MTP_BUFFER_SIZE;
+constexpr int USB_FFS_MAX_READ = MTP_BUFFER_SIZE;
+
+static_assert(USB_FFS_MAX_WRITE > 0, "Max r/w values must be > 0!");
+static_assert(USB_FFS_MAX_READ > 0, "Max r/w values must be > 0!");
 
 constexpr unsigned int MAX_MTP_FILE_SIZE = 0xFFFFFFFF;
+
+constexpr size_t ENDPOINT_ALLOC_RETRIES = 10;
 
 struct func_desc {
     struct usb_interface_descriptor intf;
@@ -344,28 +350,9 @@ bool MtpFfsHandle::initFunctionfs() {
     if (mBulkIn > -1 || mBulkOut > -1 || mIntr > -1)
         LOG(WARNING) << "Endpoints were not closed before configure!";
 
-    mBulkIn.reset(TEMP_FAILURE_RETRY(open(FFS_MTP_EP_IN, O_RDWR)));
-    if (mBulkIn < 0) {
-        PLOG(ERROR) << FFS_MTP_EP_IN << ": cannot open bulk in ep";
-        goto err;
-    }
-
-    mBulkOut.reset(TEMP_FAILURE_RETRY(open(FFS_MTP_EP_OUT, O_RDWR)));
-    if (mBulkOut < 0) {
-        PLOG(ERROR) << FFS_MTP_EP_OUT << ": cannot open bulk out ep";
-        goto err;
-    }
-
-    mIntr.reset(TEMP_FAILURE_RETRY(open(FFS_MTP_EP_INTR, O_RDWR)));
-    if (mIntr < 0) {
-        PLOG(ERROR) << FFS_MTP_EP0 << ": cannot open intr ep";
-        goto err;
-    }
-
     return true;
 
 err:
-    closeEndpoints();
     closeConfig();
     return false;
 }
@@ -447,6 +434,57 @@ int MtpFfsHandle::write(const void* data, int len) {
 
 int MtpFfsHandle::start() {
     mLock.lock();
+
+    mBulkIn.reset(TEMP_FAILURE_RETRY(open(FFS_MTP_EP_IN, O_RDWR)));
+    if (mBulkIn < 0) {
+        PLOG(ERROR) << FFS_MTP_EP_IN << ": cannot open bulk in ep";
+        return -1;
+    }
+
+    mBulkOut.reset(TEMP_FAILURE_RETRY(open(FFS_MTP_EP_OUT, O_RDWR)));
+    if (mBulkOut < 0) {
+        PLOG(ERROR) << FFS_MTP_EP_OUT << ": cannot open bulk out ep";
+        return -1;
+    }
+
+    mIntr.reset(TEMP_FAILURE_RETRY(open(FFS_MTP_EP_INTR, O_RDWR)));
+    if (mIntr < 0) {
+        PLOG(ERROR) << FFS_MTP_EP0 << ": cannot open intr ep";
+        return -1;
+    }
+
+    mBuffer1.resize(MAX_FILE_CHUNK_SIZE);
+    mBuffer2.resize(MAX_FILE_CHUNK_SIZE);
+    posix_madvise(mBuffer1.data(), MAX_FILE_CHUNK_SIZE,
+            POSIX_MADV_SEQUENTIAL | POSIX_MADV_WILLNEED);
+    posix_madvise(mBuffer2.data(), MAX_FILE_CHUNK_SIZE,
+            POSIX_MADV_SEQUENTIAL | POSIX_MADV_WILLNEED);
+
+    // Get device specific r/w size
+    mMaxWrite = android::base::GetIntProperty("sys.usb.ffs.max_write", USB_FFS_MAX_WRITE);
+    mMaxRead = android::base::GetIntProperty("sys.usb.ffs.max_read", USB_FFS_MAX_READ);
+
+    size_t attempts = 0;
+    while (mMaxWrite >= USB_FFS_MAX_WRITE && mMaxRead >= USB_FFS_MAX_READ &&
+            attempts < ENDPOINT_ALLOC_RETRIES) {
+        // If larger contiguous chunks of memory aren't available, attempt to try
+        // smaller allocations.
+        if (ioctl(mBulkIn, FUNCTIONFS_ENDPOINT_ALLOC, static_cast<__u32>(mMaxWrite)) ||
+            ioctl(mBulkOut, FUNCTIONFS_ENDPOINT_ALLOC, static_cast<__u32>(mMaxRead))) {
+            if (errno == ENODEV) {
+                // Driver hasn't enabled endpoints yet.
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                attempts += 1;
+                continue;
+            }
+            mMaxWrite /= 2;
+            mMaxRead /=2;
+        } else {
+            return 0;
+        }
+    }
+    // Try to start MtpServer anyway, with the smallest max r/w values
+    PLOG(ERROR) << "Functionfs could not allocate any memory!";
     return 0;
 }
 
@@ -465,13 +503,6 @@ int MtpFfsHandle::configure(bool usePtp) {
         return -1;
     }
 
-    // Get device specific r/w size
-    mMaxWrite = android::base::GetIntProperty("sys.usb.ffs.max_write", 0);
-    mMaxRead = android::base::GetIntProperty("sys.usb.ffs.max_read", 0);
-    if (!mMaxWrite)
-        mMaxWrite = USB_FFS_MAX_WRITE;
-    if (!mMaxRead)
-        mMaxRead = USB_FFS_MAX_READ;
     return 0;
 }
 
@@ -480,26 +511,6 @@ void MtpFfsHandle::close() {
     mLock.unlock();
 }
 
-class ScopedEndpointBufferAlloc {
-private:
-    const int mFd;
-    const unsigned int mAllocSize;
-public:
-    ScopedEndpointBufferAlloc(int fd, unsigned alloc_size) :
-        mFd(fd),
-        mAllocSize(alloc_size) {
-        if (ioctl(mFd, FUNCTIONFS_ENDPOINT_ALLOC, static_cast<__u32>(mAllocSize)))
-            PLOG(ERROR) << "FFS endpoint alloc failed!";
-    }
-
-    ~ScopedEndpointBufferAlloc() {
-        if (ioctl(mFd, FUNCTIONFS_ENDPOINT_ALLOC, static_cast<__u32>(0)))
-            PLOG(ERROR) << "FFS endpoint alloc reset failed!";
-    }
-
-    DISALLOW_COPY_AND_ASSIGN(ScopedEndpointBufferAlloc);
-};
-
 /* Read from USB and write to a local file. */
 int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
     // When receiving files, the incoming length is given in 32 bits.
@@ -507,15 +518,8 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
     uint32_t file_length = mfr.length;
     uint64_t offset = lseek(mfr.fd, 0, SEEK_CUR);
 
-    int buf1_len = std::min(static_cast<uint32_t>(MAX_FILE_CHUNK_SIZE), file_length);
-    std::vector<char> buf1(buf1_len);
-    char* data = buf1.data();
-
-    // If necessary, allocate a second buffer for background r/w
-    int buf2_len = std::min(static_cast<uint32_t>(MAX_FILE_CHUNK_SIZE),
-            file_length - MAX_FILE_CHUNK_SIZE);
-    std::vector<char> buf2(std::max(0, buf2_len));
-    char *data2 = buf2.data();
+    char *data = mBuffer1.data();
+    char *data2 = mBuffer2.data();
 
     struct aiocb aio;
     aio.aio_fildes = mfr.fd;
@@ -527,9 +531,6 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
     bool write = false;
 
     posix_fadvise(mfr.fd, 0, 0, POSIX_FADV_SEQUENTIAL | POSIX_FADV_NOREUSE);
-    posix_madvise(data, buf1_len, POSIX_MADV_SEQUENTIAL | POSIX_MADV_WILLNEED);
-    posix_madvise(data2, buf2_len, POSIX_MADV_SEQUENTIAL | POSIX_MADV_WILLNEED);
-    ScopedEndpointBufferAlloc scoped_alloc(mBulkOut, mMaxRead);
 
     // Break down the file into pieces that fit in buffers
     while (file_length > 0 || write) {
@@ -596,7 +597,7 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
     uint64_t file_length = mfr.length;
     uint32_t given_length = std::min(static_cast<uint64_t>(MAX_MTP_FILE_SIZE),
             file_length + sizeof(mtp_data_header));
-    uint64_t offset = 0;
+    uint64_t offset = mfr.offset;
     struct usb_endpoint_descriptor mBulkIn_desc;
     int packet_size;
 
@@ -607,21 +608,15 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
         packet_size = mBulkIn_desc.wMaxPacketSize;
     }
 
-    int init_read_len = packet_size - sizeof(mtp_data_header);
-    int buf1_len = std::max(static_cast<uint64_t>(packet_size), std::min(
-                  static_cast<uint64_t>(MAX_FILE_CHUNK_SIZE), file_length - init_read_len));
-    std::vector<char> buf1(buf1_len);
-    char *data = buf1.data();
+    // If file_length is larger than a size_t, truncating would produce the wrong comparison.
+    // Instead, promote the left side to 64 bits, then truncate the small result.
+    int init_read_len = std::min(
+            static_cast<uint64_t>(packet_size - sizeof(mtp_data_header)), file_length);
 
-    // If necessary, allocate a second buffer for background r/w
-    int buf2_len = std::min(static_cast<uint64_t>(MAX_FILE_CHUNK_SIZE),
-            file_length - MAX_FILE_CHUNK_SIZE - init_read_len);
-    std::vector<char> buf2(std::max(0, buf2_len));
-    char *data2 = buf2.data();
+    char *data = mBuffer1.data();
+    char *data2 = mBuffer2.data();
 
     posix_fadvise(mfr.fd, 0, 0, POSIX_FADV_SEQUENTIAL | POSIX_FADV_NOREUSE);
-    posix_madvise(data, buf1_len, POSIX_MADV_SEQUENTIAL | POSIX_MADV_WILLNEED);
-    posix_madvise(data2, buf2_len, POSIX_MADV_SEQUENTIAL | POSIX_MADV_WILLNEED);
 
     struct aiocb aio;
     aio.aio_fildes = mfr.fd;
@@ -642,12 +637,10 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
     if (TEMP_FAILURE_RETRY(pread(mfr.fd, reinterpret_cast<char*>(data) +
                     sizeof(mtp_data_header), init_read_len, offset))
             != init_read_len) return -1;
+    if (writeHandle(mBulkIn, data, sizeof(mtp_data_header) + init_read_len) == -1) return -1;
+    if (file_length == static_cast<unsigned>(init_read_len)) return 0;
     file_length -= init_read_len;
     offset += init_read_len;
-    if (writeHandle(mBulkIn, data, packet_size) == -1) return -1;
-    if (file_length == 0) return 0;
-
-    ScopedEndpointBufferAlloc scoped_alloc(mBulkIn, mMaxWrite);
 
     // Break down the file into pieces that fit in buffers
     while(file_length > 0) {
@@ -672,7 +665,7 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
         }
 
         if (file_length > 0) {
-            length = std::min((uint64_t) MAX_FILE_CHUNK_SIZE, file_length);
+            length = std::min(static_cast<uint64_t>(MAX_FILE_CHUNK_SIZE), file_length);
             // Queue up another read
             aio.aio_buf = data;
             aio.aio_offset = offset;

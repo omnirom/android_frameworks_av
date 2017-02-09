@@ -48,6 +48,9 @@ private:
     int mMaxWrite;
     int mMaxRead;
 
+    std::vector<char> mBuffer1;
+    std::vector<char> mBuffer2;
+
 public:
     int read(void *data, int len);
     int write(const void *data, int len);
@@ -56,6 +59,10 @@ public:
     int sendFile(mtp_file_range mfr);
     int sendEvent(mtp_event me);
 
+    /**
+     * Open ffs endpoints and allocate necessary kernel and user memory.
+     * Will sleep until endpoints are enabled, for up to 1 second.
+     */
     int start();
     void close();
 
