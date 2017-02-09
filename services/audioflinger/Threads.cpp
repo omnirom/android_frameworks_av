@@ -1380,6 +1380,11 @@ status_t AudioFlinger::PlaybackThread::checkEffectCompatibility_l(
     case DIRECT:
         // Reject any effect on Direct output threads for now, since the format of
         // mSinkBuffer is not guaranteed to be compatible with effect processing (PCM 16 stereo).
+        // Exception: allow effects for Direct PCM
+        if (mIsDirectPcm) {
+            // Allow effects when direct PCM enabled on Direct output
+            break;
+        }
         ALOGW("checkEffectCompatibility_l(): effect %s on DIRECT output thread %s",
                 desc->name, mThreadName);
         return BAD_VALUE;
@@ -5166,15 +5171,19 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                     // indicate to client process that the track was disabled because of underrun;
                     // it will then automatically call start() when data is available
                     track->disable();
-                } else if (last) {
+                    // only do hw pause when track is going to be removed due to BUFFER TIMEOUT.
+                    // unlike mixerthread, HAL can be paused for direct output, and as HAL can be
+                    // paused at the first underrun, but track may be ready for the next loop and
+                    // the playback is resumed, it will make the playback interrupted
                     ALOGW("pause because of UNDERRUN, framesReady = %zu,"
                             "minFrames = %u, mFormat = %#x",
                             track->framesReady(), minFrames, mFormat);
-                    mixerStatus = MIXER_TRACKS_ENABLED;
-                    if (mHwSupportsPause && !mHwPaused && !mStandby) {
+                    if (mHwSupportsPause && last && !mHwPaused && !mStandby) {
                         doHwPause = true;
                         mHwPaused = true;
                     }
+                } else if (last) {
+                    mixerStatus = MIXER_TRACKS_ENABLED;
                 }
             }
         }
