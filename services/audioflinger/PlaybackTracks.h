@@ -76,6 +76,13 @@ public:
 
     virtual bool        isFastTrack() const { return (mFlags & AUDIO_OUTPUT_FLAG_FAST) != 0; }
 
+// implement volume handling.
+   VolumeShaper::Status applyVolumeShaper(
+                                const sp<VolumeShaper::Configuration>& configuration,
+                                const sp<VolumeShaper::Operation>& operation);
+sp<VolumeShaper::State> getVolumeShaperState(int id);
+    sp<VolumeHandler>   getVolumeHandler() { return mVolumeHandler; }
+
 protected:
     // for numerous
     friend class PlaybackThread;
@@ -118,10 +125,9 @@ protected:
 
 public:
     void triggerEvents(AudioSystem::sync_event_t type);
-    void invalidate();
+    virtual void invalidate();
     void disable();
 
-    bool isInvalid() const { return mIsInvalid; }
     int fastIndex() const { return mFastIndex; }
 
 protected:
@@ -153,6 +159,8 @@ protected:
 
     ExtendedTimestamp  mSinkTimestamp;
 
+    sp<VolumeHandler>  mVolumeHandler; // handles multiple VolumeShaper configs and operations
+
 private:
     // The following fields are only for fast tracks, and should be in a subclass
     int                 mFastIndex; // index within FastMixerState::mFastTracks[];
@@ -166,7 +174,6 @@ private:
     volatile float      mCachedVolume;  // combined master volume and stream type volume;
                                         // 'volatile' means accessed without lock or
                                         // barrier, but is read/written atomically
-    bool                mIsInvalid; // non-resettable latch, set by invalidate()
     sp<AudioTrackServerProxy>  mAudioTrackServerProxy;
     bool                mResumeToStopping; // track was paused in stopping state.
     bool                mFlushHwPending; // track requests for thread flush

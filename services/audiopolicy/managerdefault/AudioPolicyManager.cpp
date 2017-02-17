@@ -752,7 +752,7 @@ audio_io_handle_t AudioPolicyManager::getOutput(audio_stream_type_t stream,
     ALOGV("getOutput() device %d, stream %d, samplingRate %d, format %x, channelMask %x, flags %x",
           device, stream, samplingRate, format, channelMask, flags);
 
-    return getOutputForDevice(device, AUDIO_SESSION_ALLOCATE,
+    return getOutputForDevice(device, AUDIO_SESSION_ALLOCATE, uid_t{0} /*Invalid uid*/,
                               stream, samplingRate,format, channelMask,
                               flags, offloadInfo);
 }
@@ -832,7 +832,7 @@ status_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t *attr,
     ALOGV("getOutputForAttr() device 0x%x, samplingRate %d, format %x, channelMask %x, flags %x",
           device, config->sample_rate, config->format, config->channel_mask, flags);
 
-    *output = getOutputForDevice(device, session, *stream,
+    *output = getOutputForDevice(device, session, uid, *stream,
                                  config->sample_rate, config->format, config->channel_mask,
                                  flags, &config->offload_info);
     if (*output == AUDIO_IO_HANDLE_NONE) {
@@ -846,6 +846,7 @@ status_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t *attr,
 audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         audio_devices_t device,
         audio_session_t session __unused,
+        uid_t clientUid,
         audio_stream_type_t stream,
         uint32_t samplingRate,
         audio_format_t format,
@@ -954,13 +955,21 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
             sp<SwAudioOutputDescriptor> desc = mOutputs.valueAt(i);
             if (!desc->isDuplicated() && (profile == desc->mProfile)) {
                 outputDesc = desc;
-                // reuse direct output if currently open and configured with same parameters
+                // reuse direct output if currently open by the same client
+                // and configured with same parameters
                 if ((samplingRate == outputDesc->mSamplingRate) &&
-                        audio_formats_match(format, outputDesc->mFormat) &&
-                        (channelMask == outputDesc->mChannelMask)) {
-                    outputDesc->mDirectOpenCount++;
-                    ALOGV("getOutput() reusing direct output %d", mOutputs.keyAt(i));
-                    return mOutputs.keyAt(i);
+                    audio_formats_match(format, outputDesc->mFormat) &&
+                    (channelMask == outputDesc->mChannelMask)) {
+                  if (clientUid == outputDesc->mDirectClientUid) {
+                      outputDesc->mDirectOpenCount++;
+                      ALOGV("getOutput() reusing direct output %d", mOutputs.keyAt(i));
+                      return mOutputs.keyAt(i);
+                  } else {
+                      ALOGV("getOutput() do not reuse direct output because current client (%ld) "
+                            "is not the same as requesting client (%ld)",
+                            (long)outputDesc->mDirectClientUid, (long)clientUid);
+                      goto non_direct_output;
+                  }
                 }
             }
         }
@@ -1028,6 +1037,7 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         outputDesc->mRefCount[stream] = 0;
         outputDesc->mStopTime[stream] = 0;
         outputDesc->mDirectOpenCount = 1;
+        outputDesc->mDirectClientUid = clientUid;
 
         audio_io_handle_t srcOutput = getOutputForEffect();
         addOutput(output, outputDesc);
@@ -1621,8 +1631,8 @@ audio_io_handle_t AudioPolicyManager::getInputForDevice(audio_devices_t device,
                                                               isSoundTrigger,
                                                               policyMix, mpClientInterface);
 
-
     // reuse an open input if possible
+    sp<AudioInputDescriptor> reusedInputDesc;
     for (size_t i = 0; i < mInputs.size(); i++) {
         sp<AudioInputDescriptor> desc = mInputs.valueAt(i);
         // reuse input if:
@@ -1646,33 +1656,41 @@ audio_io_handle_t AudioPolicyManager::getInputForDevice(audio_devices_t device,
                 } else {
                     ALOGW("getInputForDevice() record with different attributes"
                           " exists for session %d", session);
-                    break;
+                    continue;
                 }
             } else if (isSoundTrigger) {
-                break;
+                continue;
             }
 
-            // force close input if current source is now the highest priority request on this input
-            // and current input properties are not exactly as requested.
-            if (!isConcurrentSource(inputSource) && !isConcurrentSource(desc->inputSource()) &&
+            // Reuse the already opened input stream on this profile if:
+            // - the new capture source is background OR
+            // - the path requested configurations match OR
+            // - the new source priority is less than the highest source priority on this input
+            // If the input stream cannot be reused, close it before opening a new stream
+            // on the same profile for the new client so that the requested path configuration
+            // can be selected.
+            if (!isConcurrentSource(inputSource) &&
                     ((desc->mSamplingRate != samplingRate ||
                     desc->mChannelMask != channelMask ||
                     !audio_formats_match(desc->mFormat, format)) &&
                     (source_priority(desc->getHighestPrioritySource(false /*activeOnly*/)) <
                      source_priority(inputSource)))) {
-                ALOGV("%s: ", __FUNCTION__);
-                AudioSessionCollection sessions = desc->getAudioSessions(false /*activeOnly*/);
-                for (size_t j = 0; j < sessions.size(); j++) {
-                    audio_session_t currentSession = sessions.keyAt(j);
-                    stopInput(desc->mIoHandle, currentSession);
-                    releaseInput(desc->mIoHandle, currentSession);
-                }
-                break;
+                reusedInputDesc = desc;
+                continue;
             } else {
                 desc->addAudioSession(session, audioSession);
                 ALOGV("%s: reusing input %d", __FUNCTION__, mInputs.keyAt(i));
                 return mInputs.keyAt(i);
             }
+        }
+    }
+
+    if (reusedInputDesc != 0) {
+        AudioSessionCollection sessions = reusedInputDesc->getAudioSessions(false /*activeOnly*/);
+        for (size_t j = 0; j < sessions.size(); j++) {
+            audio_session_t currentSession = sessions.keyAt(j);
+            stopInput(reusedInputDesc->mIoHandle, currentSession);
+            releaseInput(reusedInputDesc->mIoHandle, currentSession);
         }
     }
 
