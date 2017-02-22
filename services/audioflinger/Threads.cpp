@@ -1223,18 +1223,15 @@ status_t AudioFlinger::PlaybackThread::checkEffectCompatibility_l(
             }
         }
     } break;
+    case DIRECT:
+        // Treat direct threads similar to offload threads,
+        // since mixing and post processing should be done by DSP here as well.
     case OFFLOAD:
         // nothing actionable on offload threads, if the effect:
         //   - is offloadable: the effect can be created
         //   - is NOT offloadable: the effect should still be created, but EffectHandle::enable()
         //     will take care of invalidating the tracks of the thread
         break;
-    case DIRECT:
-        // Reject any effect on Direct output threads for now, since the format of
-        // mSinkBuffer is not guaranteed to be compatible with effect processing (PCM 16 stereo).
-        ALOGW("checkEffectCompatibility_l(): effect %s on DIRECT output thread %s",
-                desc->name, mThreadName);
-        return BAD_VALUE;
     case DUPLICATING:
         // Reject any effect on mixer multichannel sinks.
         // TODO: fix both format and multichannel issues with effects.
@@ -1418,7 +1415,7 @@ status_t AudioFlinger::ThreadBase::addEffect_l(const sp<EffectModule>& effect)
     sp<EffectChain> chain = getEffectChain_l(sessionId);
     bool chainCreated = false;
 
-    ALOGD_IF((mType == OFFLOAD) && !effect->isOffloadable(),
+    ALOGD_IF((mType == OFFLOAD || mType == DIRECT) && !effect->isOffloadable(),
              "addEffect_l() on offloaded thread %p: effect %s does not support offload flags %x",
                     this, effect->desc().name, effect->desc().flags);
 
@@ -1438,7 +1435,7 @@ status_t AudioFlinger::ThreadBase::addEffect_l(const sp<EffectModule>& effect)
         return BAD_VALUE;
     }
 
-    effect->setOffloaded(mType == OFFLOAD, mId);
+    effect->setOffloaded((mType == OFFLOAD || mType == DIRECT), mId);
 
     status_t status = chain->addEffect_l(effect);
     if (status != NO_ERROR) {
@@ -3201,7 +3198,7 @@ bool AudioFlinger::PlaybackThread::threadLoop()
             }
 
             // only process effects if we're going to write
-            if (mSleepTimeUs == 0 && mType != OFFLOAD) {
+            if (mSleepTimeUs == 0 && mType != OFFLOAD && mType != DIRECT) {
                 for (size_t i = 0; i < effectChains.size(); i ++) {
                     effectChains[i]->process_l();
                 }
@@ -3211,7 +3208,7 @@ bool AudioFlinger::PlaybackThread::threadLoop()
         // was read from audio track: process only updates effect state
         // and thus does have to be synchronized with audio writes but may have
         // to be called while waiting for async write callback
-        if (mType == OFFLOAD) {
+        if (mType == OFFLOAD || mType == DIRECT) {
             for (size_t i = 0; i < effectChains.size(); i ++) {
                 effectChains[i]->process_l();
             }
