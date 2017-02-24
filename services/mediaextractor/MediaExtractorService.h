@@ -33,7 +33,8 @@ public:
 
     static const char*  getServiceName() { return "media.extractor"; }
 
-    virtual sp<IMediaExtractor> makeExtractor(const sp<IDataSource> &source, const char *mime);
+    virtual sp<IMediaExtractor> makeExtractor(const sp<IDataSource> &source, const char *mime,
+                                            const uint32_t extFlags);
     virtual status_t    dump(int fd, const Vector<String16>& args);
 
     virtual status_t    onTransact(uint32_t code, const Parcel& data, Parcel* reply,
