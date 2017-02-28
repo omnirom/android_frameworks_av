@@ -23,6 +23,7 @@
 
 #include "NuPlayerCCDecoder.h"
 #include "NuPlayerDecoder.h"
+#include "NuPlayerDrm.h"
 #include "NuPlayerRenderer.h"
 #include "NuPlayerSource.h"
 
@@ -36,7 +37,7 @@
 #include <media/stagefright/MediaCodec.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
-
+#include <media/stagefright/SurfaceUtils.h>
 #include <gui/Surface.h>
 
 #include "avc_utils.h"
@@ -231,27 +232,34 @@ void NuPlayer::Decoder::onMessageReceived(const sp<AMessage> &msg) {
                 //
                 // at this point MediaPlayerService::client has already connected to the
                 // surface, which MediaCodec does not expect
-                err = native_window_api_disconnect(surface.get(), NATIVE_WINDOW_API_MEDIA);
+                err = nativeWindowDisconnect(surface.get(), "kWhatSetVideoSurface(surface)");
                 if (err == OK) {
                     err = mCodec->setSurface(surface);
                     ALOGI_IF(err, "codec setSurface returned: %d", err);
                     if (err == OK) {
                         // reconnect to the old surface as MPS::Client will expect to
                         // be able to disconnect from it.
-                        (void)native_window_api_connect(mSurface.get(), NATIVE_WINDOW_API_MEDIA);
+                        (void)nativeWindowConnect(mSurface.get(), "kWhatSetVideoSurface(mSurface)");
                         mSurface = surface;
                     }
                 }
                 if (err != OK) {
                     // reconnect to the new surface on error as MPS::Client will expect to
                     // be able to disconnect from it.
-                    (void)native_window_api_connect(surface.get(), NATIVE_WINDOW_API_MEDIA);
+                    (void)nativeWindowConnect(surface.get(), "kWhatSetVideoSurface(err)");
                 }
             }
 
             sp<AMessage> response = new AMessage;
             response->setInt32("err", err);
             response->postReply(replyID);
+            break;
+        }
+
+        case kWhatDrmReleaseCrypto:
+        {
+            ALOGV("kWhatDrmReleaseCrypto");
+            onReleaseCrypto(msg);
             break;
         }
 
@@ -305,15 +313,25 @@ void NuPlayer::Decoder::onConfigure(const sp<AMessage> &format) {
     status_t err;
     if (mSurface != NULL) {
         // disconnect from surface as MediaCodec will reconnect
-        err = native_window_api_disconnect(
-                mSurface.get(), NATIVE_WINDOW_API_MEDIA);
+        err = nativeWindowDisconnect(mSurface.get(), "onConfigure");
         // We treat this as a warning, as this is a preparatory step.
         // Codec will try to connect to the surface, which is where
         // any error signaling will occur.
         ALOGW_IF(err != OK, "failed to disconnect from surface: %d", err);
     }
+
+    // Modular DRM
+    void *pCrypto;
+    if (!format->findPointer("crypto", &pCrypto)) {
+        pCrypto = NULL;
+    }
+    sp<ICrypto> crypto = (ICrypto*)pCrypto;
+    ALOGV("onConfigure mCrypto: %p (%d)  mIsSecure: %d",
+            crypto.get(), (crypto != NULL ? crypto->getStrongCount() : 0), mIsSecure);
+
     err = mCodec->configure(
-            format, mSurface, NULL /* crypto */, 0 /* flags */);
+            format, mSurface, crypto, 0 /* flags */);
+
     if (err != OK) {
         ALOGE("Failed to configure %s decoder (err=%d)", mComponentName.c_str(), err);
         mCodec->release();
@@ -491,8 +509,7 @@ void NuPlayer::Decoder::onShutdown(bool notifyComplete) {
 
         if (mSurface != NULL) {
             // reconnect to surface as MediaCodec disconnected from it
-            status_t error =
-                    native_window_api_connect(mSurface.get(), NATIVE_WINDOW_API_MEDIA);
+            status_t error = nativeWindowConnect(mSurface.get(), "onShutdown");
             ALOGW_IF(error != NO_ERROR,
                     "[%s] failed to connect to native window, error=%d",
                     mComponentName.c_str(), error);
@@ -557,6 +574,43 @@ void NuPlayer::Decoder::handleError(int32_t err)
     notify->setInt32("what", kWhatError);
     notify->setInt32("err", err);
     notify->post();
+}
+
+status_t NuPlayer::Decoder::releaseCrypto()
+{
+    ALOGV("releaseCrypto");
+
+    sp<AMessage> msg = new AMessage(kWhatDrmReleaseCrypto, this);
+
+    sp<AMessage> response;
+    status_t status = msg->postAndAwaitResponse(&response);
+    if (status == OK && response != NULL) {
+        CHECK(response->findInt32("status", &status));
+        ALOGV("releaseCrypto ret: %d ", status);
+    } else {
+        ALOGE("releaseCrypto err: %d", status);
+    }
+
+    return status;
+}
+
+void NuPlayer::Decoder::onReleaseCrypto(const sp<AMessage>& msg)
+{
+    status_t status = INVALID_OPERATION;
+    if (mCodec != NULL) {
+        status = mCodec->releaseCrypto();
+    } else {
+        // returning OK if the codec has been already released
+        status = OK;
+        ALOGE("onReleaseCrypto No mCodec. err: %d", status);
+    }
+
+    sp<AMessage> response = new AMessage;
+    response->setInt32("status", status);
+
+    sp<AReplyToken> replyID;
+    CHECK(msg->senderAwaitsResponse(&replyID));
+    response->postReply(replyID);
 }
 
 bool NuPlayer::Decoder::handleAnInputBuffer(size_t index) {
@@ -929,6 +983,10 @@ bool NuPlayer::Decoder::onInputBufferFetched(const sp<AMessage> &msg) {
             flags |= MediaCodec::BUFFER_FLAG_CODECCONFIG;
         }
 
+        // Modular DRM
+        MediaBuffer *mediaBuf = NULL;
+        NuPlayerDrm::CryptoInfo *cryptInfo = NULL;
+
         // copy into codec buffer
         if (needsCopy) {
             if (buffer->size() > codecBuffer->capacity()) {
@@ -936,24 +994,68 @@ bool NuPlayer::Decoder::onInputBufferFetched(const sp<AMessage> &msg) {
                 mDequeuedInputBuffers.push_back(bufferIx);
                 return false;
             }
-            codecBuffer->setRange(0, buffer->size());
-            memcpy(codecBuffer->data(), buffer->data(), buffer->size());
-        }
 
-        status_t err = mCodec->queueInputBuffer(
-                        bufferIx,
-                        codecBuffer->offset(),
-                        codecBuffer->size(),
-                        timeUs,
-                        flags);
+            if (buffer->data() != NULL) {
+                codecBuffer->setRange(0, buffer->size());
+                memcpy(codecBuffer->data(), buffer->data(), buffer->size());
+            } else { // No buffer->data()
+                //Modular DRM
+                mediaBuf = (MediaBuffer*)buffer->getMediaBufferBase();
+                if (mediaBuf != NULL) {
+                    codecBuffer->setRange(0, mediaBuf->size());
+                    memcpy(codecBuffer->data(), mediaBuf->data(), mediaBuf->size());
+
+                    sp<MetaData> meta_data = mediaBuf->meta_data();
+                    cryptInfo = NuPlayerDrm::getSampleCryptoInfo(meta_data);
+
+                    // since getMediaBuffer() has incremented the refCount
+                    mediaBuf->release();
+                } else { // No mediaBuf
+                    ALOGE("onInputBufferFetched: buffer->data()/mediaBuf are NULL for %p",
+                            buffer.get());
+                    handleError(UNKNOWN_ERROR);
+                    return false;
+                }
+            } // buffer->data()
+        } // needsCopy
+
+        status_t err;
+        AString errorDetailMsg;
+        if (cryptInfo != NULL) {
+            err = mCodec->queueSecureInputBuffer(
+                    bufferIx,
+                    codecBuffer->offset(),
+                    cryptInfo->subSamples,
+                    cryptInfo->numSubSamples,
+                    cryptInfo->key,
+                    cryptInfo->iv,
+                    cryptInfo->mode,
+                    cryptInfo->pattern,
+                    timeUs,
+                    flags,
+                    &errorDetailMsg);
+            // synchronous call so done with cryptInfo here
+            free(cryptInfo);
+        } else {
+            err = mCodec->queueInputBuffer(
+                    bufferIx,
+                    codecBuffer->offset(),
+                    codecBuffer->size(),
+                    timeUs,
+                    flags,
+                    &errorDetailMsg);
+        } // no cryptInfo
+
         if (err != OK) {
-            ALOGE("Failed to queue input buffer for %s (err=%d)",
-                    mComponentName.c_str(), err);
+            ALOGE("onInputBufferFetched: queue%sInputBuffer failed for %s (err=%d, %s)",
+                    (cryptInfo != NULL ? "Secure" : ""),
+                    mComponentName.c_str(), err, errorDetailMsg.c_str());
             handleError(err);
         } else {
             mInputBufferIsDequeued.editItemAt(bufferIx) = false;
         }
-    }
+
+    }   // buffer != NULL
     return true;
 }
 

@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
-#include "WOmxObserver.h"
+#define LOG_TAG "WOmxObserver-impl"
 
 #include <vector>
 
 #include <cutils/native_handle.h>
-#include <frameworks/native/include/binder/Binder.h>
+#include <binder/Binder.h>
 
+#include "WOmxObserver.h"
 #include "Conversion.h"
 
 namespace android {
@@ -43,7 +44,10 @@ void LWOmxObserver::onMessages(std::list<omx_message> const& lMessages) {
         wrapAs(&tMessages[i], &handles[i], message);
         ++i;
     }
-    mBase->onMessages(tMessages);
+    auto transResult = mBase->onMessages(tMessages);
+    if (!transResult.isOk()) {
+        ALOGE("LWOmxObserver::onMessages transaction failed");
+    }
     for (auto& handle : handles) {
         native_handle_close(handle);
         native_handle_delete(handle);

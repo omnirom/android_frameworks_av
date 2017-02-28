@@ -18,6 +18,7 @@
 //#define LOG_NDEBUG 0
 
 #include <android/hardware/audio/2.0/IStreamOutCallback.h>
+#include <hwbinder/IPCThreadState.h>
 #include <mediautils/SchedulingPolicyService.h>
 #include <utils/Log.h>
 
@@ -263,8 +264,10 @@ StreamOutHalHidl::~StreamOutHalHidl() {
             processReturn("clearCallback", mStream->clearCallback());
         }
         processReturn("close", mStream->close());
+        mStream.clear();
     }
     mCallback.clear();
+    hardware::IPCThreadState::self()->flushCommands();
     if (mEfGroup) {
         EventFlag::deleteEventFlag(&mEfGroup);
     }
@@ -338,8 +341,7 @@ status_t StreamOutHalHidl::callWriterThread(
     // TODO: Remove manual event flag handling once blocking MQ is implemented. b/33815422
     uint32_t efState = 0;
 retry:
-    status_t ret = mEfGroup->wait(
-            static_cast<uint32_t>(MessageQueueFlagBits::NOT_FULL), &efState, NS_PER_SEC);
+    status_t ret = mEfGroup->wait(static_cast<uint32_t>(MessageQueueFlagBits::NOT_FULL), &efState);
     if (efState & static_cast<uint32_t>(MessageQueueFlagBits::NOT_FULL)) {
         WriteStatus writeStatus;
         writeStatus.retval = Result::NOT_INITIALIZED;
@@ -539,6 +541,8 @@ StreamInHalHidl::StreamInHalHidl(const sp<IStreamIn>& stream)
 StreamInHalHidl::~StreamInHalHidl() {
     if (mStream != 0) {
         processReturn("close", mStream->close());
+        mStream.clear();
+        hardware::IPCThreadState::self()->flushCommands();
     }
     if (mEfGroup) {
         EventFlag::deleteEventFlag(&mEfGroup);
@@ -597,8 +601,7 @@ status_t StreamInHalHidl::callReaderThread(
     // TODO: Remove manual event flag handling once blocking MQ is implemented. b/33815422
     uint32_t efState = 0;
 retry:
-    status_t ret = mEfGroup->wait(
-            static_cast<uint32_t>(MessageQueueFlagBits::NOT_EMPTY), &efState, NS_PER_SEC);
+    status_t ret = mEfGroup->wait(static_cast<uint32_t>(MessageQueueFlagBits::NOT_EMPTY), &efState);
     if (efState & static_cast<uint32_t>(MessageQueueFlagBits::NOT_EMPTY)) {
         ReadStatus readStatus;
         readStatus.retval = Result::NOT_INITIALIZED;

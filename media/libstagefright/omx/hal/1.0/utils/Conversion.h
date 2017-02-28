@@ -17,29 +17,26 @@
 #ifndef ANDROID_HARDWARE_MEDIA_OMX_V1_0__CONVERSION_H
 #define ANDROID_HARDWARE_MEDIA_OMX_V1_0__CONVERSION_H
 
+#include <vector>
+#include <list>
+
+#include <unistd.h>
+
 #include <hidl/MQDescriptor.h>
 #include <hidl/Status.h>
 #include <hidlmemory/mapping.h>
-#include <android/hidl/memory/1.0/IMemory.h>
-
-#include <unistd.h>
-#include <vector>
-#include <list>
 
 #include <binder/Binder.h>
 #include <binder/Status.h>
 #include <ui/FenceTime.h>
-
-#include <OMXFenceParcelable.h>
+#include <media/OMXFenceParcelable.h>
 #include <cutils/native_handle.h>
 #include <gui/IGraphicBufferProducer.h>
 
-#include <IOMX.h>
+#include <media/OMXBuffer.h>
 #include <VideoAPI.h>
-#include <OMXBuffer.h>
-#include <android/IOMXBufferSource.h>
-#include <android/IGraphicBufferSource.h>
 
+#include <android/hidl/memory/1.0/IMemory.h>
 #include <android/hardware/media/omx/1.0/types.h>
 #include <android/hardware/media/omx/1.0/IOmx.h>
 #include <android/hardware/media/omx/1.0/IOmxNode.h>
@@ -48,6 +45,9 @@
 #include <android/hardware/media/omx/1.0/IOmxObserver.h>
 #include <android/hardware/media/omx/1.0/IOmxProducerListener.h>
 #include <android/hardware/media/omx/1.0/IGraphicBufferSource.h>
+
+#include <android/IGraphicBufferSource.h>
+#include <android/IOMXBufferSource.h>
 
 namespace android {
 namespace hardware {
@@ -560,6 +560,76 @@ inline hidl_vec<uint8_t> toHidlBytes(void const* l, size_t size) {
 }
 
 /**
+ * \brief Wrap `GraphicBuffer` in `AnwBuffer`.
+ *
+ * \param[out] t The wrapper of type `AnwBuffer`.
+ * \param[in] l The source `GraphicBuffer`.
+ */
+// wrap: GraphicBuffer -> AnwBuffer
+inline void wrapAs(AnwBuffer* t, GraphicBuffer const& l) {
+    t->attr.width = l.getWidth();
+    t->attr.height = l.getHeight();
+    t->attr.stride = l.getStride();
+    t->attr.format = static_cast<PixelFormat>(l.getPixelFormat());
+    t->attr.layerCount = l.getLayerCount();
+    t->attr.usage = l.getUsage();
+    t->attr.id = l.getId();
+    t->attr.generationNumber = l.getGenerationNumber();
+    t->nativeHandle = hidl_handle(l.handle);
+}
+
+/**
+ * \brief Convert `AnwBuffer` to `GraphicBuffer`.
+ *
+ * \param[out] l The destination `GraphicBuffer`.
+ * \param[in] t The source `AnwBuffer`.
+ *
+ * This function will duplicate all file descriptors in \p t.
+ */
+// convert: AnwBuffer -> GraphicBuffer
+// Ref: frameworks/native/libs/ui/GraphicBuffer.cpp: GraphicBuffer::flatten
+inline bool convertTo(GraphicBuffer* l, AnwBuffer const& t) {
+    native_handle_t* handle = t.nativeHandle == nullptr ?
+            nullptr : native_handle_clone(t.nativeHandle);
+
+    size_t const numInts = 12 + (handle ? handle->numInts : 0);
+    int32_t* ints = new int32_t[numInts];
+
+    size_t numFds = static_cast<size_t>(handle ? handle->numFds : 0);
+    int* fds = new int[numFds];
+
+    ints[0] = 'GBFR';
+    ints[1] = static_cast<int32_t>(t.attr.width);
+    ints[2] = static_cast<int32_t>(t.attr.height);
+    ints[3] = static_cast<int32_t>(t.attr.stride);
+    ints[4] = static_cast<int32_t>(t.attr.format);
+    ints[5] = static_cast<int32_t>(t.attr.layerCount);
+    ints[6] = static_cast<int32_t>(t.attr.usage);
+    ints[7] = static_cast<int32_t>(t.attr.id >> 32);
+    ints[8] = static_cast<int32_t>(t.attr.id & 0xFFFFFFFF);
+    ints[9] = static_cast<int32_t>(t.attr.generationNumber);
+    ints[10] = 0;
+    ints[11] = 0;
+    if (handle) {
+        ints[10] = static_cast<int32_t>(handle->numFds);
+        ints[11] = static_cast<int32_t>(handle->numInts);
+        int* intsStart = handle->data + handle->numFds;
+        std::copy(handle->data, intsStart, fds);
+        std::copy(intsStart, intsStart + handle->numInts, &ints[12]);
+    }
+
+    void const* constBuffer = static_cast<void const*>(ints);
+    size_t size = numInts * sizeof(int32_t);
+    int const* constFds = static_cast<int const*>(fds);
+    status_t status = l->unflatten(constBuffer, size, constFds, numFds);
+
+    delete [] fds;
+    delete [] ints;
+    native_handle_delete(handle);
+    return status == NO_ERROR;
+}
+
+/**
  * \brief Wrap `OMXBuffer` in `CodecBuffer`.
  *
  * \param[out] t The wrapper of type `CodecBuffer`.
@@ -568,8 +638,8 @@ inline hidl_vec<uint8_t> toHidlBytes(void const* l, size_t size) {
  */
 // wrap: OMXBuffer -> CodecBuffer
 inline bool wrapAs(CodecBuffer* t, OMXBuffer const& l) {
-    t->nativeHandle = hidl_handle();
     t->sharedMemory = hidl_memory();
+    t->nativeHandle = hidl_handle();
     switch (l.mBufferType) {
         case OMXBuffer::kBufferTypeInvalid: {
             t->type = CodecBuffer::Type::INVALID;
@@ -599,7 +669,6 @@ inline bool wrapAs(CodecBuffer* t, OMXBuffer const& l) {
                 t->attr.anwBuffer.format = static_cast<PixelFormat>(1);
                 t->attr.anwBuffer.layerCount = 0;
                 t->attr.anwBuffer.usage = 0;
-                t->nativeHandle = hidl_handle();
                 return true;
             }
             t->attr.anwBuffer.width = l.mGraphicBuffer->getWidth();
@@ -609,12 +678,12 @@ inline bool wrapAs(CodecBuffer* t, OMXBuffer const& l) {
                     l.mGraphicBuffer->getPixelFormat());
             t->attr.anwBuffer.layerCount = l.mGraphicBuffer->getLayerCount();
             t->attr.anwBuffer.usage = l.mGraphicBuffer->getUsage();
-            t->nativeHandle = hidl_handle(l.mGraphicBuffer->handle);
+            t->nativeHandle = l.mGraphicBuffer->handle;
             return true;
         }
         case OMXBuffer::kBufferTypeNativeHandle: {
             t->type = CodecBuffer::Type::NATIVE_HANDLE;
-            t->nativeHandle = hidl_handle(l.mNativeHandle->handle());
+            t->nativeHandle = l.mNativeHandle->handle();
             return true;
         }
     }
@@ -650,16 +719,14 @@ inline bool convertTo(OMXBuffer* l, CodecBuffer const& t) {
                 *l = OMXBuffer(sp<GraphicBuffer>(nullptr));
                 return true;
             }
-            *l = OMXBuffer(sp<GraphicBuffer>(new GraphicBuffer(
-                    t.attr.anwBuffer.width,
-                    t.attr.anwBuffer.height,
-                    static_cast<::android::PixelFormat>(
-                            t.attr.anwBuffer.format),
-                    t.attr.anwBuffer.layerCount,
-                    t.attr.anwBuffer.usage,
-                    t.attr.anwBuffer.stride,
-                    native_handle_clone(t.nativeHandle),
-                    true)));
+            AnwBuffer anwBuffer;
+            anwBuffer.nativeHandle = t.nativeHandle;
+            anwBuffer.attr = t.attr.anwBuffer;
+            sp<GraphicBuffer> graphicBuffer = new GraphicBuffer();
+            if (!convertTo(graphicBuffer.get(), anwBuffer)) {
+                return false;
+            }
+            *l = OMXBuffer(graphicBuffer);
             return true;
         }
         case CodecBuffer::Type::NATIVE_HANDLE: {
@@ -831,76 +898,6 @@ inline OMX_TICKS toOMXTicks(uint64_t t) {
             static_cast<uint32_t>(t & 0xFFFFFFFF),
             static_cast<uint32_t>(t >> 32)};
 #endif
-}
-
-/**
- * \brief Wrap `GraphicBuffer` in `AnwBuffer`.
- *
- * \param[out] t The wrapper of type `AnwBuffer`.
- * \param[in] l The source `GraphicBuffer`.
- */
-// wrap: GraphicBuffer -> AnwBuffer
-inline void wrapAs(AnwBuffer* t, GraphicBuffer const& l) {
-    t->attr.width = l.getWidth();
-    t->attr.height = l.getHeight();
-    t->attr.stride = l.getStride();
-    t->attr.format = static_cast<PixelFormat>(l.getPixelFormat());
-    t->attr.layerCount = l.getLayerCount();
-    t->attr.usage = l.getUsage();
-    t->attr.id = l.getId();
-    t->attr.generationNumber = l.getGenerationNumber();
-    t->nativeHandle = hidl_handle(l.handle);
-}
-
-/**
- * \brief Convert `AnwBuffer` to `GraphicBuffer`.
- *
- * \param[out] l The destination `GraphicBuffer`.
- * \param[in] t The source `AnwBuffer`.
- *
- * This function will duplicate all file descriptors in \p t.
- */
-// convert: AnwBuffer -> GraphicBuffer
-// Ref: frameworks/native/libs/ui/GraphicBuffer.cpp: GraphicBuffer::flatten
-inline bool convertTo(GraphicBuffer* l, AnwBuffer const& t) {
-    native_handle_t* handle = t.nativeHandle == nullptr ?
-            nullptr : native_handle_clone(t.nativeHandle);
-
-    size_t const numInts = 12 + (handle ? handle->numInts : 0);
-    int32_t* ints = new int32_t[numInts];
-
-    size_t numFds = static_cast<size_t>(handle ? handle->numFds : 0);
-    int* fds = new int[numFds];
-
-    ints[0] = 'GBFR';
-    ints[1] = static_cast<int32_t>(t.attr.width);
-    ints[2] = static_cast<int32_t>(t.attr.height);
-    ints[3] = static_cast<int32_t>(t.attr.stride);
-    ints[4] = static_cast<int32_t>(t.attr.format);
-    ints[5] = static_cast<int32_t>(t.attr.layerCount);
-    ints[6] = static_cast<int32_t>(t.attr.usage);
-    ints[7] = static_cast<int32_t>(t.attr.id >> 32);
-    ints[8] = static_cast<int32_t>(t.attr.id & 0xFFFFFFFF);
-    ints[9] = static_cast<int32_t>(t.attr.generationNumber);
-    ints[10] = 0;
-    ints[11] = 0;
-    if (handle) {
-        ints[10] = static_cast<int32_t>(handle->numFds);
-        ints[11] = static_cast<int32_t>(handle->numInts);
-        int* intsStart = handle->data + handle->numFds;
-        std::copy(handle->data, intsStart, fds);
-        std::copy(intsStart, intsStart + handle->numInts, &ints[12]);
-    }
-
-    void const* constBuffer = static_cast<void const*>(ints);
-    size_t size = numInts * sizeof(int32_t);
-    int const* constFds = static_cast<int const*>(fds);
-    status_t status = l->unflatten(constBuffer, size, constFds, numFds);
-
-    delete [] fds;
-    delete [] ints;
-    native_handle_delete(handle);
-    return status == NO_ERROR;
 }
 
 /**
@@ -1497,9 +1494,10 @@ inline status_t flatten(IOmxBufferProducer::FrameEventsDelta const& t,
  */
 inline size_t getFlattenedSize(
         IOmxBufferProducer::FrameEventHistoryDelta const& t) {
-    size_t size = 4;
-    for (size_t i = 0; i < t.size(); ++i) {
-        size += getFlattenedSize(t[i]);
+    size_t size = 4 + // mDeltas.size()
+            sizeof(t.compositorTiming);
+    for (size_t i = 0; i < t.deltas.size(); ++i) {
+        size += getFlattenedSize(t.deltas[i]);
     }
     return size;
 }
@@ -1514,8 +1512,8 @@ inline size_t getFlattenedSize(
 inline size_t getFdCount(
         IOmxBufferProducer::FrameEventHistoryDelta const& t) {
     size_t numFds = 0;
-    for (size_t i = 0; i < t.size(); ++i) {
-        numFds += getFdCount(t[i]);
+    for (size_t i = 0; i < t.deltas.size(); ++i) {
+        numFds += getFdCount(t.deltas[i]);
     }
     return numFds;
 }
@@ -1543,17 +1541,19 @@ inline status_t unflatten(
         return NO_MEMORY;
     }
 
+    FlattenableUtils::read(buffer, size, t->compositorTiming);
+
     uint32_t deltaCount = 0;
     FlattenableUtils::read(buffer, size, deltaCount);
     if (static_cast<size_t>(deltaCount) >
             ::android::FrameEventHistory::MAX_FRAME_HISTORY) {
         return BAD_VALUE;
     }
-    t->resize(deltaCount);
+    t->deltas.resize(deltaCount);
     nh->resize(deltaCount);
     for (size_t deltaIndex = 0; deltaIndex < deltaCount; ++deltaIndex) {
         status_t status = unflatten(
-                &((*t)[deltaIndex]), &((*nh)[deltaIndex]),
+                &(t->deltas[deltaIndex]), &((*nh)[deltaIndex]),
                 buffer, size, fds, numFds);
         if (status != NO_ERROR) {
             return status;
@@ -1577,16 +1577,18 @@ inline status_t unflatten(
 inline status_t flatten(
         IOmxBufferProducer::FrameEventHistoryDelta const& t,
         void*& buffer, size_t& size, int*& fds, size_t& numFds) {
-    if (t.size() > ::android::FrameEventHistory::MAX_FRAME_HISTORY) {
+    if (t.deltas.size() > ::android::FrameEventHistory::MAX_FRAME_HISTORY) {
         return BAD_VALUE;
     }
     if (size < getFlattenedSize(t)) {
         return NO_MEMORY;
     }
 
-    FlattenableUtils::write(buffer, size, static_cast<uint32_t>(t.size()));
-    for (size_t deltaIndex = 0; deltaIndex < t.size(); ++deltaIndex) {
-        status_t status = flatten(t[deltaIndex], buffer, size, fds, numFds);
+    FlattenableUtils::write(buffer, size, t.compositorTiming);
+
+    FlattenableUtils::write(buffer, size, static_cast<uint32_t>(t.deltas.size()));
+    for (size_t deltaIndex = 0; deltaIndex < t.deltas.size(); ++deltaIndex) {
+        status_t status = flatten(t.deltas[deltaIndex], buffer, size, fds, numFds);
         if (status != NO_ERROR) {
             return status;
         }

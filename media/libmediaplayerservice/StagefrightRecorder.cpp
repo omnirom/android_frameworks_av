@@ -30,6 +30,7 @@
 #include <binder/IServiceManager.h>
 
 #include <media/IMediaPlayerService.h>
+#include <media/MediaAnalyticsItem.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
@@ -65,6 +66,10 @@ static const float kTypicalDisplayRefreshingRate = 60.f;
 static const float kMinTypicalDisplayRefreshingRate = kTypicalDisplayRefreshingRate / 2;
 static const int kMaxNumVideoTemporalLayers = 8;
 
+// key for media statistics
+static const char *kKeyRecorder = "recorder";
+// attrs for media statistics
+//
 // To collect the encoder usage for the battery app
 static void addBatteryData(uint32_t params) {
     sp<IBinder> binder =
@@ -85,6 +90,8 @@ StagefrightRecorder::StagefrightRecorder(const String16 &opPackageName)
       mStarted(false) {
 
     ALOGV("Constructor");
+
+    mAnalyticsDirty = false;
     reset();
 }
 
@@ -95,6 +102,80 @@ StagefrightRecorder::~StagefrightRecorder() {
     if (mLooper != NULL) {
         mLooper->stop();
     }
+
+    // log the current record, provided it has some information worth recording
+    if (mAnalyticsDirty && mAnalyticsItem != NULL) {
+        updateMetrics();
+        if (mAnalyticsItem->count() > 0) {
+            mAnalyticsItem->setFinalized(true);
+            mAnalyticsItem->selfrecord();
+        }
+        delete mAnalyticsItem;
+        mAnalyticsItem = NULL;
+    }
+}
+
+void StagefrightRecorder::updateMetrics() {
+    ALOGV("updateMetrics");
+
+    // we'll populate the values from the raw fields.
+    // (NOT going to populate as we go through the various set* ops)
+
+    // TBD mOutputFormat  = OUTPUT_FORMAT_THREE_GPP;
+    // TBD mAudioEncoder  = AUDIO_ENCODER_AMR_NB;
+    // TBD mVideoEncoder  = VIDEO_ENCODER_DEFAULT;
+    mAnalyticsItem->setInt32("ht", mVideoHeight);
+    mAnalyticsItem->setInt32("wid", mVideoWidth);
+    mAnalyticsItem->setInt32("frame-rate", mFrameRate);
+    mAnalyticsItem->setInt32("video-bitrate", mVideoBitRate);
+    mAnalyticsItem->setInt32("audio-samplerate", mSampleRate);
+    mAnalyticsItem->setInt32("audio-channels", mAudioChannels);
+    mAnalyticsItem->setInt32("audio-bitrate", mAudioBitRate);
+    // TBD mInterleaveDurationUs = 0;
+    mAnalyticsItem->setInt32("video-iframe-interval", mIFramesIntervalSec);
+    // TBD mAudioSourceNode = 0;
+    // TBD mUse64BitFileOffset = false;
+    mAnalyticsItem->setInt32("movie-timescale", mMovieTimeScale);
+    mAnalyticsItem->setInt32("audio-timescale", mAudioTimeScale);
+    mAnalyticsItem->setInt32("video-timescale", mVideoTimeScale);
+    // TBD mCameraId        = 0;
+    // TBD mStartTimeOffsetMs = -1;
+    mAnalyticsItem->setInt32("video-encoder-profile", mVideoEncoderProfile);
+    mAnalyticsItem->setInt32("video-encoder-level", mVideoEncoderLevel);
+    // TBD mMaxFileDurationUs = 0;
+    // TBD mMaxFileSizeBytes = 0;
+    // TBD mTrackEveryTimeDurationUs = 0;
+    mAnalyticsItem->setInt32("capture-fpsenable", mCaptureFpsEnable);
+    mAnalyticsItem->setInt32("capture-fps", mCaptureFps);
+    // TBD mTimeBetweenCaptureUs = -1;
+    // TBD mCameraSourceTimeLapse = NULL;
+    // TBD mMetaDataStoredInVideoBuffers = kMetadataBufferTypeInvalid;
+    // TBD mEncoderProfiles = MediaProfiles::getInstance();
+    mAnalyticsItem->setInt32("rotation", mRotationDegrees);
+    // PII mLatitudex10000 = -3600000;
+    // PII mLongitudex10000 = -3600000;
+    // TBD mTotalBitRate = 0;
+
+    // TBD: some duration information (capture, paused)
+    //
+
+}
+
+void StagefrightRecorder::resetMetrics() {
+    ALOGV("resetMetrics");
+    // flush anything we have, restart the record
+    if (mAnalyticsDirty && mAnalyticsItem != NULL) {
+        updateMetrics();
+        if (mAnalyticsItem->count() > 0) {
+            mAnalyticsItem->setFinalized(true);
+            mAnalyticsItem->selfrecord();
+        }
+        delete mAnalyticsItem;
+        mAnalyticsItem = NULL;
+    }
+    mAnalyticsItem = new MediaAnalyticsItem(kKeyRecorder);
+    (void) mAnalyticsItem->generateSessionID();
+    mAnalyticsDirty = false;
 }
 
 status_t StagefrightRecorder::init() {
@@ -387,6 +468,7 @@ status_t StagefrightRecorder::setParamAudioSamplingRate(int32_t sampleRate) {
 
     // Additional check on the sample rate will be performed later.
     mSampleRate = sampleRate;
+
     return OK;
 }
 
@@ -399,6 +481,7 @@ status_t StagefrightRecorder::setParamAudioNumberOfChannels(int32_t channels) {
 
     // Additional check on the number of channels will be performed later.
     mAudioChannels = channels;
+
     return OK;
 }
 
@@ -930,6 +1013,7 @@ status_t StagefrightRecorder::start() {
     }
 
     if ((status == OK) && (!mStarted)) {
+        mAnalyticsDirty = true;
         mStarted = true;
 
         uint32_t params = IMediaPlayerService::kBatteryDataCodecStarted;
@@ -1812,14 +1896,16 @@ status_t StagefrightRecorder::pause() {
         return OK;
     }
 
+    mPauseStartTimeUs = systemTime() / 1000;
+    sp<MetaData> meta = new MetaData;
+    meta->setInt64(kKeyTime, mPauseStartTimeUs);
+
     if (mAudioEncoderSource != NULL) {
         mAudioEncoderSource->pause();
     }
     if (mVideoEncoderSource != NULL) {
-        mVideoEncoderSource->pause();
+        mVideoEncoderSource->pause(meta.get());
     }
-
-    mPauseStartTimeUs = systemTime() / 1000;
 
     return OK;
 }
@@ -1834,6 +1920,8 @@ status_t StagefrightRecorder::resume() {
     if (mPauseStartTimeUs == 0) {
         return OK;
     }
+
+    int64_t resumeStartTimeUs = systemTime() / 1000;
 
     int64_t bufferStartTimeUs = 0;
     bool allSourcesStarted = true;
@@ -1855,18 +1943,20 @@ status_t StagefrightRecorder::resume() {
             mPauseStartTimeUs = bufferStartTimeUs;
         }
         // 30 ms buffer to avoid timestamp overlap
-        mTotalPausedDurationUs += (systemTime() / 1000) - mPauseStartTimeUs - 30000;
+        mTotalPausedDurationUs += resumeStartTimeUs - mPauseStartTimeUs - 30000;
     }
     double timeOffset = -mTotalPausedDurationUs;
     if (mCaptureFpsEnable) {
         timeOffset *= mCaptureFps / mFrameRate;
     }
+    sp<MetaData> meta = new MetaData;
+    meta->setInt64(kKeyTime, resumeStartTimeUs);
     for (const auto &source : { mAudioEncoderSource, mVideoEncoderSource }) {
         if (source == nullptr) {
             continue;
         }
         source->setInputBufferTimeOffset((int64_t)timeOffset);
-        source->start();
+        source->start(meta.get());
     }
     mPauseStartTimeUs = 0;
 
@@ -1883,10 +1973,19 @@ status_t StagefrightRecorder::stop() {
         mCameraSourceTimeLapse = NULL;
     }
 
+    if (mVideoEncoderSource != NULL) {
+        int64_t stopTimeUs = systemTime() / 1000;
+        sp<MetaData> meta = new MetaData;
+        err = mVideoEncoderSource->setStopStimeUs(stopTimeUs);
+    }
+
     if (mWriter != NULL) {
         err = mWriter->stop();
         mWriter.clear();
     }
+
+    resetMetrics();
+
     mTotalPausedDurationUs = 0;
     mPauseStartTimeUs = 0;
 
@@ -1987,6 +2086,23 @@ status_t StagefrightRecorder::getMaxAmplitude(int *max) {
         *max = 0;
     }
 
+    return OK;
+}
+
+status_t StagefrightRecorder::getMetrics(Parcel *reply) {
+    ALOGD("StagefrightRecorder::getMetrics");
+
+    if (reply == NULL) {
+        ALOGE("Null pointer argument");
+        return BAD_VALUE;
+    }
+
+    if (mAnalyticsItem == NULL) {
+        return UNKNOWN_ERROR;
+    }
+
+    updateMetrics();
+    mAnalyticsItem->writeToParcel(reply);
     return OK;
 }
 

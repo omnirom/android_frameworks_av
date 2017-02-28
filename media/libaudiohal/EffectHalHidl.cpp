@@ -17,6 +17,7 @@
 #define LOG_TAG "EffectHalHidl"
 //#define LOG_NDEBUG 0
 
+#include <hwbinder/IPCThreadState.h>
 #include <media/EffectsFactoryApi.h>
 #include <utils/Log.h>
 
@@ -26,8 +27,12 @@
 #include "HidlUtils.h"
 
 using ::android::hardware::audio::effect::V2_0::AudioBuffer;
+using ::android::hardware::audio::effect::V2_0::EffectBufferAccess;
+using ::android::hardware::audio::effect::V2_0::EffectConfigParameters;
 using ::android::hardware::audio::effect::V2_0::MessageQueueFlagBits;
 using ::android::hardware::audio::effect::V2_0::Result;
+using ::android::hardware::audio::common::V2_0::AudioChannelMask;
+using ::android::hardware::audio::common::V2_0::AudioFormat;
 using ::android::hardware::hidl_vec;
 using ::android::hardware::MQDescriptorSync;
 using ::android::hardware::Return;
@@ -40,7 +45,11 @@ EffectHalHidl::EffectHalHidl(const sp<IEffect>& effect, uint64_t effectId)
 }
 
 EffectHalHidl::~EffectHalHidl() {
-    close();
+    if (mEffect != 0) {
+        close();
+        mEffect.clear();
+        hardware::IPCThreadState::self()->flushCommands();
+    }
 }
 
 // static
@@ -54,6 +63,46 @@ void EffectHalHidl::effectDescriptorToHal(
     memcpy(halDescriptor->name, descriptor.name.data(), descriptor.name.size());
     memcpy(halDescriptor->implementor,
             descriptor.implementor.data(), descriptor.implementor.size());
+}
+
+// TODO(mnaganov): These buffer conversion functions should be shared with Effect wrapper
+// via HidlUtils. Move them there when hardware/interfaces will get un-frozen again.
+
+// static
+void EffectHalHidl::effectBufferConfigFromHal(
+        const buffer_config_t& halConfig, EffectBufferConfig* config) {
+    config->samplingRateHz = halConfig.samplingRate;
+    config->channels = AudioChannelMask(halConfig.channels);
+    config->format = AudioFormat(halConfig.format);
+    config->accessMode = EffectBufferAccess(halConfig.accessMode);
+    config->mask = EffectConfigParameters(halConfig.mask);
+}
+
+// static
+void EffectHalHidl::effectBufferConfigToHal(
+        const EffectBufferConfig& config, buffer_config_t* halConfig) {
+    halConfig->buffer.frameCount = 0;
+    halConfig->buffer.raw = NULL;
+    halConfig->samplingRate = config.samplingRateHz;
+    halConfig->channels = static_cast<uint32_t>(config.channels);
+    halConfig->bufferProvider.cookie = NULL;
+    halConfig->bufferProvider.getBuffer = NULL;
+    halConfig->bufferProvider.releaseBuffer = NULL;
+    halConfig->format = static_cast<uint8_t>(config.format);
+    halConfig->accessMode = static_cast<uint8_t>(config.accessMode);
+    halConfig->mask = static_cast<uint8_t>(config.mask);
+}
+
+// static
+void EffectHalHidl::effectConfigFromHal(const effect_config_t& halConfig, EffectConfig* config) {
+    effectBufferConfigFromHal(halConfig.inputCfg, &config->inputCfg);
+    effectBufferConfigFromHal(halConfig.outputCfg, &config->outputCfg);
+}
+
+// static
+void EffectHalHidl::effectConfigToHal(const EffectConfig& config, effect_config_t* halConfig) {
+    effectBufferConfigToHal(config.inputCfg, &halConfig->inputCfg);
+    effectBufferConfigToHal(config.outputCfg, &halConfig->outputCfg);
 }
 
 // static
@@ -135,7 +184,7 @@ status_t EffectHalHidl::processImpl(uint32_t mqFlag) {
     uint32_t efState = 0;
 retry:
     status_t ret = mEfGroup->wait(
-            static_cast<uint32_t>(MessageQueueFlagBits::DONE_PROCESSING), &efState, NS_PER_SEC);
+            static_cast<uint32_t>(MessageQueueFlagBits::DONE_PROCESSING), &efState);
     if (efState & static_cast<uint32_t>(MessageQueueFlagBits::DONE_PROCESSING)) {
         Result retval = Result::NOT_INITIALIZED;
         mStatusMQ->read(&retval);
@@ -166,6 +215,15 @@ status_t EffectHalHidl::setProcessBuffers() {
 status_t EffectHalHidl::command(uint32_t cmdCode, uint32_t cmdSize, void *pCmdData,
         uint32_t *replySize, void *pReplyData) {
     if (mEffect == 0) return NO_INIT;
+
+    // Special cases.
+    if (cmdCode == EFFECT_CMD_SET_CONFIG || cmdCode == EFFECT_CMD_SET_CONFIG_REVERSE) {
+        return setConfigImpl(cmdCode, cmdSize, pCmdData, replySize, pReplyData);
+    } else if (cmdCode == EFFECT_CMD_GET_CONFIG || cmdCode == EFFECT_CMD_GET_CONFIG_REVERSE) {
+        return getConfigImpl(cmdCode, replySize, pReplyData);
+    }
+
+    // Common case.
     hidl_vec<uint8_t> hidlData;
     if (pCmdData != nullptr && cmdSize > 0) {
         hidlData.setToExternal(reinterpret_cast<uint8_t*>(pCmdData), cmdSize);
@@ -203,6 +261,60 @@ status_t EffectHalHidl::close() {
     if (mEffect == 0) return NO_INIT;
     Return<Result> ret = mEffect->close();
     return ret.isOk() ? analyzeResult(ret) : FAILED_TRANSACTION;
+}
+
+status_t EffectHalHidl::getConfigImpl(
+        uint32_t cmdCode, uint32_t *replySize, void *pReplyData) {
+    if (replySize == NULL || *replySize != sizeof(effect_config_t) || pReplyData == NULL) {
+        return BAD_VALUE;
+    }
+    status_t result = FAILED_TRANSACTION;
+    Return<void> ret;
+    if (cmdCode == EFFECT_CMD_GET_CONFIG) {
+        ret = mEffect->getConfig([&] (Result r, const EffectConfig &hidlConfig) {
+            result = analyzeResult(r);
+            if (r == Result::OK) {
+                effectConfigToHal(hidlConfig, static_cast<effect_config_t*>(pReplyData));
+            }
+        });
+    } else {
+        ret = mEffect->getConfigReverse([&] (Result r, const EffectConfig &hidlConfig) {
+            result = analyzeResult(r);
+            if (r == Result::OK) {
+                effectConfigToHal(hidlConfig, static_cast<effect_config_t*>(pReplyData));
+            }
+        });
+    }
+    if (!ret.isOk()) {
+        result = FAILED_TRANSACTION;
+    }
+    return result;
+}
+
+status_t EffectHalHidl::setConfigImpl(
+        uint32_t cmdCode, uint32_t cmdSize, void *pCmdData, uint32_t *replySize, void *pReplyData) {
+    if (pCmdData == NULL || cmdSize != sizeof(effect_config_t) ||
+            replySize == NULL || *replySize != sizeof(int32_t) || pReplyData == NULL) {
+        return BAD_VALUE;
+    }
+    const effect_config_t *halConfig = static_cast<effect_config_t*>(pCmdData);
+    if (halConfig->inputCfg.bufferProvider.getBuffer != NULL ||
+            halConfig->inputCfg.bufferProvider.releaseBuffer != NULL ||
+            halConfig->outputCfg.bufferProvider.getBuffer != NULL ||
+            halConfig->outputCfg.bufferProvider.releaseBuffer != NULL) {
+        ALOGE("Buffer provider callbacks are not supported");
+    }
+    EffectConfig hidlConfig;
+    effectConfigFromHal(*halConfig, &hidlConfig);
+    Return<Result> ret = cmdCode == EFFECT_CMD_SET_CONFIG ?
+            mEffect->setConfig(hidlConfig, nullptr, nullptr) :
+            mEffect->setConfigReverse(hidlConfig, nullptr, nullptr);
+    status_t result = FAILED_TRANSACTION;
+    if (ret.isOk()) {
+        result = analyzeResult(ret);
+        *static_cast<int32_t*>(pReplyData) = result;
+    }
+    return result;
 }
 
 } // namespace android

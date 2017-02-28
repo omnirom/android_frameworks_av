@@ -3041,12 +3041,12 @@ bool AudioFlinger::PlaybackThread::threadLoop()
             }
 #if 0
             // logFormat example
-            if (!(z % 100)) {
+            if (z % 100 == 0) {
                 timespec ts;
                 clock_gettime(CLOCK_MONOTONIC, &ts);
-                LOGF("This is an integer %d, this is a float %f, this is my "
+                LOGT("This is an integer %d, this is a float %f, this is my "
                     "pid %p %% %s %t", 42, 3.14, "and this is a timestamp", ts);
-                LOGF("A deceptive null-terminated string %\0");
+                LOGT("A deceptive null-terminated string %\0");
             }
             ++z;
 #endif
@@ -3578,9 +3578,17 @@ AudioFlinger::MixerThread::MixerThread(const sp<AudioFlinger>& audioFlinger, Aud
         break;
     case FastMixer_Static:
     case FastMixer_Dynamic:
-        initFastMixer = mFrameCount < mNormalFrameCount;
+        // FastMixer was designed to operate with a HAL that pulls at a regular rate,
+        // where the period is less than an experimentally determined threshold that can be
+        // scheduled reliably with CFS. However, the BT A2DP HAL is
+        // bursty (does not pull at a regular rate) and so cannot operate with FastMixer.
+        initFastMixer = mFrameCount < mNormalFrameCount
+                && (mOutDevice & AUDIO_DEVICE_OUT_ALL_A2DP) == 0;
         break;
     }
+    ALOGW_IF(initFastMixer == false && mFrameCount < mNormalFrameCount,
+            "FastMixer is preferred for this sink as frameCount %zu is less than threshold %zu",
+            mFrameCount, mNormalFrameCount);
     if (initFastMixer) {
         audio_format_t fastMixerFormat;
         if (mMixerBufferEnabled && mEffectBufferEnabled) {
@@ -3973,9 +3981,11 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
     FastMixerState *state = NULL;
     bool didModify = false;
     FastMixerStateQueue::block_t block = FastMixerStateQueue::BLOCK_UNTIL_PUSHED;
+    bool coldIdle = false;
     if (mFastMixer != 0) {
         sq = mFastMixer->sq();
         state = sq->begin();
+        coldIdle = state->mCommand == FastMixerState::COLD_IDLE;
     }
 
     mMixerBufferValid = false;  // mMixerBuffer has no valid data until appropriate tracks found.
@@ -4471,7 +4481,15 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
     }
     if (sq != NULL) {
         sq->end(didModify);
-        sq->push(block);
+        // No need to block if the FastMixer is in COLD_IDLE as the FastThread
+        // is not active. (We BLOCK_UNTIL_ACKED when entering COLD_IDLE
+        // when bringing the output sink into standby.)
+        //
+        // We will get the latest FastMixer state when we come out of COLD_IDLE.
+        //
+        // This occurs with BT suspend when we idle the FastMixer with
+        // active tracks, which may be added or removed.
+        sq->push(coldIdle ? FastMixerStateQueue::BLOCK_NEVER : block);
     }
 #ifdef AUDIO_WATCHDOG
     if (pauseAudioWatchdog && mAudioWatchdog != 0) {

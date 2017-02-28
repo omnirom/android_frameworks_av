@@ -17,16 +17,17 @@
 #ifndef ANDROID_HARDWARE_MEDIA_OMX_V1_0_WGRAPHICBUFFERSOURCE_H
 #define ANDROID_HARDWARE_MEDIA_OMX_V1_0_WGRAPHICBUFFERSOURCE_H
 
-#include <android/hardware/media/omx/1.0/IGraphicBufferSource.h>
 #include <hidl/MQDescriptor.h>
 #include <hidl/Status.h>
 
-#include <frameworks/native/include/binder/Binder.h>
-#include <IOMX.h>
-#include <android/BnGraphicBufferSource.h>
-#include <android/hardware/media/omx/1.0/IOmxNode.h>
+#include <media/IOMX.h>
+#include <binder/Binder.h>
 
 #include <android/hardware/graphics/common/1.0/types.h>
+#include <android/hardware/media/omx/1.0/IOmxNode.h>
+#include <android/hardware/media/omx/1.0/IGraphicBufferSource.h>
+
+#include <android/BnGraphicBufferSource.h>
 
 namespace android {
 namespace hardware {
@@ -69,13 +70,14 @@ struct LWGraphicBufferSource : public BnGraphicBufferSource {
     LWGraphicBufferSource(sp<TGraphicBufferSource> const& base);
     ::android::binder::Status configure(
             const sp<IOMXNode>& omxNode, int32_t dataSpace) override;
-    ::android::binder::Status setSuspend(bool suspend) override;
+    ::android::binder::Status setSuspend(bool suspend, int64_t timeUs) override;
     ::android::binder::Status setRepeatPreviousFrameDelayUs(
             int64_t repeatAfterUs) override;
     ::android::binder::Status setMaxFps(float maxFps) override;
     ::android::binder::Status setTimeLapseConfig(
             int64_t timePerFrameUs, int64_t timePerCaptureUs) override;
     ::android::binder::Status setStartTimeUs(int64_t startTimeUs) override;
+    ::android::binder::Status setStopTimeUs(int64_t stopTimeUs) override;
     ::android::binder::Status setColorAspects(int32_t aspects) override;
     ::android::binder::Status setTimeOffsetUs(int64_t timeOffsetsUs) override;
     ::android::binder::Status signalEndOfInputStream() override;
@@ -86,12 +88,13 @@ struct TWGraphicBufferSource : public TGraphicBufferSource {
     TWGraphicBufferSource(sp<LGraphicBufferSource> const& base);
     Return<void> configure(
             const sp<IOmxNode>& omxNode, Dataspace dataspace) override;
-    Return<void> setSuspend(bool suspend) override;
+    Return<void> setSuspend(bool suspend, int64_t timeUs) override;
     Return<void> setRepeatPreviousFrameDelayUs(int64_t repeatAfterUs) override;
     Return<void> setMaxFps(float maxFps) override;
     Return<void> setTimeLapseConfig(
             int64_t timePerFrameUs, int64_t timePerCaptureUs) override;
     Return<void> setStartTimeUs(int64_t startTimeUs) override;
+    Return<void> setStopTimeUs(int64_t stopTimeUs) override;
     Return<void> setColorAspects(const ColorAspects& aspects) override;
     Return<void> setTimeOffsetUs(int64_t timeOffsetUs) override;
     Return<void> signalEndOfInputStream() override;

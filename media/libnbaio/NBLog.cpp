@@ -21,12 +21,15 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <time.h>
 #include <new>
 #include <audio_utils/roundup.h>
 #include <media/nbaio/NBLog.h>
 #include <utils/Log.h>
 #include <utils/String8.h>
+
+#include <queue>
 
 namespace android {
 
@@ -43,6 +46,120 @@ int NBLog::Entry::readAt(size_t offset) const
         return mLength;
     else
         return 0;
+}
+
+// ---------------------------------------------------------------------------
+
+NBLog::FormatEntry::FormatEntry(const uint8_t *entry) : mEntry(entry) {
+    ALOGW_IF(entry[offsetof(struct entry, type)] != EVENT_START_FMT,
+        "Created format entry with invalid event type %d", entry[offsetof(struct entry, type)]);
+}
+
+NBLog::FormatEntry::FormatEntry(const NBLog::FormatEntry::iterator &it) : FormatEntry(it.ptr) {}
+
+const char *NBLog::FormatEntry::formatString() const {
+    return (const char*) mEntry + offsetof(entry, data);
+}
+
+size_t NBLog::FormatEntry::formatStringLength() const {
+    return mEntry[offsetof(entry, length)];
+}
+
+NBLog::FormatEntry::iterator NBLog::FormatEntry::args() const {
+    auto it = begin();
+    // Second entry can be author or timestamp. Skip author if present
+    if ((++it)->type == EVENT_AUTHOR) {
+        ++it;
+    }
+    return ++it;
+}
+
+timespec NBLog::FormatEntry::timestamp() const {
+    auto it = begin();
+    if ((++it)->type != EVENT_TIMESTAMP) {
+        ++it;
+    }
+    return it.payload<timespec>();
+}
+
+pid_t NBLog::FormatEntry::author() const {
+    auto it = begin();
+    if ((++it)->type == EVENT_AUTHOR) {
+        return it.payload<int>();
+    }
+    return -1;
+}
+
+size_t NBLog::FormatEntry::copyTo(std::unique_ptr<audio_utils_fifo_writer> &dst, int author) const {
+    auto it = this->begin();
+    // copy fmt start entry
+    it.copyTo(dst);
+    // insert author entry
+    size_t authorEntrySize = NBLog::Entry::kOverhead + sizeof(author);
+    uint8_t authorEntry[authorEntrySize];
+    authorEntry[offsetof(entry, type)] = EVENT_AUTHOR;
+    authorEntry[offsetof(entry, length)] =
+        authorEntry[authorEntrySize + NBLog::Entry::kPreviousLengthOffset] =
+        sizeof(author);
+    *(int*) (&authorEntry[offsetof(entry, data)]) = author;
+    dst->write(authorEntry, authorEntrySize);
+    // copy rest of entries
+    while ((++it)->type != EVENT_END_FMT) {
+        it.copyTo(dst);
+    }
+    it.copyTo(dst);
+    ++it;
+    return it - this->begin();
+}
+
+void NBLog::FormatEntry::iterator::copyTo(std::unique_ptr<audio_utils_fifo_writer> &dst) const {
+    size_t length = ptr[offsetof(entry, length)] + NBLog::Entry::kOverhead;
+    dst->write(ptr, length);
+}
+
+void NBLog::FormatEntry::iterator::copyData(uint8_t *dst) const {
+    memcpy((void*) dst, ptr + offsetof(entry, data), ptr[offsetof(entry, length)]);
+}
+
+NBLog::FormatEntry::iterator NBLog::FormatEntry::begin() const {
+    return iterator(mEntry);
+}
+
+NBLog::FormatEntry::iterator::iterator(const uint8_t *entry)
+    : ptr(entry) {}
+
+NBLog::FormatEntry::iterator::iterator(const NBLog::FormatEntry::iterator &other)
+    : ptr(other.ptr) {}
+
+const NBLog::FormatEntry::entry& NBLog::FormatEntry::iterator::operator*() const {
+    return *(entry*) ptr;
+}
+
+const NBLog::FormatEntry::entry* NBLog::FormatEntry::iterator::operator->() const {
+    return (entry*) ptr;
+}
+
+NBLog::FormatEntry::iterator& NBLog::FormatEntry::iterator::operator++() {
+    ptr += ptr[offsetof(entry, length)] + NBLog::Entry::kOverhead;
+    return *this;
+}
+
+NBLog::FormatEntry::iterator& NBLog::FormatEntry::iterator::operator--() {
+    ptr -= ptr[NBLog::Entry::kPreviousLengthOffset] + NBLog::Entry::kOverhead;
+    return *this;
+}
+
+int NBLog::FormatEntry::iterator::operator-(const NBLog::FormatEntry::iterator &other) const {
+    return ptr - other.ptr;
+}
+
+bool NBLog::FormatEntry::iterator::operator!=(const iterator &other) const {
+    return ptr != other.ptr;
+}
+
+bool NBLog::FormatEntry::iterator::hasConsistentLength() const {
+    return ptr[offsetof(entry, length)] == ptr[ptr[offsetof(entry, length)] +
+        NBLog::Entry::kOverhead + NBLog::Entry::kPreviousLengthOffset];
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +191,7 @@ size_t NBLog::Timeline::sharedSize(size_t size)
 // ---------------------------------------------------------------------------
 
 NBLog::Writer::Writer()
-    : mShared(NULL), mFifo(NULL), mFifoWriter(NULL), mEnabled(false)
+    : mShared(NULL), mFifo(NULL), mFifoWriter(NULL), mEnabled(false), mPidTag(NULL), mPidTagSize(0)
 {
 }
 
@@ -86,6 +203,18 @@ NBLog::Writer::Writer(void *shared, size_t size)
       mFifoWriter(mFifo != NULL ? new audio_utils_fifo_writer(*mFifo) : NULL),
       mEnabled(mFifoWriter != NULL)
 {
+    // caching pid and process name
+    pid_t id = ::getpid();
+    char procName[16];
+    int status = prctl(PR_GET_NAME, procName);
+    if (status) {  // error getting process name
+        procName[0] = '\0';
+    }
+    size_t length = strlen(procName);
+    mPidTagSize = length + sizeof(pid_t);
+    mPidTag = new char[mPidTagSize];
+    memcpy(mPidTag, &id, sizeof(pid_t));
+    memcpy(mPidTag + sizeof(pid_t), procName, length);
 }
 
 NBLog::Writer::Writer(const sp<IMemory>& iMemory, size_t size)
@@ -98,6 +227,7 @@ NBLog::Writer::~Writer()
 {
     delete mFifoWriter;
     delete mFifo;
+    delete[] mPidTag;
 }
 
 void NBLog::Writer::log(const char *string)
@@ -181,15 +311,7 @@ void NBLog::Writer::logPID()
     if (!mEnabled) {
         return;
     }
-    pid_t id = ::getpid();
-    // TODO: append process name to pid
-    // const char* path = sprintf("/proc/%d/status", id);
-    // FILE* f = fopen(path);
-    // size_t length = 30
-    // char buffer[length];
-    // getline(&buffer, &length, f);
-    // char* pidTag = sprintf("")
-    log(EVENT_PID, &id, sizeof(pid_t));
+    log(EVENT_PID, mPidTag, mPidTagSize);
 }
 
 void NBLog::Writer::logStart(const char *fmt)
@@ -271,10 +393,12 @@ void NBLog::Writer::logVFormat(const char *fmt, va_list argp)
             --p;
             break;
 
+        case '%':
+            break;
+
         default:
             ALOGW("NBLog Writer parsed invalid format specifier: %c", *p);
             break;
-        // the '%' case is handled using the formatted string in the reader
         }
     }
     Writer::logEnd();
@@ -455,53 +579,53 @@ NBLog::Reader::~Reader()
     delete mFifo;
 }
 
-void NBLog::Reader::dump(int fd, size_t indent)
+std::unique_ptr<NBLog::Reader::Snapshot> NBLog::Reader::getSnapshot()
 {
     if (mFifoReader == NULL) {
-        return;
+        return std::unique_ptr<NBLog::Reader::Snapshot>(new Snapshot());
     }
     // make a copy to avoid race condition with writer
     size_t capacity = mFifo->capacity();
 
-    // TODO Stack-based allocation of large objects may fail.
-    //      Currently the log buffers are a page or two, which should be safe.
-    //      But if the log buffers ever get a lot larger,
-    //      then change this to allocate from heap when necessary.
-    static size_t kReasonableStackObjectSize = 32768;
-    ALOGW_IF(capacity > kReasonableStackObjectSize, "Stack-based allocation of object may fail");
-    uint8_t copy[capacity];
+    std::unique_ptr<Snapshot> snapshot(new Snapshot(capacity));
 
-    size_t lost;
-    ssize_t actual = mFifoReader->read(copy, capacity, NULL /*timeout*/, &lost);
+    ssize_t actual = mFifoReader->read((void*) snapshot->mData, capacity, NULL /*timeout*/,
+                                       &(snapshot->mLost));
     ALOG_ASSERT(actual <= capacity);
-    size_t avail = actual > 0 ? (size_t) actual : 0;
-    size_t i = avail;
-    Event event;
-    size_t length;
+    snapshot->mAvail = actual > 0 ? (size_t) actual : 0;
+    return snapshot;
+}
+
+void NBLog::Reader::dump(int fd, size_t indent, NBLog::Reader::Snapshot &snapshot)
+{
+    NBLog::FormatEntry::iterator entry(snapshot.data() + snapshot.available());
+    NBLog::FormatEntry::iterator prevEntry = entry;
+    --prevEntry;
+    NBLog::FormatEntry::iterator start(snapshot.data());
+
     struct timespec ts;
     time_t maxSec = -1;
-    while (i >= Entry::kOverhead) {
-        length = copy[i - 1];
-        if (length + Entry::kOverhead > i || copy[i - length - 2] != length) {
+    while (entry - start >= (int) Entry::kOverhead) {
+        if (prevEntry - start < 0 || !prevEntry.hasConsistentLength()) {
             break;
         }
-        event = (Event) copy[i - length - Entry::kOverhead];
-        if (event == EVENT_TIMESTAMP) {
-            if (length != sizeof(struct timespec)) {
+        if (prevEntry->type == EVENT_TIMESTAMP) {
+            if (prevEntry->length != sizeof(struct timespec)) {
                 // corrupt
                 break;
             }
-            memcpy(&ts, &copy[i - length - 1], sizeof(struct timespec));
+            prevEntry.copyData((uint8_t*) &ts);
             if (ts.tv_sec > maxSec) {
                 maxSec = ts.tv_sec;
             }
         }
-        i -= length + Entry::kOverhead;
+        --entry;
+        --prevEntry;
     }
     mFd = fd;
     mIndent = indent;
     String8 timestamp, body;
-    lost += i;
+    size_t lost = snapshot.lost() + (entry - start);
     if (lost > 0) {
         body.appendFormat("warning: lost %zu bytes worth of events", lost);
         // TODO timestamp empty here, only other choice to wait for the first timestamp event in the
@@ -517,30 +641,29 @@ void NBLog::Reader::dump(int fd, size_t indent)
         timestamp.appendFormat("[%*s]", (int) width + 4, "");
     }
     bool deferredTimestamp = false;
-    while (i < avail) {
-        event = (Event) copy[i];
-        length = copy[i + 1];
-        const void *data = &copy[i + 2];
-        size_t advance = length + Entry::kOverhead;
-        switch (event) {
+    NBLog::FormatEntry::iterator end(snapshot.data() + snapshot.available());
+
+    while (entry != end) {
+        switch (entry->type) {
+#if 0
         case EVENT_STRING:
-            body.appendFormat("%.*s", (int) length, (const char *) data);
+            body.appendFormat("%.*s", (int) entry.length(), entry.data());
             break;
         case EVENT_TIMESTAMP: {
             // already checked that length == sizeof(struct timespec);
-            memcpy(&ts, data, sizeof(struct timespec));
+            entry.copyData((const uint8_t*) &ts);
             long prevNsec = ts.tv_nsec;
             long deltaMin = LONG_MAX;
             long deltaMax = -1;
             long deltaTotal = 0;
-            size_t j = i;
+            auto aux(entry);
             for (;;) {
-                j += sizeof(struct timespec) + 3 /*Entry::kOverhead?*/;
-                if (j >= avail || (Event) copy[j] != EVENT_TIMESTAMP) {
+                ++aux;
+                if (end - aux >= 0 || aux.type() != EVENT_TIMESTAMP) {
                     break;
                 }
                 struct timespec tsNext;
-                memcpy(&tsNext, &copy[j + 2], sizeof(struct timespec));
+                aux.copyData((const uint8_t*) &tsNext);
                 if (tsNext.tv_sec != ts.tv_sec) {
                     break;
                 }
@@ -557,7 +680,7 @@ void NBLog::Reader::dump(int fd, size_t indent)
                 deltaTotal += delta;
                 prevNsec = tsNext.tv_nsec;
             }
-            size_t n = (j - i) / (sizeof(struct timespec) + 3 /*Entry::kOverhead?*/);
+            size_t n = (aux - entry) / (sizeof(struct timespec) + 3 /*Entry::kOverhead?*/);
             if (deferredTimestamp) {
                 dumpLine(timestamp, body);
                 deferredTimestamp = false;
@@ -568,36 +691,37 @@ void NBLog::Reader::dump(int fd, size_t indent)
                         (int) ts.tv_sec, (int) (ts.tv_nsec / 1000000),
                         (int) ((ts.tv_nsec + deltaTotal) / 1000000),
                         (int) (deltaMin / 1000000), (int) (deltaMax / 1000000));
-                i = j;
-                advance = 0;
+                entry = aux;
+                // advance = 0;
                 break;
             }
             timestamp.appendFormat("[%d.%03d]", (int) ts.tv_sec,
                     (int) (ts.tv_nsec / 1000000));
             deferredTimestamp = true;
-            } break;
+            }
+            break;
         case EVENT_INTEGER:
-            appendInt(&body, data);
+            appendInt(&body, entry.data());
             break;
         case EVENT_FLOAT:
-            appendFloat(&body, data);
+            appendFloat(&body, entry.data());
             break;
         case EVENT_PID:
-            appendPID(&body, data);
+            appendPID(&body, entry.data(), entry.length());
             break;
+#endif
         case EVENT_START_FMT:
-            advance += handleFormat((const char*) &copy[i + 2], length,
-                                    &copy[i + Entry::kOverhead + length], &timestamp, &body);
+            // right now, this is the only supported case
+            entry = handleFormat(FormatEntry(entry), &timestamp, &body);
             break;
         case EVENT_END_FMT:
             body.appendFormat("warning: got to end format event");
             break;
         case EVENT_RESERVED:
         default:
-            body.appendFormat("warning: unknown event %d", event);
+            body.appendFormat("warning: unknown event %d", entry->type);
             break;
         }
-        i += advance;
 
         if (!body.isEmpty()) {
             dumpLine(timestamp, body);
@@ -607,6 +731,13 @@ void NBLog::Reader::dump(int fd, size_t indent)
     if (deferredTimestamp) {
         dumpLine(timestamp, body);
     }
+}
+
+void NBLog::Reader::dump(int fd, size_t indent)
+{
+    // get a snapshot, dump it
+    std::unique_ptr<Snapshot> snap = getSnapshot();
+    dump(fd, indent, *snap);
 }
 
 void NBLog::Reader::dumpLine(const String8 &timestamp, String8 &body)
@@ -642,86 +773,189 @@ void NBLog::appendFloat(String8 *body, const void *data) {
     body->appendFormat("<%f>", f);
 }
 
-void NBLog::appendPID(String8 *body, const void* data) {
+void NBLog::appendPID(String8 *body, const void* data, size_t length) {
     pid_t id = *((pid_t*) data);
-    body->appendFormat("<PID: %d>", id);
+    char * name = &((char*) data)[sizeof(pid_t)];
+    body->appendFormat("<PID: %d, name: %.*s>", id, (int) (length - sizeof(pid_t)), name);
 }
 
-int NBLog::handleFormat(const char *fmt, size_t fmt_length, const uint8_t *data,
-                        String8 *timestamp, String8 *body) {
-    if (data[0] != EVENT_TIMESTAMP) {
-        ALOGW("NBLog Reader Expected timestamp event %d, got %d", EVENT_TIMESTAMP, data[0]);
-    }
-    struct timespec ts;
-    memcpy(&ts, &data[2], sizeof(ts));
+NBLog::FormatEntry::iterator NBLog::Reader::handleFormat(const FormatEntry &fmtEntry,
+                                                         String8 *timestamp,
+                                                         String8 *body) {
+    // log timestamp
+    struct timespec ts = fmtEntry.timestamp();
     timestamp->clear();
     timestamp->appendFormat("[%d.%03d]", (int) ts.tv_sec,
                     (int) (ts.tv_nsec / 1000000));
-    size_t data_offset = Entry::kOverhead + sizeof ts;
+
+    // log author (if present)
+    handleAuthor(fmtEntry, body);
+
+    // log string
+    NBLog::FormatEntry::iterator arg = fmtEntry.args();
+
+    const char* fmt = fmtEntry.formatString();
+    size_t fmt_length = fmtEntry.formatStringLength();
 
     for (size_t fmt_offset = 0; fmt_offset < fmt_length; ++fmt_offset) {
         if (fmt[fmt_offset] != '%') {
             body->append(&fmt[fmt_offset], 1); // TODO optimize to write consecutive strings at once
             continue;
         }
+        // case "%%""
         if (fmt[++fmt_offset] == '%') {
             body->append("%");
             continue;
         }
+        // case "%\0"
         if (fmt_offset == fmt_length) {
             continue;
         }
 
-        NBLog::Event event = (NBLog::Event) data[data_offset];
-        size_t length = data[data_offset + 1];
+        NBLog::Event event = (NBLog::Event) arg->type;
+        size_t length = arg->length;
 
         // TODO check length for event type is correct
-        if(length != data[data_offset + length + 2]) {
-            ALOGW("NBLog Reader recieved different lengths %zu and %d for event %d", length,
-                  data[data_offset + length + 2], event);
+        if (!arg.hasConsistentLength()) {
+            // TODO: corrupt, resync buffer
             body->append("<invalid entry>");
             ++fmt_offset;
             continue;
         }
 
+        if (event == EVENT_END_FMT) {
+            break;
+        }
+
         // TODO: implement more complex formatting such as %.3f
-        void * datum = (void*) &data[data_offset + 2]; // pointer to the current event data
+        const uint8_t *datum = arg->data; // pointer to the current event args
         switch(fmt[fmt_offset])
         {
         case 's': // string
-            ALOGW_IF(event != EVENT_STRING, "NBLog Reader incompatible event for string specifier: %d", event);
+            ALOGW_IF(event != EVENT_STRING,
+                "NBLog Reader incompatible event for string specifier: %d", event);
             body->append((const char*) datum, length);
             break;
 
         case 't': // timestamp
-            ALOGW_IF(event != EVENT_TIMESTAMP, "NBLog Reader incompatible event for timestamp specifier: %d", event);
+            ALOGW_IF(event != EVENT_TIMESTAMP,
+                "NBLog Reader incompatible event for timestamp specifier: %d", event);
             appendTimestamp(body, datum);
             break;
 
         case 'd': // integer
-            ALOGW_IF(event != EVENT_INTEGER, "NBLog Reader incompatible event for integer specifier: %d", event);
+            ALOGW_IF(event != EVENT_INTEGER,
+                "NBLog Reader incompatible event for integer specifier: %d", event);
             appendInt(body, datum);
-
             break;
 
         case 'f': // float
-            ALOGW_IF(event != EVENT_FLOAT, "NBLog Reader incompatible event for float specifier: %d", event);
+            ALOGW_IF(event != EVENT_FLOAT,
+                "NBLog Reader incompatible event for float specifier: %d", event);
             appendFloat(body, datum);
             break;
 
         case 'p': // pid
-            ALOGW_IF(event != EVENT_PID, "NBLog Reader incompatible event for pid specifier: %d", event);
-            appendPID(body, datum);
+            ALOGW_IF(event != EVENT_PID,
+                "NBLog Reader incompatible event for pid specifier: %d", event);
+            appendPID(body, datum, length);
             break;
 
         default:
             ALOGW("NBLog Reader encountered unknown character %c", fmt[fmt_offset]);
         }
-
-        data_offset += length + Entry::kOverhead;
-
+        ++arg;
     }
-    return data_offset + Entry::kOverhead; // data offset + size of END_FMT event
+    ALOGW_IF(arg->type != EVENT_END_FMT, "Expected end of format, got %d", arg->type);
+    ++arg;
+    return arg;
+}
+
+// ---------------------------------------------------------------------------
+
+NBLog::Merger::Merger(const void *shared, size_t size):
+      mBuffer(NULL),
+      mShared((Shared *) shared),
+      mFifo(mShared != NULL ?
+        new audio_utils_fifo(size, sizeof(uint8_t),
+            mShared->mBuffer, mShared->mRear, NULL /*throttlesFront*/) : NULL),
+      mFifoWriter(mFifo != NULL ? new audio_utils_fifo_writer(*mFifo) : NULL)
+      {}
+
+void NBLog::Merger::addReader(const NBLog::NamedReader &reader) {
+    mNamedReaders.push_back(reader);
+}
+
+// items placed in priority queue during merge
+// composed by a timestamp and the index of the snapshot where the timestamp came from
+struct MergeItem
+{
+    struct timespec ts;
+    int index;
+    MergeItem(struct timespec ts, int index): ts(ts), index(index) {}
+};
+
+// operators needed for priority queue in merge
+bool operator>(const struct timespec &t1, const struct timespec &t2) {
+    return t1.tv_sec > t2.tv_sec || (t1.tv_sec == t2.tv_sec && t1.tv_nsec > t2.tv_nsec);
+}
+
+bool operator>(const struct MergeItem &i1, const struct MergeItem &i2) {
+    return i1.ts > i2.ts ||
+        (i1.ts.tv_sec == i2.ts.tv_sec && i1.ts.tv_nsec == i2.ts.tv_nsec && i1.index > i2.index);
+}
+
+// Merge registered readers, sorted by timestamp
+void NBLog::Merger::merge() {
+    int nLogs = mNamedReaders.size();
+    std::vector<std::unique_ptr<NBLog::Reader::Snapshot>> snapshots(nLogs);
+    for (int i = 0; i < nLogs; ++i) {
+        snapshots[i] = mNamedReaders[i].reader()->getSnapshot();
+    }
+    // initialize offsets
+    std::vector<size_t> offsets(nLogs, 0);
+    // TODO custom heap implementation could allow to update top, improving performance
+    // for bursty buffers
+    std::priority_queue<MergeItem, std::vector<MergeItem>, std::greater<MergeItem>> timestamps;
+    for (int i = 0; i < nLogs; ++i)
+    {
+        if (snapshots[i]->available() > 0) {
+            timespec ts = FormatEntry(snapshots[i]->data()).timestamp();
+            MergeItem item(ts, i);
+            timestamps.push(item);
+        }
+    }
+
+    while (!timestamps.empty()) {
+        // find minimum timestamp
+        int index = timestamps.top().index;
+        // copy it to the log
+        size_t length = FormatEntry(snapshots[index]->data() + offsets[index]).copyTo(
+            mFifoWriter, index);
+        // update data structures
+        offsets[index] += length;
+        ALOGW_IF(offsets[index] > snapshots[index]->available(), "Overflown snapshot capacity");
+        timestamps.pop();
+        if (offsets[index] != snapshots[index]->available()) {
+            timespec ts = FormatEntry(snapshots[index]->data() + offsets[index]).timestamp();
+            MergeItem item(ts, index);
+            timestamps.emplace(item);
+        }
+    }
+}
+
+const std::vector<NBLog::NamedReader> *NBLog::Merger::getNamedReaders() const {
+    return &mNamedReaders;
+}
+
+NBLog::MergeReader::MergeReader(const void *shared, size_t size, Merger &merger)
+    : Reader(shared, size), mNamedReaders(merger.getNamedReaders()) {}
+
+size_t NBLog::MergeReader::handleAuthor(const NBLog::FormatEntry &fmtEntry, String8 *body) {
+    int author = fmtEntry.author();
+    const char* name = (*mNamedReaders)[author].name();
+    body->appendFormat("%s: ", name);
+    return NBLog::Entry::kOverhead + sizeof(author);
 }
 
 }   // namespace android
