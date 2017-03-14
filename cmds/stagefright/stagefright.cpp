@@ -65,7 +65,7 @@
 #include <gui/SurfaceComposerClient.h>
 
 #include <android/hardware/media/omx/1.0/IOmx.h>
-#include <omx/hal/1.0/utils/WOmx.h>
+#include <media/omx/1.0/WOmx.h>
 
 using namespace android;
 
@@ -910,7 +910,7 @@ int main(int argc, char **argv) {
         sp<IOMX> omx;
         int32_t trebleOmx = property_get_int32("persist.media.treble_omx", -1);
         if ((trebleOmx == 1) || ((trebleOmx == -1) &&
-                property_get_bool("omx.binderization", 0))) {
+                property_get_bool("persist.hal.binderization", 0))) {
             using namespace ::android::hardware::media::omx::V1_0;
             sp<IOmx> tOmx = IOmx::getService();
 

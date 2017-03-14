@@ -321,7 +321,7 @@ binder::Status CameraDeviceClient::beginConfigure() {
     return binder::Status::ok();
 }
 
-binder::Status CameraDeviceClient::endConfigure(bool isConstrainedHighSpeed) {
+binder::Status CameraDeviceClient::endConfigure(int operatingMode) {
     ALOGV("%s: ending configure (%d input stream, %zu output surfaces)",
             __FUNCTION__, mInputStream.configured ? 1 : 0,
             mStreamMap.size());
@@ -335,7 +335,16 @@ binder::Status CameraDeviceClient::endConfigure(bool isConstrainedHighSpeed) {
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
+    if (operatingMode < 0) {
+        String8 msg = String8::format(
+            "Camera %s: Invalid operating mode %d requested", mCameraIdStr.string(), operatingMode);
+        ALOGE("%s: %s", __FUNCTION__, msg.string());
+        return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT,
+                msg.string());
+    }
+
     // Sanitize the high speed session against necessary capability bit.
+    bool isConstrainedHighSpeed = (operatingMode == ICameraDeviceUser::CONSTRAINED_HIGH_SPEED_MODE);
     if (isConstrainedHighSpeed) {
         CameraMetadata staticInfo = mDevice->info();
         camera_metadata_entry_t entry = staticInfo.find(ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
@@ -357,7 +366,7 @@ binder::Status CameraDeviceClient::endConfigure(bool isConstrainedHighSpeed) {
         }
     }
 
-    status_t err = mDevice->configureStreams(isConstrainedHighSpeed);
+    status_t err = mDevice->configureStreams(operatingMode);
     if (err == BAD_VALUE) {
         String8 msg = String8::format("Camera %s: Unsupported set of inputs/outputs provided",
                 mCameraIdStr.string());
@@ -507,6 +516,14 @@ binder::Status CameraDeviceClient::createStream(
             return res;
 
         if (!isStreamInfoValid) {
+            // Streaming sharing is only supported for IMPLEMENTATION_DEFINED
+            // formats.
+            if (isShared && streamInfo.format != HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
+                String8 msg = String8::format("Camera %s: Stream sharing is only supported for "
+                        "IMPLEMENTATION_DEFINED format", mCameraIdStr.string());
+                ALOGW("%s: %s", __FUNCTION__, msg.string());
+                return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT, msg.string());
+            }
             isStreamInfoValid = true;
         }
 

@@ -177,25 +177,6 @@ inline int native_handle_read_fd(native_handle_t const* nh, int index = 0) {
  */
 
 /**
- * \brief Convert `binder::Status` to `Return<void>`.
- *
- * \param[in] l The source `binder::Status`.
- * \return The corresponding `Return<void>`.
- */
-// convert: ::android::binder::Status -> Return<void>
-inline Return<void> toHardwareStatus(
-        ::android::binder::Status const& l) {
-    if (l.exceptionCode() == ::android::binder::Status::EX_SERVICE_SPECIFIC) {
-        return ::android::hardware::Status::fromServiceSpecificError(
-                l.serviceSpecificErrorCode(),
-                l.exceptionMessage());
-    }
-    return ::android::hardware::Status::fromExceptionCode(
-            l.exceptionCode(),
-            l.exceptionMessage());
-}
-
-/**
  * \brief Convert `Return<void>` to `binder::Status`.
  *
  * \param[in] t The source `Return<void>`.
@@ -630,6 +611,37 @@ inline bool convertTo(GraphicBuffer* l, AnwBuffer const& t) {
 }
 
 /**
+ * \brief Wrap `GraphicBuffer` in `CodecBuffer`.
+ *
+ * \param[out] t The wrapper of type `CodecBuffer`.
+ * \param[in] l The source `GraphicBuffer`.
+ */
+// wrap: OMXBuffer -> CodecBuffer
+inline CodecBuffer *wrapAs(CodecBuffer *t, sp<GraphicBuffer> const& graphicBuffer) {
+    t->sharedMemory = hidl_memory();
+    t->nativeHandle = hidl_handle();
+    t->type = CodecBuffer::Type::ANW_BUFFER;
+    if (graphicBuffer == nullptr) {
+        t->attr.anwBuffer.width = 0;
+        t->attr.anwBuffer.height = 0;
+        t->attr.anwBuffer.stride = 0;
+        t->attr.anwBuffer.format = static_cast<PixelFormat>(1);
+        t->attr.anwBuffer.layerCount = 0;
+        t->attr.anwBuffer.usage = 0;
+        return t;
+    }
+    t->attr.anwBuffer.width = graphicBuffer->getWidth();
+    t->attr.anwBuffer.height = graphicBuffer->getHeight();
+    t->attr.anwBuffer.stride = graphicBuffer->getStride();
+    t->attr.anwBuffer.format = static_cast<PixelFormat>(
+            graphicBuffer->getPixelFormat());
+    t->attr.anwBuffer.layerCount = graphicBuffer->getLayerCount();
+    t->attr.anwBuffer.usage = graphicBuffer->getUsage();
+    t->nativeHandle = graphicBuffer->handle;
+    return t;
+}
+
+/**
  * \brief Wrap `OMXBuffer` in `CodecBuffer`.
  *
  * \param[out] t The wrapper of type `CodecBuffer`.
@@ -661,24 +673,7 @@ inline bool wrapAs(CodecBuffer* t, OMXBuffer const& l) {
             return false;
         }
         case OMXBuffer::kBufferTypeANWBuffer: {
-            t->type = CodecBuffer::Type::ANW_BUFFER;
-            if (l.mGraphicBuffer == nullptr) {
-                t->attr.anwBuffer.width = 0;
-                t->attr.anwBuffer.height = 0;
-                t->attr.anwBuffer.stride = 0;
-                t->attr.anwBuffer.format = static_cast<PixelFormat>(1);
-                t->attr.anwBuffer.layerCount = 0;
-                t->attr.anwBuffer.usage = 0;
-                return true;
-            }
-            t->attr.anwBuffer.width = l.mGraphicBuffer->getWidth();
-            t->attr.anwBuffer.height = l.mGraphicBuffer->getHeight();
-            t->attr.anwBuffer.stride = l.mGraphicBuffer->getStride();
-            t->attr.anwBuffer.format = static_cast<PixelFormat>(
-                    l.mGraphicBuffer->getPixelFormat());
-            t->attr.anwBuffer.layerCount = l.mGraphicBuffer->getLayerCount();
-            t->attr.anwBuffer.usage = l.mGraphicBuffer->getUsage();
-            t->nativeHandle = l.mGraphicBuffer->handle;
+            wrapAs(t, l.mGraphicBuffer);
             return true;
         }
         case OMXBuffer::kBufferTypeNativeHandle: {
@@ -1037,7 +1032,7 @@ inline status_t unflattenFence(hidl_handle* fence, native_handle_t** nh,
         if (*nh == nullptr) {
             return NO_MEMORY;
         }
-        *fence = hidl_handle(*nh);
+        *fence = *nh;
         ++fds;
         --numFds;
     } else {
@@ -1283,6 +1278,7 @@ inline status_t unflatten(
         return NO_MEMORY;
     }
 
+    *nh = nullptr;
     ::android::FenceTime::Snapshot::State state;
     FlattenableUtils::read(buffer, size, state);
     switch (state) {
@@ -1884,6 +1880,7 @@ inline size_t getFdCount(
  * \brief Flatten `IOmxBufferProducer::QueueBufferInput`.
  *
  * \param[in] t The source `IOmxBufferProducer::QueueBufferInput`.
+ * \param[out] nh The native handle cloned from `t.fence`.
  * \param[in,out] buffer The pointer to the flat non-fd buffer.
  * \param[in,out] size The size of the flat non-fd buffer.
  * \param[in,out] fds The pointer to the flat fd buffer.
@@ -1892,6 +1889,7 @@ inline size_t getFdCount(
  *
  * This function will duplicate the file descriptor in `t.fence`. */
 inline status_t flatten(IOmxBufferProducer::QueueBufferInput const& t,
+        native_handle_t** nh,
         void*& buffer, size_t& size, int*& fds, size_t& numFds) {
     if (size < getFlattenedSize(t)) {
         return NO_MEMORY;
@@ -1911,7 +1909,9 @@ inline status_t flatten(IOmxBufferProducer::QueueBufferInput const& t,
     FlattenableUtils::write(buffer, size, t.stickyTransform);
     FlattenableUtils::write(buffer, size, t.getFrameTimestamps);
 
-    status_t status = flattenFence(t.fence, buffer, size, fds, numFds);
+    *nh = t.fence.getNativeHandle() == nullptr ?
+            nullptr : native_handle_clone(t.fence);
+    status_t status = flattenFence(hidl_handle(*nh), buffer, size, fds, numFds);
     if (status != NO_ERROR) {
         return status;
     }
@@ -2053,7 +2053,8 @@ inline bool convertTo(
     size_t size = baseSize;
     int* fds = baseFds.get();
     size_t numFds = baseNumFds;
-    if (flatten(t, buffer, size, fds, numFds) != NO_ERROR) {
+    native_handle_t* nh;
+    if (flatten(t, &nh, buffer, size, fds, numFds) != NO_ERROR) {
         return false;
     }
 
@@ -2062,9 +2063,12 @@ inline bool convertTo(
     int const* constFds = static_cast<int const*>(baseFds.get());
     numFds = baseNumFds;
     if (l->unflatten(constBuffer, size, constFds, numFds) != NO_ERROR) {
+        native_handle_close(nh);
+        native_handle_delete(nh);
         return false;
     }
 
+    native_handle_delete(nh);
     return true;
 }
 

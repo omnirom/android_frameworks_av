@@ -4,14 +4,12 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := android.hardware.media.omx@1.0-impl
 LOCAL_SRC_FILES := \
     WGraphicBufferSource.cpp \
-    WOmx.cpp \
     WOmxBufferProducer.cpp \
     WOmxBufferSource.cpp \
     WOmxNode.cpp \
     WOmxObserver.cpp \
     WOmxProducerListener.cpp \
     Omx.cpp \
-    OmxNode.cpp \
 
 LOCAL_SHARED_LIBRARIES := \
     libmedia \
@@ -27,10 +25,15 @@ LOCAL_SHARED_LIBRARIES := \
     libcutils \
     libbinder \
     liblog \
+    libbase \
     android.hardware.media.omx@1.0 \
     android.hardware.graphics.common@1.0 \
     android.hardware.media@1.0 \
     android.hidl.base@1.0 \
+
+LOCAL_C_FLAGS += \
+    -Wno-unused-parameter \
+    -Werror
 
 LOCAL_C_INCLUDES += \
         $(TOP)/frameworks/av/include \

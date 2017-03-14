@@ -38,13 +38,16 @@
 using namespace android;
 
 // Must match location in Android.mk.
-static const char kSeccompPolicyPath[] = "/system/etc/seccomp_policy/mediacodec-seccomp.policy";
+static const char kSystemSeccompPolicyPath[] =
+        "/system/etc/seccomp_policy/mediacodec.policy";
+static const char kVendorSeccompPolicyPath[] =
+        "/vendor/etc/seccomp_policy/mediacodec.policy";
 
 int main(int argc __unused, char** argv)
 {
     LOG(INFO) << "mediacodecservice starting";
     signal(SIGPIPE, SIG_IGN);
-    SetUpMinijail(kSeccompPolicyPath, std::string());
+    SetUpMinijail(kSystemSeccompPolicyPath, kVendorSeccompPolicyPath);
 
     strcpy(argv[0], "media.codec");
 
@@ -53,7 +56,7 @@ int main(int argc __unused, char** argv)
 
     int32_t trebleOmx = property_get_int32("persist.media.treble_omx", -1);
     if ((trebleOmx == 1) || ((trebleOmx == -1) &&
-            property_get_bool("omx.binderization", 0))) {
+            property_get_bool("persist.hal.binderization", 0))) {
         using namespace ::android::hardware::media::omx::V1_0;
         sp<IOmx> omx = new implementation::Omx();
         if (omx == nullptr) {

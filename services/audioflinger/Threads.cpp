@@ -2953,6 +2953,10 @@ bool AudioFlinger::PlaybackThread::threadLoop()
 #endif
     while (!exitPending())
     {
+        // Log merge requests are performed during AudioFlinger binder transactions, but
+        // that does not cover audio playback. It's requested here for that reason.
+        mAudioFlinger->requestLogMerge();
+
         cpuStats.sample(myName);
 
         Vector< sp<EffectChain> > effectChains;
@@ -3063,8 +3067,13 @@ bool AudioFlinger::PlaybackThread::threadLoop()
                     releaseWakeLock_l();
                     released = true;
                 }
-                ALOGV("wait async completion");
-                mWaitWorkCV.wait(mLock);
+
+                const int64_t waitNs = computeWaitTimeNs_l();
+                ALOGV("wait async completion (wait time: %lld)", (long long)waitNs);
+                status_t status = mWaitWorkCV.waitRelative(mLock, waitNs);
+                if (status == TIMED_OUT) {
+                    mSignalPending = true; // if timeout recheck everything
+                }
                 ALOGV("async completion/wake");
                 if (released) {
                     acquireWakeLock_l();
@@ -4131,7 +4140,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                 // cache the combined master volume and stream type volume for fast mixer; this
                 // lacks any synchronization or barrier so VolumeProvider may read a stale value
                 const float vh = track->getVolumeHandler()->getVolume(
-                        track->mAudioTrackServerProxy->framesReleased());
+                        track->mAudioTrackServerProxy->framesReleased()).first;
                 track->mCachedVolume = masterVolume
                         * mStreamTypes[track->streamType()].volume
                         * vh;
@@ -4277,7 +4286,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                     vrf = GAIN_FLOAT_UNITY;
                 }
                 const float vh = track->getVolumeHandler()->getVolume(
-                        track->mAudioTrackServerProxy->framesReleased());
+                        track->mAudioTrackServerProxy->framesReleased()).first;
                 // now apply the master volume and stream type volume and shaper volume
                 vlf *= v * vh;
                 vrf *= v * vh;
@@ -4756,6 +4765,7 @@ AudioFlinger::DirectOutputThread::DirectOutputThread(const sp<AudioFlinger>& aud
         ThreadBase::type_t type, bool systemReady)
     :   PlaybackThread(audioFlinger, output, id, device, type, systemReady)
         // mLeftVolFloat, mRightVolFloat
+        , mVolumeShaperActive(false)
 {
 }
 
@@ -4774,13 +4784,12 @@ void AudioFlinger::DirectOutputThread::processVolume_l(Track *track, bool lastTr
         float v = mMasterVolume * typeVolume;
         sp<AudioTrackServerProxy> proxy = track->mAudioTrackServerProxy;
 
-        if (audio_is_linear_pcm(mFormat) && !usesHwAvSync()) {
-            const float vh = track->getVolumeHandler()->getVolume(
+        // Get volumeshaper scaling
+        std::pair<float /* volume */, bool /* active */>
+            vh = track->getVolumeHandler()->getVolume(
                     track->mAudioTrackServerProxy->framesReleased());
-            v *= vh;
-        } else {
-            // TODO: implement volume scaling in HW
-        }
+        v *= vh.first;
+        mVolumeShaperActive = vh.second;
 
         gain_minifloat_packed_t vlr = proxy->getVolumeLR();
         left = float_from_gain(gain_minifloat_unpack_left(vlr));
@@ -5236,6 +5245,13 @@ void AudioFlinger::DirectOutputThread::flushHw_l()
     mOutput->flush();
     mHwPaused = false;
     mFlushPending = false;
+}
+
+int64_t AudioFlinger::DirectOutputThread::computeWaitTimeNs_l() const {
+    // If a VolumeShaper is active, we must wake up periodically to update volume.
+    const int64_t NS_PER_MS = 1000000;
+    return mVolumeShaperActive ?
+            kMinNormalSinkBufferSizeMs * NS_PER_MS : PlaybackThread::computeWaitTimeNs_l();
 }
 
 // ----------------------------------------------------------------------------
@@ -7422,7 +7438,7 @@ AudioFlinger::MmapThreadHandle::~MmapThreadHandle()
 {
     MmapThread *thread = mThread.get();
     // clear our strong reference before disconnecting the thread: the last strong reference
-    // will be removed when closeInput/closeOutput is executed upono call from audio policy manager
+    // will be removed when closeInput/closeOutput is executed upon call from audio policy manager
     // and the thread removed from mMMapThreads list causing the thread destruction.
     mThread.clear();
     if (thread != nullptr) {
@@ -7464,6 +7480,14 @@ status_t AudioFlinger::MmapThreadHandle::stop(audio_port_handle_t handle)
     return mThread->stop(handle);
 }
 
+status_t AudioFlinger::MmapThreadHandle::standby()
+{
+    if (mThread == 0) {
+        return NO_INIT;
+    }
+    return mThread->standby();
+}
+
 
 AudioFlinger::MmapThread::MmapThread(
         const sp<AudioFlinger>& audioFlinger, audio_io_handle_t id,
@@ -7472,11 +7496,13 @@ AudioFlinger::MmapThread::MmapThread(
     : ThreadBase(audioFlinger, id, outDevice, inDevice, MMAP, systemReady),
       mHalStream(stream), mHalDevice(hwDev->hwDevice()), mAudioHwDev(hwDev)
 {
+    mStandby = true;
     readHalParameters_l();
 }
 
 AudioFlinger::MmapThread::~MmapThread()
 {
+    releaseWakeLock_l();
 }
 
 void AudioFlinger::MmapThread::onFirstRef()
@@ -7516,6 +7542,8 @@ status_t AudioFlinger::MmapThread::createMmapBuffer(int32_t minSizeFrames,
     if (mHalStream == 0) {
         return NO_INIT;
     }
+    mStandby = true;
+    acquireWakeLock();
     return mHalStream->createMmapBuffer(minSizeFrames, info);
 }
 
@@ -7530,7 +7558,7 @@ status_t AudioFlinger::MmapThread::getMmapPosition(struct audio_mmap_position *p
 status_t AudioFlinger::MmapThread::start(const MmapStreamInterface::Client& client,
                                          audio_port_handle_t *handle)
 {
-    ALOGV("%s clientUid %d", __FUNCTION__, client.clientUid);
+    ALOGV("%s clientUid %d mStandby %d", __FUNCTION__, client.clientUid, mStandby);
     if (mHalStream == 0) {
         return NO_INIT;
     }
@@ -7544,6 +7572,7 @@ status_t AudioFlinger::MmapThread::start(const MmapStreamInterface::Client& clie
         mHalStream->start();
         portId = mPortId;
         sessionId = mSessionId;
+        mStandby = false;
     } else {
         // for other tracks than first one, get a new port ID from APM.
         sessionId = (audio_session_t)mAudioFlinger->newAudioUniqueId(AUDIO_UNIQUE_ID_USE_SESSION);
@@ -7601,6 +7630,8 @@ status_t AudioFlinger::MmapThread::start(const MmapStreamInterface::Client& clie
             } else {
                 AudioSystem::releaseInput(mId, sessionId);
             }
+        } else {
+            mHalStream->stop();
         }
         return PERMISSION_DENIED;
     }
@@ -7620,14 +7651,13 @@ status_t AudioFlinger::MmapThread::start(const MmapStreamInterface::Client& clie
 
     broadcast_l();
 
-    ALOGV("%s DONE handle %d", __FUNCTION__, portId);
+    ALOGV("%s DONE handle %d stream %p", __FUNCTION__, portId, mHalStream.get());
 
     return NO_ERROR;
 }
 
 status_t AudioFlinger::MmapThread::stop(audio_port_handle_t handle)
 {
-
     ALOGV("%s handle %d", __FUNCTION__, handle);
 
     if (mHalStream == 0) {
@@ -7673,6 +7703,22 @@ status_t AudioFlinger::MmapThread::stop(audio_port_handle_t handle)
     return NO_ERROR;
 }
 
+status_t AudioFlinger::MmapThread::standby()
+{
+    ALOGV("%s", __FUNCTION__);
+
+    if (mHalStream == 0) {
+        return NO_INIT;
+    }
+    if (mActiveTracks.size() != 0) {
+        return INVALID_OPERATION;
+    }
+    mHalStream->standby();
+    mStandby = true;
+    releaseWakeLock();
+    return NO_ERROR;
+}
+
 
 void AudioFlinger::MmapThread::readHalParameters_l()
 {
@@ -7689,8 +7735,6 @@ void AudioFlinger::MmapThread::readHalParameters_l()
 
 bool AudioFlinger::MmapThread::threadLoop()
 {
-    acquireWakeLock();
-
     checkSilentMode_l();
 
     const String8 myName(String8::format("thread %p type %d TID %d", this, mType, gettid()));
@@ -7712,18 +7756,10 @@ bool AudioFlinger::MmapThread::threadLoop()
                     break;
                 }
 
-                bool wakelockReleased = false;
-                if (mActiveTracks.size() == 0) {
-                    releaseWakeLock_l();
-                    wakelockReleased = true;
-                }
                 // wait until we have something to do...
                 ALOGV("%s going to sleep", myName.string());
                 mWaitWorkCV.wait(mLock);
                 ALOGV("%s waking up", myName.string());
-                if (wakelockReleased) {
-                    acquireWakeLock_l();
-                }
 
                 checkSilentMode_l();
 
@@ -7755,8 +7791,6 @@ bool AudioFlinger::MmapThread::threadLoop()
         threadLoop_standby();
         mStandby = true;
     }
-
-    releaseWakeLock();
 
     ALOGV("Thread %p type %d exiting", this, mType);
     return false;

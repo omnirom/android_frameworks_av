@@ -22,6 +22,7 @@
 #include "NdkImagePriv.h"
 #include "NdkImageReaderPriv.h"
 
+#include <cutils/atomic.h>
 #include <utils/Log.h>
 #include <android_runtime/android_view_Surface.h>
 
@@ -41,6 +42,11 @@ const char* AImageReader::kContextKey    = "Context";
 bool
 AImageReader::isSupportedFormat(int32_t format) {
     switch (format) {
+        case AIMAGE_FORMAT_RGBA_8888:
+        case AIMAGE_FORMAT_RGBX_8888:
+        case AIMAGE_FORMAT_RGB_888:
+        case AIMAGE_FORMAT_RGB_565:
+        case AIMAGE_FORMAT_RGBA_FP16:
         case AIMAGE_FORMAT_YUV_420_888:
         case AIMAGE_FORMAT_JPEG:
         case AIMAGE_FORMAT_RAW16:
@@ -60,6 +66,11 @@ AImageReader::getNumPlanesForFormat(int32_t format) {
     switch (format) {
         case AIMAGE_FORMAT_YUV_420_888:
             return 3;
+        case AIMAGE_FORMAT_RGBA_8888:
+        case AIMAGE_FORMAT_RGBX_8888:
+        case AIMAGE_FORMAT_RGB_888:
+        case AIMAGE_FORMAT_RGB_565:
+        case AIMAGE_FORMAT_RGBA_FP16:
         case AIMAGE_FORMAT_JPEG:
         case AIMAGE_FORMAT_RAW16:
         case AIMAGE_FORMAT_RAW_PRIVATE:

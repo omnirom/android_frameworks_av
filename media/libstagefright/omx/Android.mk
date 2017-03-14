@@ -4,6 +4,7 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES:=                     \
         FrameDropper.cpp              \
         GraphicBufferSource.cpp       \
+        BWGraphicBufferSource.cpp      \
         OMX.cpp                       \
         OMXMaster.cpp                 \
         OMXNodeInstance.cpp           \
@@ -33,6 +34,9 @@ LOCAL_SHARED_LIBRARIES :=               \
         libhidlbase                     \
         libhidlmemory                   \
         android.hidl.memory@1.0         \
+
+LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := \
+        android.hidl.memory@1.0
 
 LOCAL_MODULE:= libstagefright_omx
 LOCAL_CFLAGS += -Werror -Wall

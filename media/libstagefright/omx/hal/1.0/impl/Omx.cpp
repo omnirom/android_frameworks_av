@@ -14,8 +14,10 @@
  * limitations under the License.
  */
 
+#include <ios>
 #include <list>
 
+#include <android-base/logging.h>
 #include <gui/IGraphicBufferProducer.h>
 #include <OMX_Core.h>
 #include <OMX_AsString.h>
@@ -102,9 +104,10 @@ Return<void> Omx::allocateNode(
             instance.get(), &handle);
 
     if (err != OMX_ErrorNone) {
-        ALOGE("FAILED to allocate omx component '%s' err=%s(%#x)",
-                name.c_str(), asString(err), err);
-
+        LOG(ERROR) << "Failed to allocate omx component "
+                "'" << name.c_str() << "' "
+                " err=" << asString(err) <<
+                "(0x" << std::hex << unsigned(err) << ")";
         _hidl_cb(toStatus(StatusFromOMXError(err)), nullptr);
         return Void();
     }
@@ -120,22 +123,21 @@ Return<void> Omx::allocateNode(
 
 Return<void> Omx::createInputSurface(createInputSurface_cb _hidl_cb) {
     sp<::android::IGraphicBufferProducer> bufferProducer;
-    sp<::android::IGraphicBufferSource> bufferSource;
 
     sp<GraphicBufferSource> graphicBufferSource = new GraphicBufferSource();
     status_t err = graphicBufferSource->initCheck();
     if (err != OK) {
-        ALOGE("Failed to create persistent input surface: %s (%d)",
-                strerror(-err), err);
+        LOG(ERROR) << "Failed to create persistent input surface: "
+                << strerror(-err) << " "
+                "(" << int(err) << ")";
         _hidl_cb(toStatus(err), nullptr, nullptr);
         return Void();
     }
     bufferProducer = graphicBufferSource->getIGraphicBufferProducer();
-    bufferSource = graphicBufferSource;
 
     _hidl_cb(toStatus(OK),
             new TWOmxBufferProducer(bufferProducer),
-            new TWGraphicBufferSource(bufferSource));
+            new TWGraphicBufferSource(graphicBufferSource));
     return Void();
 }
 
@@ -147,7 +149,7 @@ void Omx::serviceDied(uint64_t /* cookie */, wp<IBase> const& who) {
         ssize_t index = mLiveNodes.indexOfKey(who);
 
         if (index < 0) {
-            ALOGE("b/27597103, nonexistent observer on serviceDied");
+            LOG(ERROR) << "b/27597103, nonexistent observer on serviceDied";
             android_errorWriteLog(0x534e4554, "27597103");
             return;
         }

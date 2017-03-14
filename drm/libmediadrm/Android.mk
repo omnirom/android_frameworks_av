@@ -6,12 +6,24 @@ LOCAL_PATH:= $(call my-dir)
 
 include $(CLEAR_VARS)
 
-LOCAL_SRC_FILES:= \
+LOCAL_AIDL_INCLUDES := \
+    frameworks/av/drm/libmediadrm/aidl
+
+LOCAL_SRC_FILES := \
+    aidl/android/media/ICas.aidl \
+    aidl/android/media/ICasListener.aidl \
+    aidl/android/media/IDescrambler.aidl \
+    aidl/android/media/IMediaCasService.aidl \
+
+LOCAL_SRC_FILES += \
+    CasImpl.cpp \
+    DescramblerImpl.cpp \
     DrmSessionManager.cpp \
     ICrypto.cpp \
     IDrm.cpp \
     IDrmClient.cpp \
     IMediaDrmService.cpp \
+    MediaCasDefs.cpp \
     SharedLibrary.cpp
 ifneq ($(DISABLE_TREBLE_DRM), true)
 LOCAL_SRC_FILES += \
@@ -36,7 +48,8 @@ LOCAL_SHARED_LIBRARIES += \
     android.hidl.base@1.0 \
     android.hardware.drm@1.0 \
     libhidlbase \
-    libhidlmemory
+    libhidlmemory \
+    libhidltransport
 endif
 
 LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall

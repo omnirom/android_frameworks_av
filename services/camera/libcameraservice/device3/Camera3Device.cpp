@@ -63,6 +63,7 @@ namespace android {
 
 Camera3Device::Camera3Device(const String8 &id):
         mId(id),
+        mOperatingMode(NO_MODE),
         mIsConstrainedHighSpeedConfiguration(false),
         mStatus(STATUS_UNINITIALIZED),
         mStatusWaiters(0),
@@ -182,7 +183,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
 
     sp<ICameraDeviceSession> session;
     ATRACE_BEGIN("CameraHal::openSession");
-    status_t res = manager->openSession(String8::std_string(mId), this,
+    status_t res = manager->openSession(mId.string(), this,
             /*out*/ &session);
     ATRACE_END();
     if (res != OK) {
@@ -190,7 +191,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
         return res;
     }
 
-    res = manager->getCameraCharacteristics(String8::std_string(mId), &mDeviceInfo);
+    res = manager->getCameraCharacteristics(mId.string(), &mDeviceInfo);
     if (res != OK) {
         SET_ERR_L("Could not retrive camera characteristics: %s (%d)", strerror(-res), res);
         session->close();
@@ -514,19 +515,25 @@ StreamRotation Camera3Device::mapToStreamRotation(camera3_stream_rotation_t rota
     return StreamRotation::ROTATION_0;
 }
 
-StreamConfigurationMode Camera3Device::mapToStreamConfigurationMode(
-        camera3_stream_configuration_mode_t operationMode) {
-    switch(operationMode) {
-        case CAMERA3_STREAM_CONFIGURATION_NORMAL_MODE:
-            return StreamConfigurationMode::NORMAL_MODE;
-        case CAMERA3_STREAM_CONFIGURATION_CONSTRAINED_HIGH_SPEED_MODE:
-            return StreamConfigurationMode::CONSTRAINED_HIGH_SPEED_MODE;
-        case CAMERA3_VENDOR_STREAM_CONFIGURATION_MODE_START:
-            // Needs to be mapped by vendor extensions
-            break;
+status_t Camera3Device::mapToStreamConfigurationMode(
+        camera3_stream_configuration_mode_t operationMode, StreamConfigurationMode *mode) {
+    if (mode == nullptr) return BAD_VALUE;
+    if (operationMode < CAMERA3_VENDOR_STREAM_CONFIGURATION_MODE_START) {
+        switch(operationMode) {
+            case CAMERA3_STREAM_CONFIGURATION_NORMAL_MODE:
+                *mode = StreamConfigurationMode::NORMAL_MODE;
+                break;
+            case CAMERA3_STREAM_CONFIGURATION_CONSTRAINED_HIGH_SPEED_MODE:
+                *mode = StreamConfigurationMode::CONSTRAINED_HIGH_SPEED_MODE;
+                break;
+            default:
+                ALOGE("%s: Unknown stream configuration mode %d", __FUNCTION__, operationMode);
+                return BAD_VALUE;
+        }
+    } else {
+        *mode = static_cast<StreamConfigurationMode>(operationMode);
     }
-    ALOGE("%s: Unknown stream configuration mode %d", __FUNCTION__, operationMode);
-    return StreamConfigurationMode::NORMAL_MODE;
+    return OK;
 }
 
 camera3_buffer_status_t Camera3Device::mapHidlBufferStatus(BufferStatus status) {
@@ -677,8 +684,12 @@ status_t Camera3Device::dump(int fd, const Vector<String16> &args) {
         lines.appendFormat("    Error cause: %s\n", mErrorCause.string());
     }
     lines.appendFormat("    Stream configuration:\n");
-    lines.appendFormat("    Operation mode: %s \n", mIsConstrainedHighSpeedConfiguration ?
-            "CONSTRAINED HIGH SPEED VIDEO" : "NORMAL");
+    const char *mode =
+            mOperatingMode == static_cast<int>(StreamConfigurationMode::NORMAL_MODE) ? "NORMAL" :
+            mOperatingMode == static_cast<int>(
+                StreamConfigurationMode::CONSTRAINED_HIGH_SPEED_MODE) ? "CONSTRAINED_HIGH_SPEED" :
+            "CUSTOM";
+    lines.appendFormat("    Operation mode: %s (%d) \n", mode, mOperatingMode);
 
     if (mInputStream != NULL) {
         write(fd, lines.string(), lines.size());
@@ -1093,7 +1104,9 @@ sp<Camera3Device::CaptureRequest> Camera3Device::setUpRequestLocked(
     status_t res;
 
     if (mStatus == STATUS_UNCONFIGURED || mNeedConfig) {
-        res = configureStreamsLocked();
+        // This point should only be reached via API1 (API2 must explicitly call configureStreams)
+        // so unilaterally select normal operating mode.
+        res = configureStreamsLocked(CAMERA3_STREAM_CONFIGURATION_NORMAL_MODE);
         // Stream configuration failed. Client might try other configuraitons.
         if (res != OK) {
             CLOGE("Can't set up streams: %s (%d)", strerror(-res), res);
@@ -1195,7 +1208,8 @@ status_t Camera3Device::createInputStream(
     // Continue captures if active at start
     if (wasActive) {
         ALOGV("%s: Restarting activity to reconfigure streams", __FUNCTION__);
-        res = configureStreamsLocked();
+        // Reuse current operating mode for new stream config
+        res = configureStreamsLocked(mOperatingMode);
         if (res != OK) {
             ALOGE("%s: Can't reconfigure device for new stream %d: %s (%d)",
                     __FUNCTION__, mNextStreamId, strerror(-res), res);
@@ -1357,7 +1371,8 @@ status_t Camera3Device::createStream(const std::vector<sp<Surface>>& consumers,
     // Continue captures if active at start
     if (wasActive) {
         ALOGV("%s: Restarting activity to reconfigure streams", __FUNCTION__);
-        res = configureStreamsLocked();
+        // Reuse current operating mode for new stream config
+        res = configureStreamsLocked(mOperatingMode);
         if (res != OK) {
             CLOGE("Can't reconfigure device for new stream %d: %s (%d)",
                     mNextStreamId, strerror(-res), res);
@@ -1501,19 +1516,14 @@ status_t Camera3Device::deleteReprocessStream(int id) {
     return INVALID_OPERATION;
 }
 
-status_t Camera3Device::configureStreams(bool isConstrainedHighSpeed) {
+status_t Camera3Device::configureStreams(int operatingMode) {
     ATRACE_CALL();
     ALOGV("%s: E", __FUNCTION__);
 
     Mutex::Autolock il(mInterfaceLock);
     Mutex::Autolock l(mLock);
 
-    if (mIsConstrainedHighSpeedConfiguration != isConstrainedHighSpeed) {
-        mNeedConfig = true;
-        mIsConstrainedHighSpeedConfiguration = isConstrainedHighSpeed;
-    }
-
-    return configureStreamsLocked();
+    return configureStreamsLocked(operatingMode);
 }
 
 status_t Camera3Device::getInputBufferProducer(
@@ -2161,13 +2171,28 @@ void Camera3Device::cancelStreamsConfigurationLocked() {
     mNeedConfig = true;
 }
 
-status_t Camera3Device::configureStreamsLocked() {
+status_t Camera3Device::configureStreamsLocked(int operatingMode) {
     ATRACE_CALL();
     status_t res;
 
     if (mStatus != STATUS_UNCONFIGURED && mStatus != STATUS_CONFIGURED) {
         CLOGE("Not idle");
         return INVALID_OPERATION;
+    }
+
+    if (operatingMode < 0) {
+        CLOGE("Invalid operating mode: %d", operatingMode);
+        return BAD_VALUE;
+    }
+
+    bool isConstrainedHighSpeed =
+            static_cast<int>(StreamConfigurationMode::CONSTRAINED_HIGH_SPEED_MODE) ==
+            operatingMode;
+
+    if (mOperatingMode != operatingMode) {
+        mNeedConfig = true;
+        mIsConstrainedHighSpeedConfiguration = isConstrainedHighSpeed;
+        mOperatingMode = operatingMode;
     }
 
     if (!mNeedConfig) {
@@ -2188,9 +2213,7 @@ status_t Camera3Device::configureStreamsLocked() {
     ALOGV("%s: Camera %s: Starting stream configuration", __FUNCTION__, mId.string());
 
     camera3_stream_configuration config;
-    config.operation_mode = mIsConstrainedHighSpeedConfiguration ?
-            CAMERA3_STREAM_CONFIGURATION_CONSTRAINED_HIGH_SPEED_MODE :
-            CAMERA3_STREAM_CONFIGURATION_NORMAL_MODE;
+    config.operation_mode = mOperatingMode;
     config.num_streams = (mInputStream != NULL) + mOutputStreams.size();
 
     Vector<camera3_stream_t*> streams;
@@ -3149,8 +3172,12 @@ status_t Camera3Device::HalInterface::configureStreams(camera3_stream_configurat
             }
         }
 
-        requestedConfiguration.operationMode = mapToStreamConfigurationMode(
-                (camera3_stream_configuration_mode_t) config->operation_mode);
+        res = mapToStreamConfigurationMode(
+                (camera3_stream_configuration_mode_t) config->operation_mode,
+                /*out*/ &requestedConfiguration.operationMode);
+        if (res != OK) {
+            return res;
+        }
 
         // Invoke configureStreams
 
@@ -3956,7 +3983,8 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
                 }
             }
 
-            res = outputStream->getBuffer(&outputBuffers->editItemAt(i));
+            res = outputStream->getBuffer(&outputBuffers->editItemAt(i),
+                    captureRequest->mOutputSurfaces[i]);
             if (res != OK) {
                 // Can't get output buffer from gralloc queue - this could be due to
                 // abandoned queue or other consumer misbehavior, so not a fatal
@@ -3968,13 +3996,6 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
             }
             halRequest->num_output_buffers++;
 
-            res = outputStream->notifyRequestedSurfaces(halRequest->frame_number,
-                    captureRequest->mOutputSurfaces[i]);
-            if (res != OK) {
-                ALOGE("RequestThread: Cannot register output surfaces: %s (%d)",
-                      strerror(-res), res);
-                return INVALID_OPERATION;
-            }
         }
         totalNumBuffers += halRequest->num_output_buffers;
 
