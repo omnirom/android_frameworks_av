@@ -29,7 +29,6 @@ using ::android::hardware::audio::common::V2_0::Uuid;
 using ::android::hardware::audio::effect::V2_0::IEffect;
 using ::android::hardware::audio::effect::V2_0::Result;
 using ::android::hardware::Return;
-using ::android::hardware::Status;
 
 namespace android {
 
@@ -45,6 +44,7 @@ bool EffectsFactoryHalInterface::isNullUuid(const effect_uuid_t *pEffectUuid) {
 
 EffectsFactoryHalHidl::EffectsFactoryHalHidl() : ConversionHelperHidl("EffectsFactory") {
     mEffectsFactory = IEffectsFactory::getService();
+    LOG_ALWAYS_FATAL_IF(mEffectsFactory == 0, "Failed to obtain IEffectsFactory service");
 }
 
 EffectsFactoryHalHidl::~EffectsFactoryHalHidl() {
