@@ -78,7 +78,7 @@ AudioSource::AudioSource(
     if (status == OK) {
         // make sure that the AudioRecord callback never returns more than the maximum
         // buffer size
-        uint32_t frameCount = kMaxBufferSize / sizeof(int16_t) / channelCount;
+        uint32_t frameCount = mMaxBufferSize / sizeof(int16_t) / channelCount;
 
         // make sure that the AudioRecord total buffer size is large enough
         size_t bufCount = 2;

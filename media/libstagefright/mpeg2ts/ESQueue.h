@@ -73,7 +73,7 @@ struct ElementaryStreamQueue {
         mCasSessionId = sessionId;
     }
 
-private:
+protected:
     struct RangeInfo {
         int64_t mTimestampUs;
         size_t mLength;

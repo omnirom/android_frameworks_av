@@ -63,6 +63,7 @@ LOCAL_SRC_FILES:=                         \
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/ \
+        $(TOP)/frameworks/av/media/libavextensions \
         $(TOP)/frameworks/av/include/media/stagefright/timedtext \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax \
@@ -109,6 +110,8 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_mpeg2ts \
         libstagefright_id3 \
         libFLAC \
+
+LOCAL_WHOLE_STATIC_LIBRARIES := libavextensions
 
 LOCAL_SHARED_LIBRARIES += \
         libmedia_helper \

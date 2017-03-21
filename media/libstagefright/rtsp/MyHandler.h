@@ -41,6 +41,8 @@
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/Utils.h>
 
+#include <mediaplayerservice/AVMediaServiceExtensions.h>
+
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -120,8 +122,6 @@ struct MyHandler : public AHandler {
           mUIDValid(uidValid),
           mUID(uid),
           mNetLooper(new ALooper),
-          mConn(new ARTSPConnection(mUIDValid, mUID)),
-          mRTPConn(new ARTPConnection),
           mOriginalSessionURL(url),
           mSessionURL(url),
           mSetupTracksSuccessful(false),
@@ -145,6 +145,9 @@ struct MyHandler : public AHandler {
           mPausing(false),
           mPauseGeneration(0),
           mPlayResponseParsed(false) {
+        mConn = AVMediaServiceFactory::get()->createARTSPConnection(
+                mUIDValid, uid);
+        mRTPConn = AVMediaServiceFactory::get()->createARTPConnection();
         mNetLooper->setName("rtsp net");
         mNetLooper->start(false /* runOnCallingThread */,
                           false /* canCallJava */,

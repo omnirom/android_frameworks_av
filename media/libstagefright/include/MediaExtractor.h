@@ -76,6 +76,10 @@ public:
 
     virtual const char * name() { return "<unspecified>"; }
 
+    typedef bool (*SnifferFunc)(
+            const sp<DataSource> &source, String8 *mimeType,
+            float *confidence, sp<AMessage> *meta);
+
 protected:
     MediaExtractor();
     virtual ~MediaExtractor();
@@ -85,10 +89,6 @@ protected:
     virtual void populateMetrics();
 
 private:
-
-    typedef bool (*SnifferFunc)(
-            const sp<DataSource> &source, String8 *mimeType,
-            float *confidence, sp<AMessage> *meta);
 
     static Mutex gSnifferMutex;
     static List<SnifferFunc> gSniffers;

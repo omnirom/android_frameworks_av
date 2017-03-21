@@ -111,8 +111,11 @@ struct ACodec : public AHierarchicalStateMachine, public CodecBase {
 
 protected:
     virtual ~ACodec();
+    virtual status_t setupCustomCodec(
+            status_t err, const char *mime, const sp<AMessage> &msg);
+    virtual status_t GetVideoCodingTypeFromMime(
+            const char *mime, OMX_VIDEO_CODINGTYPE *codingType);
 
-private:
     struct BaseState;
     struct UninitializedState;
     struct LoadedState;
@@ -355,11 +358,11 @@ private:
 
     status_t setSupportedOutputFormat(bool getLegacyFlexibleFormat);
 
-    status_t setupVideoDecoder(
+    virtual status_t setupVideoDecoder(
             const char *mime, const sp<AMessage> &msg, bool usingNativeBuffers, bool haveSwRenderer,
             sp<AMessage> &outputformat);
 
-    status_t setupVideoEncoder(
+    virtual status_t setupVideoEncoder(
             const char *mime, const sp<AMessage> &msg,
             sp<AMessage> &outputformat, sp<AMessage> &inputformat);
 
@@ -500,7 +503,7 @@ private:
     status_t configureBitrate(
             int32_t bitrate, OMX_VIDEO_CONTROLRATETYPE bitrateMode);
 
-    status_t setupErrorCorrectionParameters();
+    virtual status_t setupErrorCorrectionParameters();
 
     // Returns true iff all buffers on the given port have status
     // OWNED_BY_US or OWNED_BY_NATIVE_WINDOW.
@@ -540,17 +543,27 @@ private:
     void addKeyFormatChangesToRenderBufferNotification(sp<AMessage> &notify);
     void sendFormatChange();
 
-    status_t getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify);
+    virtual status_t getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify);
 
     void signalError(
             OMX_ERRORTYPE error = OMX_ErrorUndefined,
             status_t internalError = UNKNOWN_ERROR);
 
     status_t requestIDRFrame();
-    status_t setParameters(const sp<AMessage> &params);
+    virtual status_t setParameters(const sp<AMessage> &params);
 
     // Send EOS on input stream.
     void onSignalEndOfInputStream();
+
+    virtual void setBFrames(OMX_VIDEO_PARAM_MPEG4TYPE *mpeg4type) {}
+    virtual void setBFrames(OMX_VIDEO_PARAM_AVCTYPE *h264type,
+        const int32_t iFramesInterval, const int32_t frameRate) {}
+
+    virtual status_t getVQZIPInfo(const sp<AMessage> &msg) {
+        return OK;
+    }
+
+    sp<IOMXObserver> createObserver();
 
     DISALLOW_EVIL_CONSTRUCTORS(ACodec);
 };
