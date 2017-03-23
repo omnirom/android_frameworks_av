@@ -226,7 +226,10 @@ private:
 
     static HardwareServiceInteractionProxy sHardwareServiceInteractionProxy;
 
-    struct ProviderInfo : virtual public hardware::camera::provider::V2_4::ICameraProviderCallback {
+    struct ProviderInfo :
+            virtual public hardware::camera::provider::V2_4::ICameraProviderCallback,
+            virtual public hardware::hidl_death_recipient
+    {
         const std::string mProviderName;
         const sp<hardware::camera::provider::V2_4::ICameraProvider> mInterface;
 
@@ -253,6 +256,9 @@ private:
         virtual hardware::Return<void> torchModeStatusChange(
                 const hardware::hidl_string& cameraDeviceName,
                 hardware::camera::common::V1_0::TorchModeStatus newStatus) override;
+
+        // hidl_death_recipient interface - this locks the parent mInterfaceMutex
+        virtual void serviceDied(uint64_t cookie, const wp<hidl::base::V1_0::IBase>& who) override;
 
         // Basic device information, common to all camera devices
         struct DeviceInfo {
@@ -286,6 +292,7 @@ private:
             static status_t setTorchMode(InterfaceT& interface, bool enabled);
         };
         std::vector<std::unique_ptr<DeviceInfo>> mDevices;
+        int mUniqueDeviceCount;
 
         // HALv1-specific camera fields, including the actual device interface
         struct DeviceInfo1 : public DeviceInfo {
@@ -327,6 +334,8 @@ private:
         std::string mType;
         uint32_t mId;
 
+        std::mutex mLock;
+
         CameraProviderManager *mManager;
 
         // Templated method to instantiate the right kind of DeviceInfo and call the
@@ -357,8 +366,10 @@ private:
             hardware::hidl_version minVersion = hardware::hidl_version{0,0},
             hardware::hidl_version maxVersion = hardware::hidl_version{1000,0}) const;
 
-    status_t addProvider(const std::string& newProvider, bool expected = true);
+    status_t addProviderLocked(const std::string& newProvider, bool expected = true);
+
     status_t removeProvider(const std::string& provider);
+    sp<StatusListener> getStatusListener() const;
 
     bool isValidDeviceLocked(const std::string &id, uint16_t majorVersion) const;
 

@@ -241,6 +241,9 @@ class Camera3Device :
         // Reset this HalInterface object (does not call close())
         void clear();
 
+        // Check if HalInterface support sending requests in batch
+        bool supportBatchRequest();
+
         // Calls into the HAL interface
 
         // Caller takes ownership of requestTemplate
@@ -248,6 +251,9 @@ class Camera3Device :
                 /*out*/ camera_metadata_t **requestTemplate);
         status_t configureStreams(/*inout*/ camera3_stream_configuration *config);
         status_t processCaptureRequest(camera3_capture_request_t *request);
+        status_t processBatchCaptureRequests(
+                std::vector<camera3_capture_request_t*>& requests,
+                /*out*/uint32_t* numRequestProcessed);
         status_t flush();
         status_t dump(int fd);
         status_t close();
@@ -261,6 +267,12 @@ class Camera3Device :
         sp<hardware::camera::device::V3_2::ICameraDeviceSession> mHidlSession;
 
         std::mutex mInflightLock;
+
+        // The output HIDL request still depends on input camera3_capture_request_t
+        // Do not free input camera3_capture_request_t before output HIDL request
+        void wrapAsHidlRequest(camera3_capture_request_t* in,
+                /*out*/hardware::camera::device::V3_2::CaptureRequest* out,
+                /*out*/std::vector<native_handle_t*>* handlesCreated);
 
         status_t pushInflightBufferLocked(int32_t frameNumber, int32_t streamId,
                 buffer_handle_t *buffer, int acquireFence);
@@ -438,9 +450,17 @@ class Camera3Device :
      */
 
     hardware::Return<void> processCaptureResult(
-            const hardware::camera::device::V3_2::CaptureResult& result) override;
+            const hardware::hidl_vec<
+                    hardware::camera::device::V3_2::CaptureResult>& results) override;
     hardware::Return<void> notify(
-            const hardware::camera::device::V3_2::NotifyMsg& msg) override;
+            const hardware::hidl_vec<
+                    hardware::camera::device::V3_2::NotifyMsg>& msgs) override;
+
+    // Handle one capture result
+    void processOneCaptureResult(
+            const hardware::camera::device::V3_2::CaptureResult& results);
+    // Handle one notify message
+    void notify(const hardware::camera::device::V3_2::NotifyMsg& msg);
 
     /**
      * Common initialization code shared by both HAL paths
@@ -759,6 +779,12 @@ class Camera3Device :
         // Clear repeating requests. Must be called with mRequestLock held.
         status_t clearRepeatingRequestsLocked(/*out*/ int64_t *lastFrameNumber = NULL);
 
+        // send request in mNextRequests to HAL one by one. Return true = sucssess
+        bool sendRequestsOneByOne();
+
+        // send request in mNextRequests to HAL in a batch. Return true = sucssess
+        bool sendRequestsBatch();
+
         wp<Camera3Device>  mParent;
         wp<camera3::StatusTracker>  mStatusTracker;
         HalInterface*      mInterface;
@@ -859,6 +885,12 @@ class Camera3Device :
         // CONTROL_AE_PRECAPTURE_TRIGGER_CANCEL
         AeTriggerCancelOverride_t aeTriggerCancelOverride;
 
+        // Whether this inflight request's shutter and result callback are to be
+        // called. The policy is that if the request is the last one in the constrained
+        // high speed recording request list, this flag will be true. If the request list
+        // is not for constrained high speed recording, this flag will also be true.
+        bool hasCallback;
+
         // Default constructor needed by KeyedVector
         InFlightRequest() :
                 shutterTimestamp(0),
@@ -867,11 +899,12 @@ class Camera3Device :
                 haveResultMetadata(false),
                 numBuffersLeft(0),
                 hasInputBuffer(false),
-                aeTriggerCancelOverride({false, 0, false, 0}){
+                aeTriggerCancelOverride({false, 0, false, 0}),
+                hasCallback(true) {
         }
 
         InFlightRequest(int numBuffers, CaptureResultExtras extras, bool hasInput,
-                AeTriggerCancelOverride aeTriggerCancelOverride) :
+                AeTriggerCancelOverride aeTriggerCancelOverride, bool hasAppCallback) :
                 shutterTimestamp(0),
                 sensorTimestamp(0),
                 requestStatus(OK),
@@ -879,7 +912,8 @@ class Camera3Device :
                 numBuffersLeft(numBuffers),
                 resultExtras(extras),
                 hasInputBuffer(hasInput),
-                aeTriggerCancelOverride(aeTriggerCancelOverride){
+                aeTriggerCancelOverride(aeTriggerCancelOverride),
+                hasCallback(hasAppCallback) {
         }
     };
 
@@ -892,7 +926,7 @@ class Camera3Device :
 
     status_t registerInFlight(uint32_t frameNumber,
             int32_t numBuffers, CaptureResultExtras resultExtras, bool hasInput,
-            const AeTriggerCancelOverride_t &aeTriggerCancelOverride);
+            const AeTriggerCancelOverride_t &aeTriggerCancelOverride, bool callback);
 
     /**
      * Override result metadata for cancelling AE precapture trigger applied in

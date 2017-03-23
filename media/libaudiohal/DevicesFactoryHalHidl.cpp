@@ -30,7 +30,6 @@
 using ::android::hardware::audio::V2_0::IDevice;
 using ::android::hardware::audio::V2_0::Result;
 using ::android::hardware::Return;
-using ::android::hardware::Status;
 
 namespace android {
 
@@ -42,9 +41,11 @@ sp<DevicesFactoryHalInterface> DevicesFactoryHalInterface::create() {
 DevicesFactoryHalHidl::DevicesFactoryHalHidl() {
     mDevicesFactory = IDevicesFactory::getService();
     if (mDevicesFactory != 0) {
-        // It is assumet that DevicesFactory is owned by AudioFlinger
+        // It is assumed that DevicesFactory is owned by AudioFlinger
         // and thus have the same lifespan.
         mDevicesFactory->linkToDeath(HalDeathHandler::getInstance(), 0 /*cookie*/);
+    } else {
+        LOG_ALWAYS_FATAL("Failed to obtain IDevicesFactory service");
     }
 }
 
