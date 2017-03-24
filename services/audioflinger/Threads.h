@@ -13,6 +13,24 @@
 ** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
+**
+** This file was modified by DTS, Inc. The portions of the
+** code that are surrounded by "DTS..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2017 DTS, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
 */
 
 #ifndef INCLUDING_FROM_AUDIOFLINGER_H
@@ -295,7 +313,8 @@ public:
                                     audio_session_t sessionId,
                                     effect_descriptor_t *desc,
                                     int *enabled,
-                                    status_t *status /*non-NULL*/);
+                                    status_t *status /*non-NULL*/,
+                                    bool pinned);
 
                 // return values for hasAudioSession (bit field)
                 enum effect_state {
@@ -334,7 +353,9 @@ public:
                 status_t addEffect_l(const sp< EffectModule>& effect);
                 // remove and effect module. Also removes the effect chain is this was the last
                 // effect
-                void removeEffect_l(const sp< EffectModule>& effect);
+                void removeEffect_l(const sp< EffectModule>& effect, bool release = false);
+                // disconnect an effect handle from module and destroy module if last handle
+                void disconnectEffectHandle(EffectHandle *handle, bool unpinIfLast);
                 // detach all tracks connected to an auxiliary effect
     virtual     void detachAuxEffect_l(int effectId __unused) {}
                 // returns a combination of:
@@ -572,7 +593,9 @@ public:
 
                 void        setMasterVolume(float value);
                 void        setMasterMute(bool muted);
-
+#ifdef SRS_PROCESSING
+                void        setPostPro();
+#endif
                 void        setStreamVolume(audio_stream_type_t stream, float value);
                 void        setStreamMute(audio_stream_type_t stream, bool muted);
 

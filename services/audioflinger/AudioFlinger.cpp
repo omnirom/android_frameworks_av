@@ -32,6 +32,23 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 **
+** This file was modified by DTS, Inc. The portions of the
+** code that are surrounded by "DTS..." are copyrighted and
+** licensed separately, as follows:
+**
+**  (C) 2017 DTS, Inc.
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**    http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
 */
 
 
@@ -83,6 +100,10 @@
 #include <media/AudioParameter.h>
 #include <mediautils/BatteryNotifier.h>
 #include <private/android_filesystem_config.h>
+
+#ifdef SRS_PROCESSING
+#include "postpro_patch.h"
+#endif
 
 // ----------------------------------------------------------------------------
 
@@ -1134,6 +1155,13 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
         Mutex::Autolock _l(mLock);
         // result will remain NO_INIT if no audio device is present
         status_t final_result = NO_INIT;
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_PARAMS_SET(keyValuePairs);
+        for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+            PlaybackThread *thread = mPlaybackThreads.valueAt(i).get();
+            thread->setPostPro();
+        }
+#endif
         {
             AutoMutex lock(mHardwareLock);
             mHardwareStatus = AUDIO_HW_SET_PARAMETER;
@@ -1233,6 +1261,9 @@ String8 AudioFlinger::getParameters(audio_io_handle_t ioHandle, const String8& k
 
     if (ioHandle == AUDIO_IO_HANDLE_NONE) {
         String8 out_s8;
+#ifdef SRS_PROCESSING
+        POSTPRO_PATCH_PARAMS_GET(keys, out_s8);
+#endif
 
         for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
             char *s;
@@ -1402,7 +1433,7 @@ void AudioFlinger::removeNotificationClient(pid_t pid)
     ALOGV("%d died, releasing its sessions", pid);
     size_t num = mAudioSessionRefs.size();
     bool removed = false;
-    for (size_t i = 0; i< num; ) {
+    for (size_t i = 0; i < num; ) {
         AudioSessionRef *ref = mAudioSessionRefs.itemAt(i);
         ALOGV(" pid %d @ %zu", ref->mPid, i);
         if (ref->mPid == pid) {
@@ -1457,8 +1488,14 @@ sp<AudioFlinger::PlaybackThread> AudioFlinger::getEffectThread_l(audio_session_t
     return thread;
 }
 
-
-
+#ifdef SRS_PROCESSING
+void AudioFlinger::PlaybackThread::setPostPro()
+{
+    Mutex::Autolock _l(mLock);
+    if (mType == OFFLOAD)
+        broadcast_l();
+}
+#endif
 // ----------------------------------------------------------------------------
 
 AudioFlinger::Client::Client(const sp<AudioFlinger>& audioFlinger, pid_t pid)
@@ -2407,7 +2444,7 @@ void AudioFlinger::acquireAudioSessionId(audio_session_t audioSession, pid_t pid
     }
 
     size_t num = mAudioSessionRefs.size();
-    for (size_t i = 0; i< num; i++) {
+    for (size_t i = 0; i < num; i++) {
         AudioSessionRef *ref = mAudioSessionRefs.editItemAt(i);
         if (ref->mSessionid == audioSession && ref->mPid == caller) {
             ref->mCnt++;
@@ -2428,7 +2465,7 @@ void AudioFlinger::releaseAudioSessionId(audio_session_t audioSession, pid_t pid
         caller = pid;
     }
     size_t num = mAudioSessionRefs.size();
-    for (size_t i = 0; i< num; i++) {
+    for (size_t i = 0; i < num; i++) {
         AudioSessionRef *ref = mAudioSessionRefs.itemAt(i);
         if (ref->mSessionid == audioSession && ref->mPid == caller) {
             ref->mCnt--;
@@ -2444,6 +2481,18 @@ void AudioFlinger::releaseAudioSessionId(audio_session_t audioSession, pid_t pid
     // If the caller is mediaserver it is likely that the session being released was acquired
     // on behalf of a process not in notification clients and we ignore the warning.
     ALOGW_IF(caller != getpid_cached, "session id %d not found for pid %d", audioSession, caller);
+}
+
+bool AudioFlinger::isSessionAcquired_l(audio_session_t audioSession)
+{
+    size_t num = mAudioSessionRefs.size();
+    for (size_t i = 0; i < num; i++) {
+        AudioSessionRef *ref = mAudioSessionRefs.itemAt(i);
+        if (ref->mSessionid == audioSession) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void AudioFlinger::purgeStaleEffects_l() {
@@ -2839,8 +2888,9 @@ sp<IEffect> AudioFlinger::createEffect(
         sp<Client> client = registerPid(pid);
 
         // create effect on selected output thread
+        bool pinned = (sessionId > AUDIO_SESSION_OUTPUT_MIX) && isSessionAcquired_l(sessionId);
         handle = thread->createEffect_l(client, effectClient, priority, sessionId,
-                &desc, enabled, &lStatus);
+                &desc, enabled, &lStatus, pinned);
         if (handle != 0 && id != NULL) {
             *id = handle->id();
         }
@@ -3045,7 +3095,7 @@ bool AudioFlinger::updateOrphanEffectChains(const sp<AudioFlinger::EffectModule>
     ALOGV("updateOrphanEffectChains session %d index %zd", session, index);
     if (index >= 0) {
         sp<EffectChain> chain = mOrphanEffectChains.valueAt(index);
-        if (chain->removeEffect_l(effect) == 0) {
+        if (chain->removeEffect_l(effect, true) == 0) {
             ALOGV("updateOrphanEffectChains removing effect chain at index %zd", index);
             mOrphanEffectChains.removeItemsAt(index);
         }
