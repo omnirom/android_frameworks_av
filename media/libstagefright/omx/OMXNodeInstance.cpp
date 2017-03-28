@@ -47,6 +47,8 @@
 
 static const OMX_U32 kPortIndexInput = 0;
 static const OMX_U32 kPortIndexOutput = 1;
+static const OMX_U32 kPortIndexInputExtradata = 2;
+static const OMX_U32 kPortIndexOutputExtradata = 3;
 
 #define CLOGW(fmt, ...) ALOGW("[%p:%s] " fmt, mHandle, mName, ##__VA_ARGS__)
 
@@ -355,10 +357,14 @@ OMXNodeInstance::OMXNodeInstance(
     DEBUG_BUMP = DEBUG;
     mNumPortBuffers[0] = 0;
     mNumPortBuffers[1] = 0;
+    mNumPortBuffers[2] = 0;
+    mNumPortBuffers[3] = 0;
     mDebugLevelBumpPendingBuffers[0] = 0;
     mDebugLevelBumpPendingBuffers[1] = 0;
     mMetadataType[0] = kMetadataBufferTypeInvalid;
     mMetadataType[1] = kMetadataBufferTypeInvalid;
+    mMetadataType[2] = kMetadataBufferTypeInvalid;
+    mMetadataType[3] = kMetadataBufferTypeInvalid;
     mPortMode[0] = IOMX::kPortModePresetByteBuffer;
     mPortMode[1] = IOMX::kPortModePresetByteBuffer;
     mSecureBufferType[0] = kSecureBufferTypeUnknown;
@@ -1105,7 +1111,9 @@ status_t OMXNodeInstance::useBuffer_l(
             : kRequiresAllocateBufferOnOutputPorts;
 
     // we use useBuffer for output metadata regardless of quirks
-    if (!isOutputGraphicMetadata && (mQuirks & requiresAllocateBufferBit)) {
+    if (!isOutputGraphicMetadata && (mQuirks & requiresAllocateBufferBit) &&
+            portIndex != kPortIndexOutputExtradata &&
+            portIndex != kPortIndexInputExtradata) {
         // metadata buffers are not connected cross process; only copy if not meta.
         buffer_meta = new BufferMeta(
                     params, hParams, portIndex, !isMetadata /* copy */, NULL /* data */);

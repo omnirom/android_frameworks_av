@@ -549,7 +549,7 @@ void MediaCodec::PostReplyWithError(const sp<AReplyToken> &replyID, int32_t err)
 sp<CodecBase> MediaCodec::GetCodecBase(const AString &name, bool nameIsType) {
     // at this time only ACodec specifies a mime type.
     if (nameIsType || name.startsWithIgnoreCase("omx.")) {
-        return AVFactory::get()->createACodec();;
+        return AVFactory::get()->createACodec();
     } else if (name.startsWithIgnoreCase("android.filter.")) {
         return new MediaFilter;
     } else {

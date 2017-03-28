@@ -158,7 +158,9 @@ protected:
 
     enum {
         kPortIndexInput  = 0,
-        kPortIndexOutput = 1
+        kPortIndexOutput = 1,
+        kPortIndexInputExtradata = 2,
+        kPortIndexOutputExtradata = 3
     };
 
     enum {
@@ -246,8 +248,8 @@ protected:
     sp<IOMXNode> mOMXNode;
     int32_t mNodeGeneration;
     bool mTrebleFlag;
-    sp<TAllocator> mAllocator[2];
-    sp<MemoryDealer> mDealer[2];
+    sp<TAllocator> mAllocator[4];
+    sp<MemoryDealer> mDealer[4];
 
     bool mUsingNativeWindow;
     sp<ANativeWindow> mNativeWindow;
@@ -263,7 +265,7 @@ protected:
     sp<AMessage> mBaseOutputFormat;
 
     FrameRenderTracker mRenderTracker; // render information for buffers rendered by ACodec
-    Vector<BufferInfo> mBuffers[2];
+    Vector<BufferInfo> mBuffers[4];
     bool mPortEOS[2];
     status_t mInputEOSResult;
 
@@ -318,8 +320,8 @@ protected:
     } mVendorExtensionsStatus;
 
     status_t setCyclicIntraMacroblockRefresh(const sp<AMessage> &msg, int32_t mode);
-    status_t allocateBuffersOnPort(OMX_U32 portIndex);
-    status_t freeBuffersOnPort(OMX_U32 portIndex);
+    virtual status_t allocateBuffersOnPort(OMX_U32 portIndex);
+    virtual status_t freeBuffersOnPort(OMX_U32 portIndex);
     status_t freeBuffer(OMX_U32 portIndex, size_t i);
 
     status_t handleSetSurface(const sp<Surface> &surface);
@@ -355,7 +357,7 @@ protected:
 
     status_t setComponentRole(bool isEncoder, const char *mime);
 
-    status_t configureCodec(const char *mime, const sp<AMessage> &msg);
+    virtual status_t configureCodec(const char *mime, const sp<AMessage> &msg);
 
     status_t configureTunneledVideoPlayback(int32_t audioHwSync,
             const sp<ANativeWindow> &nativeWindow);
