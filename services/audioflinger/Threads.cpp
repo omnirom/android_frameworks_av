@@ -1221,18 +1221,15 @@ status_t AudioFlinger::PlaybackThread::checkEffectCompatibility_l(
             }
         }
     } break;
+    case DIRECT:
+        // Treat direct threads similar to offload threads,
+        // since mixing and post processing should be done by DSP here as well.
     case OFFLOAD:
         // nothing actionable on offload threads, if the effect:
         //   - is offloadable: the effect can be created
         //   - is NOT offloadable: the effect should still be created, but EffectHandle::enable()
         //     will take care of invalidating the tracks of the thread
         break;
-    case DIRECT:
-        // Reject any effect on Direct output threads for now, since the format of
-        // mSinkBuffer is not guaranteed to be compatible with effect processing (PCM 16 stereo).
-        ALOGW("checkEffectCompatibility_l(): effect %s on DIRECT output thread %s",
-                desc->name, mThreadName);
-        return BAD_VALUE;
     case DUPLICATING:
 #ifndef MULTICHANNEL_EFFECT_CHAIN
         // Reject any effect on mixer multichannel sinks.
@@ -1418,7 +1415,7 @@ status_t AudioFlinger::ThreadBase::addEffect_l(const sp<EffectModule>& effect)
     sp<EffectChain> chain = getEffectChain_l(sessionId);
     bool chainCreated = false;
 
-    ALOGD_IF((mType == OFFLOAD) && !effect->isOffloadable(),
+    ALOGD_IF((mType == OFFLOAD || mType == DIRECT) && !effect->isOffloadable(),
              "addEffect_l() on offloaded thread %p: effect %s does not support offload flags %#x",
                     this, effect->desc().name, effect->desc().flags);
 
@@ -1438,7 +1435,7 @@ status_t AudioFlinger::ThreadBase::addEffect_l(const sp<EffectModule>& effect)
         return BAD_VALUE;
     }
 
-    effect->setOffloaded(mType == OFFLOAD, mId);
+    effect->setOffloaded((mType == OFFLOAD || mType == DIRECT), mId);
 
     status_t status = chain->addEffect_l(effect);
     if (status != NO_ERROR) {
@@ -3405,7 +3402,7 @@ bool AudioFlinger::PlaybackThread::threadLoop()
             }
 
             // only process effects if we're going to write
-            if (mSleepTimeUs == 0 && mType != OFFLOAD) {
+            if (mSleepTimeUs == 0 && mType != OFFLOAD && mType != DIRECT) {
                 for (size_t i = 0; i < effectChains.size(); i ++) {
                     effectChains[i]->process_l();
                 }
@@ -3415,7 +3412,7 @@ bool AudioFlinger::PlaybackThread::threadLoop()
         // was read from audio track: process only updates effect state
         // and thus does have to be synchronized with audio writes but may have
         // to be called while waiting for async write callback
-        if (mType == OFFLOAD) {
+        if (mType == OFFLOAD || mType == DIRECT) {
             for (size_t i = 0; i < effectChains.size(); i ++) {
                 effectChains[i]->process_l();
             }
@@ -3629,13 +3626,6 @@ status_t AudioFlinger::PlaybackThread::getTimestamp_l(AudioTimestamp& timestamp)
             status = ets.getBestTimestamp(&timestamp);
         }
         return status;
-    }
-    if ((mType == OFFLOAD || mType == DIRECT) && mOutput != NULL) {
-        uint64_t position64;
-        if (mOutput->getPresentationPosition(&position64, &timestamp.mTime) == OK) {
-            timestamp.mPosition = (uint32_t)position64;
-            return NO_ERROR;
-        }
     }
     return INVALID_OPERATION;
 }
@@ -5090,6 +5080,9 @@ void AudioFlinger::MixerThread::cacheParameters_l()
 AudioFlinger::DirectOutputThread::DirectOutputThread(const sp<AudioFlinger>& audioFlinger,
         AudioStreamOut* output, audio_io_handle_t id, audio_devices_t device, bool systemReady)
     :   PlaybackThread(audioFlinger, output, id, device, DIRECT, systemReady)
+        // mLeftVolFloat, mRightVolFloat
+        , mVolumeShaperActive(false), mFramesWrittenAtStandby(0)
+        , mFramesWrittenForSleep(0)
 {
 }
 
@@ -5097,7 +5090,9 @@ AudioFlinger::DirectOutputThread::DirectOutputThread(const sp<AudioFlinger>& aud
         AudioStreamOut* output, audio_io_handle_t id, uint32_t device,
         ThreadBase::type_t type, bool systemReady)
     :   PlaybackThread(audioFlinger, output, id, device, type, systemReady)
-        , mVolumeShaperActive(false)
+        // mLeftVolFloat, mRightVolFloat
+        , mVolumeShaperActive(false), mFramesWrittenAtStandby(0)
+        , mFramesWrittenForSleep(0)
 {
 }
 
@@ -5298,7 +5293,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                  }
             }
             if ((track->sharedBuffer() != 0) || track->isStopped() ||
-                    track->isStopping_2() || track->isPaused()) {
+                    track->isStopping_2()) {
                 // We have consumed all the buffers of this track.
                 // Remove it from the list of active tracks.
                 size_t audioHALFrames;
@@ -5329,15 +5324,19 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                     // indicate to client process that the track was disabled because of underrun;
                     // it will then automatically call start() when data is available
                     track->disable();
-                } else if (last) {
+                    // only do hw pause when track is going to be removed due to BUFFER TIMEOUT.
+                    // unlike mixerthread, HAL can be paused for direct output, and as HAL can be
+                    // paused at the first underrun, but track may be ready for the next loop and
+                    // the playback is resumed, it will make the playback interrupted
                     ALOGW("pause because of UNDERRUN, framesReady = %zu,"
                             "minFrames = %u, mFormat = %#x",
                             track->framesReady(), minFrames, mFormat);
-                    mixerStatus = MIXER_TRACKS_ENABLED;
-                    if (mHwSupportsPause && !mHwPaused && !mStandby) {
+                    if (mHwSupportsPause && last && !mHwPaused && !mStandby) {
                         doHwPause = true;
                         mHwPaused = true;
                     }
+                } else if (last) {
+                    mixerStatus = MIXER_TRACKS_ENABLED;
                 }
             }
         }
@@ -5418,6 +5417,7 @@ void AudioFlinger::DirectOutputThread::threadLoop_sleepTime()
     } else if (mBytesWritten != 0 && audio_has_proportional_frames(mFormat)) {
         memset(mSinkBuffer, 0, mFrameCount * mFrameSize);
         mSleepTimeUs = 0;
+        mFramesWrittenForSleep += mFrameCount;
     }
 }
 
@@ -5441,12 +5441,18 @@ void AudioFlinger::DirectOutputThread::threadLoop_exit()
 // must be called with thread mutex locked
 bool AudioFlinger::DirectOutputThread::shouldStandby_l()
 {
+    bool standbyForDirectPcm = false;
+    bool standbyWhenIdle = false;
+
     bool trackPaused = false;
     bool trackStopped = false;
 
-    if ((mType == DIRECT) && audio_is_linear_pcm(mFormat) && !usesHwAvSync()) {
-        return !mStandby;
+    if (mStandby) {
+        return false; // already in standby
     }
+
+    // allowing DIRECT linear pcm track to be in standby even when active
+    standbyForDirectPcm = (mType == DIRECT) && audio_is_linear_pcm(mFormat) && !usesHwAvSync();
 
     // do not put the HAL in standby when paused. AwesomePlayer clear the offloaded AudioTrack
     // after a timeout and we will enter standby then.
@@ -5455,8 +5461,20 @@ bool AudioFlinger::DirectOutputThread::shouldStandby_l()
         trackStopped = mTracks[mTracks.size() - 1]->isStopped() ||
                            mTracks[mTracks.size() - 1]->mState == TrackBase::IDLE;
     }
-
-    return !mStandby && !(trackPaused || (mHwPaused && !trackStopped));
+    standbyWhenIdle = trackStopped || (!trackPaused && !mHwPaused);
+    // store position when entering standby in idle/stopped state for DIRECT linear pcm tracks.
+    // This is required because presentation position for a DIRECT linear pcm track is not reset
+    // on standby, and must be reset on track stop.
+    if (standbyForDirectPcm && standbyWhenIdle) {
+        uint64_t position64;
+        struct timespec ts;
+        if (NO_ERROR == mOutput->getPresentationPosition(&position64, &ts)) {
+            mFramesWrittenAtStandby = position64;
+            // reset mFramesWrittenForSleep as mFramesWrittenAtStandby includes it
+            mFramesWrittenForSleep = 0;
+        }
+    }
+    return standbyForDirectPcm || standbyWhenIdle;
 }
 
 // checkForNewParameter_l() must be called with ThreadBase::mLock held
@@ -5553,6 +5571,8 @@ void AudioFlinger::DirectOutputThread::cacheParameters_l()
         mStandbyDelayNs = 0;
     } else if ((mType == OFFLOAD) && !audio_has_proportional_frames(mFormat)) {
         mStandbyDelayNs = kOffloadStandbyDelayNs;
+    } else if (mType == DIRECT) {
+        mStandbyDelayNs = kOffloadStandbyDelayNs;
     } else {
         mStandbyDelayNs = microseconds(mActiveSleepTimeUs*2);
     }
@@ -5563,6 +5583,21 @@ void AudioFlinger::DirectOutputThread::flushHw_l()
     mOutput->flush();
     mHwPaused = false;
     mFlushPending = false;
+    mFramesWrittenAtStandby = 0;
+    mFramesWrittenForSleep = 0;
+}
+
+status_t AudioFlinger::DirectOutputThread::getTimestamp_l(AudioTimestamp& timestamp)
+{
+    if (mOutput != NULL) {
+        uint64_t position64;
+        if (mOutput->getPresentationPosition(&position64, &timestamp.mTime) == OK) {
+            timestamp.mPosition = (position64 <= mFramesWrittenAtStandby) ?
+                   0 : (uint32_t) (position64 - mFramesWrittenAtStandby-mFramesWrittenForSleep);
+            return NO_ERROR;
+        }
+    }
+    return INVALID_OPERATION;
 }
 
 int64_t AudioFlinger::DirectOutputThread::computeWaitTimeNs_l() const {
@@ -5745,15 +5780,9 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::OffloadThread::prepareTr
         if (track->isInvalid()) {
             ALOGW("An invalidated track shouldn't be in active list");
             tracksToRemove->add(track);
-            continue;
-        }
-
-        if (track->mState == TrackBase::IDLE) {
+        } else if (track->mState == TrackBase::IDLE) {
             ALOGW("An idle track shouldn't be in active list");
-            continue;
-        }
-
-        if (track->isPausing()) {
+        } else if (track->isPausing()) {
             track->setPaused();
             if (last) {
                 if (mHwSupportsPause && !mHwPaused) {
