@@ -777,7 +777,7 @@ public:
 
     virtual     size_t      frameCount() const { return mNormalFrameCount; }
 
-                status_t    getTimestamp_l(AudioTimestamp& timestamp);
+    virtual     status_t    getTimestamp_l(AudioTimestamp& timestamp);
 
                 void        addPatchTrack(const sp<PatchTrack>& track);
                 void        deletePatchTrack(const sp<PatchTrack>& track);
@@ -1205,10 +1205,16 @@ protected:
 
     wp<Track>               mPreviousTrack;         // used to detect track switch
 
+    uint64_t                mFramesWrittenAtStandby;// used to reset frames on track reset
+    uint64_t                mFramesWrittenForSleep; // used to reset frames on track removal
+                                                    // or underrun before entering standby
+
 public:
     virtual     bool        hasFastMixer() const { return false; }
 
     virtual     int64_t     computeWaitTimeNs_l() const override;
+
+    virtual     status_t    getTimestamp_l(AudioTimestamp& timestamp) override;
 };
 
 class OffloadThread : public DirectOutputThread {

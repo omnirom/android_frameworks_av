@@ -105,7 +105,8 @@ AudioFlinger::EffectModule::EffectModule(ThreadBase *thread,
         goto Error;
     }
 
-    setOffloaded(thread->type() == ThreadBase::OFFLOAD, thread->id());
+    setOffloaded((thread->type() == ThreadBase::OFFLOAD || thread->type() == ThreadBase::DIRECT),
+                 thread->id());
     ALOGV("Constructor success name %s, Interface %p", mDescriptor.name, mEffectInterface.get());
 
     return;
@@ -1534,12 +1535,15 @@ status_t AudioFlinger::EffectHandle::enable()
         mEnabled = false;
     } else {
         if (thread != 0) {
-            if (thread->type() == ThreadBase::OFFLOAD || thread->type() == ThreadBase::MMAP) {
+            if (thread->type() == ThreadBase::OFFLOAD ||
+                thread->type() == ThreadBase::MMAP ||
+                thread->type() == ThreadBase::DIRECT) {
                 Mutex::Autolock _l(thread->mLock);
                 thread->broadcast_l();
             }
             if (!effect->isOffloadable()) {
-                if (thread->type() == ThreadBase::OFFLOAD) {
+                if (thread->type() == ThreadBase::OFFLOAD ||
+                    thread->type() == ThreadBase::DIRECT) {
                     PlaybackThread *t = (PlaybackThread *)thread.get();
                     t->invalidateTracks(AUDIO_STREAM_MUSIC);
                 }
@@ -1578,7 +1582,9 @@ status_t AudioFlinger::EffectHandle::disable()
     sp<ThreadBase> thread = effect->thread().promote();
     if (thread != 0) {
         thread->checkSuspendOnEffectEnabled(effect, false, effect->sessionId());
-        if (thread->type() == ThreadBase::OFFLOAD || thread->type() == ThreadBase::MMAP) {
+        if (thread->type() == ThreadBase::OFFLOAD ||
+            thread->type() == ThreadBase::MMAP ||
+            thread->type() == ThreadBase::DIRECT) {
             Mutex::Autolock _l(thread->mLock);
             thread->broadcast_l();
         }
@@ -1929,7 +1935,8 @@ void AudioFlinger::EffectChain::process_l()
     // - on an OFFLOAD thread
     // - no more tracks are on the session and the effect tail has been rendered
     bool doProcess = (thread->type() != ThreadBase::OFFLOAD)
-                  && (thread->type() != ThreadBase::MMAP);
+                  && (thread->type() != ThreadBase::MMAP)
+                  && (thread->type() != ThreadBase::DIRECT);
     if (!isGlobalSession) {
         bool tracksOnSession = (trackCnt() != 0);
 
