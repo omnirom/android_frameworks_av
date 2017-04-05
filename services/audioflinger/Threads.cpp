@@ -4979,7 +4979,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                  }
             }
             if ((track->sharedBuffer() != 0) || track->isStopped() ||
-                    track->isStopping_2() || track->isPaused()) {
+                    track->isStopping_2()) {
                 // We have consumed all the buffers of this track.
                 // Remove it from the list of active tracks.
                 size_t audioHALFrames;
@@ -5010,15 +5010,19 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                     // indicate to client process that the track was disabled because of underrun;
                     // it will then automatically call start() when data is available
                     track->disable();
-                } else if (last) {
+                    // only do hw pause when track is going to be removed due to BUFFER TIMEOUT.
+                    // unlike mixerthread, HAL can be paused for direct output, and as HAL can be
+                    // paused at the first underrun, but track may be ready for the next loop and
+                    // the playback is resumed, it will make the playback interrupted
                     ALOGW("pause because of UNDERRUN, framesReady = %zu,"
                             "minFrames = %u, mFormat = %#x",
                             track->framesReady(), minFrames, mFormat);
-                    mixerStatus = MIXER_TRACKS_ENABLED;
-                    if (mHwSupportsPause && !mHwPaused && !mStandby) {
+                    if (mHwSupportsPause && last && !mHwPaused && !mStandby) {
                         doHwPause = true;
                         mHwPaused = true;
                     }
+                } else if (last) {
+                    mixerStatus = MIXER_TRACKS_ENABLED;
                 }
             }
         }
@@ -5249,6 +5253,8 @@ void AudioFlinger::DirectOutputThread::cacheParameters_l()
         mStandbyDelayNs = 0;
     } else if ((mType == OFFLOAD) && !audio_has_proportional_frames(mFormat)) {
         mStandbyDelayNs = kOffloadStandbyDelayNs;
+    } else if (mType == DIRECT) {
+        mStandbyDelayNs = kOffloadStandbyDelayNs;
     } else {
         mStandbyDelayNs = microseconds(mActiveSleepTimeUs*2);
     }
@@ -5441,15 +5447,9 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::OffloadThread::prepareTr
         if (track->isInvalid()) {
             ALOGW("An invalidated track shouldn't be in active list");
             tracksToRemove->add(track);
-            continue;
-        }
-
-        if (track->mState == TrackBase::IDLE) {
+        } else if (track->mState == TrackBase::IDLE) {
             ALOGW("An idle track shouldn't be in active list");
-            continue;
-        }
-
-        if (track->isPausing()) {
+        } else if (track->isPausing()) {
             track->setPaused();
             if (last) {
                 if (mHwSupportsPause && !mHwPaused) {

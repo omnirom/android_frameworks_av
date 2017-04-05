@@ -249,7 +249,8 @@ AudioTrack::AudioTrack(
       mPreviousSchedulingGroup(SP_DEFAULT),
       mPausedPosition(0),
       mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
-      mPortId(AUDIO_PORT_HANDLE_NONE)
+      mPortId(AUDIO_PORT_HANDLE_NONE),
+      mTrackOffloaded(false)
 {
     mStatus = set(streamType, sampleRate, format, channelMask,
             0 /*frameCount*/, flags, cbf, user, notificationFrames,
@@ -934,6 +935,12 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
     //set effective rates
     mProxy->setPlaybackRate(playbackRateTemp);
     mProxy->setSampleRate(effectiveRate); // FIXME: not quite "atomic" with setPlaybackRate
+
+    if (mTrackOffloaded &&
+        !isAudioPlaybackRateEqual(mPlaybackRate, AUDIO_PLAYBACK_RATE_DEFAULT)) {
+        ALOGD("invalidate track-offloaded track on setPlaybackRate");
+        android_atomic_or(CBLK_INVALID, &mCblk->mFlags);
+    }
     return NO_ERROR;
 }
 
@@ -1270,6 +1277,13 @@ status_t AudioTrack::createTrack_l()
     config.channel_mask = mChannelMask;
     config.format = mFormat;
     config.offload_info = mOffloadInfoCopy;
+    // Set offload_info to defaults if track not already offloaded but can be offloaded
+    if (mOffloadInfo == NULL &&
+        audio_is_linear_pcm(mFormat) &&
+        isAudioPlaybackRateEqual(mPlaybackRate, AUDIO_PLAYBACK_RATE_DEFAULT)) {
+        config.offload_info = AUDIO_INFO_INITIALIZER;
+    }
+
     status = AudioSystem::getOutputForAttr(attr, &output,
                                            mSessionId, &streamType, mClientUid,
                                            &config,
@@ -1286,6 +1300,7 @@ status_t AudioTrack::createTrack_l()
     // Now that we have a reference to an I/O handle and have not yet handed it off to AudioFlinger,
     // we must release it ourselves if anything goes wrong.
 
+    mTrackOffloaded = AVMediaUtils::get()->AudioTrackIsTrackOffloaded(output);
     // Not all of these values are needed under all conditions, but it is easier to get them all
     status = AudioSystem::getLatency(output, &mAfLatency);
     if (status != NO_ERROR) {
