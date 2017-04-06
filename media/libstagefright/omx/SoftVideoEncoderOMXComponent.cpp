@@ -30,8 +30,11 @@
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/MediaDefs.h>
 
+#include <ui/Fence.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/Rect.h>
+
+#include <hardware/gralloc.h>
 
 #include <OMX_IndexExt.h>
 
