@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 - 2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013 - 2017, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -75,6 +75,7 @@ struct AVNuUtils {
     virtual audio_format_t getPCMFormat(const sp<AMessage> &);
     virtual void setCodecOutputFormat(const sp<AMessage> &);
     virtual bool isByteStreamModeEnabled(const sp<MetaData> &);
+    virtual uint32_t getFlags();
 
     // ----- NO TRESSPASSING BEYOND THIS LINE ------
     DECLARE_LOADABLE_SINGLETON(AVNuUtils);
