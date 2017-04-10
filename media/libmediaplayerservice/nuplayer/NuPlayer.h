@@ -222,6 +222,8 @@ protected:
     bool mPrepared;
     bool mResetting;
     bool mSourceStarted;
+    bool mAudioDecoderError;
+    bool mVideoDecoderError;
 
     // Actual pause state, either as requested by client or due to buffering.
     bool mPaused;

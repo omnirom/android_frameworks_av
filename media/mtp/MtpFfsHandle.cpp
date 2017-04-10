@@ -490,7 +490,11 @@ int MtpFfsHandle::start() {
 
 int MtpFfsHandle::configure(bool usePtp) {
     // Wait till previous server invocation has closed
-    std::lock_guard<std::mutex> lk(mLock);
+    if (!mLock.try_lock_for(std::chrono::milliseconds(1000))) {
+        LOG(ERROR) << "MtpServer was unable to get configure lock";
+        return -1;
+    }
+    int ret = 0;
 
     // If ptp is changed, the configuration must be rewritten
     if (mPtp != usePtp) {
@@ -500,10 +504,10 @@ int MtpFfsHandle::configure(bool usePtp) {
     mPtp = usePtp;
 
     if (!initFunctionfs()) {
-        return -1;
+        ret = -1;
     }
-
-    return 0;
+    mLock.unlock();
+    return ret;
 }
 
 void MtpFfsHandle::close() {
@@ -537,14 +541,12 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
         if (file_length > 0) {
             length = std::min(static_cast<uint32_t>(MAX_FILE_CHUNK_SIZE), file_length);
 
-            // Read data from USB
-            if ((ret = readHandle(mBulkOut, data, length)) == -1) {
-                return -1;
-            }
+            // Read data from USB, handle errors after waiting for write thread.
+            ret = readHandle(mBulkOut, data, length);
 
             if (file_length != MAX_MTP_FILE_SIZE && ret < static_cast<int>(length)) {
+                ret = -1;
                 errno = EIO;
-                return -1;
             }
             read = true;
         }
@@ -563,6 +565,11 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
                 return -1;
             }
             write = false;
+        }
+
+        // If there was an error reading above
+        if (ret == -1) {
+            return -1;
         }
 
         if (read) {
@@ -622,6 +629,7 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
     aio.aio_fildes = mfr.fd;
     struct aiocb *aiol[] = {&aio};
     int ret, length;
+    int error = 0;
     bool read = false;
     bool write = false;
 
@@ -665,6 +673,10 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
             write = true;
         }
 
+        if (error == -1) {
+            return -1;
+        }
+
         if (file_length > 0) {
             length = std::min(static_cast<uint64_t>(MAX_FILE_CHUNK_SIZE), file_length);
             // Queue up another read
@@ -676,8 +688,9 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
         }
 
         if (write) {
-            if (writeHandle(mBulkIn, data2, ret) == -1)
-                return -1;
+            if (writeHandle(mBulkIn, data2, ret) == -1) {
+                error = -1;
+            }
             write = false;
         }
     }
