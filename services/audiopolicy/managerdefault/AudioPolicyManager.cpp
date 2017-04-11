@@ -934,15 +934,14 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         goto non_direct_output;
     }
 
-    // Do not allow offloading if one non offloadable effect is enabled or MasterMono is enabled.
-    // This prevents creating an offloaded track and tearing it down immediately after start
+    // Do not allow Direct Output if one non offloadable effect is enabled or MasterMono is enabled.
+    // This prevents creating an direct track and tearing it down immediately after start
     // when audioflinger detects there is an active non offloadable effect.
     // FIXME: We should check the audio session here but we do not have it in this context.
     // This may prevent offloading in rare situations where effects are left active by apps
     // in the background.
 
-    if (((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) ||
-            !(mEffects.isNonOffloadableEffectEnabled() || mMasterMono)) {
+    if (!(mEffects.isNonOffloadableEffectEnabled() || mMasterMono)) {
         profile = getProfileForDirectOutput(device,
                                            samplingRate,
                                            format,
@@ -2124,14 +2123,16 @@ audio_io_handle_t AudioPolicyManager::selectOutputForEffects(
     // 1: An offloaded output. If the effect ends up not being offloadable,
     //    AudioFlinger will invalidate the track and the offloaded output
     //    will be closed causing the effect to be moved to a PCM output.
-    // 2: A deep buffer output
-    // 3: the first output in the list
+    // 2: Non offloaded Direct output
+    // 3: A deep buffer output
+    // 4: the first output in the list
 
     if (outputs.size() == 0) {
         return 0;
     }
 
     audio_io_handle_t outputOffloaded = 0;
+    audio_io_handle_t outputDirect = 0;
     audio_io_handle_t outputDeepBuffer = 0;
 
     for (size_t i = 0; i < outputs.size(); i++) {
@@ -2140,15 +2141,22 @@ audio_io_handle_t AudioPolicyManager::selectOutputForEffects(
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
             outputOffloaded = outputs[i];
         }
+        if ((desc->mFlags == AUDIO_OUTPUT_FLAG_DIRECT) != 0) {
+            outputDirect = outputs[i];
+        }
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
             outputDeepBuffer = outputs[i];
         }
     }
 
-    ALOGV("selectOutputForEffects outputOffloaded %d outputDeepBuffer %d",
-          outputOffloaded, outputDeepBuffer);
+    ALOGV("selectOutputForEffects "
+          "outputOffloaded %d outputDirect %d outputDeepBuffer %d",
+          outputOffloaded, outputDirect, outputDeepBuffer);
     if (outputOffloaded != 0) {
         return outputOffloaded;
+    }
+    if (outputDirect != 0) {
+        return outputDirect;
     }
     if (outputDeepBuffer != 0) {
         return outputDeepBuffer;
