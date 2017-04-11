@@ -38,6 +38,7 @@
 #include <media/stagefright/Utils.h>
 #include "../../libstagefright/include/NuCachedSource2.h"
 #include "../../libstagefright/include/HTTPBase.h"
+#include "mediaplayerservice/AVNuExtensions.h"
 
 namespace android {
 
@@ -61,6 +62,7 @@ NuPlayer::GenericSource::GenericSource(
       mFetchTimedTextDataGeneration(0),
       mDurationUs(-1ll),
       mAudioIsVorbis(false),
+      mIsByteMode(false),
       mIsSecure(false),
       mIsStreaming(false),
       mUIDValid(uidValid),
@@ -153,7 +155,8 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
     sp<IMediaExtractor> extractor;
     CHECK(mDataSource != NULL);
 
-    extractor = MediaExtractor::Create(mDataSource, NULL);
+    extractor = MediaExtractor::Create(mDataSource, NULL,
+                mIsStreaming ? 0 : AVNuUtils::get()->getFlags());
 
     if (extractor == NULL) {
         return UNKNOWN_ERROR;
@@ -208,6 +211,9 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
                     mAudioIsVorbis = true;
                 } else {
                     mAudioIsVorbis = false;
+                }
+                if (AVNuUtils::get()->isByteStreamModeEnabled(meta)) {
+                    mIsByteMode = true;
                 }
 
                 mMimes.add(String8(mime));
@@ -1366,6 +1372,12 @@ void NuPlayer::GenericSource::readBuffer(
         case MEDIA_TRACK_TYPE_AUDIO:
             track = &mAudioTrack;
             maxBuffers = 64;
+            if (mIsByteMode) {
+                // byte stream mode is enabled only for mp3 & aac
+                // and the parser gives a huge chunk of data per read,
+                // so reading one buffer is sufficient.
+                maxBuffers = 1;
+            }
             break;
         case MEDIA_TRACK_TYPE_SUBTITLE:
             track = &mSubtitleTrack;

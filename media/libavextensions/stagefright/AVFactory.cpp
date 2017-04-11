@@ -54,7 +54,8 @@ sp<ACodec> AVFactory::createACodec() {
 }
 
 MediaExtractor* AVFactory::createExtendedExtractor(
-         const sp<DataSource> &, const char *, const sp<AMessage> &) {
+         const sp<DataSource> &, const char *, const sp<AMessage> &,
+         const uint32_t) {
     return NULL;
 }
 

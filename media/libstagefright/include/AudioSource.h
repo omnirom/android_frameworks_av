@@ -106,7 +106,7 @@ protected:
     void queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs);
     void releaseQueuedFrames_l();
     void waitOutstandingEncodingFrames_l();
-    status_t reset();
+    virtual status_t reset();
 
     AudioSource(const AudioSource &);
     AudioSource &operator=(const AudioSource &);

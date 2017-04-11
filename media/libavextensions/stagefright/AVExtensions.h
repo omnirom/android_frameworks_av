@@ -61,7 +61,8 @@ struct AudioSource;
 struct AVFactory {
     virtual sp<ACodec> createACodec();
     virtual MediaExtractor* createExtendedExtractor(
-            const sp<DataSource> &source, const char *mime, const sp<AMessage> &meta);
+            const sp<DataSource> &source, const char *mime, const sp<AMessage> &meta,
+            const uint32_t flags);
     virtual CameraSource *CreateCameraSourceFromCamera(
             const sp<hardware::ICamera> &camera,
             const sp<ICameraRecordingProxy> &proxy,

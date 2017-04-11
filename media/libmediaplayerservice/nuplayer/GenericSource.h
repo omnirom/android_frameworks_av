@@ -219,6 +219,7 @@ private:
     int32_t mFetchTimedTextDataGeneration;
     int64_t mDurationUs;
     bool mAudioIsVorbis;
+    bool mIsByteMode;
     bool mIsSecure;
     bool mIsStreaming;
     bool mUIDValid;

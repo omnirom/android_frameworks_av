@@ -71,6 +71,7 @@ AudioSource::AudioSource(
     CHECK(sampleRate > 0);
 
     size_t minFrameCount;
+    mMaxBufferSize = kMaxBufferSize;
     status_t status = AudioRecord::getMinFrameCount(&minFrameCount,
                                            sampleRate,
                                            AUDIO_FORMAT_PCM_16_BIT,
@@ -194,7 +195,7 @@ sp<MetaData> AudioSource::getFormat() {
     meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_RAW);
     meta->setInt32(kKeySampleRate, mSampleRate);
     meta->setInt32(kKeyChannelCount, mRecord->channelCount());
-    meta->setInt32(kKeyMaxInputSize, kMaxBufferSize);
+    meta->setInt32(kKeyMaxInputSize, mMaxBufferSize);
     meta->setInt32(kKeyPcmEncoding, kAudioEncodingPcm16bit);
 
     return meta;
@@ -364,9 +365,9 @@ status_t AudioSource::dataCallback(const AudioRecord::Buffer& audioBuffer) {
 
     while (numLostBytes > 0) {
         size_t bufferSize = numLostBytes;
-        if (numLostBytes > kMaxBufferSize) {
-            numLostBytes -= kMaxBufferSize;
-            bufferSize = kMaxBufferSize;
+        if (numLostBytes > mMaxBufferSize) {
+            numLostBytes -= mMaxBufferSize;
+            bufferSize = mMaxBufferSize;
         } else {
             numLostBytes = 0;
         }

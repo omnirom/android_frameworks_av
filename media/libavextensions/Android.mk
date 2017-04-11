@@ -40,35 +40,6 @@ include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 
-LOCAL_SRC_FILES:=                          \
-        media/AVMediaUtils.cpp             \
-
-LOCAL_C_INCLUDES:= \
-        $(TOP)/frameworks/av/include/media/ \
-        $(TOP)/frameworks/av/media/libavextensions \
-        $(TOP)/frameworks/native/include/media/hardware \
-        $(TOP)/frameworks/native/include/media/openmax \
-        $(TOP)/external/flac/include \
-        $(TOP)/hardware/qcom/media/mm-core/inc
-
-LOCAL_SHARED_LIBRARIES += \
-        libhidlbase \
-        liblog \
-        libaudioclient \
-        libcutils \
-        libutils \
-
-LOCAL_CFLAGS += -Wno-multichar -Werror
-
-LOCAL_MODULE:= libavmediaextentions
-
-LOCAL_MODULE_TAGS := optional
-
-include $(BUILD_STATIC_LIBRARY)
-########################################################
-
-include $(CLEAR_VARS)
-
 LOCAL_SRC_FILES:=                                      \
         mediaplayerservice/AVMediaServiceFactory.cpp   \
         mediaplayerservice/AVMediaServiceUtils.cpp     \
