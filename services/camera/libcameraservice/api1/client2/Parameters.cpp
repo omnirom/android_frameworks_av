@@ -798,16 +798,38 @@ status_t Parameters::initialize(const CameraMetadata *info, int deviceVersion) {
             exposureCompensationStep.data.r[0].denominator);
 
     autoExposureLock = false;
-    params.set(CameraParameters::KEY_AUTO_EXPOSURE_LOCK,
-            CameraParameters::FALSE);
-    params.set(CameraParameters::KEY_AUTO_EXPOSURE_LOCK_SUPPORTED,
-            CameraParameters::TRUE);
+    autoExposureLockAvailable = false;
+    camera_metadata_ro_entry_t exposureLockAvailable =
+        staticInfo(ANDROID_CONTROL_AE_LOCK_AVAILABLE, 1, 1);
+    if ((0 < exposureLockAvailable.count) &&
+            (ANDROID_CONTROL_AE_LOCK_AVAILABLE_TRUE ==
+                    exposureLockAvailable.data.u8[0])) {
+        params.set(CameraParameters::KEY_AUTO_EXPOSURE_LOCK,
+                CameraParameters::FALSE);
+        params.set(CameraParameters::KEY_AUTO_EXPOSURE_LOCK_SUPPORTED,
+                   CameraParameters::TRUE);
+        autoExposureLockAvailable = true;
+    } else {
+        params.set(CameraParameters::KEY_AUTO_EXPOSURE_LOCK_SUPPORTED,
+                   CameraParameters::FALSE);
+    }
 
     autoWhiteBalanceLock = false;
-    params.set(CameraParameters::KEY_AUTO_WHITEBALANCE_LOCK,
-            CameraParameters::FALSE);
-    params.set(CameraParameters::KEY_AUTO_WHITEBALANCE_LOCK_SUPPORTED,
-            CameraParameters::TRUE);
+    autoWhiteBalanceLockAvailable = false;
+    camera_metadata_ro_entry_t whitebalanceLockAvailable =
+        staticInfo(ANDROID_CONTROL_AWB_LOCK_AVAILABLE, 1, 1);
+    if ((0 < whitebalanceLockAvailable.count) &&
+            (ANDROID_CONTROL_AWB_LOCK_AVAILABLE_TRUE ==
+                    whitebalanceLockAvailable.data.u8[0])) {
+        params.set(CameraParameters::KEY_AUTO_WHITEBALANCE_LOCK,
+                CameraParameters::FALSE);
+        params.set(CameraParameters::KEY_AUTO_WHITEBALANCE_LOCK_SUPPORTED,
+                CameraParameters::TRUE);
+        autoWhiteBalanceLockAvailable = true;
+    } else {
+        params.set(CameraParameters::KEY_AUTO_WHITEBALANCE_LOCK_SUPPORTED,
+                CameraParameters::FALSE);
+    }
 
     meteringAreas.add(Parameters::Area(0, 0, 0, 0, 0));
     params.set(CameraParameters::KEY_MAX_NUM_METERING_AREAS,
@@ -816,30 +838,37 @@ status_t Parameters::initialize(const CameraMetadata *info, int deviceVersion) {
             "(0,0,0,0,0)");
 
     zoom = 0;
-    params.set(CameraParameters::KEY_ZOOM, zoom);
-    params.set(CameraParameters::KEY_MAX_ZOOM, NUM_ZOOM_STEPS - 1);
-
+    zoomAvailable = false;
     camera_metadata_ro_entry_t maxDigitalZoom =
         staticInfo(ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM, /*minCount*/1, /*maxCount*/1);
     if (!maxDigitalZoom.count) return NO_INIT;
 
-    {
-        String8 zoomRatios;
-        float zoom = 1.f;
-        float zoomIncrement = (maxDigitalZoom.data.f[0] - zoom) /
-                (NUM_ZOOM_STEPS-1);
-        bool addComma = false;
-        for (size_t i=0; i < NUM_ZOOM_STEPS; i++) {
-            if (addComma) zoomRatios += ",";
-            addComma = true;
-            zoomRatios += String8::format("%d", static_cast<int>(zoom * 100));
-            zoom += zoomIncrement;
-        }
-        params.set(CameraParameters::KEY_ZOOM_RATIOS, zoomRatios);
-    }
+    if (fabs(maxDigitalZoom.data.f[0] - 1.f) > 0.00001f) {
+        params.set(CameraParameters::KEY_ZOOM, zoom);
+        params.set(CameraParameters::KEY_MAX_ZOOM, NUM_ZOOM_STEPS - 1);
 
-    params.set(CameraParameters::KEY_ZOOM_SUPPORTED,
-            CameraParameters::TRUE);
+        {
+            String8 zoomRatios;
+            float zoom = 1.f;
+            float zoomIncrement = (maxDigitalZoom.data.f[0] - zoom) /
+                    (NUM_ZOOM_STEPS-1);
+            bool addComma = false;
+            for (size_t i=0; i < NUM_ZOOM_STEPS; i++) {
+                if (addComma) zoomRatios += ",";
+                addComma = true;
+                zoomRatios += String8::format("%d", static_cast<int>(zoom * 100));
+                zoom += zoomIncrement;
+            }
+            params.set(CameraParameters::KEY_ZOOM_RATIOS, zoomRatios);
+        }
+
+        params.set(CameraParameters::KEY_ZOOM_SUPPORTED,
+                CameraParameters::TRUE);
+        zoomAvailable = true;
+    } else {
+        params.set(CameraParameters::KEY_ZOOM_SUPPORTED,
+                CameraParameters::FALSE);
+    }
     params.set(CameraParameters::KEY_SMOOTH_ZOOM_SUPPORTED,
             CameraParameters::FALSE);
 
@@ -1836,13 +1865,25 @@ status_t Parameters::set(const String8& paramString) {
         return BAD_VALUE;
     }
 
-    // AUTO_EXPOSURE_LOCK (always supported)
-    validatedParams.autoExposureLock = boolFromString(
-        newParams.get(CameraParameters::KEY_AUTO_EXPOSURE_LOCK));
+    if (autoExposureLockAvailable) {
+        validatedParams.autoExposureLock = boolFromString(
+            newParams.get(CameraParameters::KEY_AUTO_EXPOSURE_LOCK));
+    } else if (nullptr !=
+            newParams.get(CameraParameters::KEY_AUTO_EXPOSURE_LOCK)){
+        ALOGE("%s: Requested auto exposure lock is not supported",
+              __FUNCTION__);
+        return BAD_VALUE;
+    }
 
-    // AUTO_WHITEBALANCE_LOCK (always supported)
-    validatedParams.autoWhiteBalanceLock = boolFromString(
-        newParams.get(CameraParameters::KEY_AUTO_WHITEBALANCE_LOCK));
+    if (autoWhiteBalanceLockAvailable) {
+        validatedParams.autoWhiteBalanceLock = boolFromString(
+                newParams.get(CameraParameters::KEY_AUTO_WHITEBALANCE_LOCK));
+    } else if (nullptr !=
+           newParams.get(CameraParameters::KEY_AUTO_WHITEBALANCE_LOCK)) {
+        ALOGE("%s: Requested auto whitebalance lock is not supported",
+              __FUNCTION__);
+        return BAD_VALUE;
+    }
 
     // METERING_AREAS
     size_t maxAeRegions = (size_t)staticInfo(ANDROID_CONTROL_MAX_REGIONS,
@@ -1862,12 +1903,14 @@ status_t Parameters::set(const String8& paramString) {
     }
 
     // ZOOM
-    validatedParams.zoom = newParams.getInt(CameraParameters::KEY_ZOOM);
-    if (validatedParams.zoom < 0
-                || validatedParams.zoom >= (int)NUM_ZOOM_STEPS) {
-        ALOGE("%s: Requested zoom level %d is not supported",
-                __FUNCTION__, validatedParams.zoom);
-        return BAD_VALUE;
+    if (zoomAvailable) {
+        validatedParams.zoom = newParams.getInt(CameraParameters::KEY_ZOOM);
+        if (validatedParams.zoom < 0
+                    || validatedParams.zoom >= (int)NUM_ZOOM_STEPS) {
+            ALOGE("%s: Requested zoom level %d is not supported",
+                    __FUNCTION__, validatedParams.zoom);
+            return BAD_VALUE;
+        }
     }
 
     // VIDEO_SIZE
@@ -1988,10 +2031,12 @@ status_t Parameters::updateRequest(CameraMetadata *request) const {
     }
     if (res != OK) return res;
 
-    uint8_t reqWbLock = autoWhiteBalanceLock ?
-            ANDROID_CONTROL_AWB_LOCK_ON : ANDROID_CONTROL_AWB_LOCK_OFF;
-    res = request->update(ANDROID_CONTROL_AWB_LOCK,
-            &reqWbLock, 1);
+    if (autoWhiteBalanceLockAvailable) {
+        uint8_t reqWbLock = autoWhiteBalanceLock ?
+                ANDROID_CONTROL_AWB_LOCK_ON : ANDROID_CONTROL_AWB_LOCK_OFF;
+        res = request->update(ANDROID_CONTROL_AWB_LOCK,
+                &reqWbLock, 1);
+    }
 
     res = request->update(ANDROID_CONTROL_EFFECT_MODE,
             &effectMode, 1);
@@ -2049,11 +2094,13 @@ status_t Parameters::updateRequest(CameraMetadata *request) const {
             &reqAeMode, 1);
     if (res != OK) return res;
 
-    uint8_t reqAeLock = autoExposureLock ?
-            ANDROID_CONTROL_AE_LOCK_ON : ANDROID_CONTROL_AE_LOCK_OFF;
-    res = request->update(ANDROID_CONTROL_AE_LOCK,
-            &reqAeLock, 1);
-    if (res != OK) return res;
+    if (autoExposureLockAvailable) {
+        uint8_t reqAeLock = autoExposureLock ?
+                ANDROID_CONTROL_AE_LOCK_ON : ANDROID_CONTROL_AE_LOCK_OFF;
+        res = request->update(ANDROID_CONTROL_AE_LOCK,
+                &reqAeLock, 1);
+        if (res != OK) return res;
+    }
 
     res = request->update(ANDROID_CONTROL_AWB_MODE,
             &wbMode, 1);
