@@ -122,7 +122,9 @@ struct Parameters {
 
     int32_t exposureCompensation;
     bool autoExposureLock;
+    bool autoExposureLockAvailable;
     bool autoWhiteBalanceLock;
+    bool autoWhiteBalanceLockAvailable;
 
     // 3A region types, for use with ANDROID_CONTROL_MAX_REGIONS
     enum region_t {
@@ -135,6 +137,7 @@ struct Parameters {
     Vector<Area> meteringAreas;
 
     int zoom;
+    bool zoomAvailable;
 
     int videoWidth, videoHeight, videoFormat;
     android_dataspace videoDataSpace;
