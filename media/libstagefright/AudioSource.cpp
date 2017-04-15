@@ -60,6 +60,7 @@ AudioSource::AudioSource(
       mStartTimeUs(0),
       mMaxAmplitude(0),
       mPrevSampleTimeUs(0),
+      mFirstSampleTimeUs(-1ll),
       mInitialReadTimeUs(0),
       mNumFramesReceived(0),
       mNumClientOwnedBuffers(0) {
@@ -277,8 +278,12 @@ status_t AudioSource::read(
     }
 
     if (mSampleRate != mOutSampleRate) {
-            timeUs *= (int64_t)mSampleRate / (int64_t)mOutSampleRate;
-            buffer->meta_data()->setInt64(kKeyTime, timeUs);
+        if (mFirstSampleTimeUs < 0) {
+            mFirstSampleTimeUs = timeUs;
+        }
+        timeUs = mFirstSampleTimeUs + (timeUs - mFirstSampleTimeUs)
+                * (int64_t)mSampleRate / (int64_t)mOutSampleRate;
+        buffer->meta_data()->setInt64(kKeyTime, timeUs);
     }
 
     *out = buffer;

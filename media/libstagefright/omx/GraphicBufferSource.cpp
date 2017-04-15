@@ -792,8 +792,7 @@ int64_t GraphicBufferSource::getTimestamp(const BufferItem &item) {
         if (mPrevCaptureUs < 0ll) {
             // first capture
             mPrevCaptureUs = timeUs;
-            // adjust the first sample timestamp.
-            mPrevFrameUs = (timeUs * mTimePerFrameUs) / mTimePerCaptureUs;
+            mPrevFrameUs = timeUs;
         } else {
             // snap to nearest capture point
             int64_t nFrames = (timeUs + mTimePerCaptureUs / 2 - mPrevCaptureUs)
