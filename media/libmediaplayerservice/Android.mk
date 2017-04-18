@@ -50,7 +50,6 @@ LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := libmedia
 
 LOCAL_WHOLE_STATIC_LIBRARIES := \
     libavmediaserviceextensions \
-     libavextensions \
 
 LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/av/media/libstagefright/include               \
