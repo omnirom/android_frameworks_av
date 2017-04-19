@@ -75,6 +75,7 @@ struct AVNuUtils {
     virtual void overWriteAudioOutputFormat(sp <AMessage> &dst, const sp <AMessage> &src);
     virtual bool pcmOffloadException(const sp<AMessage> &);
     virtual uint32_t getFlags();
+    virtual audio_format_t getPCMFormat(const sp<AMessage> &);
 
     // ----- NO TRESSPASSING BEYOND THIS LINE ------
     DECLARE_LOADABLE_SINGLETON(AVNuUtils);

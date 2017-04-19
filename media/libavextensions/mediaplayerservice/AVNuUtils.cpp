@@ -72,6 +72,10 @@ uint32_t AVNuUtils::getFlags() {
     return 0;
 }
 
+audio_format_t AVNuUtils::getPCMFormat(const sp<AMessage> &) {
+    return AUDIO_FORMAT_PCM_16_BIT;
+}
+
 // ----- NO TRESSPASSING BEYOND THIS LINE ------
 AVNuUtils::AVNuUtils() {}
 
