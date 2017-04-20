@@ -1219,7 +1219,9 @@ status_t NuPlayer::GenericSource::doSeek(int64_t seekTimeUs, MediaPlayerSeekMode
         readBuffer(MEDIA_TRACK_TYPE_VIDEO, seekTimeUs, mode, &actualTimeUs);
 
         if (mode != MediaPlayerSeekMode::SEEK_CLOSEST) {
-            seekTimeUs = actualTimeUs;
+            if (!AVNuUtils::get()->isAccurateSeek()) {
+                seekTimeUs = actualTimeUs;
+            }
         }
         mVideoLastDequeueTimeUs = actualTimeUs;
     }
