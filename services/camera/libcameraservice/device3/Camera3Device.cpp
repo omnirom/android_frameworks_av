@@ -199,10 +199,42 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
         return res;
     }
 
+    std::shared_ptr<RequestMetadataQueue> queue;
+    auto requestQueueRet = session->getCaptureRequestMetadataQueue(
+        [&queue](const auto& descriptor) {
+            queue = std::make_shared<RequestMetadataQueue>(descriptor);
+            if (!queue->isValid() || queue->availableToWrite() <= 0) {
+                ALOGE("HAL returns empty request metadata fmq, not use it");
+                queue = nullptr;
+                // don't use the queue onwards.
+            }
+        });
+    if (!requestQueueRet.isOk()) {
+        ALOGE("Transaction error when getting request metadata fmq: %s, not use it",
+                requestQueueRet.description().c_str());
+        queue = nullptr;
+        // Don't use the queue onwards.
+    }
+    auto resultQueueRet = session->getCaptureResultMetadataQueue(
+        [&queue = mResultMetadataQueue](const auto& descriptor) {
+            queue = std::make_unique<ResultMetadataQueue>(descriptor);
+            if (!queue->isValid() ||  queue->availableToWrite() <= 0) {
+                ALOGE("HAL returns empty result metadata fmq, not use it");
+                queue = nullptr;
+                // Don't use the queue onwards.
+            }
+        });
+    if (!resultQueueRet.isOk()) {
+        ALOGE("Transaction error when getting result metadata queue from camera session: %s",
+                resultQueueRet.description().c_str());
+        mResultMetadataQueue = nullptr;
+        // Don't use the queue onwards.
+    }
+
     // TODO: camera service will absorb 3_2/3_3/3_4 differences in the future
     //       for now use 3_4 to keep legacy devices working
     mDeviceVersion = CAMERA_DEVICE_API_VERSION_3_4;
-    mInterface = std::make_unique<HalInterface>(session);
+    mInterface = std::make_unique<HalInterface>(session, queue);
     std::string providerType;
     mVendorTagId = manager->getProviderTagIdLocked(mId.string());
 
@@ -938,24 +970,56 @@ status_t Camera3Device::submitRequestsHelper(
     return res;
 }
 
-
+// Only one processCaptureResult should be called at a time, so
+// the locks won't block. The locks are present here simply to enforce this.
 hardware::Return<void> Camera3Device::processCaptureResult(
         const hardware::hidl_vec<
                 hardware::camera::device::V3_2::CaptureResult>& results) {
-    for (const auto& result : results) {
-        processOneCaptureResult(result);
+
+    if (mProcessCaptureResultLock.tryLock() != OK) {
+        // This should never happen; it indicates a wrong client implementation
+        // that doesn't follow the contract. But, we can be tolerant here.
+        ALOGE("%s: callback overlapped! waiting 1s...",
+                __FUNCTION__);
+        if (mProcessCaptureResultLock.timedLock(1000000000 /* 1s */) != OK) {
+            ALOGE("%s: cannot acquire lock in 1s, dropping results",
+                    __FUNCTION__);
+            // really don't know what to do, so bail out.
+            return hardware::Void();
+        }
     }
+    for (const auto& result : results) {
+        processOneCaptureResultLocked(result);
+    }
+    mProcessCaptureResultLock.unlock();
     return hardware::Void();
 }
 
-void Camera3Device::processOneCaptureResult(
+void Camera3Device::processOneCaptureResultLocked(
         const hardware::camera::device::V3_2::CaptureResult& result) {
     camera3_capture_result r;
     status_t res;
     r.frame_number = result.frameNumber;
-    if (result.result.size() != 0) {
-        r.result = reinterpret_cast<const camera_metadata_t*>(result.result.data());
-        size_t expected_metadata_size = result.result.size();
+
+    hardware::camera::device::V3_2::CameraMetadata resultMetadata;
+    if (result.fmqResultSize > 0) {
+        resultMetadata.resize(result.fmqResultSize);
+        if (mResultMetadataQueue == nullptr) {
+            return; // logged in initialize()
+        }
+        if (!mResultMetadataQueue->read(resultMetadata.data(), result.fmqResultSize)) {
+            ALOGE("%s: Frame %d: Cannot read camera metadata from fmq, size = %" PRIu64,
+                    __FUNCTION__, result.frameNumber, result.fmqResultSize);
+            return;
+        }
+    } else {
+        resultMetadata.setToExternal(const_cast<uint8_t *>(result.result.data()),
+                result.result.size());
+    }
+
+    if (resultMetadata.size() != 0) {
+        r.result = reinterpret_cast<const camera_metadata_t*>(resultMetadata.data());
+        size_t expected_metadata_size = resultMetadata.size();
         if ((res = validate_camera_metadata_structure(r.result, &expected_metadata_size)) != OK) {
             ALOGE("%s: Frame %d: Invalid camera metadata received by camera service from HAL: %s (%d)",
                     __FUNCTION__, result.frameNumber, strerror(-res), res);
@@ -3035,16 +3099,20 @@ void Camera3Device::monitorMetadata(TagMonitor::eventSource source,
 Camera3Device::HalInterface::HalInterface(camera3_device_t *device) :
         mHal3Device(device) {}
 
-Camera3Device::HalInterface::HalInterface(sp<ICameraDeviceSession> &session) :
+Camera3Device::HalInterface::HalInterface(
+            sp<ICameraDeviceSession> &session,
+            std::shared_ptr<RequestMetadataQueue> queue) :
         mHal3Device(nullptr),
-        mHidlSession(session) {}
+        mHidlSession(session),
+        mRequestMetadataQueue(queue) {}
 
 Camera3Device::HalInterface::HalInterface() :
         mHal3Device(nullptr) {}
 
 Camera3Device::HalInterface::HalInterface(const HalInterface& other) :
         mHal3Device(other.mHal3Device),
-        mHidlSession(other.mHidlSession) {}
+        mHidlSession(other.mHidlSession),
+        mRequestMetadataQueue(other.mRequestMetadataQueue) {}
 
 bool Camera3Device::HalInterface::valid() {
     return (mHal3Device != nullptr) || (mHidlSession != nullptr);
@@ -3276,12 +3344,8 @@ void Camera3Device::HalInterface::wrapAsHidlRequest(camera3_capture_request_t* r
     }
 
     captureRequest->frameNumber = request->frame_number;
-    // A null request settings maps to a size-0 CameraMetadata
-    if (request->settings != nullptr) {
-        captureRequest->settings.setToExternal(
-                reinterpret_cast<uint8_t*>(const_cast<camera_metadata_t*>(request->settings)),
-                get_camera_metadata_size(request->settings));
-    }
+
+    captureRequest->fmqSettingsSize = 0;
 
     {
         std::lock_guard<std::mutex> lock(mInflightLock);
@@ -3367,6 +3431,33 @@ status_t Camera3Device::HalInterface::processBatchCaptureRequests(
 
     common::V1_0::Status status = common::V1_0::Status::INTERNAL_ERROR;
     *numRequestProcessed = 0;
+
+    // Write metadata to FMQ.
+    for (size_t i = 0; i < batchSize; i++) {
+        camera3_capture_request_t* request = requests[i];
+        device::V3_2::CaptureRequest* captureRequest = &captureRequests[i];
+
+        if (request->settings != nullptr) {
+            size_t settingsSize = get_camera_metadata_size(request->settings);
+            if (mRequestMetadataQueue != nullptr && mRequestMetadataQueue->write(
+                    reinterpret_cast<const uint8_t*>(request->settings), settingsSize)) {
+                captureRequest->settings.resize(0);
+                captureRequest->fmqSettingsSize = settingsSize;
+            } else {
+                if (mRequestMetadataQueue != nullptr) {
+                    ALOGW("%s: couldn't utilize fmq, fallback to hwbinder", __FUNCTION__);
+                }
+                captureRequest->settings.setToExternal(
+                        reinterpret_cast<uint8_t*>(const_cast<camera_metadata_t*>(request->settings)),
+                        get_camera_metadata_size(request->settings));
+                captureRequest->fmqSettingsSize = 0u;
+            }
+        } else {
+            // A null request settings maps to a size-0 CameraMetadata
+            captureRequest->settings.resize(0);
+            captureRequest->fmqSettingsSize = 0u;
+        }
+    }
     mHidlSession->processCaptureRequest(captureRequests, cachesToRemove,
             [&status, &numRequestProcessed] (auto s, uint32_t n) {
                 status = s;

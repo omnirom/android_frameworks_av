@@ -22,7 +22,7 @@
 #include <sys/mman.h>
 #include <binder/Parcelable.h>
 
-#include <aaudio/AAudioDefinitions.h>
+#include <aaudio/AAudio.h>
 
 #include "binding/SharedMemoryParcelable.h"
 
@@ -44,6 +44,8 @@ public:
     virtual status_t readFromParcel(const Parcel* parcel) override;
 
     aaudio_result_t resolve(SharedMemoryParcelable *memoryParcels, void **regionAddressPtr);
+
+    bool isFileDescriptorSafe(SharedMemoryParcelable *memoryParcels);
 
     aaudio_result_t validate();
 

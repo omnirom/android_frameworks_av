@@ -447,6 +447,8 @@ const char *AudioFlinger::ThreadBase::threadTypeToString(AudioFlinger::ThreadBas
         return "RECORD";
     case OFFLOAD:
         return "OFFLOAD";
+    case MMAP:
+        return "MMAP";
     default:
         return "unknown";
     }
@@ -533,7 +535,7 @@ status_t AudioFlinger::ThreadBase::readyToRun()
 {
     status_t status = initCheck();
     if (status == NO_ERROR) {
-        ALOGI("AudioFlinger's thread %p ready to run", this);
+        ALOGI("AudioFlinger's thread %p tid=%d ready to run", this, getTid());
     } else {
         ALOGE("No working audio driver found.");
     }
@@ -809,14 +811,15 @@ void AudioFlinger::ThreadBase::dumpBase(int fd, const Vector<String16>& args __u
     char buffer[SIZE];
     String8 result;
 
+    dprintf(fd, "\n%s thread %p, name %s, tid %d, type %d (%s):\n", isOutput() ? "Output" : "Input",
+            this, mThreadName, getTid(), type(), threadTypeToString(type()));
+
     bool locked = AudioFlinger::dumpTryLock(mLock);
     if (!locked) {
-        dprintf(fd, "thread %p may be deadlocked\n", this);
+        dprintf(fd, "  Thread may be deadlocked\n");
     }
 
-    dprintf(fd, "  Thread name: %s\n", mThreadName);
     dprintf(fd, "  I/O handle: %d\n", mId);
-    dprintf(fd, "  TID: %d\n", getTid());
     dprintf(fd, "  Standby: %s\n", mStandby ? "yes" : "no");
     dprintf(fd, "  Sample rate: %u Hz\n", mSampleRate);
     dprintf(fd, "  HAL frame count: %zu\n", mFrameCount);
@@ -1775,8 +1778,6 @@ void AudioFlinger::PlaybackThread::dumpTracks(int fd, const Vector<String16>& ar
 
 void AudioFlinger::PlaybackThread::dumpInternals(int fd, const Vector<String16>& args)
 {
-    dprintf(fd, "\nOutput thread %p type %d (%s):\n", this, type(), threadTypeToString(type()));
-
     dumpBase(fd, args);
 
     dprintf(fd, "  Normal frame count: %zu\n", mNormalFrameCount);
@@ -4711,34 +4712,42 @@ void AudioFlinger::MixerThread::dumpInternals(int fd, const Vector<String16>& ar
     dprintf(fd, "  AudioMixer tracks: 0x%08x\n", mAudioMixer->trackNames());
     dprintf(fd, "  Master mono: %s\n", mMasterMono ? "on" : "off");
 
-    // Make a non-atomic copy of fast mixer dump state so it won't change underneath us
-    // while we are dumping it.  It may be inconsistent, but it won't mutate!
-    // This is a large object so we place it on the heap.
-    // FIXME 25972958: Need an intelligent copy constructor that does not touch unused pages.
-    const FastMixerDumpState *copy = new FastMixerDumpState(mFastMixerDumpState);
-    copy->dump(fd);
-    delete copy;
+    if (hasFastMixer()) {
+        dprintf(fd, "  FastMixer thread %p tid=%d", mFastMixer.get(), mFastMixer->getTid());
+
+        // Make a non-atomic copy of fast mixer dump state so it won't change underneath us
+        // while we are dumping it.  It may be inconsistent, but it won't mutate!
+        // This is a large object so we place it on the heap.
+        // FIXME 25972958: Need an intelligent copy constructor that does not touch unused pages.
+        const FastMixerDumpState *copy = new FastMixerDumpState(mFastMixerDumpState);
+        copy->dump(fd);
+        delete copy;
 
 #ifdef STATE_QUEUE_DUMP
-    // Similar for state queue
-    StateQueueObserverDump observerCopy = mStateQueueObserverDump;
-    observerCopy.dump(fd);
-    StateQueueMutatorDump mutatorCopy = mStateQueueMutatorDump;
-    mutatorCopy.dump(fd);
+        // Similar for state queue
+        StateQueueObserverDump observerCopy = mStateQueueObserverDump;
+        observerCopy.dump(fd);
+        StateQueueMutatorDump mutatorCopy = mStateQueueMutatorDump;
+        mutatorCopy.dump(fd);
 #endif
+
+#ifdef AUDIO_WATCHDOG
+        if (mAudioWatchdog != 0) {
+            // Make a non-atomic copy of audio watchdog dump so it won't change underneath us
+            AudioWatchdogDump wdCopy = mAudioWatchdogDump;
+            wdCopy.dump(fd);
+        }
+#endif
+
+    } else {
+        dprintf(fd, "  No FastMixer\n");
+    }
 
 #ifdef TEE_SINK
     // Write the tee output to a .wav file
     dumpTee(fd, mTeeSource, mId);
 #endif
 
-#ifdef AUDIO_WATCHDOG
-    if (mAudioWatchdog != 0) {
-        // Make a non-atomic copy of audio watchdog dump so it won't change underneath us
-        AudioWatchdogDump wdCopy = mAudioWatchdogDump;
-        wdCopy.dump(fd);
-    }
-#endif
 }
 
 uint32_t AudioFlinger::MixerThread::idleSleepTimeUs() const
@@ -6869,8 +6878,6 @@ void AudioFlinger::RecordThread::dump(int fd, const Vector<String16>& args)
 
 void AudioFlinger::RecordThread::dumpInternals(int fd, const Vector<String16>& args)
 {
-    dprintf(fd, "\nInput thread %p:\n", this);
-
     dumpBase(fd, args);
 
     AudioStreamIn *input = mInput;
@@ -7582,7 +7589,11 @@ status_t AudioFlinger::MmapThread::start(const MmapStreamInterface::Client& clie
 
     if (mActiveTracks.size() == 0) {
         // for the first track, reuse portId and session allocated when the stream was opened
-        mHalStream->start();
+        ret = mHalStream->start();
+        if (ret != NO_ERROR) {
+            ALOGE("%s: error mHalStream->start() = %d for first track", __FUNCTION__, ret);
+            return ret;
+        }
         portId = mPortId;
         sessionId = mSessionId;
         mStandby = false;
@@ -7637,6 +7648,7 @@ status_t AudioFlinger::MmapThread::start(const MmapStreamInterface::Client& clie
 
     // abort if start is rejected by audio policy manager
     if (ret != NO_ERROR) {
+        ALOGE("%s: error start rejected by AudioPolicyManager = %d", __FUNCTION__, ret);
         if (mActiveTracks.size() != 0) {
             if (isOutput()) {
                 AudioSystem::releaseOutput(mId, streamType(), sessionId);
@@ -7932,15 +7944,17 @@ status_t AudioFlinger::MmapThread::createAudioPatch_l(const struct audio_patch *
     if (isOutput() && mPrevOutDevice != mOutDevice) {
         mPrevOutDevice = type;
         sendIoConfigEvent_l(AUDIO_OUTPUT_CONFIG_CHANGED);
-        if (mCallback != 0) {
-            mCallback->onRoutingChanged(deviceId);
+        sp<MmapStreamCallback> callback = mCallback.promote();
+        if (callback != 0) {
+            callback->onRoutingChanged(deviceId);
         }
     }
     if (!isOutput() && mPrevInDevice != mInDevice) {
         mPrevInDevice = type;
         sendIoConfigEvent_l(AUDIO_INPUT_CONFIG_CHANGED);
-        if (mCallback != 0) {
-            mCallback->onRoutingChanged(deviceId);
+        sp<MmapStreamCallback> callback = mCallback.promote();
+        if (callback != 0) {
+            callback->onRoutingChanged(deviceId);
         }
     }
     return status;
@@ -8055,8 +8069,9 @@ void AudioFlinger::MmapThread::threadLoop_standby()
 
 void AudioFlinger::MmapThread::threadLoop_exit()
 {
-    if (mCallback != 0) {
-        mCallback->onTearDown();
+    sp<MmapStreamCallback> callback = mCallback.promote();
+    if (callback != 0) {
+        callback->onTearDown();
     }
 }
 
@@ -8104,8 +8119,9 @@ void AudioFlinger::MmapThread::checkInvalidTracks_l()
 {
     for (const sp<MmapTrack> &track : mActiveTracks) {
         if (track->isInvalid()) {
-            if (mCallback != 0) {
-                mCallback->onTearDown();
+            sp<MmapStreamCallback> callback = mCallback.promote();
+            if (callback != 0) {
+                callback->onTearDown();
             }
             break;
         }
@@ -8121,8 +8137,6 @@ void AudioFlinger::MmapThread::dump(int fd, const Vector<String16>& args)
 
 void AudioFlinger::MmapThread::dumpInternals(int fd, const Vector<String16>& args)
 {
-    dprintf(fd, "\nMmap thread %p:\n", this);
-
     dumpBase(fd, args);
 
     dprintf(fd, "  Attributes: content type %d usage %d source %d\n",
@@ -8282,7 +8296,8 @@ void AudioFlinger::MmapPlaybackThread::processVolume_l()
 
         mOutput->stream->setVolume(volume, volume);
 
-        if (mCallback != 0) {
+        sp<MmapStreamCallback> callback = mCallback.promote();
+        if (callback != 0) {
             int channelCount;
             if (isOutput()) {
                 channelCount = audio_channel_count_from_out_mask(mChannelMask);
@@ -8293,7 +8308,7 @@ void AudioFlinger::MmapPlaybackThread::processVolume_l()
             for (int i = 0; i < channelCount; i++) {
                 values.add(volume);
             }
-            mCallback->onVolumeChanged(mChannelMask, values);
+            callback->onVolumeChanged(mChannelMask, values);
         }
     }
 }

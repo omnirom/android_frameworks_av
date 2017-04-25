@@ -70,13 +70,9 @@ struct ElementaryStreamQueue {
 
     sp<MetaData> getFormat();
 
-    bool isScrambled() {
-        return (mFlags & kFlag_ScrambledData) != 0;
-    }
+    bool isScrambled() const;
 
-    void setCasSession(const std::vector<uint8_t> &sessionId) {
-        mCasSessionId = sessionId;
-    }
+    void setCasInfo(int32_t systemId, const std::vector<uint8_t> &sessionId);
 
 protected:
     struct RangeInfo {
@@ -104,6 +100,7 @@ protected:
 
     sp<ABuffer> mScrambledBuffer;
     List<ScrambledRangeInfo> mScrambledRangeInfos;
+    int32_t mCASystemId;
     std::vector<uint8_t> mCasSessionId;
 
     sp<MetaData> mFormat;
