@@ -17,6 +17,8 @@ LOCAL_STATIC_LIBRARIES := libaaudio
 LOCAL_MODULE := write_sine
 include $(BUILD_EXECUTABLE)
 
+
+
 include $(CLEAR_VARS)
 LOCAL_MODULE_TAGS := tests
 LOCAL_C_INCLUDES := \
@@ -27,8 +29,26 @@ LOCAL_SRC_FILES:= ../src/write_sine_threaded.cpp
 
 LOCAL_SHARED_LIBRARIES := libaudioutils libmedia \
                           libbinder libcutils libutils \
-                          libaudioclient liblog libtinyalsa
+                          libaudioclient liblog
 LOCAL_STATIC_LIBRARIES := libaaudio
 
 LOCAL_MODULE := write_sine_threaded
+include $(BUILD_EXECUTABLE)
+
+
+
+include $(CLEAR_VARS)
+LOCAL_MODULE_TAGS := tests
+LOCAL_C_INCLUDES := \
+    $(call include-path-for, audio-utils) \
+    frameworks/av/media/libaaudio/include
+
+LOCAL_SRC_FILES:= ../src/write_sine_callback.cpp
+
+LOCAL_SHARED_LIBRARIES := libaudioutils libmedia \
+                          libbinder libcutils libutils \
+                          libaudioclient liblog
+LOCAL_STATIC_LIBRARIES := libaaudio
+
+LOCAL_MODULE := write_sine_callback
 include $(BUILD_EXECUTABLE)

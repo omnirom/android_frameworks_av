@@ -571,6 +571,7 @@ status_t AudioFlinger::EffectModule::stop_l()
 // must be called with EffectChain::mLock held
 void AudioFlinger::EffectModule::release_l()
 {
+    Mutex::Autolock _l(mLock);
     if (mEffectInterface != 0) {
         remove_effect_from_hal_l();
         // release effect engine

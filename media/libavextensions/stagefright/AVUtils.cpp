@@ -143,6 +143,9 @@ const char *AVUtils::getComponentRole(bool isEncoder, const char *mime) {
     return GetComponentRole(isEncoder,mime);
 }
 
+bool AVUtils::IsHevcIDR(const sp<ABuffer> &) {
+   return false;
+}
 
 // ----- NO TRESSPASSING BEYOND THIS LINE ------
 AVUtils::AVUtils() {}

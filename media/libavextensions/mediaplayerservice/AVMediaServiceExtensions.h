@@ -32,7 +32,11 @@
 #include <common/AVExtensionsCommon.h>
 #include <MediaPlayerFactory.h>
 
+#include <utils/List.h>
+#include <utils/RefBase.h>
 #include <utils/String16.h>
+
+#include <media/Metadata.h>
 
 namespace android {
 
@@ -61,6 +65,24 @@ struct AVMediaServiceFactory {
  * Common delegate to the classes in libmediaplayerservice
  */
 struct AVMediaServiceUtils {
+
+    // RTSP IPV6 utils
+    virtual bool pokeAHole(sp<MyHandler> handler, int rtpSocket, int rtcpSocket,
+            const AString &transport, const AString &sessionHost);
+    virtual void makePortPair(int *rtpSocket, int *rtcpSocket, unsigned *rtpPort,
+            bool isIPV6);
+    virtual const char* parseURL(AString *host);
+    // RTSP customization utils
+    virtual bool parseTrackURL(AString url, AString val);
+    virtual void appendRange(AString *request);
+    virtual void setServerTimeoutUs(int64_t timeout);
+    virtual void appendMeta(media::Metadata *meta);
+    virtual bool checkNPTMapping(uint32_t *rtpInfoTime, int64_t *playTimeUs,
+            bool *nptValid, uint32_t rtpTime);
+    virtual void addH263AdvancedPacket(const sp<ABuffer> &buffer,
+            List<sp<ABuffer>> *packets, uint32_t rtpTime);
+    virtual bool parseNTPRange(const char *s, float *npt1, float *npt2);
+
     // ----- NO TRESSPASSING BEYOND THIS LINE ------
     DECLARE_LOADABLE_SINGLETON(AVMediaServiceUtils);
 };
