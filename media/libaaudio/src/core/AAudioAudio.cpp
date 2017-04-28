@@ -168,16 +168,15 @@ AAUDIO_API void AAudioStreamBuilder_setDataCallback(AAudioStreamBuilder* builder
                                                     void *userData)
 {
     AudioStreamBuilder *streamBuilder = convertAAudioBuilderToStreamBuilder(builder);
-    ALOGD("AAudioStreamBuilder_setCallback(): userData = %p", userData);
     streamBuilder->setDataCallbackProc(callback);
     streamBuilder->setDataCallbackUserData(userData);
 }
+
 AAUDIO_API void AAudioStreamBuilder_setErrorCallback(AAudioStreamBuilder* builder,
                                                  AAudioStream_errorCallback callback,
                                                  void *userData)
 {
     AudioStreamBuilder *streamBuilder = convertAAudioBuilderToStreamBuilder(builder);
-    ALOGD("AAudioStreamBuilder_setCallback(): userData = %p", userData);
     streamBuilder->setErrorCallbackProc(callback);
     streamBuilder->setErrorCallbackUserData(userData);
 }
@@ -186,10 +185,10 @@ AAUDIO_API void AAudioStreamBuilder_setFramesPerDataCallback(AAudioStreamBuilder
                                                 int32_t frames)
 {
     AudioStreamBuilder *streamBuilder = convertAAudioBuilderToStreamBuilder(builder);
-    ALOGD("%s: frames = %d", __func__, frames);
     streamBuilder->setFramesPerDataCallback(frames);
 }
 
+// TODO merge AAudioInternal_openStream into AAudioStreamBuilder_openStream
 static aaudio_result_t  AAudioInternal_openStream(AudioStreamBuilder *streamBuilder,
                                               AAudioStream** streamPtr)
 {
@@ -206,7 +205,7 @@ static aaudio_result_t  AAudioInternal_openStream(AudioStreamBuilder *streamBuil
 AAUDIO_API aaudio_result_t  AAudioStreamBuilder_openStream(AAudioStreamBuilder* builder,
                                                      AAudioStream** streamPtr)
 {
-    ALOGD("AAudioStreamBuilder_openStream(): builder = %p", builder);
+    ALOGD("AAudioStreamBuilder_openStream() ----------------------------------------------");
     AudioStreamBuilder *streamBuilder = COMMON_GET_FROM_BUILDER_OR_RETURN(streamPtr);
     return AAudioInternal_openStream(streamBuilder, streamPtr);
 }
@@ -228,6 +227,7 @@ AAUDIO_API aaudio_result_t  AAudioStream_close(AAudioStream* stream)
     if (audioStream != nullptr) {
         audioStream->close();
         delete audioStream;
+        ALOGD("AAudioStream_close() ----------------------------------------------");
         return AAUDIO_OK;
     }
     return AAUDIO_ERROR_INVALID_HANDLE;
@@ -322,29 +322,6 @@ AAUDIO_API aaudio_result_t AAudioStream_write(AAudioStream* stream,
     // ALOGD("AAudioStream_write(): write returns %d", result);
 
     return result;
-}
-
-// ============================================================
-// Miscellaneous
-// ============================================================
-
-AAUDIO_API aaudio_result_t AAudioStream_createThread(AAudioStream* stream,
-                                     int64_t periodNanoseconds,
-                                     aaudio_audio_thread_proc_t threadProc, void *arg)
-{
-    AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
-    if (audioStream->getDataCallbackProc() != nullptr) {
-        return AAUDIO_ERROR_INCOMPATIBLE;
-    }
-    return audioStream->createThread(periodNanoseconds, threadProc, arg);
-}
-
-AAUDIO_API aaudio_result_t AAudioStream_joinThread(AAudioStream* stream,
-                                   void **returnArg,
-                                   int64_t timeoutNanoseconds)
-{
-    AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
-    return audioStream->joinThread(returnArg, timeoutNanoseconds);
 }
 
 // ============================================================

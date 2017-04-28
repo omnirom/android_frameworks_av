@@ -43,7 +43,6 @@ status_t AAudioStreamConfiguration::writeToParcel(Parcel* parcel) const {
     status = parcel->writeInt32(mSamplesPerFrame);
     if (status != NO_ERROR) goto error;
     status = parcel->writeInt32((int32_t) mSharingMode);
-    ALOGD("AAudioStreamConfiguration.writeToParcel(): mSharingMode = %d", mSharingMode);
     if (status != NO_ERROR) goto error;
     status = parcel->writeInt32((int32_t) mAudioFormat);
     if (status != NO_ERROR) goto error;
@@ -66,7 +65,6 @@ status_t AAudioStreamConfiguration::readFromParcel(const Parcel* parcel) {
     status = parcel->readInt32(&temp);
     if (status != NO_ERROR) goto error;
     mSharingMode = (aaudio_sharing_mode_t) temp;
-    ALOGD("AAudioStreamConfiguration.readFromParcel(): mSharingMode = %d", mSharingMode);
     status = parcel->readInt32(&temp);
     if (status != NO_ERROR) goto error;
     mAudioFormat = (aaudio_audio_format_t) temp;
@@ -93,8 +91,6 @@ aaudio_result_t AAudioStreamConfiguration::validate() const {
     switch (mAudioFormat) {
     case AAUDIO_FORMAT_PCM_I16:
     case AAUDIO_FORMAT_PCM_FLOAT:
-    case AAUDIO_FORMAT_PCM_I8_24:
-    case AAUDIO_FORMAT_PCM_I32:
         break;
     default:
         ALOGE("AAudioStreamConfiguration.validate() invalid audioFormat = %d", mAudioFormat);
