@@ -159,6 +159,7 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
                 mIsStreaming ? 0 : AVNuUtils::get()->getFlags());
 
     if (extractor == NULL) {
+        ALOGE("initFromDataSource, cannot create extractor!");
         return UNKNOWN_ERROR;
     }
 
@@ -174,6 +175,7 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
 
     size_t numtracks = extractor->countTracks();
     if (numtracks == 0) {
+        ALOGE("initFromDataSource, source has no track!");
         return UNKNOWN_ERROR;
     }
 
