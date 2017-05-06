@@ -95,7 +95,7 @@ public:
             , mId(-1) {
         }
 
-        Configuration(const Configuration &configuration)
+        explicit Configuration(const Configuration &configuration)
             : Interpolator<S, T>(*static_cast<const Interpolator<S, T> *>(&configuration))
             , mType(configuration.mType)
             , mOptionFlags(configuration.mOptionFlags)
@@ -236,6 +236,7 @@ public:
             clampVolume();
         }
 
+        // The parcel layout must match VolumeShaper.java
         status_t writeToParcel(Parcel *parcel) const {
             if (parcel == nullptr) return BAD_VALUE;
             return parcel->writeInt32((int32_t)mType)
@@ -300,15 +301,19 @@ public:
             : Operation(FLAG_NONE, -1 /* replaceId */) {
         }
 
-        explicit Operation(Flag flags, int replaceId)
+        Operation(Flag flags, int replaceId)
             : Operation(flags, replaceId, std::numeric_limits<S>::quiet_NaN() /* xOffset */) {
         }
 
-        Operation(const Operation &operation)
+        explicit Operation(const Operation &operation)
             : Operation(operation.mFlags, operation.mReplaceId, operation.mXOffset) {
         }
 
-        explicit Operation(Flag flags, int replaceId, S xOffset)
+        explicit Operation(const sp<Operation> &operation)
+            : Operation(*operation.get()) {
+        }
+
+        Operation(Flag flags, int replaceId, S xOffset)
             : mFlags(flags)
             , mReplaceId(replaceId)
             , mXOffset(xOffset) {
@@ -375,7 +380,7 @@ public:
     // must match with VolumeShaper.java in frameworks/base
     class State : public RefBase {
     public:
-        explicit State(T volume, S xOffset)
+        State(T volume, S xOffset)
             : mVolume(volume)
             , mXOffset(xOffset) {
         }
@@ -480,7 +485,7 @@ public:
     // TODO: Since we pass configuration and operation as shared pointers
     // there is a potential risk that the caller may modify these after
     // delivery.  Currently, we don't require copies made here.
-    explicit VolumeShaper(
+    VolumeShaper(
             const sp<VolumeShaper::Configuration> &configuration,
             const sp<VolumeShaper::Operation> &operation)
         : mConfiguration(configuration) // we do not make a copy
@@ -521,6 +526,10 @@ public:
 
     void setDelayXOffset(S xOffset) {
         mDelayXOffset = xOffset;
+    }
+
+    bool isStarted() const {
+        return mStartFrame >= 0;
     }
 
     std::pair<T /* volume */, bool /* active */> getVolume(
@@ -628,7 +637,8 @@ public:
     explicit VolumeHandler(uint32_t sampleRate)
         : mSampleRate((double)sampleRate)
         , mLastFrame(0)
-        , mVolumeShaperIdCounter(VolumeShaper::kSystemIdMax) {
+        , mVolumeShaperIdCounter(VolumeShaper::kSystemIdMax)
+        , mLastVolume(1.f, false) {
     }
 
     VolumeShaper::Status applyVolumeShaper(
@@ -746,6 +756,8 @@ public:
         return it->getState();
     }
 
+    // getVolume() is not const, as it updates internal state.
+    // Once called, any VolumeShapers not already started begin running.
     std::pair<T /* volume */, bool /* active */> getVolume(int64_t trackFrameCount) {
         AutoMutex _l(mLock);
         mLastFrame = trackFrameCount;
@@ -758,7 +770,21 @@ public:
             activeCount += shaperVolume.second;
             ++it;
         }
-        return std::make_pair(volume, activeCount != 0);
+        mLastVolume = std::make_pair(volume, activeCount != 0);
+        return mLastVolume;
+    }
+
+    // Used by a client side VolumeHandler to ensure all the VolumeShapers
+    // indicate that they have been started.  Upon a change in audioserver
+    // output sink, this information is used for restoration of the server side
+    // VolumeHandler.
+    void setStarted() {
+        (void)getVolume(mLastFrame);  // getVolume() will start the individual VolumeShapers.
+    }
+
+    std::pair<T /* volume */, bool /* active */> getLastVolume() const {
+        AutoMutex _l(mLock);
+        return mLastVolume;
     }
 
     std::string toString() const {
@@ -772,20 +798,19 @@ public:
         return ss.str();
     }
 
-    void forall(const std::function<VolumeShaper::Status (
-            const sp<VolumeShaper::Configuration> &configuration,
-            const sp<VolumeShaper::Operation> &operation)> &lambda) {
+    void forall(const std::function<VolumeShaper::Status (const VolumeShaper &)> &lambda) {
         AutoMutex _l(mLock);
+        VS_LOG("forall: mVolumeShapers.size() %zu", mVolumeShapers.size());
         for (const auto &shaper : mVolumeShapers) {
-            VS_LOG("forall applying lambda");
-            (void)lambda(shaper.mConfiguration, shaper.mOperation);
+            VolumeShaper::Status status = lambda(shaper);
+            VS_LOG("forall applying lambda on shaper (%p): %d", &shaper, (int)status);
         }
     }
 
     void reset() {
         AutoMutex _l(mLock);
         mVolumeShapers.clear();
-        mLastFrame = -1;
+        mLastFrame = 0;
         // keep mVolumeShaperIdCounter as is.
     }
 
@@ -827,8 +852,9 @@ private:
 
     mutable Mutex mLock;
     double mSampleRate; // in samples (frames) per second
-    int64_t mLastFrame; // logging purpose only
+    int64_t mLastFrame; // logging purpose only, 0 on start
     int32_t mVolumeShaperIdCounter; // a counter to return a unique volume shaper id.
+    std::pair<T /* volume */, bool /* active */> mLastVolume;
     std::list<VolumeShaper> mVolumeShapers; // list provides stable iterators on erase
 }; // VolumeHandler
 

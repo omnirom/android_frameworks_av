@@ -766,7 +766,6 @@ bool GraphicBufferSource::calculateCodecTimestamp_l(
 status_t GraphicBufferSource::submitBuffer_l(const VideoBuffer &item) {
     CHECK(!mFreeCodecBuffers.empty());
     IOMX::buffer_id codecBufferId = *mFreeCodecBuffers.begin();
-    mFreeCodecBuffers.erase(mFreeCodecBuffers.begin());
 
     ALOGV("submitBuffer_l [slot=%d, bufferId=%d]", item.mBuffer->getSlot(), codecBufferId);
 
@@ -797,6 +796,8 @@ status_t GraphicBufferSource::submitBuffer_l(const VideoBuffer &item) {
         return err;
     }
 
+    mFreeCodecBuffers.erase(mFreeCodecBuffers.begin());
+
     ssize_t cbix = mSubmittedCodecBuffers.add(codecBufferId, buffer);
     ALOGV("emptyGraphicBuffer succeeded, bufferId=%u@%zd bufhandle=%p",
             codecBufferId, cbix, graphicBuffer->handle);
@@ -815,7 +816,6 @@ void GraphicBufferSource::submitEndOfInputStream_l() {
         return;
     }
     IOMX::buffer_id codecBufferId = *mFreeCodecBuffers.begin();
-    mFreeCodecBuffers.erase(mFreeCodecBuffers.begin());
 
     // We reject any additional incoming graphic buffers. There is no acquired buffer used for EOS
     status_t err = mOMXNode->emptyBuffer(
@@ -823,6 +823,7 @@ void GraphicBufferSource::submitEndOfInputStream_l() {
     if (err != OK) {
         ALOGW("emptyDirectBuffer EOS failed: 0x%x", err);
     } else {
+        mFreeCodecBuffers.erase(mFreeCodecBuffers.begin());
         ssize_t cbix = mSubmittedCodecBuffers.add(codecBufferId, nullptr);
         ALOGV("submitEndOfInputStream_l: buffer submitted, bufferId=%u@%zd", codecBufferId, cbix);
         mEndOfStreamSent = true;
@@ -897,7 +898,7 @@ void GraphicBufferSource::onFrameAvailable(const BufferItem& item __unused) {
     ++mNumAvailableUnacquiredBuffers;
 
     // For BufferQueue we cannot acquire a buffer if we cannot immediately feed it to the codec
-    // OR we are discarding this buffer (acquiring and immediately releasing it), which makes
+    // UNLESS we are discarding this buffer (acquiring and immediately releasing it), which makes
     // this an ugly logic.
     // NOTE: We could also rely on our debug counter but that is meant only as a debug counter.
     if (!areWeDiscardingAvailableBuffers_l() && mFreeCodecBuffers.empty()) {
@@ -906,6 +907,7 @@ void GraphicBufferSource::onFrameAvailable(const BufferItem& item __unused) {
         ALOGV("onFrameAvailable: cannot acquire buffer right now, do it later");
 
         ++mRepeatLastFrameGeneration; // cancel any pending frame repeat
+        return;
     }
 
     VideoBuffer buffer;
