@@ -77,6 +77,7 @@ public:
     int32_t getFramesPerBurst() const override;
 
     int64_t getFramesRead() override;
+    int64_t getFramesWritten() override;
 
     int32_t getXRunCount() const override {
         return mXRunCount;
@@ -88,6 +89,11 @@ public:
 
     // Called internally from 'C'
     void *callbackLoop();
+
+
+    bool isMMap() override {
+        return true;
+    }
 
 protected:
 
