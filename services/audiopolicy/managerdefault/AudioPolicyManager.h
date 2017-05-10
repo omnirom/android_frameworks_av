@@ -273,6 +273,10 @@ protected:
         {
             return mDefaultOutputDevice;
         }
+        virtual const bool &getA2dpSuspended() const
+        {
+            return mA2dpSuspended;
+        }
 protected:
         void addOutput(audio_io_handle_t output, const sp<SwAudioOutputDescriptor>& outputDesc);
         void removeOutput(audio_io_handle_t output);
