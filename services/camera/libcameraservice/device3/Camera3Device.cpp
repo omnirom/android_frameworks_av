@@ -1066,6 +1066,17 @@ status_t Camera3Device::createStream(sp<Surface> consumer,
         return BAD_VALUE;
     }
 
+    // avoid invalid dataSpace value 0x10c60000 if property is enabled
+    int dataspace_replace_invalid = 0;
+    if (property_get_bool("sf.dataspace.replace_invalid", false)) {
+        dataspace_replace_invalid = 1;
+        ALOGI("%s: replace invalid dataspace if detected", __func__);
+    }
+    if(dataspace_replace_invalid && dataSpace == 0x10c60000) {
+        ALOGI("detected invalid dataspace and property is enabled, reverting to default HAL_DATASPACE_BT709");
+        dataSpace = HAL_DATASPACE_BT709;
+    }
+
     // Use legacy dataspace values for older HALs
     if (mDeviceVersion <= CAMERA_DEVICE_API_VERSION_3_3) {
         dataSpace = mapToLegacyDataspace(dataSpace);
