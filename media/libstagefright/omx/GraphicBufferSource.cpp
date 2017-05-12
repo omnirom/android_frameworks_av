@@ -18,6 +18,7 @@
 
 #define LOG_TAG "GraphicBufferSource"
 //#define LOG_NDEBUG 0
+#include <cutils/properties.h>
 #include <utils/Log.h>
 
 #define STRINGIFY_ENUMS // for asString in HardwareAPI.h/VideoAPI.h
@@ -1035,7 +1036,18 @@ void GraphicBufferSource::onSidebandStreamChanged() {
 void GraphicBufferSource::setDefaultDataSpace(android_dataspace dataSpace) {
     // no need for mutex as we are not yet running
     ALOGD("setting dataspace: %#x", dataSpace);
-    mConsumer->setDefaultBufferDataSpace(dataSpace);
+
+    int dataspace_replace_invalid = 0;
+    if (property_get_bool("sf.dataspace.replace_invalid", false)) {
+        dataspace_replace_invalid = 1;
+        ALOGI("%s: replace invalid dataspace if found", __func__);
+    }
+    if(dataspace_replace_invalid && dataSpace == 0x10c60000) {
+        ALOGD("detected invalid dataspace and property is enabled, reverting to default HAL_DATASPACE_BT709");
+        mConsumer->setDefaultBufferDataSpace(HAL_DATASPACE_BT709);
+    } else {
+        mConsumer->setDefaultBufferDataSpace(dataSpace);
+    }
     mLastDataSpace = dataSpace;
 }
 
