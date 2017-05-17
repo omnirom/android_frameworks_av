@@ -1125,4 +1125,12 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
     }
 }
 
+void MediaCodecSource::notifyPerformanceMode() {
+    if (mIsVideo && mEncoder != NULL) {
+        sp<AMessage> params = new AMessage;
+        params->setInt32("qti.request.perf", true);
+        mEncoder->setParameters(params);
+    }
+}
+
 } // namespace android
