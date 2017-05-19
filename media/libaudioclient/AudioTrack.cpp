@@ -1254,8 +1254,22 @@ audio_stream_type_t AudioTrack::streamType() const
 }
 
 // -------------------------------------------------------------------------
+uint32_t AudioTrack::latency()
+{
+  AutoMutex lock(mLock);
+  return latency_l();
+}
 
 // must be called with mLock held
+uint32_t AudioTrack::latency_l()
+{
+    status_t status = AudioSystem::getLatency(mOutput, &mAfLatency);
+    if (status != NO_ERROR) {
+        ALOGW("getLatency(%d) failed status %d", mOutput, status);
+    }
+    return mAfLatency + (1000*mFrameCount) / mSampleRate;
+}
+
 status_t AudioTrack::createTrack_l()
 {
     const sp<IAudioFlinger>& audioFlinger = AudioSystem::get_audio_flinger();
@@ -1558,9 +1572,8 @@ status_t AudioTrack::createTrack_l()
     mAudioTrack->attachAuxEffect(mAuxEffectId);
     // FIXME doesn't take into account speed or future sample rate changes (until restoreTrack)
     // FIXME don't believe this lie
-    mLatency = mAfLatency + (1000*frameCount) / mSampleRate;
-
     mFrameCount = frameCount;
+    mLatency = latency_l();
     // If IAudioTrack is re-created, don't let the requested frameCount
     // decrease.  This can confuse clients that cache frameCount().
     if (frameCount > mReqFrameCount) {
@@ -2332,12 +2345,18 @@ Modulo<uint32_t> AudioTrack::updateAndGetPosition_l()
 
 bool AudioTrack::isSampleRateSpeedAllowed_l(uint32_t sampleRate, float speed) const
 {
+    uint32_t afLatency = 0;
+    status_t status = AudioSystem::getLatency(mOutput, &afLatency);
+    if (status != NO_ERROR) {
+        afLatency = mAfLatency;
+        ALOGW("getLatency(%d) failed status %d", mOutput, status);
+    }
     // applicable for mixing tracks only (not offloaded or direct)
     if (mStaticProxy != 0) {
         return true; // static tracks do not have issues with buffer sizing.
     }
     const size_t minFrameCount =
-            calculateMinFrameCount(mAfLatency, mAfFrameCount, mAfSampleRate, sampleRate, speed
+            calculateMinFrameCount(afLatency, mAfFrameCount, mAfSampleRate, sampleRate, speed
                 /*, 0 mNotificationsPerBufferReq*/);
     ALOGV("isSampleRateSpeedAllowed_l mFrameCount %zu  minFrameCount %zu",
             mFrameCount, minFrameCount);
@@ -2485,6 +2504,10 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
             status = ets.getBestTimestamp(&timestamp, &location);
 
             if (status == OK) {
+                status = AudioSystem::getLatency(mOutput, &mAfLatency);
+                if (status != NO_ERROR) {
+                    ALOGW("getLatency(%d) failed status %d", mOutput, status);
+                }
                 // It is possible that the best location has moved from the kernel to the server.
                 // In this case we adjust the position from the previous computed latency.
                 if (location == ExtendedTimestamp::LOCATION_SERVER) {
