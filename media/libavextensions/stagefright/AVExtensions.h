@@ -149,6 +149,8 @@ struct AVUtils {
 
     virtual bool isAudioMuxFormatSupported(const char *mime);
     virtual void cacheCaptureBuffers(sp<hardware::ICamera> camera, video_encoder encoder);
+    virtual void getHFRParams(bool*, int32_t*, sp<AMessage>);
+    virtual int64_t overwriteTimeOffset(bool, int64_t, int64_t *, int64_t, int32_t);
     virtual const char *getCustomCodecsLocation();
     virtual const char *getCustomCodecsPerformanceLocation();
 
