@@ -28,7 +28,6 @@
 #include <system/window.h>
 #include <hardware/camera.h>
 
-#include <common/CameraModule.h>
 #include <common/CameraProviderManager.h>
 
 namespace android {
@@ -107,7 +106,6 @@ public:
 
     ~CameraHardwareInterface();
 
-    status_t initialize(CameraModule *module);
     status_t initialize(sp<CameraProviderManager> manager);
 
     /** Set the ANativeWindow to which preview frames are sent */
@@ -316,16 +314,6 @@ private:
     static void sDataCbTimestamp(nsecs_t timestamp, int32_t msg_type,
                              const camera_memory_t *data, unsigned index,
                              void *user);
-
-    // TODO: b/35625849
-    // Meta data buffer layout for passing a native_handle to codec
-    // matching frameworks/native/include/media/hardware/MetadataBufferType.h and
-    //          frameworks/native/include/media/hardware/HardwareAPI.h
-    struct VideoNativeHandleMetadata {
-        static const uint32_t kMetadataBufferTypeNativeHandleSource = 3;
-        uint32_t eType; // must be kMetadataBufferTypeNativeHandleSource
-        native_handle_t* pHandle;
-    };
 
     // This is a utility class that combines a MemoryHeapBase and a MemoryBase
     // in one.  Since we tend to use them in a one-to-one relationship, this is

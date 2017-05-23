@@ -65,16 +65,7 @@ CameraClient::CameraClient(const sp<CameraService>& cameraService,
     LOG1("CameraClient::CameraClient X (pid %d, id %d)", callingPid, cameraId);
 }
 
-status_t CameraClient::initialize(CameraModule *module) {
-    return initializeImpl<CameraModule*>(module);
-}
-
 status_t CameraClient::initialize(sp<CameraProviderManager> manager) {
-    return initializeImpl<sp<CameraProviderManager>>(manager);
-}
-
-template<typename TProviderPtr>
-status_t CameraClient::initializeImpl(TProviderPtr providerPtr) {
     int callingPid = getCallingPid();
     status_t res;
 
@@ -90,7 +81,7 @@ status_t CameraClient::initializeImpl(TProviderPtr providerPtr) {
     snprintf(camera_device_name, sizeof(camera_device_name), "%d", mCameraId);
 
     mHardware = new CameraHardwareInterface(camera_device_name);
-    res = mHardware->initialize(providerPtr);
+    res = mHardware->initialize(manager);
     if (res != OK) {
         ALOGE("%s: Camera %d: unable to initialize device: %s (%d)",
                 __FUNCTION__, mCameraId, strerror(-res), res);
@@ -481,14 +472,23 @@ void CameraClient::stopPreview() {
 // stop recording mode
 void CameraClient::stopRecording() {
     LOG1("stopRecording (pid %d)", getCallingPid());
-    Mutex::Autolock lock(mLock);
-    if (checkPidAndHardware() != NO_ERROR) return;
+    {
+        Mutex::Autolock lock(mLock);
+        if (checkPidAndHardware() != NO_ERROR) return;
 
-    disableMsgType(CAMERA_MSG_VIDEO_FRAME);
-    mHardware->stopRecording();
-    sCameraService->playSound(CameraService::SOUND_RECORDING_STOP);
+        disableMsgType(CAMERA_MSG_VIDEO_FRAME);
+        mHardware->stopRecording();
+        sCameraService->playSound(CameraService::SOUND_RECORDING_STOP);
 
-    mPreviewBuffer.clear();
+        mPreviewBuffer.clear();
+    }
+
+    {
+        Mutex::Autolock l(mAvailableCallbackBuffersLock);
+        if (!mAvailableCallbackBuffers.empty()) {
+            mAvailableCallbackBuffers.clear();
+        }
+    }
 }
 
 // release a recording frame

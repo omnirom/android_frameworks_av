@@ -27,6 +27,7 @@ LOCAL_SHARED_LIBRARIES += \
         libmediadrm \
         libnativewindow \
         libstagefright \
+        libcrypto \
         android.hardware.media.omx@1.0 \
 
 LOCAL_CFLAGS += -Wno-multichar -Werror

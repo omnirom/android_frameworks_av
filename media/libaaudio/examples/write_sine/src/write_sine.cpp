@@ -22,11 +22,15 @@
 #include <aaudio/AAudio.h>
 #include "SineGenerator.h"
 
-#define SAMPLE_RATE   48000
-#define NUM_SECONDS   10
+#define SAMPLE_RATE           48000
+#define NUM_SECONDS           5
 #define NANOS_PER_MICROSECOND ((int64_t)1000)
 #define NANOS_PER_MILLISECOND (NANOS_PER_MICROSECOND * 1000)
 #define NANOS_PER_SECOND      (NANOS_PER_MILLISECOND * 1000)
+
+#define REQUESTED_FORMAT  AAUDIO_FORMAT_PCM_I16
+#define REQUESTED_SHARING_MODE  AAUDIO_SHARING_MODE_SHARED
+//#define REQUESTED_SHARING_MODE  AAUDIO_SHARING_MODE_EXCLUSIVE
 
 static const char *getSharingModeText(aaudio_sharing_mode_t mode) {
     const char *modeText = "unknown";
@@ -59,27 +63,25 @@ int main(int argc, char **argv)
 
     aaudio_result_t result = AAUDIO_OK;
 
-    const int requestedSamplesPerFrame = 2;
-    int actualSamplesPerFrame = 0;
+    const int requestedChannelCount = 2;
+    int actualChannelCount = 0;
     const int requestedSampleRate = SAMPLE_RATE;
     int actualSampleRate = 0;
-    const aaudio_audio_format_t requestedDataFormat = AAUDIO_FORMAT_PCM_I16;
-    aaudio_audio_format_t actualDataFormat = AAUDIO_FORMAT_PCM_I16;
+    aaudio_audio_format_t actualDataFormat = AAUDIO_FORMAT_UNSPECIFIED;
 
-    //const aaudio_sharing_mode_t requestedSharingMode = AAUDIO_SHARING_MODE_EXCLUSIVE;
-    const aaudio_sharing_mode_t requestedSharingMode = AAUDIO_SHARING_MODE_SHARED;
     aaudio_sharing_mode_t actualSharingMode = AAUDIO_SHARING_MODE_SHARED;
 
     AAudioStreamBuilder *aaudioBuilder = nullptr;
     AAudioStream *aaudioStream = nullptr;
     aaudio_stream_state_t state = AAUDIO_STREAM_STATE_UNINITIALIZED;
-    int32_t framesPerBurst = 0;
-    int32_t framesPerWrite = 0;
-    int32_t bufferCapacity = 0;
-    int32_t framesToPlay = 0;
-    int32_t framesLeft = 0;
-    int32_t xRunCount = 0;
-    int16_t *data = nullptr;
+    int32_t  framesPerBurst = 0;
+    int32_t  framesPerWrite = 0;
+    int32_t  bufferCapacity = 0;
+    int32_t  framesToPlay = 0;
+    int32_t  framesLeft = 0;
+    int32_t  xRunCount = 0;
+    float   *floatData = nullptr;
+    int16_t *shortData = nullptr;
 
     SineGenerator sineOsc1;
     SineGenerator sineOsc2;
@@ -98,9 +100,13 @@ int main(int argc, char **argv)
 
     // Request stream properties.
     AAudioStreamBuilder_setSampleRate(aaudioBuilder, requestedSampleRate);
-    AAudioStreamBuilder_setSamplesPerFrame(aaudioBuilder, requestedSamplesPerFrame);
-    AAudioStreamBuilder_setFormat(aaudioBuilder, requestedDataFormat);
-    AAudioStreamBuilder_setSharingMode(aaudioBuilder, requestedSharingMode);
+    AAudioStreamBuilder_setChannelCount(aaudioBuilder, requestedChannelCount);
+    AAudioStreamBuilder_setFormat(aaudioBuilder, REQUESTED_FORMAT);
+    AAudioStreamBuilder_setSharingMode(aaudioBuilder, REQUESTED_SHARING_MODE);
+
+    AAudioStreamBuilder_setPerformanceMode(aaudioBuilder, AAUDIO_PERFORMANCE_MODE_NONE);
+    //AAudioStreamBuilder_setPerformanceMode(aaudioBuilder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    //AAudioStreamBuilder_setPerformanceMode(aaudioBuilder, AAUDIO_PERFORMANCE_MODE_POWER_SAVING);
 
     // Create an AAudioStream using the Builder.
     result = AAudioStreamBuilder_openStream(aaudioBuilder, &aaudioStream);
@@ -118,21 +124,21 @@ int main(int argc, char **argv)
     sineOsc1.setup(440.0, actualSampleRate);
     sineOsc2.setup(660.0, actualSampleRate);
 
-    actualSamplesPerFrame = AAudioStream_getSamplesPerFrame(aaudioStream);
-    printf("SamplesPerFrame: requested = %d, actual = %d\n",
-            requestedSamplesPerFrame, actualSamplesPerFrame);
+    actualChannelCount = AAudioStream_getChannelCount(aaudioStream);
+    printf("ChannelCount: requested = %d, actual = %d\n",
+            requestedChannelCount, actualChannelCount);
 
     actualSharingMode = AAudioStream_getSharingMode(aaudioStream);
     printf("SharingMode: requested = %s, actual = %s\n",
-            getSharingModeText(requestedSharingMode),
+            getSharingModeText(REQUESTED_SHARING_MODE),
             getSharingModeText(actualSharingMode));
 
     // This is the number of frames that are read in one chunk by a DMA controller
     // or a DSP or a mixer.
     framesPerBurst = AAudioStream_getFramesPerBurst(aaudioStream);
-    printf("DataFormat: framesPerBurst = %d\n",framesPerBurst);
+    printf("Buffer: bufferSize = %d\n", AAudioStream_getBufferSizeInFrames(aaudioStream));
     bufferCapacity = AAudioStream_getBufferCapacityInFrames(aaudioStream);
-    printf("DataFormat: bufferCapacity = %d, remainder = %d\n",
+    printf("Buffer: bufferCapacity = %d, remainder = %d\n",
            bufferCapacity, bufferCapacity % framesPerBurst);
 
     // Some DMA might use very short bursts of 16 frames. We don't need to write such small
@@ -141,17 +147,22 @@ int main(int argc, char **argv)
     while (framesPerWrite < 48) {
         framesPerWrite *= 2;
     }
-    printf("DataFormat: framesPerWrite = %d\n",framesPerWrite);
+    printf("Buffer: framesPerBurst = %d\n",framesPerBurst);
+    printf("Buffer: framesPerWrite = %d\n",framesPerWrite);
 
     actualDataFormat = AAudioStream_getFormat(aaudioStream);
-    printf("DataFormat: requested = %d, actual = %d\n", requestedDataFormat, actualDataFormat);
+    printf("DataFormat: requested = %d, actual = %d\n", REQUESTED_FORMAT, actualDataFormat);
     // TODO handle other data formats
 
+    printf("PerformanceMode: %d\n", AAudioStream_getPerformanceMode(aaudioStream));
+
     // Allocate a buffer for the audio data.
-    data = new int16_t[framesPerWrite * actualSamplesPerFrame];
-    if (data == nullptr) {
-        fprintf(stderr, "ERROR - could not allocate data buffer\n");
-        result = AAUDIO_ERROR_NO_MEMORY;
+    if (actualDataFormat == AAUDIO_FORMAT_PCM_FLOAT) {
+        floatData = new float[framesPerWrite * actualChannelCount];
+    } else if (actualDataFormat == AAUDIO_FORMAT_PCM_I16) {
+        shortData = new int16_t[framesPerWrite * actualChannelCount];
+    } else {
+        printf("ERROR Unsupported data format!\n");
         goto finish;
     }
 
@@ -170,26 +181,41 @@ int main(int argc, char **argv)
     framesToPlay = actualSampleRate * NUM_SECONDS;
     framesLeft = framesToPlay;
     while (framesLeft > 0) {
-        // Render sine waves to left and right channels.
-        sineOsc1.render(&data[0], actualSamplesPerFrame, framesPerWrite);
-        if (actualSamplesPerFrame > 1) {
-            sineOsc2.render(&data[1], actualSamplesPerFrame, framesPerWrite);
+
+        if (actualDataFormat == AAUDIO_FORMAT_PCM_FLOAT) {
+            // Render sine waves to left and right channels.
+            sineOsc1.render(&floatData[0], actualChannelCount, framesPerWrite);
+            if (actualChannelCount > 1) {
+                sineOsc2.render(&floatData[1], actualChannelCount, framesPerWrite);
+            }
+        } else if (actualDataFormat == AAUDIO_FORMAT_PCM_I16) {
+            // Render sine waves to left and right channels.
+            sineOsc1.render(&shortData[0], actualChannelCount, framesPerWrite);
+            if (actualChannelCount > 1) {
+                sineOsc2.render(&shortData[1], actualChannelCount, framesPerWrite);
+            }
         }
 
         // Write audio data to the stream.
-        int64_t timeoutNanos = 100 * NANOS_PER_MILLISECOND;
-        int minFrames = (framesToPlay < framesPerWrite) ? framesToPlay : framesPerWrite;
-        int actual = AAudioStream_write(aaudioStream, data, minFrames, timeoutNanos);
+        int64_t timeoutNanos = 1000 * NANOS_PER_MILLISECOND;
+        int32_t minFrames = (framesToPlay < framesPerWrite) ? framesToPlay : framesPerWrite;
+        int32_t actual = 0;
+        if (actualDataFormat == AAUDIO_FORMAT_PCM_FLOAT) {
+            actual = AAudioStream_write(aaudioStream, floatData, minFrames, timeoutNanos);
+        } else if (actualDataFormat == AAUDIO_FORMAT_PCM_I16) {
+            actual = AAudioStream_write(aaudioStream, shortData, minFrames, timeoutNanos);
+        }
         if (actual < 0) {
-            fprintf(stderr, "ERROR - AAudioStream_write() returned %zd\n", actual);
+            fprintf(stderr, "ERROR - AAudioStream_write() returned %d\n", actual);
             goto finish;
         } else if (actual == 0) {
-            fprintf(stderr, "WARNING - AAudioStream_write() returned %zd\n", actual);
+            fprintf(stderr, "WARNING - AAudioStream_write() returned %d\n", actual);
             goto finish;
         }
         framesLeft -= actual;
 
         // Use timestamp to estimate latency.
+        /*
         {
             int64_t presentationFrame;
             int64_t presentationTime;
@@ -208,13 +234,15 @@ int main(int argc, char **argv)
                 printf("estimatedLatencyMillis %d\n", (int)estimatedLatencyMillis);
             }
         }
+         */
     }
 
     xRunCount = AAudioStream_getXRunCount(aaudioStream);
     printf("AAudioStream_getXRunCount %d\n", xRunCount);
 
 finish:
-    delete[] data;
+    delete[] floatData;
+    delete[] shortData;
     AAudioStream_close(aaudioStream);
     AAudioStreamBuilder_delete(aaudioBuilder);
     printf("exiting - AAudio result = %d = %s\n", result, AAudio_convertResultToText(result));

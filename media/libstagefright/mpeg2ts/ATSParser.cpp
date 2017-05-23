@@ -106,6 +106,8 @@ struct ATSParser::Program : public RefBase {
 
     void updateCasSessions();
 
+    void signalNewSampleAesKey(const sp<AMessage> &keyItem);
+
 private:
     struct StreamInfo {
         unsigned mType;
@@ -120,6 +122,7 @@ private:
     bool mFirstPTSValid;
     uint64_t mFirstPTS;
     int64_t mLastRecoveredPTS;
+    sp<AMessage> mSampleAesKeyItem;
 
     status_t parseProgramMap(ABitReader *br);
     int64_t recoverPTS(uint64_t PTS_33bit);
@@ -141,7 +144,8 @@ struct ATSParser::Stream : public RefBase {
     unsigned pid() const { return mElementaryPID; }
     void setPID(unsigned pid) { mElementaryPID = pid; }
 
-    void setCasSession(
+    void setCasInfo(
+            int32_t systemId,
             const sp<IDescrambler> &descrambler,
             const std::vector<uint8_t> &sessionId);
 
@@ -167,6 +171,8 @@ struct ATSParser::Stream : public RefBase {
     bool isAudio() const;
     bool isVideo() const;
     bool isMeta() const;
+
+    void signalNewSampleAesKey(const sp<AMessage> &keyItem);
 
 protected:
     virtual ~Stream();
@@ -194,6 +200,8 @@ private:
     ElementaryStreamQueue *mQueue;
 
     bool mScrambled;
+    bool mSampleEncrypted;
+    sp<AMessage> mSampleAesKeyItem;
     sp<IMemory> mMem;
     sp<MemoryDealer> mDealer;
     sp<ABuffer> mDescrambledBuffer;
@@ -586,6 +594,10 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
             sp<Stream> stream = new Stream(
                     this, info.mPID, info.mType, PCR_PID, info.mCASystemId);
 
+            if (mSampleAesKeyItem != NULL) {
+                stream->signalNewSampleAesKey(mSampleAesKeyItem);
+            }
+
             isAddingScrambledStream |= info.mCASystemId >= 0;
             mStreams.add(info.mPID, stream);
         }
@@ -683,9 +695,10 @@ void ATSParser::Program::updateCasSessions() {
         sp<Stream> &stream = mStreams.editValueAt(i);
         sp<IDescrambler> descrambler;
         std::vector<uint8_t> sessionId;
-        if (mParser->mCasManager->getCasSession(
-                mProgramNumber, stream->pid(), &descrambler, &sessionId)) {
-            stream->setCasSession(descrambler, sessionId);
+        int32_t systemId;
+        if (mParser->mCasManager->getCasInfo(mProgramNumber, stream->pid(),
+                &systemId, &descrambler, &sessionId)) {
+            stream->setCasInfo(systemId, descrambler, sessionId);
         }
     }
 }
@@ -709,16 +722,25 @@ ATSParser::Stream::Stream(
       mPrevPTS(0),
       mQueue(NULL),
       mScrambled(CA_system_ID >= 0) {
-    ALOGV("new stream PID 0x%02x, type 0x%02x, scrambled %d",
-            elementaryPID, streamType, mScrambled);
 
-    uint32_t flags = (isVideo() && mScrambled) ?
-            ElementaryStreamQueue::kFlag_ScrambledData : 0;
+    mSampleEncrypted =
+            mStreamType == STREAMTYPE_H264_ENCRYPTED ||
+            mStreamType == STREAMTYPE_AAC_ENCRYPTED  ||
+            mStreamType == STREAMTYPE_AC3_ENCRYPTED;
+
+    ALOGV("new stream PID 0x%02x, type 0x%02x, scrambled %d, SampleEncrypted: %d",
+            elementaryPID, streamType, mScrambled, mSampleEncrypted);
+
+    uint32_t flags =
+            (isVideo() && mScrambled) ? ElementaryStreamQueue::kFlag_ScrambledData :
+            (mSampleEncrypted) ? ElementaryStreamQueue::kFlag_SampleEncryptedData :
+            0;
 
     ElementaryStreamQueue::Mode mode = ElementaryStreamQueue::INVALID;
 
     switch (mStreamType) {
         case STREAMTYPE_H264:
+        case STREAMTYPE_H264_ENCRYPTED:
             mode = ElementaryStreamQueue::H264;
             flags |= (mProgram->parserFlags() & ALIGNED_VIDEO_DATA) ?
                     ElementaryStreamQueue::kFlag_AlignedData : 0;
@@ -729,6 +751,7 @@ ATSParser::Stream::Stream(
                     ElementaryStreamQueue::kFlag_AlignedData : 0;
             break;
         case STREAMTYPE_MPEG2_AUDIO_ADTS:
+        case STREAMTYPE_AAC_ENCRYPTED:
             mode = ElementaryStreamQueue::AAC;
             break;
 
@@ -748,6 +771,7 @@ ATSParser::Stream::Stream(
 
         case STREAMTYPE_LPCM_AC3:
         case STREAMTYPE_AC3:
+        case STREAMTYPE_AC3_ENCRYPTED:
             mode = ElementaryStreamQueue::AC3;
             break;
 
@@ -767,6 +791,10 @@ ATSParser::Stream::Stream(
         mQueue = new ElementaryStreamQueue(mode, flags);
 
     if (mQueue != NULL) {
+        if (mSampleAesKeyItem != NULL) {
+            mQueue->signalNewSampleAesKey(mSampleAesKeyItem);
+        }
+
         ensureBufferCapacity(kInitialStreamBufferSize);
 
         if (mScrambled && (isAudio() || isVideo())) {
@@ -775,8 +803,8 @@ ATSParser::Stream::Stream(
             meta->setCString(kKeyMIMEType,
                     isAudio() ? MEDIA_MIMETYPE_AUDIO_SCRAMBLED
                               : MEDIA_MIMETYPE_VIDEO_SCRAMBLED);
-            // for DrmInitData
-            meta->setData(kKeyCas, 0, &CA_system_ID, sizeof(CA_system_ID));
+            // for MediaExtractor.CasInfo
+            meta->setInt32(kKeyCASystemID, CA_system_ID);
             mSource = new AnotherPacketSource(meta);
         }
     }
@@ -920,6 +948,7 @@ bool ATSParser::Stream::isVideo() const {
     switch (mStreamType) {
         case STREAMTYPE_H264:
         case STREAMTYPE_H265:
+        case STREAMTYPE_H264_ENCRYPTED:
         case STREAMTYPE_MPEG1_VIDEO:
         case STREAMTYPE_MPEG2_VIDEO:
         case STREAMTYPE_MPEG4_VIDEO:
@@ -937,6 +966,8 @@ bool ATSParser::Stream::isAudio() const {
         case STREAMTYPE_MPEG2_AUDIO_ADTS:
         case STREAMTYPE_LPCM_AC3:
         case STREAMTYPE_AC3:
+        case STREAMTYPE_AAC_ENCRYPTED:
+        case STREAMTYPE_AC3_ENCRYPTED:
             return true;
 
         default:
@@ -1461,7 +1492,7 @@ void ATSParser::Stream::onPayloadData(
     mPrevPTS = PTS;
 #endif
 
-    ALOGV("onPayloadData mStreamType=0x%02x", mStreamType);
+    ALOGV("onPayloadData mStreamType=0x%02x size: %zu", mStreamType, size);
 
     int64_t timeUs = 0ll;  // no presentation timestamp available.
     if (PTS_DTS_flags == 2 || PTS_DTS_flags == 3) {
@@ -1499,6 +1530,8 @@ void ATSParser::Stream::onPayloadData(
                 }
                 mSource = new AnotherPacketSource(meta);
                 mSource->queueAccessUnit(accessUnit);
+                ALOGV("onPayloadData: created AnotherPacketSource PID 0x%08x of type 0x%02x",
+                        mElementaryPID, mStreamType);
             }
         } else if (mQueue->getFormat() != NULL) {
             // After a discontinuity we invalidate the queue's format
@@ -1575,14 +1608,14 @@ sp<MediaSource> ATSParser::Stream::getSource(SourceType type) {
     return NULL;
 }
 
-void ATSParser::Stream::setCasSession(
-        const sp<IDescrambler> &descrambler,
+void ATSParser::Stream::setCasInfo(
+        int32_t systemId, const sp<IDescrambler> &descrambler,
         const std::vector<uint8_t> &sessionId) {
     if (mSource != NULL && mDescrambler == NULL && descrambler != NULL) {
         signalDiscontinuity(DISCONTINUITY_FORMAT_ONLY, NULL);
         mDescrambler = descrambler;
         if (mQueue->isScrambled()) {
-            mQueue->setCasSession(sessionId);
+            mQueue->setCasInfo(systemId, sessionId);
         }
     }
 }
@@ -1737,6 +1770,9 @@ void ATSParser::parseProgramAssociationTable(ABitReader *br) {
             if (!found) {
                 mPrograms.push(
                         new Program(this, program_number, programMapPID, mLastRecoveredPTS));
+                if (mSampleAesKeyItem != NULL) {
+                    mPrograms.top()->signalNewSampleAesKey(mSampleAesKeyItem);
+                }
             }
 
             if (mPSISections.indexOfKey(programMapPID) < 0) {
@@ -2235,4 +2271,40 @@ bool ATSParser::PSISection::isCRCOkay() const {
     ALOGV("crc: %08x\n", crc);
     return (crc == 0);
 }
+
+// SAMPLE_AES key handling
+// TODO: Merge these to their respective class after Widevine-HLS
+void ATSParser::signalNewSampleAesKey(const sp<AMessage> &keyItem) {
+    ALOGD("signalNewSampleAesKey: %p", keyItem.get());
+
+    mSampleAesKeyItem = keyItem;
+
+    // a NULL key item will propagate to existing ElementaryStreamQueues
+    for (size_t i = 0; i < mPrograms.size(); ++i) {
+        mPrograms[i]->signalNewSampleAesKey(keyItem);
+    }
+}
+
+void ATSParser::Program::signalNewSampleAesKey(const sp<AMessage> &keyItem) {
+    ALOGD("Program::signalNewSampleAesKey: %p", keyItem.get());
+
+    mSampleAesKeyItem = keyItem;
+
+    // a NULL key item will propagate to existing ElementaryStreamQueues
+    for (size_t i = 0; i < mStreams.size(); ++i) {
+        mStreams[i]->signalNewSampleAesKey(keyItem);
+    }
+}
+
+void ATSParser::Stream::signalNewSampleAesKey(const sp<AMessage> &keyItem) {
+    ALOGD("Stream::signalNewSampleAesKey: 0x%04x size = %zu keyItem: %p",
+          mElementaryPID, mBuffer->size(), keyItem.get());
+
+    // a NULL key item will propagate to existing ElementaryStreamQueues
+    mSampleAesKeyItem = keyItem;
+
+    flush(NULL);
+    mQueue->signalNewSampleAesKey(keyItem);
+}
+
 }  // namespace android

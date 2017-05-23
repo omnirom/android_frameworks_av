@@ -17,10 +17,10 @@
 #include <stdint.h>
 
 #include <sys/mman.h>
+#include <aaudio/AAudio.h>
+
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
-
-#include <aaudio/AAudioDefinitions.h>
 
 #include "binding/AAudioStreamConfiguration.h"
 
@@ -35,26 +35,48 @@ AAudioStreamConfiguration::AAudioStreamConfiguration() {}
 AAudioStreamConfiguration::~AAudioStreamConfiguration() {}
 
 status_t AAudioStreamConfiguration::writeToParcel(Parcel* parcel) const {
-    parcel->writeInt32(mDeviceId);
-    parcel->writeInt32(mSampleRate);
-    parcel->writeInt32(mSamplesPerFrame);
-    parcel->writeInt32((int32_t) mAudioFormat);
-    parcel->writeInt32(mBufferCapacity);
-    return NO_ERROR; // TODO check for errors above
+    status_t status;
+    status = parcel->writeInt32(mDeviceId);
+    if (status != NO_ERROR) goto error;
+    status = parcel->writeInt32(mSampleRate);
+    if (status != NO_ERROR) goto error;
+    status = parcel->writeInt32(mSamplesPerFrame);
+    if (status != NO_ERROR) goto error;
+    status = parcel->writeInt32((int32_t) mSharingMode);
+    if (status != NO_ERROR) goto error;
+    status = parcel->writeInt32((int32_t) mAudioFormat);
+    if (status != NO_ERROR) goto error;
+    status = parcel->writeInt32(mBufferCapacity);
+    if (status != NO_ERROR) goto error;
+    return NO_ERROR;
+error:
+    ALOGE("AAudioStreamConfiguration.writeToParcel(): write failed = %d", status);
+    return status;
 }
 
 status_t AAudioStreamConfiguration::readFromParcel(const Parcel* parcel) {
     int32_t temp;
-    parcel->readInt32(&mDeviceId);
-    parcel->readInt32(&mSampleRate);
-    parcel->readInt32(&mSamplesPerFrame);
-    parcel->readInt32(&temp);
+    status_t status = parcel->readInt32(&mDeviceId);
+    if (status != NO_ERROR) goto error;
+    status = parcel->readInt32(&mSampleRate);
+    if (status != NO_ERROR) goto error;
+    status = parcel->readInt32(&mSamplesPerFrame);
+    if (status != NO_ERROR) goto error;
+    status = parcel->readInt32(&temp);
+    if (status != NO_ERROR) goto error;
+    mSharingMode = (aaudio_sharing_mode_t) temp;
+    status = parcel->readInt32(&temp);
+    if (status != NO_ERROR) goto error;
     mAudioFormat = (aaudio_audio_format_t) temp;
-    parcel->readInt32(&mBufferCapacity);
-    return NO_ERROR; // TODO check for errors above
+    status = parcel->readInt32(&mBufferCapacity);
+    if (status != NO_ERROR) goto error;
+    return NO_ERROR;
+error:
+    ALOGE("AAudioStreamConfiguration.readFromParcel(): read failed = %d", status);
+    return status;
 }
 
-aaudio_result_t AAudioStreamConfiguration::validate() {
+aaudio_result_t AAudioStreamConfiguration::validate() const {
     // Validate results of the open.
     if (mSampleRate < 0 || mSampleRate >= 8 * 48000) { // TODO review limits
         ALOGE("AAudioStreamConfiguration.validate(): invalid sampleRate = %d", mSampleRate);
@@ -69,8 +91,6 @@ aaudio_result_t AAudioStreamConfiguration::validate() {
     switch (mAudioFormat) {
     case AAUDIO_FORMAT_PCM_I16:
     case AAUDIO_FORMAT_PCM_FLOAT:
-    case AAUDIO_FORMAT_PCM_I8_24:
-    case AAUDIO_FORMAT_PCM_I32:
         break;
     default:
         ALOGE("AAudioStreamConfiguration.validate() invalid audioFormat = %d", mAudioFormat);
@@ -84,9 +104,11 @@ aaudio_result_t AAudioStreamConfiguration::validate() {
     return AAUDIO_OK;
 }
 
-void AAudioStreamConfiguration::dump() {
-    ALOGD("AAudioStreamConfiguration mSampleRate      = %d -----", mSampleRate);
+void AAudioStreamConfiguration::dump() const {
+    ALOGD("AAudioStreamConfiguration mDeviceId        = %d", mDeviceId);
+    ALOGD("AAudioStreamConfiguration mSampleRate      = %d", mSampleRate);
     ALOGD("AAudioStreamConfiguration mSamplesPerFrame = %d", mSamplesPerFrame);
+    ALOGD("AAudioStreamConfiguration mSharingMode     = %d", (int)mSharingMode);
     ALOGD("AAudioStreamConfiguration mAudioFormat     = %d", (int)mAudioFormat);
     ALOGD("AAudioStreamConfiguration mBufferCapacity  = %d", mBufferCapacity);
 }

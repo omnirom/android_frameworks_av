@@ -31,6 +31,7 @@
 #include <android/hardware/camera/device/3.2/ICameraDevice.h>
 #include <android/hardware/camera/device/3.2/ICameraDeviceSession.h>
 #include <android/hardware/camera/device/3.2/ICameraDeviceCallback.h>
+#include <fmq/MessageQueue.h>
 #include <hardware/camera3.h>
 
 #include <camera/CaptureResult.h>
@@ -86,7 +87,6 @@ class Camera3Device :
     const String8& getId() const override;
 
     // Transitions to idle state on success.
-    status_t initialize(CameraModule *module) override;
     status_t initialize(sp<CameraProviderManager> manager) override;
     status_t disconnect() override;
     status_t dump(int fd, const Vector<String16> &args) override;
@@ -165,8 +165,6 @@ class Camera3Device :
 
     status_t prepare(int maxCount, int streamId) override;
 
-    uint32_t getDeviceVersion() override;
-
     ssize_t getJpegBufferSize(uint32_t width, uint32_t height) const override;
     ssize_t getPointCloudBufferSize() const;
     ssize_t getRawOpaqueBufferSize(int32_t width, int32_t height) const;
@@ -181,6 +179,11 @@ class Camera3Device :
     status_t setConsumerSurfaces(int streamId, const std::vector<sp<Surface>>& consumers) override;
 
   private:
+
+    // internal typedefs
+    using RequestMetadataQueue = hardware::MessageQueue<uint8_t, hardware::kSynchronizedReadWrite>;
+    using ResultMetadataQueue  = hardware::MessageQueue<uint8_t, hardware::kSynchronizedReadWrite>;
+
     static const size_t        kDumpLockAttempts  = 10;
     static const size_t        kDumpSleepDuration = 100000; // 0.10 sec
     static const nsecs_t       kShutdownTimeout   = 5000000000; // 5 sec
@@ -218,6 +221,9 @@ class Camera3Device :
     // Flag indicating is the current active stream configuration is constrained high speed.
     bool                       mIsConstrainedHighSpeedConfiguration;
 
+    // FMQ to write result on. Must be guarded by mProcessCaptureResultLock.
+    std::unique_ptr<ResultMetadataQueue> mResultMetadataQueue;
+
     /**** Scope for mLock ****/
 
     /**
@@ -226,8 +232,8 @@ class Camera3Device :
      */
     class HalInterface : public camera3::Camera3StreamBufferFreedListener {
       public:
-        HalInterface(camera3_device_t *device);
-        HalInterface(sp<hardware::camera::device::V3_2::ICameraDeviceSession> &session);
+        HalInterface(sp<hardware::camera::device::V3_2::ICameraDeviceSession> &session,
+                     std::shared_ptr<RequestMetadataQueue> queue);
         HalInterface(const HalInterface &other);
         HalInterface();
 
@@ -261,6 +267,7 @@ class Camera3Device :
       private:
         camera3_device_t *mHal3Device;
         sp<hardware::camera::device::V3_2::ICameraDeviceSession> mHidlSession;
+        std::shared_ptr<RequestMetadataQueue> mRequestMetadataQueue;
 
         std::mutex mInflightLock;
 
@@ -283,9 +290,7 @@ class Camera3Device :
 
                 size_t result = 1;
                 result = 31 * result + buf->numFds;
-                result = 31 * result + buf->numInts;
-                int length = buf->numFds + buf->numInts;
-                for (int i = 0; i < length; i++) {
+                for (int i = 0; i < buf->numFds; i++) {
                     result = 31 * result + buf->data[i];
                 }
                 return result;
@@ -294,9 +299,8 @@ class Camera3Device :
 
         struct BufferComparator {
             bool operator()(const buffer_handle_t& buf1, const buffer_handle_t& buf2) const {
-                if (buf1->numFds == buf2->numFds && buf1->numInts == buf2->numInts) {
-                    int length = buf1->numFds + buf1->numInts;
-                    for (int i = 0; i < length; i++) {
+                if (buf1->numFds == buf2->numFds) {
+                    for (int i = 0; i < buf1->numFds; i++) {
                         if (buf1->data[i] != buf2->data[i]) {
                             return false;
                         }
@@ -333,12 +337,6 @@ class Camera3Device :
     CameraMetadata             mDeviceInfo;
 
     CameraMetadata             mRequestTemplateCache[CAMERA3_TEMPLATE_COUNT];
-
-    uint32_t                   mDeviceVersion;
-
-    // whether Camera3Device should derive ANDROID_CONTROL_POST_RAW_SENSITIVITY_BOOST for
-    // backward compatibility. Should not be changed after initialization.
-    bool                       mDerivePostRawSensKey = false;
 
     struct Size {
         uint32_t width;
@@ -397,13 +395,6 @@ class Camera3Device :
     // words, camera device shouldn't be open during CPU suspend.
     nsecs_t                    mTimestampOffset;
 
-    typedef struct AeTriggerCancelOverride {
-        bool applyAeLock;
-        uint8_t aeLock;
-        bool applyAePrecaptureTrigger;
-        uint8_t aePrecaptureTrigger;
-    } AeTriggerCancelOverride_t;
-
     class CaptureRequest : public LightRefBase<CaptureRequest> {
       public:
         CameraMetadata                      mSettings;
@@ -413,9 +404,6 @@ class Camera3Device :
                                             mOutputStreams;
         SurfaceMap                          mOutputSurfaces;
         CaptureResultExtras                 mResultExtras;
-        // Used to cancel AE precapture trigger for devices doesn't support
-        // CONTROL_AE_PRECAPTURE_TRIGGER_CANCEL
-        AeTriggerCancelOverride_t           mAeTriggerCancelOverride;
         // The number of requests that should be submitted to HAL at a time.
         // For example, if batch size is 8, this request and the following 7
         // requests will be submitted to HAL at a time. The batch size for
@@ -456,11 +444,14 @@ class Camera3Device :
             const hardware::hidl_vec<
                     hardware::camera::device::V3_2::NotifyMsg>& msgs) override;
 
-    // Handle one capture result
-    void processOneCaptureResult(
+    // Handle one capture result. Assume that mProcessCaptureResultLock is held.
+    void processOneCaptureResultLocked(
             const hardware::camera::device::V3_2::CaptureResult& results);
     // Handle one notify message
     void notify(const hardware::camera::device::V3_2::NotifyMsg& msg);
+
+    // lock to ensure only one processCaptureResult is called at a time.
+    Mutex mProcessCaptureResultLock;
 
     /**
      * Common initialization code shared by both HAL paths
@@ -588,11 +579,6 @@ class Camera3Device :
     static nsecs_t getMonoToBoottimeOffset();
 
     /**
-     * Helper function to map between legacy and new dataspace enums
-     */
-    static android_dataspace mapToLegacyDataspace(android_dataspace dataSpace);
-
-    /**
      * Helper functions to map between framework and HIDL values
      */
     static hardware::graphics::common::V1_0::PixelFormat mapToPixelFormat(int frameworkFormat);
@@ -637,9 +623,7 @@ class Camera3Device :
 
         RequestThread(wp<Camera3Device> parent,
                 sp<camera3::StatusTracker> statusTracker,
-                HalInterface* interface,
-                uint32_t deviceVersion,
-                bool aeLockAvailable);
+                HalInterface* interface);
         ~RequestThread();
 
         void     setNotificationListener(wp<NotificationListener> listener);
@@ -773,9 +757,6 @@ class Camera3Device :
         // If the input request is in mRepeatingRequests. Must be called with mRequestLock hold
         bool isRepeatingRequestLocked(const sp<CaptureRequest>&);
 
-        // Handle AE precapture trigger cancel for devices <= CAMERA_DEVICE_API_VERSION_3_2.
-        void handleAePrecaptureCancelRequest(const sp<CaptureRequest>& request);
-
         // Clear repeating requests. Must be called with mRequestLock held.
         status_t clearRepeatingRequestsLocked(/*out*/ int64_t *lastFrameNumber = NULL);
 
@@ -788,7 +769,6 @@ class Camera3Device :
         wp<Camera3Device>  mParent;
         wp<camera3::StatusTracker>  mStatusTracker;
         HalInterface*      mInterface;
-        uint32_t           mDeviceVersion;
 
         wp<NotificationListener> mListener;
 
@@ -838,9 +818,6 @@ class Camera3Device :
 
         int64_t            mRepeatingLastFrameNumber;
 
-        // Whether the device supports AE lock
-        bool               mAeLockAvailable;
-
         // Flag indicating if we should prepare video stream for video requests.
         bool               mPrepareVideoStream;
     };
@@ -881,10 +858,6 @@ class Camera3Device :
         // the shutter event.
         Vector<camera3_stream_buffer_t> pendingOutputBuffers;
 
-        // Used to cancel AE precapture trigger for devices doesn't support
-        // CONTROL_AE_PRECAPTURE_TRIGGER_CANCEL
-        AeTriggerCancelOverride_t aeTriggerCancelOverride;
-
         // Whether this inflight request's shutter and result callback are to be
         // called. The policy is that if the request is the last one in the constrained
         // high speed recording request list, this flag will be true. If the request list
@@ -899,12 +872,11 @@ class Camera3Device :
                 haveResultMetadata(false),
                 numBuffersLeft(0),
                 hasInputBuffer(false),
-                aeTriggerCancelOverride({false, 0, false, 0}),
                 hasCallback(true) {
         }
 
         InFlightRequest(int numBuffers, CaptureResultExtras extras, bool hasInput,
-                AeTriggerCancelOverride aeTriggerCancelOverride, bool hasAppCallback) :
+                bool hasAppCallback) :
                 shutterTimestamp(0),
                 sensorTimestamp(0),
                 requestStatus(OK),
@@ -912,7 +884,6 @@ class Camera3Device :
                 numBuffersLeft(numBuffers),
                 resultExtras(extras),
                 hasInputBuffer(hasInput),
-                aeTriggerCancelOverride(aeTriggerCancelOverride),
                 hasCallback(hasAppCallback) {
         }
     };
@@ -926,14 +897,7 @@ class Camera3Device :
 
     status_t registerInFlight(uint32_t frameNumber,
             int32_t numBuffers, CaptureResultExtras resultExtras, bool hasInput,
-            const AeTriggerCancelOverride_t &aeTriggerCancelOverride, bool callback);
-
-    /**
-     * Override result metadata for cancelling AE precapture trigger applied in
-     * handleAePrecaptureCancelRequest().
-     */
-    void overrideResultForPrecaptureCancel(CameraMetadata* result,
-            const AeTriggerCancelOverride_t &aeTriggerCancelOverride);
+            bool callback);
 
     /**
      * Tracking for idle detection
@@ -1028,21 +992,19 @@ class Camera3Device :
 
     // Send a partial capture result.
     void sendPartialCaptureResult(const camera_metadata_t * partialResult,
-            const CaptureResultExtras &resultExtras, uint32_t frameNumber,
-            const AeTriggerCancelOverride_t &aeTriggerCancelOverride);
+            const CaptureResultExtras &resultExtras, uint32_t frameNumber);
 
     // Send a total capture result given the pending metadata and result extras,
     // partial results, and the frame number to the result queue.
     void sendCaptureResult(CameraMetadata &pendingMetadata,
             CaptureResultExtras &resultExtras,
             CameraMetadata &collectedPartialResult, uint32_t frameNumber,
-            bool reprocess, const AeTriggerCancelOverride_t &aeTriggerCancelOverride);
+            bool reprocess);
 
     // Insert the result to the result queue after updating frame number and overriding AE
     // trigger cancel.
     // mOutputLock must be held when calling this function.
-    void insertResultLocked(CaptureResult *result, uint32_t frameNumber,
-            const AeTriggerCancelOverride_t &aeTriggerCancelOverride);
+    void insertResultLocked(CaptureResult *result, uint32_t frameNumber);
 
     /**** Scope for mInFlightLock ****/
 

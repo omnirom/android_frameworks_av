@@ -40,6 +40,7 @@ LOCAL_SHARED_LIBRARIES :=       \
     libgui                      \
     libmedia                    \
     libmediadrm                 \
+    libcrypto                   \
 
 LOCAL_MODULE:= libstagefright_nuplayer
 

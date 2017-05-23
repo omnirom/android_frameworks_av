@@ -21,9 +21,9 @@
 #include <new>
 #include <stdint.h>
 
-#include <aaudio/AAudioDefinitions.h>
 #include <aaudio/AAudio.h>
 
+#include "binding/AAudioBinderClient.h"
 #include "client/AudioStreamInternal.h"
 #include "core/AudioStream.h"
 #include "core/AudioStreamBuilder.h"
@@ -41,53 +41,90 @@ AudioStreamBuilder::AudioStreamBuilder() {
 AudioStreamBuilder::~AudioStreamBuilder() {
 }
 
-aaudio_result_t AudioStreamBuilder::build(AudioStream** streamPtr) {
-    AudioStream* audioStream = nullptr;
-    const aaudio_sharing_mode_t sharingMode = getSharingMode();
-    ALOGE("AudioStreamBuilder.build() sharingMode = %d", sharingMode);
-    switch (getDirection()) {
-    case AAUDIO_DIRECTION_INPUT:
-        switch (sharingMode) {
-            case AAUDIO_SHARING_MODE_SHARED:
-                audioStream = new(std::nothrow) AudioStreamRecord();
-                break;
-            default:
-                ALOGE("AudioStreamBuilder(): bad sharing mode = %d", sharingMode);
-                return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
-                break;
-        }
-        break;
-    case AAUDIO_DIRECTION_OUTPUT:
-        switch (sharingMode) {
-            case AAUDIO_SHARING_MODE_SHARED:
-                audioStream = new(std::nothrow) AudioStreamTrack();
-                break;
-            case AAUDIO_SHARING_MODE_EXCLUSIVE:
-                audioStream = new(std::nothrow) AudioStreamInternal();
-                break;
-            default:
-                ALOGE("AudioStreamBuilder(): bad sharing mode = %d", sharingMode);
-                return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
-                break;
-        }
-        break;
-    default:
-        ALOGE("AudioStreamBuilder(): bad direction = %d", getDirection());
-        return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
-        break;
-    }
-    if (audioStream == nullptr) {
-        return AAUDIO_ERROR_NO_MEMORY;
-    }
-    ALOGD("AudioStreamBuilder(): created audioStream = %p", audioStream);
+static aaudio_result_t builder_createStream(aaudio_direction_t direction,
+                                         aaudio_sharing_mode_t sharingMode,
+                                         bool tryMMap,
+                                         AudioStream **audioStreamPtr) {
+    *audioStreamPtr = nullptr;
+    aaudio_result_t result = AAUDIO_OK;
 
-    // TODO maybe move this out of build and pass the builder to the constructors
-    // Open the stream using the parameters from the builder.
-    const aaudio_result_t result = audioStream->open(*this);
-    if (result != AAUDIO_OK) {
-        delete audioStream;
-    } else {
-        *streamPtr = audioStream;
+    switch (direction) {
+
+        case AAUDIO_DIRECTION_INPUT:
+            if (sharingMode == AAUDIO_SHARING_MODE_SHARED) {
+                *audioStreamPtr = new AudioStreamRecord();
+            } else {
+                ALOGE("AudioStreamBuilder(): bad sharing mode = %d for input", sharingMode);
+                result = AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+            }
+            break;
+
+        case AAUDIO_DIRECTION_OUTPUT:
+            if (tryMMap) {
+                *audioStreamPtr = new AudioStreamInternal(AAudioBinderClient::getInstance(), false);
+            } else {
+                *audioStreamPtr = new AudioStreamTrack();
+            }
+            break;
+
+        default:
+            ALOGE("AudioStreamBuilder(): bad direction = %d", direction);
+            result = AAUDIO_ERROR_ILLEGAL_ARGUMENT;
     }
+    return result;
+}
+
+// Try to open using MMAP path if that is enabled.
+// Fall back to Legacy path is MMAP not available.
+aaudio_result_t AudioStreamBuilder::build(AudioStream** streamPtr) {
+    AudioStream *audioStream = nullptr;
+    *streamPtr = nullptr;
+
+    int32_t mmapEnabled = AAudioProperty_getMMapEnabled();
+    int32_t mmapExclusiveEnabled = AAudioProperty_getMMapExclusiveEnabled();
+    ALOGD("AudioStreamBuilder(): mmapEnabled = %d, mmapExclusiveEnabled = %d",
+          mmapEnabled, mmapExclusiveEnabled);
+
+    aaudio_sharing_mode_t sharingMode = getSharingMode();
+    if ((sharingMode == AAUDIO_SHARING_MODE_EXCLUSIVE)
+        && (mmapExclusiveEnabled == AAUDIO_USE_NEVER)) {
+        ALOGW("AudioStreamBuilder(): EXCLUSIVE sharing mode not supported. Use SHARED.");
+        sharingMode = AAUDIO_SHARING_MODE_SHARED;
+        setSharingMode(sharingMode);
+    }
+
+    bool allowMMap = mmapEnabled != AAUDIO_USE_NEVER;
+    bool allowLegacy = mmapEnabled != AAUDIO_USE_ALWAYS;
+
+    aaudio_result_t result = builder_createStream(getDirection(), sharingMode,
+                                                  allowMMap, &audioStream);
+    if (result == AAUDIO_OK) {
+        // Open the stream using the parameters from the builder.
+        result = audioStream->open(*this);
+        if (result == AAUDIO_OK) {
+            *streamPtr = audioStream;
+        } else {
+            bool isMMap = audioStream->isMMap();
+            delete audioStream;
+            audioStream = nullptr;
+
+            if (isMMap && allowLegacy) {
+                ALOGD("AudioStreamBuilder.build() MMAP stream did not open so try Legacy path");
+                // If MMAP stream failed to open then TRY using a legacy stream.
+                result = builder_createStream(getDirection(), sharingMode,
+                                              false, &audioStream);
+                if (result == AAUDIO_OK) {
+                    result = audioStream->open(*this);
+                    if (result == AAUDIO_OK) {
+                        *streamPtr = audioStream;
+                    } else {
+                        delete audioStream;
+                    }
+                }
+            }
+        }
+    }
+
+    ALOGD("AudioStreamBuilder(): returned %d", result);
     return result;
 }

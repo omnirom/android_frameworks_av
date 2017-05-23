@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-#ifndef BINDING_AAUDIO_STREAM_REQUEST_H
-#define BINDING_AAUDIO_STREAM_REQUEST_H
+#ifndef ANDROID_BINDING_AAUDIO_STREAM_REQUEST_H
+#define ANDROID_BINDING_AAUDIO_STREAM_REQUEST_H
 
 #include <stdint.h>
 
+#include <aaudio/AAudio.h>
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
-#include <aaudio/AAudioDefinitions.h>
 
 #include "binding/AAudioStreamConfiguration.h"
 
@@ -52,6 +52,27 @@ public:
         mProcessId = processId;
     }
 
+    aaudio_direction_t getDirection() const {
+        return mDirection;
+    }
+
+    void setDirection(aaudio_direction_t direction) {
+        mDirection = direction;
+    }
+
+    bool isSharingModeMatchRequired() const {
+        return mSharingModeMatchRequired;
+    }
+
+    void setSharingModeMatchRequired(bool required) {
+        mSharingModeMatchRequired = required;
+    }
+
+
+    const AAudioStreamConfiguration &getConstantConfiguration() const {
+        return mConfiguration;
+    }
+
     AAudioStreamConfiguration &getConfiguration() {
         return mConfiguration;
     }
@@ -60,16 +81,18 @@ public:
 
     virtual status_t readFromParcel(const Parcel* parcel) override;
 
-    aaudio_result_t validate();
+    aaudio_result_t validate() const;
 
-    void dump();
+    void dump() const;
 
 protected:
     AAudioStreamConfiguration  mConfiguration;
-    uid_t    mUserId;
-    pid_t    mProcessId;
+    uid_t                      mUserId;
+    pid_t                      mProcessId;
+    aaudio_direction_t         mDirection;
+    bool                       mSharingModeMatchRequired = false;
 };
 
 } /* namespace aaudio */
 
-#endif //BINDING_AAUDIO_STREAM_REQUEST_H
+#endif //ANDROID_BINDING_AAUDIO_STREAM_REQUEST_H

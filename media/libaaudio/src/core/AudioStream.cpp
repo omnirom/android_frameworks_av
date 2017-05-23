@@ -38,28 +38,63 @@ AudioStream::AudioStream()
 
 aaudio_result_t AudioStream::open(const AudioStreamBuilder& builder)
 {
-
     // Copy parameters from the Builder because the Builder may be deleted after this call.
     mSamplesPerFrame = builder.getSamplesPerFrame();
     mSampleRate = builder.getSampleRate();
     mDeviceId = builder.getDeviceId();
     mFormat = builder.getFormat();
     mDirection = builder.getDirection();
+    mSharingMode = builder.getSharingMode();
+    mSharingModeMatchRequired = builder.isSharingModeMatchRequired();
+
+    mPerformanceMode = builder.getPerformanceMode();
 
     // callbacks
     mFramesPerDataCallback = builder.getFramesPerDataCallback();
     mDataCallbackProc = builder.getDataCallbackProc();
     mErrorCallbackProc = builder.getErrorCallbackProc();
     mDataCallbackUserData = builder.getDataCallbackUserData();
+    mErrorCallbackUserData = builder.getErrorCallbackUserData();
 
-    // TODO validate more parameters.
-    if (mErrorCallbackProc != nullptr && mDataCallbackProc == nullptr) {
-        ALOGE("AudioStream::open(): disconnect callback cannot be used without a data callback.");
-        return AAUDIO_ERROR_UNEXPECTED_VALUE;
+    // This is very helpful for debugging in the future.
+    ALOGI("AudioStream.open(): rate = %d, channels = %d, format = %d, sharing = %d",
+          mSampleRate, mSamplesPerFrame, mFormat, mSharingMode);
+
+    // Check for values that are ridiculously out of range to prevent math overflow exploits.
+    // The service will do a better check.
+    if (mSamplesPerFrame < 0 || mSamplesPerFrame > 128) {
+        ALOGE("AudioStream::open(): samplesPerFrame out of range = %d", mSamplesPerFrame);
+        return AAUDIO_ERROR_OUT_OF_RANGE;
+    }
+
+    switch(mFormat) {
+        case AAUDIO_FORMAT_UNSPECIFIED:
+        case AAUDIO_FORMAT_PCM_I16:
+        case AAUDIO_FORMAT_PCM_FLOAT:
+            break; // valid
+        default:
+            ALOGE("AudioStream::open(): audioFormat not valid = %d", mFormat);
+            return AAUDIO_ERROR_INVALID_FORMAT;
+            // break;
+    }
+
+    if (mSampleRate != AAUDIO_UNSPECIFIED && (mSampleRate < 8000 || mSampleRate > 1000000)) {
+        ALOGE("AudioStream::open(): mSampleRate out of range = %d", mSampleRate);
+        return AAUDIO_ERROR_INVALID_RATE;
     }
     if (mDirection != AAUDIO_DIRECTION_INPUT && mDirection != AAUDIO_DIRECTION_OUTPUT) {
         ALOGE("AudioStream::open(): illegal direction %d", mDirection);
         return AAUDIO_ERROR_UNEXPECTED_VALUE;
+    }
+
+    switch(mPerformanceMode) {
+        case AAUDIO_PERFORMANCE_MODE_NONE:
+        case AAUDIO_PERFORMANCE_MODE_POWER_SAVING:
+        case AAUDIO_PERFORMANCE_MODE_LOW_LATENCY:
+            break;
+        default:
+            ALOGE("AudioStream::open(): illegal performanceMode %d", mPerformanceMode);
+            return AAUDIO_ERROR_UNEXPECTED_VALUE;
     }
 
     return AAUDIO_OK;
@@ -67,27 +102,6 @@ aaudio_result_t AudioStream::open(const AudioStreamBuilder& builder)
 
 AudioStream::~AudioStream() {
     close();
-}
-
-aaudio_result_t AudioStream::waitForStateTransition(aaudio_stream_state_t startingState,
-                                               aaudio_stream_state_t endingState,
-                                               int64_t timeoutNanoseconds)
-{
-    aaudio_stream_state_t state = getState();
-    aaudio_stream_state_t nextState = state;
-    if (state == startingState && state != endingState) {
-        aaudio_result_t result = waitForStateChange(state, &nextState, timeoutNanoseconds);
-        if (result != AAUDIO_OK) {
-            return result;
-        }
-    }
-// It's OK if the expected transition has already occurred.
-// But if we reach an unexpected state then that is an error.
-    if (nextState != endingState) {
-        return AAUDIO_ERROR_UNEXPECTED_STATE;
-    } else {
-        return AAUDIO_OK;
-    }
 }
 
 aaudio_result_t AudioStream::waitForStateChange(aaudio_stream_state_t currentState,
@@ -99,7 +113,6 @@ aaudio_result_t AudioStream::waitForStateChange(aaudio_stream_state_t currentSta
         return result;
     }
 
-    // TODO replace this when similar functionality added to AudioTrack.cpp
     int64_t durationNanos = 20 * AAUDIO_NANOS_PER_MILLISECOND; // arbitrary
     aaudio_stream_state_t state = getState();
     while (state == currentState && timeoutNanoseconds > 0) {
@@ -122,16 +135,15 @@ aaudio_result_t AudioStream::waitForStateChange(aaudio_stream_state_t currentSta
     return (state == currentState) ? AAUDIO_ERROR_TIMEOUT : AAUDIO_OK;
 }
 
-// This registers the app's background audio thread with the server before
+// This registers the callback thread with the server before
 // passing control to the app. This gives the server an opportunity to boost
 // the thread's performance characteristics.
 void* AudioStream::wrapUserThread() {
     void* procResult = nullptr;
     mThreadRegistrationResult = registerThread();
     if (mThreadRegistrationResult == AAUDIO_OK) {
-        // Call application procedure. This may take a very long time.
+        // Run callback loop. This may take a very long time.
         procResult = mThreadProc(mThreadArg);
-        ALOGD("AudioStream::mThreadProc() returned");
         mThreadRegistrationResult = unregisterThread();
     }
     return procResult;
@@ -144,6 +156,8 @@ static void* AudioStream_internalThreadProc(void* threadArg) {
     return audioStream->wrapUserThread();
 }
 
+// This is not exposed in the API.
+// But it is still used internally to implement callbacks for MMAP mode.
 aaudio_result_t AudioStream::createThread(int64_t periodNanoseconds,
                                      aaudio_audio_thread_proc_t threadProc,
                                      void* threadArg)
@@ -160,8 +174,7 @@ aaudio_result_t AudioStream::createThread(int64_t periodNanoseconds,
     setPeriodNanoseconds(periodNanoseconds);
     int err = pthread_create(&mThread, nullptr, AudioStream_internalThreadProc, this);
     if (err != 0) {
-        // TODO convert errno to aaudio_result_t
-        return AAUDIO_ERROR_INTERNAL;
+        return AAudioConvert_androidToAAudioResult(-errno);
     } else {
         mHasThread = true;
         return AAUDIO_OK;
@@ -181,7 +194,6 @@ aaudio_result_t AudioStream::joinThread(void** returnArg, int64_t timeoutNanosec
     int err = pthread_join(mThread, returnArg);
 #endif
     mHasThread = false;
-    // TODO convert errno to aaudio_result_t
-    return err ? AAUDIO_ERROR_INTERNAL : mThreadRegistrationResult;
+    return err ? AAudioConvert_androidToAAudioResult(-errno) : mThreadRegistrationResult;
 }
 

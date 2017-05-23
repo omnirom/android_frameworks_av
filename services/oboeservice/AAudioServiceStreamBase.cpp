@@ -18,43 +18,169 @@
 //#define LOG_NDEBUG 0
 #include <utils/Log.h>
 
-#include "IAAudioService.h"
-#include "AAudioServiceDefinitions.h"
-#include "AAudioServiceStreamBase.h"
-#include "AudioEndpointParcelable.h"
+#include <mutex>
 
-using namespace android;
-using namespace aaudio;
+#include "binding/IAAudioService.h"
+#include "binding/AAudioServiceMessage.h"
+#include "utility/AudioClock.h"
+
+#include "AAudioServiceStreamBase.h"
+#include "TimestampScheduler.h"
+
+using namespace android;  // TODO just import names needed
+using namespace aaudio;   // TODO just import names needed
 
 /**
- * Construct the AudioCommandQueues and the AudioDataQueue
- * and fill in the endpoint parcelable.
+ * Base class for streams in the service.
+ * @return
  */
 
 AAudioServiceStreamBase::AAudioServiceStreamBase()
         : mUpMessageQueue(nullptr)
-{
-    // TODO could fail so move out of constructor
-    mUpMessageQueue = new SharedRingBuffer();
-    mUpMessageQueue->allocate(sizeof(AAudioServiceMessage), QUEUE_UP_CAPACITY_COMMANDS);
+        , mAAudioThread() {
 }
 
 AAudioServiceStreamBase::~AAudioServiceStreamBase() {
-    Mutex::Autolock _l(mLockUpMessageQueue);
-    delete mUpMessageQueue;
+    close();
 }
 
-void AAudioServiceStreamBase::sendServiceEvent(aaudio_service_event_t event,
-                              int32_t data1,
-                              int64_t data2) {
+aaudio_result_t AAudioServiceStreamBase::open(const aaudio::AAudioStreamRequest &request,
+                     aaudio::AAudioStreamConfiguration &configurationOutput) {
+    std::lock_guard<std::mutex> lock(mLockUpMessageQueue);
+    if (mUpMessageQueue != nullptr) {
+        return AAUDIO_ERROR_INVALID_STATE;
+    } else {
+        mUpMessageQueue = new SharedRingBuffer();
+        return mUpMessageQueue->allocate(sizeof(AAudioServiceMessage), QUEUE_UP_CAPACITY_COMMANDS);
+    }
+}
 
-    Mutex::Autolock _l(mLockUpMessageQueue);
+aaudio_result_t AAudioServiceStreamBase::close() {
+    std::lock_guard<std::mutex> lock(mLockUpMessageQueue);
+    delete mUpMessageQueue;
+    mUpMessageQueue = nullptr;
+
+    return AAUDIO_OK;
+}
+
+aaudio_result_t AAudioServiceStreamBase::start() {
+    ALOGD("AAudioServiceStreamBase::start() send AAUDIO_SERVICE_EVENT_STARTED");
+    sendServiceEvent(AAUDIO_SERVICE_EVENT_STARTED);
+    mState = AAUDIO_STREAM_STATE_STARTED;
+    mThreadEnabled.store(true);
+    return mAAudioThread.start(this);
+}
+
+aaudio_result_t AAudioServiceStreamBase::pause() {
+
+    sendCurrentTimestamp();
+    mThreadEnabled.store(false);
+    aaudio_result_t result = mAAudioThread.stop();
+    if (result != AAUDIO_OK) {
+        processError();
+        return result;
+    }
+    ALOGD("AAudioServiceStreamBase::pause() send AAUDIO_SERVICE_EVENT_PAUSED");
+    sendServiceEvent(AAUDIO_SERVICE_EVENT_PAUSED);
+    mState = AAUDIO_STREAM_STATE_PAUSED;
+    return result;
+}
+
+aaudio_result_t AAudioServiceStreamBase::stop() {
+    // TODO wait for data to be played out
+    sendCurrentTimestamp();
+    mThreadEnabled.store(false);
+    aaudio_result_t result = mAAudioThread.stop();
+    if (result != AAUDIO_OK) {
+        processError();
+        return result;
+    }
+    ALOGD("AAudioServiceStreamBase::stop() send AAUDIO_SERVICE_EVENT_STOPPED");
+    sendServiceEvent(AAUDIO_SERVICE_EVENT_STOPPED);
+    mState = AAUDIO_STREAM_STATE_STOPPED;
+    return result;
+}
+
+aaudio_result_t AAudioServiceStreamBase::flush() {
+    ALOGD("AAudioServiceStreamBase::flush() send AAUDIO_SERVICE_EVENT_FLUSHED");
+    sendServiceEvent(AAUDIO_SERVICE_EVENT_FLUSHED);
+    mState = AAUDIO_STREAM_STATE_FLUSHED;
+    return AAUDIO_OK;
+}
+
+// implement Runnable
+void AAudioServiceStreamBase::run() {
+    ALOGD("AAudioServiceStreamBase::run() entering ----------------");
+    TimestampScheduler timestampScheduler;
+    timestampScheduler.setBurstPeriod(mFramesPerBurst, mSampleRate);
+    timestampScheduler.start(AudioClock::getNanoseconds());
+    int64_t nextTime = timestampScheduler.nextAbsoluteTime();
+    while(mThreadEnabled.load()) {
+        if (AudioClock::getNanoseconds() >= nextTime) {
+            aaudio_result_t result = sendCurrentTimestamp();
+            if (result != AAUDIO_OK) {
+                break;
+            }
+            nextTime = timestampScheduler.nextAbsoluteTime();
+        } else  {
+            // Sleep until it is time to send the next timestamp.
+            AudioClock::sleepUntilNanoTime(nextTime);
+        }
+    }
+    ALOGD("AAudioServiceStreamBase::run() exiting ----------------");
+}
+
+void AAudioServiceStreamBase::processError() {
+    sendServiceEvent(AAUDIO_SERVICE_EVENT_DISCONNECTED);
+}
+
+aaudio_result_t AAudioServiceStreamBase::sendServiceEvent(aaudio_service_event_t event,
+                                               double  dataDouble,
+                                               int64_t dataLong) {
     AAudioServiceMessage command;
     command.what = AAudioServiceMessage::code::EVENT;
     command.event.event = event;
-    command.event.data1 = data1;
-    command.event.data2 = data2;
-    mUpMessageQueue->getFifoBuffer()->write(&command, 1);
+    command.event.dataDouble = dataDouble;
+    command.event.dataLong = dataLong;
+    return writeUpMessageQueue(&command);
+}
+
+aaudio_result_t AAudioServiceStreamBase::writeUpMessageQueue(AAudioServiceMessage *command) {
+    std::lock_guard<std::mutex> lock(mLockUpMessageQueue);
+    if (mUpMessageQueue == nullptr) {
+        ALOGE("writeUpMessageQueue(): mUpMessageQueue null! - stream not open");
+        return AAUDIO_ERROR_NULL;
+    }
+    int32_t count = mUpMessageQueue->getFifoBuffer()->write(command, 1);
+    if (count != 1) {
+        ALOGE("writeUpMessageQueue(): Queue full. Did client die?");
+        return AAUDIO_ERROR_WOULD_BLOCK;
+    } else {
+        return AAUDIO_OK;
+    }
+}
+
+aaudio_result_t AAudioServiceStreamBase::sendCurrentTimestamp() {
+    AAudioServiceMessage command;
+    //ALOGD("sendCurrentTimestamp() called");
+    aaudio_result_t result = getFreeRunningPosition(&command.timestamp.position,
+                                                    &command.timestamp.timestamp);
+    if (result == AAUDIO_OK) {
+        //ALOGD("sendCurrentTimestamp(): position %d", (int) command.timestamp.position);
+        command.what = AAudioServiceMessage::code::TIMESTAMP;
+        result = writeUpMessageQueue(&command);
+    }
+    return result;
 }
 
 
+/**
+ * Get an immutable description of the in-memory queues
+ * used to communicate with the underlying HAL or Service.
+ */
+aaudio_result_t AAudioServiceStreamBase::getDescription(AudioEndpointParcelable &parcelable) {
+    // Gather information on the message queue.
+    mUpMessageQueue->fillParcelable(parcelable,
+                                    parcelable.mUpMessageQueueParcelable);
+    return getDownDataDescription(parcelable);
+}

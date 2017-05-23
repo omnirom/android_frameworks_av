@@ -26,6 +26,7 @@
 #include <utils/Log.h>
 #include <private/media/AudioTrackShared.h>
 #include <media/IAudioFlinger.h>
+#include <media/SeempLog.h>
 
 #define WAIT_PERIOD_MS          10
 
@@ -298,6 +299,7 @@ status_t AudioRecord::set(
 status_t AudioRecord::start(AudioSystem::sync_event_t event, audio_session_t triggerSession)
 {
     ALOGV("start, sync event %d trigger session %d", event, triggerSession);
+    SEEMPLOG_RECORD(71,"");
 
     AutoMutex lock(mLock);
     if (mActive) {
@@ -650,10 +652,10 @@ status_t AudioRecord::openRecord_l(const Modulo<uint32_t> &epoch, const String16
     mAwaitBoost = false;
     if (mFlags & AUDIO_INPUT_FLAG_FAST) {
         if (flags & AUDIO_INPUT_FLAG_FAST) {
-            ALOGI("AUDIO_INPUT_FLAG_FAST successful; frameCount %zu", frameCount);
+            ALOGI("AUDIO_INPUT_FLAG_FAST successful; frameCount %zu -> %zu", frameCount, temp);
             mAwaitBoost = true;
         } else {
-            ALOGW("AUDIO_INPUT_FLAG_FAST denied by server; frameCount %zu", frameCount);
+            ALOGW("AUDIO_INPUT_FLAG_FAST denied by server; frameCount %zu -> %zu", frameCount, temp);
             mFlags = (audio_input_flags_t) (mFlags & ~(AUDIO_INPUT_FLAG_FAST |
                     AUDIO_INPUT_FLAG_RAW));
             continue;   // retry

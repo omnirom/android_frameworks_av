@@ -82,10 +82,6 @@ CameraDeviceClient::CameraDeviceClient(const sp<CameraService>& cameraService,
     ALOGI("CameraDeviceClient %s: Opened", cameraId.string());
 }
 
-status_t CameraDeviceClient::initialize(CameraModule *module) {
-    return initializeImpl(module);
-}
-
 status_t CameraDeviceClient::initialize(sp<CameraProviderManager> manager) {
     return initializeImpl(manager);
 }
@@ -1267,6 +1263,13 @@ binder::Status CameraDeviceClient::finalizeOutputConfigurations(int32_t streamId
         consumerSurfaces.push_back(surface);
         consumerSurfaceIds.push_back(surfaceId);
         surfaceId++;
+    }
+
+    // Gracefully handle case where finalizeOutputConfigurations is called
+    // without any new surface.
+    if (consumerSurfaces.size() == 0) {
+        mStreamInfoMap[streamId].finalized = true;
+        return res;
     }
 
     // Finish the deferred stream configuration with the surface.

@@ -15,6 +15,7 @@ LOCAL_SRC_FILES:=                          \
         SoftVideoDecoderOMXComponent.cpp   \
         SoftVideoEncoderOMXComponent.cpp   \
         1.0/Omx.cpp                        \
+        1.0/OmxStore.cpp                   \
         1.0/WGraphicBufferProducer.cpp     \
         1.0/WProducerListener.cpp          \
         1.0/WGraphicBufferSource.cpp       \
@@ -41,6 +42,7 @@ LOCAL_SHARED_LIBRARIES :=                         \
         libdl                                     \
         libhidlbase                               \
         libhidlmemory                             \
+        libstagefright_xmlparser@1.0              \
         android.hidl.base@1.0                     \
         android.hidl.memory@1.0                   \
         android.hardware.media@1.0                \

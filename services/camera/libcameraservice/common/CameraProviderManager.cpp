@@ -82,12 +82,12 @@ int CameraProviderManager::getCameraCount() const {
     return count;
 }
 
-int CameraProviderManager::getStandardCameraCount() const {
+int CameraProviderManager::getAPI1CompatibleCameraCount() const {
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     int count = 0;
     for (auto& provider : mProviders) {
         if (kStandardProviderTypes.find(provider->getType()) != std::string::npos) {
-            count += provider->mUniqueDeviceCount;
+            count += provider->mUniqueAPI1CompatibleCameraIds.size();
         }
     }
     return count;
@@ -104,12 +104,12 @@ std::vector<std::string> CameraProviderManager::getCameraDeviceIds() const {
     return deviceIds;
 }
 
-std::vector<std::string> CameraProviderManager::getStandardCameraDeviceIds() const {
+std::vector<std::string> CameraProviderManager::getAPI1CompatibleCameraDeviceIds() const {
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     std::vector<std::string> deviceIds;
     for (auto& provider : mProviders) {
         if (kStandardProviderTypes.find(provider->getType()) != std::string::npos) {
-            for (auto& id : provider->mUniqueCameraIds) {
+            for (auto& id : provider->mUniqueAPI1CompatibleCameraIds) {
                 deviceIds.push_back(id);
             }
         }
@@ -225,7 +225,6 @@ status_t CameraProviderManager::setTorchMode(const std::string &id, bool enabled
 status_t CameraProviderManager::setUpVendorTags() {
     sp<VendorTagDescriptorCache> tagCache = new VendorTagDescriptorCache();
 
-    VendorTagDescriptorCache::clearGlobalVendorTagCache();
     for (auto& provider : mProviders) {
         hardware::hidl_vec<VendorTagSection> vts;
         Status status;
@@ -325,9 +324,17 @@ hardware::Return<void> CameraProviderManager::onRegistration(
         const hardware::hidl_string& /*fqName*/,
         const hardware::hidl_string& name,
         bool /*preexisting*/) {
-    std::lock_guard<std::mutex> lock(mInterfaceMutex);
+    {
+        std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
-    addProviderLocked(name);
+        addProviderLocked(name);
+    }
+
+    sp<StatusListener> listener = getStatusListener();
+    if (nullptr != listener.get()) {
+        listener->onNewProviderRegistered();
+    }
+
     return hardware::Return<void>();
 }
 
@@ -453,6 +460,7 @@ CameraProviderManager::ProviderInfo::ProviderInfo(
         mProviderName(providerName),
         mInterface(interface),
         mProviderTagid(generateVendorTagId(providerName)),
+        mUniqueDeviceCount(0),
         mManager(manager) {
     (void) mManager;
 }
@@ -526,6 +534,9 @@ status_t CameraProviderManager::ProviderInfo::initialize() {
 
     for (auto& device : mDevices) {
         mUniqueCameraIds.insert(device->mId);
+        if (device->isAPI1Compatible()) {
+            mUniqueAPI1CompatibleCameraIds.insert(device->mId);
+        }
     }
     mUniqueDeviceCount = mUniqueCameraIds.size();
 
@@ -912,8 +923,15 @@ CameraProviderManager::ProviderInfo::DeviceInfo3::DeviceInfo3(const std::string&
                 if (s == Status::OK) {
                     camera_metadata_t *buffer =
                             reinterpret_cast<camera_metadata_t*>(metadata.data());
-                    set_camera_metadata_vendor_id(buffer, mProviderTagid);
-                    mCameraCharacteristics = buffer;
+                    size_t expectedSize = metadata.size();
+                    int res = validate_camera_metadata_structure(buffer, &expectedSize);
+                    if (res == OK || res == CAMERA_METADATA_VALIDATION_SHIFTED) {
+                        set_camera_metadata_vendor_id(buffer, mProviderTagid);
+                        mCameraCharacteristics = buffer;
+                    } else {
+                        ALOGE("%s: Malformed camera metadata received from HAL", __FUNCTION__);
+                        status = Status::INTERNAL_ERROR;
+                    }
                 }
             });
     if (!ret.isOk()) {
@@ -975,6 +993,20 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::getCameraInfo(
     }
 
     return OK;
+}
+bool CameraProviderManager::ProviderInfo::DeviceInfo3::isAPI1Compatible() const {
+    bool isBackwardCompatible = false;
+    camera_metadata_ro_entry_t caps = mCameraCharacteristics.find(
+            ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
+    for (size_t i = 0; i < caps.count; i++) {
+        if (caps.data.u8[i] ==
+                ANDROID_REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE) {
+            isBackwardCompatible = true;
+            break;
+        }
+    }
+
+    return isBackwardCompatible;
 }
 
 status_t CameraProviderManager::ProviderInfo::DeviceInfo3::getCameraCharacteristics(

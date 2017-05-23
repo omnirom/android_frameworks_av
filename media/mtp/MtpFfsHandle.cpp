@@ -516,11 +516,20 @@ void MtpFfsHandle::close() {
 }
 
 /* Read from USB and write to a local file. */
-int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
+int MtpFfsHandle::receiveFile(mtp_file_range mfr, bool zero_packet) {
     // When receiving files, the incoming length is given in 32 bits.
     // A >4G file is given as 0xFFFFFFFF
     uint32_t file_length = mfr.length;
-    uint64_t offset = lseek(mfr.fd, 0, SEEK_CUR);
+    uint64_t offset = mfr.offset;
+    struct usb_endpoint_descriptor mBulkOut_desc;
+    int packet_size;
+
+    if (ioctl(mBulkOut, FUNCTIONFS_ENDPOINT_DESC, reinterpret_cast<unsigned long>(&mBulkOut_desc))) {
+        PLOG(ERROR) << "Could not get FFS bulk-out descriptor";
+        packet_size = MAX_PACKET_SIZE_HS;
+    } else {
+        packet_size = mBulkOut_desc.wMaxPacketSize;
+    }
 
     char *data = mBuffer1.data();
     char *data2 = mBuffer2.data();
@@ -529,7 +538,7 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
     aio.aio_fildes = mfr.fd;
     aio.aio_buf = nullptr;
     struct aiocb *aiol[] = {&aio};
-    int ret;
+    int ret = -1;
     size_t length;
     bool read = false;
     bool write = false;
@@ -573,6 +582,15 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
         }
 
         if (read) {
+            if (file_length == MAX_MTP_FILE_SIZE) {
+                // For larger files, receive until a short packet is received.
+                if (static_cast<size_t>(ret) < length) {
+                    file_length = 0;
+                }
+            } else {
+                // Receive an empty packet if size is a multiple of the endpoint size.
+                file_length -= ret;
+            }
             // Enqueue a new write request
             aio.aio_buf = data;
             aio.aio_sink = mfr.fd;
@@ -580,20 +598,16 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr) {
             aio.aio_nbytes = ret;
             aio_write(&aio);
 
-            if (file_length == MAX_MTP_FILE_SIZE) {
-                // For larger files, receive until a short packet is received.
-                if (static_cast<size_t>(ret) < length) {
-                    file_length = 0;
-                }
-            } else {
-                file_length -= ret;
-            }
-
             offset += ret;
             std::swap(data, data2);
 
             write = true;
             read = false;
+        }
+    }
+    if (ret % packet_size == 0 || zero_packet) {
+        if (TEMP_FAILURE_RETRY(::read(mBulkOut, data, packet_size)) != 0) {
+            return -1;
         }
     }
     return 0;
@@ -646,10 +660,9 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
                     sizeof(mtp_data_header), init_read_len, offset))
             != init_read_len) return -1;
     if (writeHandle(mBulkIn, data, sizeof(mtp_data_header) + init_read_len) == -1) return -1;
-    if (file_length == static_cast<unsigned>(init_read_len)) return 0;
     file_length -= init_read_len;
     offset += init_read_len;
-    ret = 0;
+    ret = init_read_len + sizeof(mtp_data_header);
 
     // Break down the file into pieces that fit in buffers
     while(file_length > 0) {
@@ -695,9 +708,11 @@ int MtpFfsHandle::sendFile(mtp_file_range mfr) {
         }
     }
 
-    if (given_length == MAX_MTP_FILE_SIZE && ret % packet_size == 0) {
+    if (ret % packet_size == 0) {
         // If the last packet wasn't short, send a final empty packet
-        if (writeHandle(mBulkIn, data, 0) == -1) return -1;
+        if (TEMP_FAILURE_RETRY(::write(mBulkIn, data, 0)) != 0) {
+            return -1;
+        }
     }
 
     return 0;

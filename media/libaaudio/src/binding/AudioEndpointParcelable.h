@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef BINDING_AUDIOENDPOINTPARCELABLE_H
-#define BINDING_AUDIOENDPOINTPARCELABLE_H
+#ifndef ANDROID_BINDING_AUDIO_ENDPOINT_PARCELABLE_H
+#define ANDROID_BINDING_AUDIO_ENDPOINT_PARCELABLE_H
 
 #include <stdint.h>
 
@@ -57,6 +57,8 @@ public:
 
     aaudio_result_t validate();
 
+    aaudio_result_t close();
+
     void dump();
 
 public: // TODO add getters
@@ -73,4 +75,4 @@ private:
 
 } /* namespace aaudio */
 
-#endif //BINDING_AUDIOENDPOINTPARCELABLE_H
+#endif //ANDROID_BINDING_AUDIO_ENDPOINT_PARCELABLE_H

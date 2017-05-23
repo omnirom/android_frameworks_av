@@ -29,7 +29,7 @@
 namespace aaudio {
 
 /**
- * Internal stream that uses the legacy AudioTrack path.
+ * Internal stream that uses the legacy AudioRecord path.
  */
 class AudioStreamRecord : public AudioStreamLegacy {
 public:
@@ -67,6 +67,10 @@ public:
 
     // This is public so it can be called from the C callback function.
     void processCallback(int event, void *info) override;
+
+    int64_t incrementClientFrameCounter(int32_t frames) override {
+        return incrementFramesRead(frames);
+    }
 
 private:
     android::sp<android::AudioRecord> mAudioRecord;

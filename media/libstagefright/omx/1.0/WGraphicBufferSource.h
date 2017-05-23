@@ -78,10 +78,10 @@ struct TWGraphicBufferSource : public TGraphicBufferSource {
     Return<Status> setSuspend(bool suspend, int64_t timeUs) override;
     Return<Status> setRepeatPreviousFrameDelayUs(int64_t repeatAfterUs) override;
     Return<Status> setMaxFps(float maxFps) override;
-    Return<Status> setTimeLapseConfig(
-            int64_t timePerFrameUs, int64_t timePerCaptureUs) override;
+    Return<Status> setTimeLapseConfig(double fps, double captureFps) override;
     Return<Status> setStartTimeUs(int64_t startTimeUs) override;
     Return<Status> setStopTimeUs(int64_t stopTimeUs) override;
+    Return<void> getStopTimeOffsetUs(getStopTimeOffsetUs_cb _hidl_cb) override;
     Return<Status> setColorAspects(const ColorAspects& aspects) override;
     Return<Status> setTimeOffsetUs(int64_t timeOffsetUs) override;
     Return<Status> signalEndOfInputStream() override;

@@ -42,7 +42,16 @@ namespace android {
 ElementaryStreamQueue::ElementaryStreamQueue(Mode mode, uint32_t flags)
     : mMode(mode),
       mFlags(flags),
-      mEOSReached(false) {
+      mEOSReached(false),
+      mCASystemId(0),
+      mAUIndex(0) {
+
+    ALOGV("ElementaryStreamQueue(%p) mode %x  flags %x  isScrambled %d  isSampleEncrypted %d",
+            this, mode, flags, isScrambled(), isSampleEncrypted());
+
+    // Create the decryptor anyway since we don't know the use-case unless key is provided
+    // Won't decrypt if key info not available (e.g., scanner/extractor just parsing ts files)
+    mSampleDecryptor = isSampleEncrypted() ? new HlsSampleDecryptor : NULL;
 }
 
 sp<MetaData> ElementaryStreamQueue::getFormat() {
@@ -66,6 +75,16 @@ void ElementaryStreamQueue::clear(bool clearFormat) {
     }
 
     mEOSReached = false;
+}
+
+bool ElementaryStreamQueue::isScrambled() const {
+    return (mFlags & kFlag_ScrambledData) != 0;
+}
+
+void ElementaryStreamQueue::setCasInfo(
+        int32_t systemId, const std::vector<uint8_t> &sessionId) {
+    mCASystemId = systemId;
+    mCasSessionId = sessionId;
 }
 
 // Parse AC3 header assuming the current ptr is start position of syncframe,
@@ -652,6 +671,9 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAC3() {
     unsigned syncStartPos = 0;  // in bytes
     unsigned payloadSize = 0;
     sp<MetaData> format = new MetaData;
+
+    ALOGV("dequeueAccessUnit_AC3[%d]: mBuffer %p(%zu)", mAUIndex, mBuffer->data(), mBuffer->size());
+
     while (true) {
         if (syncStartPos + 2 >= mBuffer->size()) {
             return NULL;
@@ -664,6 +686,10 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAC3() {
         if (payloadSize > 0) {
             break;
         }
+
+        ALOGV("dequeueAccessUnit_AC3[%d]: syncStartPos %u payloadSize %u",
+                mAUIndex, syncStartPos, payloadSize);
+
         ++syncStartPos;
     }
 
@@ -676,14 +702,22 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAC3() {
         mFormat = format;
     }
 
-    sp<ABuffer> accessUnit = new ABuffer(syncStartPos + payloadSize);
-    memcpy(accessUnit->data(), mBuffer->data(), syncStartPos + payloadSize);
 
     int64_t timeUs = fetchTimestamp(syncStartPos + payloadSize);
     if (timeUs < 0ll) {
         ALOGE("negative timeUs");
         return NULL;
     }
+
+    // Not decrypting if key info not available (e.g., scanner/extractor parsing ts files)
+    if (mSampleDecryptor != NULL) {
+        mSampleDecryptor->processAC3(mBuffer->data() + syncStartPos, payloadSize);
+    }
+    mAUIndex++;
+
+    sp<ABuffer> accessUnit = new ABuffer(syncStartPos + payloadSize);
+    memcpy(accessUnit->data(), mBuffer->data(), syncStartPos + payloadSize);
+
     accessUnit->meta()->setInt64("timeUs", timeUs);
     accessUnit->meta()->setInt32("isSync", 1);
 
@@ -784,6 +818,17 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAAC() {
         return NULL;
     }
 
+    ALOGV("dequeueAccessUnit_AAC[%d]: mBuffer %zu info.mLength %zu",
+            mAUIndex, mBuffer->size(), info.mLength);
+
+    struct ADTSPosition {
+        size_t offset;
+        size_t headerSize;
+        size_t length;
+    };
+
+    Vector<ADTSPosition> frames;
+
     // The idea here is consume all AAC frames starting at offsets before
     // info.mLength so we can assign a meaningful timestamp without
     // having to interpolate.
@@ -804,7 +849,7 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAAC() {
             return NULL;
         }
         bits.skipBits(3);  // ID, layer
-        bool protection_absent __unused = bits.getBits(1) != 0;
+        bool protection_absent = bits.getBits(1) != 0;
 
         if (mFormat == NULL) {
             unsigned profile = bits.getBits(2);
@@ -866,10 +911,35 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitAAC() {
             return NULL;
         }
 
-        size_t headerSize __unused = protection_absent ? 7 : 9;
+        size_t headerSize = protection_absent ? 7 : 9;
+
+        // tracking the frame positions first then decrypt only if an accessUnit to be generated
+        if (mSampleDecryptor != NULL) {
+            ADTSPosition frame = {
+                .offset     = offset,
+                .headerSize = headerSize,
+                .length     = aac_frame_length
+            };
+
+            frames.push(frame);
+        }
 
         offset += aac_frame_length;
     }
+
+    // Decrypting only if the loop didn't exit early and an accessUnit is about to be generated
+    // Not decrypting if key info not available (e.g., scanner/extractor parsing ts files)
+    if (mSampleDecryptor != NULL) {
+        for (size_t frameId = 0; frameId < frames.size(); frameId++) {
+            const ADTSPosition &frame = frames.itemAt(frameId);
+
+            mSampleDecryptor->processAAC(frame.headerSize,
+                    mBuffer->data() + frame.offset, frame.length);
+//            ALOGV("dequeueAccessUnitAAC[%zu]: while offset %zu headerSize %zu frame_len %zu",
+//                    frameId, frame.offset, frame.headerSize, frame.length);
+        }
+    }
+    mAUIndex++;
 
     int64_t timeUs = fetchTimestamp(offset);
 
@@ -942,8 +1012,10 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
                 mFormat->setInt32(kKeyWidth, 1280);
                 mFormat->setInt32(kKeyHeight, 720);
             }
-            // for DrmInitData
-            mFormat->setData(kKeyCas, 0, mCasSessionId.data(), mCasSessionId.size());
+            // for MediaExtractor.CasInfo
+            mFormat->setInt32(kKeyCASystemID, mCASystemId);
+            mFormat->setData(kKeyCASessionID, 0,
+                    mCasSessionId.data(), mCasSessionId.size());
         }
         return dequeueScrambledAccessUnit();
     }
@@ -961,6 +1033,9 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
     size_t nalSize;
     bool foundSlice = false;
     bool foundIDR = false;
+
+    ALOGV("dequeueAccessUnit_H264[%d] %p/%zu", mAUIndex, data, size);
+
     while ((err = getNextNALUnit(&data, &size, &nalStart, &nalSize)) == OK) {
         if (nalSize == 0) continue;
 
@@ -972,6 +1047,7 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
                 foundIDR = true;
             }
             if (foundSlice) {
+                //TODO: Shouldn't this have been called with nalSize-1?
                 ABitReader br(nalStart + 1, nalSize);
                 unsigned first_mb_in_slice = parseUE(&br);
 
@@ -1012,6 +1088,7 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
 
             size_t dstOffset = 0;
             size_t seiIndex = 0;
+            size_t shrunkBytes = 0;
             for (size_t i = 0; i < nals.size(); ++i) {
                 const NALPosition &pos = nals.itemAt(i);
 
@@ -1038,11 +1115,30 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
 
                 memcpy(accessUnit->data() + dstOffset, "\x00\x00\x00\x01", 4);
 
-                memcpy(accessUnit->data() + dstOffset + 4,
-                       mBuffer->data() + pos.nalOffset,
-                       pos.nalSize);
+                if (mSampleDecryptor != NULL && (nalType == 1 || nalType == 5)) {
+                    uint8_t *nalData = mBuffer->data() + pos.nalOffset;
+                    size_t newSize = mSampleDecryptor->processNal(nalData, pos.nalSize);
+                    // Note: the data can shrink due to unescaping
+                    memcpy(accessUnit->data() + dstOffset + 4,
+                            nalData,
+                            newSize);
+                    dstOffset += newSize + 4;
 
-                dstOffset += pos.nalSize + 4;
+                    size_t thisShrunkBytes = pos.nalSize - newSize;
+                    //ALOGV("dequeueAccessUnitH264[%d]: nalType: %d -> %zu (%zu)",
+                    //        nalType, (int)pos.nalSize, newSize, thisShrunkBytes);
+
+                    shrunkBytes += thisShrunkBytes;
+                }
+                else {
+                    memcpy(accessUnit->data() + dstOffset + 4,
+                            mBuffer->data() + pos.nalOffset,
+                            pos.nalSize);
+
+                    dstOffset += pos.nalSize + 4;
+                    //ALOGV("dequeueAccessUnitH264 [%d] %d @%d",
+                    //        nalType, (int)pos.nalSize, (int)pos.nalOffset);
+                }
             }
 
 #if !LOG_NDEBUG
@@ -1072,6 +1168,18 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitH264() {
             if (mFormat == NULL) {
                 mFormat = MakeAVCCodecSpecificData(accessUnit);
             }
+
+            if (mSampleDecryptor != NULL && shrunkBytes > 0) {
+                size_t adjustedSize = accessUnit->size() - shrunkBytes;
+                ALOGV("dequeueAccessUnitH264[%d]: AU size adjusted %zu -> %zu",
+                        mAUIndex, accessUnit->size(), adjustedSize);
+                accessUnit->setRange(0, adjustedSize);
+            }
+
+            ALOGV("dequeueAccessUnitH264[%d]: AU %p(%zu) dstOffset:%zu, nals:%zu, totalSize:%zu ",
+                    mAUIndex, accessUnit->data(), accessUnit->size(),
+                    dstOffset, nals.size(), totalSize);
+            mAUIndex++;
 
             return accessUnit;
         }
@@ -1217,8 +1325,10 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitMPEGVideo() {
             mFormat->setInt32(kKeyWidth, 1280);
             mFormat->setInt32(kKeyHeight, 720);
 
-            // for DrmInitData
-            mFormat->setData(kKeyCas, 0, mCasSessionId.data(), mCasSessionId.size());
+            // for MediaExtractor.CasInfo
+            mFormat->setInt32(kKeyCASystemID, mCASystemId);
+            mFormat->setData(kKeyCASessionID, 0,
+                    mCasSessionId.data(), mCasSessionId.size());
         }
         return dequeueScrambledAccessUnit();
     }
@@ -1600,5 +1710,16 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnitMetadata() {
 
     return accessUnit;
 }
+
+void ElementaryStreamQueue::signalNewSampleAesKey(const sp<AMessage> &keyItem) {
+    if (mSampleDecryptor == NULL) {
+        ALOGE("signalNewSampleAesKey: Stream %x is not encrypted; keyItem: %p",
+                mMode, keyItem.get());
+        return;
+    }
+
+    mSampleDecryptor->signalNewSampleAesKey(keyItem);
+}
+
 
 }  // namespace android

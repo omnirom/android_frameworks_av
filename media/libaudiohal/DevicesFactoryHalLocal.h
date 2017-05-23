@@ -33,7 +33,7 @@ class DevicesFactoryHalLocal : public DevicesFactoryHalInterface
     virtual status_t openDevice(const char *name, sp<DeviceHalInterface> *device);
 
   private:
-    friend class DevicesFactoryHalInterface;
+    friend class DevicesFactoryHalHybrid;
 
     // Can not be constructed directly by clients.
     DevicesFactoryHalLocal() {}

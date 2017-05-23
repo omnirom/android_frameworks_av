@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-#ifndef BINDING_SHAREDREGIONPARCELABLE_H
-#define BINDING_SHAREDREGIONPARCELABLE_H
+#ifndef ANDROID_AAUDIO_SHARED_REGION_PARCELABLE_H
+#define ANDROID_AAUDIO_SHARED_REGION_PARCELABLE_H
 
 #include <stdint.h>
 
 #include <sys/mman.h>
 #include <binder/Parcelable.h>
 
-#include <aaudio/AAudioDefinitions.h>
+#include <aaudio/AAudio.h>
 
 #include "binding/SharedMemoryParcelable.h"
 
@@ -45,6 +45,8 @@ public:
 
     aaudio_result_t resolve(SharedMemoryParcelable *memoryParcels, void **regionAddressPtr);
 
+    bool isFileDescriptorSafe(SharedMemoryParcelable *memoryParcels);
+
     aaudio_result_t validate();
 
     void dump();
@@ -57,4 +59,4 @@ protected:
 
 } /* namespace aaudio */
 
-#endif //BINDING_SHAREDREGIONPARCELABLE_H
+#endif //ANDROID_AAUDIO_SHARED_REGION_PARCELABLE_H

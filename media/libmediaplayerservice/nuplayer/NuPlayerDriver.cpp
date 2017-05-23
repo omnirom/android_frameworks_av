@@ -56,6 +56,7 @@ static const char *kPlayerDuration = "android.media.mediaplayer.durationMs";
 static const char *kPlayerPlaying = "android.media.mediaplayer.playingMs";
 static const char *kPlayerError = "android.media.mediaplayer.err";
 static const char *kPlayerErrorCode = "android.media.mediaplayer.errcode";
+static const char *kPlayerDataSourceType = "android.media.mediaplayer.dataSource";
 
 
 NuPlayerDriver::NuPlayerDriver(pid_t pid)
@@ -574,6 +575,8 @@ void NuPlayerDriver::updateMetrics(const char *where) {
     mAnalyticsItem->setInt64(kPlayerDuration, duration_ms);
 
     mAnalyticsItem->setInt64(kPlayerPlaying, (mPlayingTimeUs+500)/1000 );
+
+    mAnalyticsItem->setCString(kPlayerDataSourceType, mPlayer->getDataSourceType());
 }
 
 
@@ -589,10 +592,10 @@ void NuPlayerDriver::logMetrics(const char *where) {
 
     // log only non-empty records
     // we always updateMetrics() before we get here
-    // and that always injects 2 fields (duration and playing time) into
-    // the record.
-    // So the canonical "empty" record has 2 elements in it.
-    if (mAnalyticsItem->count() > 2) {
+    // and that always injects 3 fields (duration, playing time, and
+    // datasource) into the record.
+    // So the canonical "empty" record has 3 elements in it.
+    if (mAnalyticsItem->count() > 3) {
 
         mAnalyticsItem->setFinalized(true);
         mAnalyticsItem->selfrecord();

@@ -21,10 +21,13 @@
 #include <media/stagefright/foundation/ABase.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/MetaData.h>
+#include <media/stagefright/foundation/AMessage.h>
 #include <utils/Errors.h>
 #include <utils/List.h>
 #include <utils/RefBase.h>
 #include <vector>
+
+#include "HlsSampleDecryptor.h"
 
 namespace android {
 
@@ -50,6 +53,7 @@ struct ElementaryStreamQueue {
         // Data appended to the queue is always at access unit boundaries.
         kFlag_AlignedData = 1,
         kFlag_ScrambledData = 2,
+        kFlag_SampleEncryptedData = 4,
     };
     explicit ElementaryStreamQueue(Mode mode, uint32_t flags = 0);
     virtual ~ElementaryStreamQueue() {};
@@ -70,13 +74,11 @@ struct ElementaryStreamQueue {
 
     sp<MetaData> getFormat();
 
-    bool isScrambled() {
-        return (mFlags & kFlag_ScrambledData) != 0;
-    }
+    bool isScrambled() const;
 
-    void setCasSession(const std::vector<uint8_t> &sessionId) {
-        mCasSessionId = sessionId;
-    }
+    void setCasInfo(int32_t systemId, const std::vector<uint8_t> &sessionId);
+
+    void signalNewSampleAesKey(const sp<AMessage> &keyItem);
 
 protected:
     struct RangeInfo {
@@ -104,9 +106,17 @@ protected:
 
     sp<ABuffer> mScrambledBuffer;
     List<ScrambledRangeInfo> mScrambledRangeInfos;
+    int32_t mCASystemId;
     std::vector<uint8_t> mCasSessionId;
 
     sp<MetaData> mFormat;
+
+    sp<HlsSampleDecryptor> mSampleDecryptor;
+    int mAUIndex;
+
+    bool isSampleEncrypted() const {
+        return (mFlags & kFlag_SampleEncryptedData) != 0;
+    }
 
     sp<ABuffer> dequeueAccessUnitH264();
     sp<ABuffer> dequeueAccessUnitAAC();

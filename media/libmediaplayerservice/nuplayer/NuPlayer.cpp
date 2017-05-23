@@ -203,7 +203,8 @@ NuPlayer::NuPlayer(pid_t pid)
       mPaused(false),
       mPausedByClient(true),
       mPausedForBuffering(false),
-      mIsDrmProtected(false) {
+      mIsDrmProtected(false),
+      mDataSourceType(DATA_SOURCE_TYPE_NONE) {
     clearFlushComplete();
 }
 
@@ -226,6 +227,7 @@ void NuPlayer::setDataSourceAsync(const sp<IStreamSource> &source) {
 
     msg->setObject("source", new StreamingSource(notify, source));
     msg->post();
+    mDataSourceType = DATA_SOURCE_TYPE_STREAM;
 }
 
 bool NuPlayer::IsHTTPLiveURL(const char *url) {
@@ -259,10 +261,12 @@ void NuPlayer::setDataSourceAsync(
     if (IsHTTPLiveURL(url)) {
         source = new HTTPLiveSource(notify, httpService, url, headers);
         ALOGV("setDataSourceAsync HTTPLiveSource %s", url);
+        mDataSourceType = DATA_SOURCE_TYPE_HTTP_LIVE;
     } else if (!strncasecmp(url, "rtsp://", 7)) {
         source = new RTSPSource(
                 notify, httpService, url, headers, mUIDValid, mUID);
         ALOGV("setDataSourceAsync RTSPSource %s", url);
+        mDataSourceType = DATA_SOURCE_TYPE_RTSP;
     } else if ((!strncasecmp(url, "http://", 7)
                 || !strncasecmp(url, "https://", 8))
                     && ((len >= 4 && !strcasecmp(".sdp", &url[len - 4]))
@@ -270,6 +274,7 @@ void NuPlayer::setDataSourceAsync(
         source = new RTSPSource(
                 notify, httpService, url, headers, mUIDValid, mUID, true);
         ALOGV("setDataSourceAsync RTSPSource http/https/.sdp %s", url);
+        mDataSourceType = DATA_SOURCE_TYPE_RTSP;
     } else {
         ALOGV("setDataSourceAsync GenericSource %s", url);
 
@@ -283,6 +288,9 @@ void NuPlayer::setDataSourceAsync(
         } else {
             ALOGE("Failed to set data source!");
         }
+
+        // regardless of success/failure
+        mDataSourceType = DATA_SOURCE_TYPE_GENERIC_URL;
     }
     msg->setObject("source", source);
     msg->post();
@@ -308,6 +316,7 @@ void NuPlayer::setDataSourceAsync(int fd, int64_t offset, int64_t length) {
 
     msg->setObject("source", source);
     msg->post();
+    mDataSourceType = DATA_SOURCE_TYPE_GENERIC_FD;
 }
 
 void NuPlayer::setDataSourceAsync(const sp<DataSource> &dataSource) {
@@ -324,6 +333,7 @@ void NuPlayer::setDataSourceAsync(const sp<DataSource> &dataSource) {
 
     msg->setObject("source", source);
     msg->post();
+    mDataSourceType = DATA_SOURCE_TYPE_MEDIA;
 }
 
 status_t NuPlayer::getDefaultBufferingSettings(
@@ -1160,7 +1170,8 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 }
                 if (mSource != nullptr) {
                     if (audio) {
-                        if (mVideoDecoderError || mSource->getFormat(false /* audio */) == NULL) {
+                        if (mVideoDecoderError || mSource->getFormat(false /* audio */) == NULL
+                                || mSurface == NULL) {
                             // When both audio and video have error, or this stream has only audio
                             // which has error, notify client of error.
                             notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
@@ -1170,7 +1181,8 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                         }
                         mAudioDecoderError = true;
                     } else {
-                        if (mAudioDecoderError || mSource->getFormat(true /* audio */) == NULL) {
+                        if (mAudioDecoderError || mSource->getFormat(true /* audio */) == NULL
+                                || mAudioSink == NULL) {
                             // When both audio and video have error, or this stream has only video
                             // which has error, notify client of error.
                             notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
@@ -1292,6 +1304,9 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                     new FlushDecoderAction(
                         FLUSH_CMD_SHUTDOWN /* audio */,
                         FLUSH_CMD_SHUTDOWN /* video */));
+
+            mDeferredActions.push_back(
+                    new SimpleAction(&NuPlayer::closeAudioSink));
 
             mDeferredActions.push_back(
                     new SimpleAction(&NuPlayer::performReset));
@@ -2658,6 +2673,32 @@ void NuPlayer::sendTimedTextData(const sp<ABuffer> &buffer) {
     }
 }
 
+const char *NuPlayer::getDataSourceType() {
+    switch (mDataSourceType) {
+        case DATA_SOURCE_TYPE_HTTP_LIVE:
+            return "HTTPLive";
+
+        case DATA_SOURCE_TYPE_RTSP:
+            return "RTSP";
+
+        case DATA_SOURCE_TYPE_GENERIC_URL:
+            return "GenURL";
+
+        case DATA_SOURCE_TYPE_GENERIC_FD:
+            return "GenFD";
+
+        case DATA_SOURCE_TYPE_MEDIA:
+            return "Media";
+
+        case DATA_SOURCE_TYPE_STREAM:
+            return "Stream";
+
+        case DATA_SOURCE_TYPE_NONE:
+        default:
+            return "None";
+    }
+ }
+
 // Modular DRM begin
 status_t NuPlayer::prepareDrm(const uint8_t uuid[16], const Vector<uint8_t> &drmSessionId)
 {
@@ -2758,6 +2799,11 @@ status_t NuPlayer::onReleaseDrm()
 
     status_t status;
     if (mCrypto != NULL) {
+        // notifying the source first before removing crypto from codec
+        if (mSource != NULL) {
+            mSource->releaseDrm();
+        }
+
         status=OK;
         // first making sure the codecs have released their crypto reference
         const sp<DecoderBase> &videoDecoder = getDecoder(false/*audio*/);

@@ -1012,6 +1012,13 @@ bool NuPlayer::Renderer::onDrainAudioQueue() {
             }
 
             // EOS
+            if (mPaused) {
+                // Do not notify EOS when paused.
+                // This is needed to avoid switch to next clip while in pause.
+                ALOGV("onDrainAudioQueue(): Do not notify EOS when paused");
+                return false;
+            }
+
             int64_t postEOSDelayUs = 0;
             if (mAudioSink->needsTrailingPadding()) {
                 postEOSDelayUs = getPendingAudioPlayoutDurationUs(ALooper::GetNowUs());
@@ -1752,6 +1759,18 @@ void NuPlayer::Renderer::onResume() {
         if (err != OK) {
             ALOGE("cannot start AudioSink err %d", err);
             notifyAudioTearDown(kDueToError);
+        } else {
+            // Update anchor time after resuming playback.
+            // Anchor time has to be updated onResume
+            // to adjust for AV sync after multiple pause/resumes
+            if (offloadingAudio()) {
+                int64_t nowUs = ALooper::GetNowUs();
+                int64_t nowMediaUs = mAudioSink->getPlayedOutDurationUs(nowUs);
+                if (nowMediaUs >= 0) {
+                    nowMediaUs += mAudioFirstAnchorTimeMediaUs;
+                    mMediaClock->updateAnchor(nowMediaUs, nowUs, INT64_MAX);
+                }
+            }
         }
     }
 
@@ -1823,10 +1842,12 @@ void NuPlayer::Renderer::onAudioTearDown(AudioTearDownReason reason) {
 
 void NuPlayer::Renderer::startAudioOffloadPauseTimeout() {
     if (offloadingAudio()) {
+        int64_t pauseTimeOutDuration = property_get_int64(
+            "audio.offload.pstimeout.secs",(kOffloadPauseMaxUs/1000000)/*default*/);
         mWakeLock->acquire();
         sp<AMessage> msg = new AMessage(kWhatAudioOffloadPauseTimeout, this);
         msg->setInt32("drainGeneration", mAudioOffloadPauseTimeoutGeneration);
-        msg->post(kOffloadPauseMaxUs);
+        msg->post(pauseTimeOutDuration*1000000);
     }
 }
 

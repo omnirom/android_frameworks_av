@@ -654,6 +654,9 @@ status_t AudioTrack::start()
             get_sched_policy(0, &mPreviousSchedulingGroup);
             androidSetThreadPriority(0, ANDROID_PRIORITY_AUDIO);
         }
+
+        // Start our local VolumeHandler for restoration purposes.
+        mVolumeHandler->setStarted();
     } else {
         ALOGE("start() status %d", status);
         mState = previousState;
@@ -1251,8 +1254,22 @@ audio_stream_type_t AudioTrack::streamType() const
 }
 
 // -------------------------------------------------------------------------
+uint32_t AudioTrack::latency()
+{
+  AutoMutex lock(mLock);
+  return latency_l();
+}
 
 // must be called with mLock held
+uint32_t AudioTrack::latency_l()
+{
+    status_t status = AudioSystem::getLatency(mOutput, &mAfLatency);
+    if (status != NO_ERROR) {
+        ALOGW("getLatency(%d) failed status %d", mOutput, status);
+    }
+    return mAfLatency + (1000*mFrameCount) / mSampleRate;
+}
+
 status_t AudioTrack::createTrack_l()
 {
     const sp<IAudioFlinger>& audioFlinger = AudioSystem::get_audio_flinger();
@@ -1496,12 +1513,13 @@ status_t AudioTrack::createTrack_l()
     mAwaitBoost = false;
     if (mFlags & AUDIO_OUTPUT_FLAG_FAST) {
         if (flags & AUDIO_OUTPUT_FLAG_FAST) {
-            ALOGV("AUDIO_OUTPUT_FLAG_FAST successful; frameCount %zu", frameCount);
+            ALOGI("AUDIO_OUTPUT_FLAG_FAST successful; frameCount %zu -> %zu", frameCount, temp);
             if (!mThreadCanCallJava) {
                 mAwaitBoost = true;
             }
         } else {
-            ALOGW("AUDIO_OUTPUT_FLAG_FAST denied by server; frameCount %zu", frameCount);
+            ALOGW("AUDIO_OUTPUT_FLAG_FAST denied by server; frameCount %zu -> %zu", frameCount,
+                    temp);
         }
     }
     mFlags = flags;
@@ -1554,9 +1572,8 @@ status_t AudioTrack::createTrack_l()
     mAudioTrack->attachAuxEffect(mAuxEffectId);
     // FIXME doesn't take into account speed or future sample rate changes (until restoreTrack)
     // FIXME don't believe this lie
-    mLatency = mAfLatency + (1000*frameCount) / mSampleRate;
-
     mFrameCount = frameCount;
+    mLatency = latency_l();
     // If IAudioTrack is re-created, don't let the requested frameCount
     // decrease.  This can confuse clients that cache frameCount().
     if (frameCount > mReqFrameCount) {
@@ -2270,17 +2287,20 @@ status_t AudioTrack::restoreTrack_l(const char *from)
             }
         }
         // restore volume handler
-        mVolumeHandler->forall([this](const sp<VolumeShaper::Configuration> &configuration,
-                const sp<VolumeShaper::Operation> &operation) -> VolumeShaper::Status {
-            sp<VolumeShaper::Operation> operationToEnd = new VolumeShaper::Operation(*operation);
+        mVolumeHandler->forall([this](const VolumeShaper &shaper) -> VolumeShaper::Status {
+            sp<VolumeShaper::Operation> operationToEnd =
+                    new VolumeShaper::Operation(shaper.mOperation);
             // TODO: Ideally we would restore to the exact xOffset position
             // as returned by getVolumeShaperState(), but we don't have that
             // information when restoring at the client unless we periodically poll
             // the server or create shared memory state.
             //
-            // For now, we simply advance to the end of the VolumeShaper effect.
-            operationToEnd->setXOffset(1.f);
-            return mAudioTrack->applyVolumeShaper(configuration, operationToEnd);
+            // For now, we simply advance to the end of the VolumeShaper effect
+            // if it has been started.
+            if (shaper.isStarted()) {
+                operationToEnd->setNormalizedTime(1.f);
+            }
+            return mAudioTrack->applyVolumeShaper(shaper.mConfiguration, operationToEnd);
         });
 
         if (mState == STATE_ACTIVE) {
@@ -2325,12 +2345,18 @@ Modulo<uint32_t> AudioTrack::updateAndGetPosition_l()
 
 bool AudioTrack::isSampleRateSpeedAllowed_l(uint32_t sampleRate, float speed) const
 {
+    uint32_t afLatency = 0;
+    status_t status = AudioSystem::getLatency(mOutput, &afLatency);
+    if (status != NO_ERROR) {
+        afLatency = mAfLatency;
+        ALOGW("getLatency(%d) failed status %d", mOutput, status);
+    }
     // applicable for mixing tracks only (not offloaded or direct)
     if (mStaticProxy != 0) {
         return true; // static tracks do not have issues with buffer sizing.
     }
     const size_t minFrameCount =
-            calculateMinFrameCount(mAfLatency, mAfFrameCount, mAfSampleRate, sampleRate, speed
+            calculateMinFrameCount(afLatency, mAfFrameCount, mAfSampleRate, sampleRate, speed
                 /*, 0 mNotificationsPerBufferReq*/);
     ALOGV("isSampleRateSpeedAllowed_l mFrameCount %zu  minFrameCount %zu",
             mFrameCount, minFrameCount);
@@ -2350,19 +2376,36 @@ VolumeShaper::Status AudioTrack::applyVolumeShaper(
     AutoMutex lock(mLock);
     mVolumeHandler->setIdIfNecessary(configuration);
     VolumeShaper::Status status = mAudioTrack->applyVolumeShaper(configuration, operation);
+
+    if (status == DEAD_OBJECT) {
+        if (restoreTrack_l("applyVolumeShaper") == OK) {
+            status = mAudioTrack->applyVolumeShaper(configuration, operation);
+        }
+    }
     if (status >= 0) {
         // save VolumeShaper for restore
         mVolumeHandler->applyVolumeShaper(configuration, operation);
+        if (mState == STATE_ACTIVE || mState == STATE_STOPPING) {
+            mVolumeHandler->setStarted();
+        }
+    } else {
+        // warn only if not an expected restore failure.
+        ALOGW_IF(!((isOffloadedOrDirect_l() || mDoNotReconnect) && status == DEAD_OBJECT),
+                "applyVolumeShaper failed: %d", status);
     }
     return status;
 }
 
 sp<VolumeShaper::State> AudioTrack::getVolumeShaperState(int id)
 {
-    // TODO: To properly restore the AudioTrack
-    // we will need to save the last state in AudioTrackShared.
     AutoMutex lock(mLock);
-    return mAudioTrack->getVolumeShaperState(id);
+    sp<VolumeShaper::State> state = mAudioTrack->getVolumeShaperState(id);
+    if (state.get() == nullptr && (mCblk->mFlags & CBLK_INVALID) != 0) {
+        if (restoreTrack_l("getVolumeShaperState") == OK) {
+            state = mAudioTrack->getVolumeShaperState(id);
+        }
+    }
+    return state;
 }
 
 status_t AudioTrack::getTimestamp(ExtendedTimestamp *timestamp)
@@ -2461,6 +2504,10 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
             status = ets.getBestTimestamp(&timestamp, &location);
 
             if (status == OK) {
+                status = AudioSystem::getLatency(mOutput, &mAfLatency);
+                if (status != NO_ERROR) {
+                    ALOGW("getLatency(%d) failed status %d", mOutput, status);
+                }
                 // It is possible that the best location has moved from the kernel to the server.
                 // In this case we adjust the position from the previous computed latency.
                 if (location == ExtendedTimestamp::LOCATION_SERVER) {

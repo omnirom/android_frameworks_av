@@ -192,8 +192,8 @@ Return<Status> TWGraphicBufferSource::setMaxFps(float maxFps) {
 }
 
 Return<Status> TWGraphicBufferSource::setTimeLapseConfig(
-        int64_t timePerFrameUs, int64_t timePerCaptureUs) {
-    return toStatus(mBase->setTimeLapseConfig(timePerFrameUs, timePerCaptureUs));
+        double fps, double captureFps) {
+    return toStatus(mBase->setTimeLapseConfig(fps, captureFps));
 }
 
 Return<Status> TWGraphicBufferSource::setStartTimeUs(int64_t startTimeUs) {
@@ -202,6 +202,13 @@ Return<Status> TWGraphicBufferSource::setStartTimeUs(int64_t startTimeUs) {
 
 Return<Status> TWGraphicBufferSource::setStopTimeUs(int64_t stopTimeUs) {
     return toStatus(mBase->setStopTimeUs(stopTimeUs));
+}
+
+Return<void> TWGraphicBufferSource::getStopTimeOffsetUs(
+        getStopTimeOffsetUs_cb _hidl_cb) {
+    // TODO: Implement this when needed.
+    _hidl_cb(Status::OK, 0);
+    return Void();
 }
 
 Return<Status> TWGraphicBufferSource::setColorAspects(

@@ -22,10 +22,12 @@
 #include <stdint.h>
 #include <aaudio/AAudio.h>
 
-#include "AAudioUtilities.h"
-#include "MonotonicCounter.h"
+#include "utility/AAudioUtilities.h"
+#include "utility/MonotonicCounter.h"
 
 namespace aaudio {
+
+typedef void *(*aaudio_audio_thread_proc_t)(void *);
 
 class AudioStreamBuilder;
 
@@ -132,6 +134,10 @@ public:
         return mState == AAUDIO_STREAM_STATE_STARTING || mState == AAUDIO_STREAM_STATE_STARTED;
     }
 
+    virtual bool isMMap() {
+        return false;
+    }
+
     aaudio_result_t getSampleRate() const {
         return mSampleRate;
     }
@@ -144,12 +150,24 @@ public:
         return mSamplesPerFrame;
     }
 
+    virtual int32_t getPerformanceMode() const {
+        return mPerformanceMode;
+    }
+
+    void setPerformanceMode(aaudio_performance_mode_t performanceMode) {
+        mPerformanceMode = performanceMode;
+    }
+
     int32_t getDeviceId() const {
         return mDeviceId;
     }
 
     aaudio_sharing_mode_t getSharingMode() const {
         return mSharingMode;
+    }
+
+    bool isSharingModeMatchRequired() const {
+        return mSharingModeMatchRequired;
     }
 
     aaudio_direction_t getDirection() const {
@@ -217,22 +235,12 @@ public:
 protected:
 
     virtual int64_t incrementFramesWritten(int32_t frames) {
-        return static_cast<int64_t>(mFramesWritten.increment(frames));
+        return mFramesWritten.increment(frames);
     }
 
     virtual int64_t incrementFramesRead(int32_t frames) {
-        return static_cast<int64_t>(mFramesRead.increment(frames));
+        return mFramesRead.increment(frames);
     }
-
-    /**
-     * Wait for a transition from one state to another.
-     * @return AAUDIO_OK if the endingState was observed, or AAUDIO_ERROR_UNEXPECTED_STATE
-     *   if any state that was not the startingState or endingState was observed
-     *   or AAUDIO_ERROR_TIMEOUT
-     */
-    virtual aaudio_result_t waitForStateTransition(aaudio_stream_state_t startingState,
-                                                   aaudio_stream_state_t endingState,
-                                                   int64_t timeoutNanoseconds);
 
     /**
      * This should not be called after the open() call.
@@ -266,10 +274,13 @@ protected:
         mState = state;
     }
 
+    void setDeviceId(int32_t deviceId) {
+        mDeviceId = deviceId;
+    }
+
     std::mutex           mStreamMutex;
 
     std::atomic<bool>    mCallbackEnabled;
-
 
 protected:
     MonotonicCounter     mFramesWritten;
@@ -289,9 +300,12 @@ private:
     int32_t                mSampleRate = AAUDIO_UNSPECIFIED;
     int32_t                mDeviceId = AAUDIO_UNSPECIFIED;
     aaudio_sharing_mode_t  mSharingMode = AAUDIO_SHARING_MODE_SHARED;
+    bool                   mSharingModeMatchRequired = false; // must match sharing mode requested
     aaudio_audio_format_t  mFormat = AAUDIO_FORMAT_UNSPECIFIED;
     aaudio_direction_t     mDirection = AAUDIO_DIRECTION_OUTPUT;
     aaudio_stream_state_t  mState = AAUDIO_STREAM_STATE_UNINITIALIZED;
+
+    aaudio_performance_mode_t mPerformanceMode = AAUDIO_PERFORMANCE_MODE_NONE;
 
     // callback ----------------------------------
 

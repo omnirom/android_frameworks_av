@@ -489,7 +489,7 @@ void AudioFlinger::PlaybackThread::Track::destroy()
 /*static*/ void AudioFlinger::PlaybackThread::Track::appendDumpHeader(String8& result)
 {
     result.append("    Name Active Client Type      Fmt Chn mask Session fCount S F SRate  "
-                  "L dB  R dB    Server Main buf  Aux buf Flags UndFrmCnt  Flushed\n");
+                  "L dB  R dB  VS dB    Server Main buf  Aux buf Flags UndFrmCnt  Flushed\n");
 }
 
 void AudioFlinger::PlaybackThread::Track::dump(char* buffer, size_t size, bool active)
@@ -555,8 +555,11 @@ void AudioFlinger::PlaybackThread::Track::dump(char* buffer, size_t size, bool a
         nowInUnderrun = '?';
         break;
     }
-    snprintf(&buffer[8], size-8, " %6s %6u %4u %08X %08X %7u %6zu %1c %1d %5u %5.2g %5.2g  "
-                                 "%08X %08zX %08zX 0x%03X %9u%c %7u\n",
+
+    std::pair<float /* volume */, bool /* active */> vsVolume = mVolumeHandler->getLastVolume();
+    snprintf(&buffer[8], size - 8, " %6s %6u %4u %08X %08X %7u %6zu %1c %1d %5u "
+                                   "%5.2g %5.2g %5.2g%c  "
+                                   "%08X %08zX %08zX 0x%03X %9u%c %7u\n",
             active ? "yes" : "no",
             (mClient == 0) ? getpid_cached : mClient->pid(),
             mStreamType,
@@ -569,6 +572,8 @@ void AudioFlinger::PlaybackThread::Track::dump(char* buffer, size_t size, bool a
             mAudioTrackServerProxy->getSampleRate(),
             20.0 * log10(float_from_gain(gain_minifloat_unpack_left(vlr))),
             20.0 * log10(float_from_gain(gain_minifloat_unpack_right(vlr))),
+            20.0 * log10(vsVolume.first), // VolumeShaper(s) total volume
+            vsVolume.second ? 'A' : ' ',  // if any VolumeShapers active
             mCblk->mServer,
             (size_t)mMainBuffer, // use %zX as %p appends 0x
             (size_t)mAuxBuffer,  // use %zX as %p appends 0x
@@ -592,7 +597,9 @@ status_t AudioFlinger::PlaybackThread::Track::getNextBuffer(
     status_t status = mServerProxy->obtainBuffer(&buf);
     buffer->frameCount = buf.mFrameCount;
     buffer->raw = buf.mRaw;
-    if (buf.mFrameCount == 0) {
+    if (buf.mFrameCount == 0 && !isStopping() && !isStopped() && !isPaused()) {
+        ALOGV("underrun,  framesReady(%zu) < framesDesired(%zd), state: %d",
+                buf.mFrameCount, desiredFrames, mState);
         mAudioTrackServerProxy->tallyUnderrunFrames(desiredFrames);
     } else {
         mAudioTrackServerProxy->tallyUnderrunFrames(0);
@@ -1473,9 +1480,11 @@ status_t AudioFlinger::PlaybackThread::PatchTrack::obtainBuffer(Proxy::Buffer* b
     status_t status = NO_ERROR;
     static const int32_t kMaxTries = 5;
     int32_t tryCounter = kMaxTries;
+    size_t  frameCount = buffer->mFrameCount;
     do {
         if (status == NOT_ENOUGH_DATA) {
             restartIfDisabled();
+            buffer->mFrameCount = frameCount;
         }
         status = mProxy->obtainBuffer(buffer, timeOut);
     } while ((status == NOT_ENOUGH_DATA) && (tryCounter-- > 0));

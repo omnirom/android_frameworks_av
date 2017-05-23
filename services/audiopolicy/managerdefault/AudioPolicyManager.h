@@ -273,6 +273,10 @@ protected:
         {
             return mDefaultOutputDevice;
         }
+        virtual const bool &getA2dpSuspended() const
+        {
+            return mA2dpSuspended;
+        }
 protected:
         void addOutput(audio_io_handle_t output, const sp<SwAudioOutputDescriptor>& outputDesc);
         void removeOutput(audio_io_handle_t output);
@@ -383,7 +387,7 @@ protected:
         // must be called every time a condition that affects the output choice for a given strategy
         // changes: connected device, phone state, force use...
         // Must be called before updateDevicesAndOutputs()
-        void checkOutputForStrategy(routing_strategy strategy);
+        virtual void checkOutputForStrategy(routing_strategy strategy);
 
         // Same as checkOutputForStrategy() but for a all strategies in order of priority
         void checkOutputForAllStrategies();
@@ -452,7 +456,7 @@ protected:
                                                        audio_channel_mask_t channelMask,
                                                        audio_output_flags_t flags);
 
-        audio_io_handle_t selectOutputForEffects(const SortedVector<audio_io_handle_t>& outputs);
+        audio_io_handle_t selectOutputForMusicEffects();
 
         virtual status_t addAudioPatch(audio_patch_handle_t handle, const sp<AudioPatch>& patch)
         {
@@ -570,6 +574,8 @@ protected:
 
         bool mMasterMono;               // true if we wish to force all outputs to mono
         AudioPolicyMixCollection mPolicyMixes; // list of registered mixes
+        audio_io_handle_t mMusicEffectOutput;     // output selected for music effects
+
 
 #ifdef AUDIO_POLICY_TEST
         Mutex   mLock;
