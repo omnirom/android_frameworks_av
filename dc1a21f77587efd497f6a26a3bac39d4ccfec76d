@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "d463b987_af15ea64",
+        "filename": "services/camera/libcameraservice/device3/Camera3Device.cpp",
+        "patchSetId": 3
+      },
+      "lineNbr": 1077,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2017-05-26T15:43:54Z",
+      "side": 1,
+      "message": "dont you want to make sure dataSpace does not get overriden later? So add the rest into an else?",
+      "revId": "dc1a21f77587efd497f6a26a3bac39d4ccfec76d",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
