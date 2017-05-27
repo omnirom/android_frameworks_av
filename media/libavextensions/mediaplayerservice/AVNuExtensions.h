@@ -30,6 +30,7 @@
 #define _AV_NU_EXTENSIONS_H_
 
 #include <common/AVExtensionsCommon.h>
+#include <media/MediaCodecBuffer.h>
 
 namespace android {
 
@@ -77,6 +78,8 @@ struct AVNuUtils {
     virtual uint32_t getFlags();
     virtual audio_format_t getPCMFormat(const sp<AMessage> &);
     virtual void checkFormatChange(bool *formatChange, const sp<ABuffer> &accessUnit);
+    virtual bool isAccurateSeek() { return false; }
+    virtual bool dropBufferIfNeeded (sp<MediaCodecBuffer>, int32_t, bool*) { return false; }
 
     // ----- NO TRESSPASSING BEYOND THIS LINE ------
     DECLARE_LOADABLE_SINGLETON(AVNuUtils);
