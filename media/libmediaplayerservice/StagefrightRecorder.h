@@ -124,7 +124,6 @@ protected:
 
     bool mCaptureFpsEnable;
     double mCaptureFps;
-    int64_t mTimeBetweenCaptureUs;
     sp<CameraSourceTimeLapse> mCameraSourceTimeLapse;
 
     String8 mParams;

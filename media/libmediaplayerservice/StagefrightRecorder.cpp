@@ -1584,11 +1584,6 @@ status_t StagefrightRecorder::setupCameraSource(
     videoSize.width = mVideoWidth;
     videoSize.height = mVideoHeight;
     if (mCaptureFpsEnable) {
-        if (mTimeBetweenCaptureUs < 0) {
-            ALOGE("Invalid mTimeBetweenTimeLapseFrameCaptureUs value: %" PRId64 "",
-                mTimeBetweenCaptureUs);
-            return BAD_VALUE;
-        }
         if (!(mCaptureFps > 0.)) {
             ALOGE("Invalid mCaptureFps value: %lf", mCaptureFps);
             return BAD_VALUE;
@@ -1694,11 +1689,6 @@ status_t StagefrightRecorder::setupVideoEncoder(
 
         // set up time lapse/slow motion for surface source
         if (mCaptureFpsEnable) {
-            if (mTimeBetweenCaptureUs <= 0) {
-                ALOGE("Invalid mTimeBetweenCaptureUs value: %" PRId64 "",
-                        mTimeBetweenCaptureUs);
-                return BAD_VALUE;
-            }
             if (!(mCaptureFps > 0.)) {
                 ALOGE("Invalid mCaptureFps value: %lf", mCaptureFps);
                 return BAD_VALUE;
