@@ -161,42 +161,33 @@ int32_t AAudioConvert_framesToBytes(int32_t numFrames,
                                             int32_t bytesPerFrame,
                                             int32_t *sizeInBytes);
 
-audio_format_t AAudioConvert_aaudioToAndroidDataFormat(aaudio_audio_format_t aaudio_format);
+audio_format_t AAudioConvert_aaudioToAndroidDataFormat(aaudio_format_t aaudio_format);
 
-aaudio_audio_format_t AAudioConvert_androidToAAudioDataFormat(audio_format_t format);
+aaudio_format_t AAudioConvert_androidToAAudioDataFormat(audio_format_t format);
 
 /**
  * @return the size of a sample of the given format in bytes or AAUDIO_ERROR_ILLEGAL_ARGUMENT
  */
-int32_t AAudioConvert_formatToSizeInBytes(aaudio_audio_format_t format);
+int32_t AAudioConvert_formatToSizeInBytes(aaudio_format_t format);
 
 
 // Note that this code may be replaced by Settings or by some other system configuration tool.
 
-enum : int32_t {
-    // Related feature is disabled
-    AAUDIO_USE_NEVER = 0,
-    // If related feature works then use it. Otherwise fall back to something else.
-    AAUDIO_USE_AUTO = 1,
-    // Related feature must be used. If not available then fail.
-    AAUDIO_USE_ALWAYS = 2
-};
-
-#define AAUDIO_PROP_MMAP_ENABLED           "aaudio.mmap_enabled"
+#define AAUDIO_PROP_MMAP_POLICY           "aaudio.mmap_policy"
 
 /**
  * Read system property.
- * @return AAUDIO_USE_NEVER or AAUDIO_USE_AUTO or AAUDIO_USE_ALWAYS
+ * @return AAUDIO_UNSPECIFIED, AAUDIO_POLICY_NEVER or AAUDIO_POLICY_AUTO or AAUDIO_POLICY_ALWAYS
  */
-int32_t AAudioProperty_getMMapEnabled();
+int32_t AAudioProperty_getMMapPolicy();
 
-#define AAUDIO_PROP_MMAP_EXCLUSIVE_ENABLED "aaudio.mmap_exclusive_enabled"
+#define AAUDIO_PROP_MMAP_EXCLUSIVE_POLICY "aaudio.mmap_exclusive_policy"
 
 /**
  * Read system property.
- * @return AAUDIO_USE_NEVER or AAUDIO_USE_AUTO or AAUDIO_USE_ALWAYS
+ * @return AAUDIO_UNSPECIFIED, AAUDIO_POLICY_NEVER or AAUDIO_POLICY_AUTO or AAUDIO_POLICY_ALWAYS
  */
-int32_t AAudioProperty_getMMapExclusiveEnabled();
+int32_t AAudioProperty_getMMapExclusivePolicy();
 
 #define AAUDIO_PROP_MIXER_BURSTS           "aaudio.mixer_bursts"
 
