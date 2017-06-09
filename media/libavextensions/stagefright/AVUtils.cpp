@@ -30,6 +30,7 @@
 #define LOG_TAG "AVUtils"
 #include <utils/Log.h>
 
+#include <media/IMediaExtractor.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -154,6 +155,14 @@ const char *AVUtils::getComponentRole(bool isEncoder, const char *mime) {
 
 bool AVUtils::IsHevcIDR(const sp<ABuffer> &) {
    return false;
+}
+
+sp<DataSource> AVUtils::wrapTraceDataSource(const sp<DataSource> &dataSource) {
+    return dataSource;
+}
+
+sp<IMediaExtractor> AVUtils::wrapTraceMediaExtractor(const sp<IMediaExtractor> &extractor) {
+    return extractor;
 }
 
 // ----- NO TRESSPASSING BEYOND THIS LINE ------

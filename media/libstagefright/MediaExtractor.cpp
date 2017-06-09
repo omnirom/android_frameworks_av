@@ -16,6 +16,7 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "MediaExtractor"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_EXTRACT
 #include <utils/Log.h>
 #include <inttypes.h>
 #include <pwd.h>
@@ -118,10 +119,14 @@ uint32_t MediaExtractor::flags() const {
     return CAN_SEEK_BACKWARD | CAN_SEEK_FORWARD | CAN_PAUSE | CAN_SEEK;
 }
 
+#undef __CLASS__
+#define __CLASS__ "MediaExtractor"
+
 // static
-sp<IMediaExtractor> MediaExtractor::Create(
+sp<IMediaExtractor> MediaExtractor::CreateImp(
         const sp<DataSource> &source, const char *mime,
         const uint32_t flags) {
+    VTRACE_CALL();
     ALOGV("MediaExtractor::Create %s flags %d", mime, flags);
 
     if (!property_get_bool("media.stagefright.extractremote", true)) {
@@ -143,6 +148,17 @@ sp<IMediaExtractor> MediaExtractor::Create(
         }
     }
     return NULL;
+}
+
+// static
+sp<IMediaExtractor> MediaExtractor::Create(
+        const sp<DataSource> &source, const char *mime,
+        const uint32_t flags) {
+    VTRACE_CALL();
+    sp<DataSource> dataSource = AVUtils::get()->wrapTraceDataSource(source);
+    sp<IMediaExtractor> extractor = MediaExtractor::CreateImp(dataSource, mime, flags);
+    VTRACE_CONNECT(extractor.get(), dataSource.get());
+    return AVUtils::get()->wrapTraceMediaExtractor(extractor);
 }
 
 sp<MediaExtractor> MediaExtractor::CreateFromService(

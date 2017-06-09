@@ -34,6 +34,43 @@
 namespace android {
 
 //static
+uint64_t ADebug::getTraceOptionsFromProperty() {
+    char value[PROPERTY_VALUE_MAX];
+    if (!property_get("persist.sys.media.traces", value, NULL)) {
+        ALOGW("Failed to get property persist.sys.media.traces");
+        return 0;
+    }
+    uint64_t traceOptions = 0;
+    if (strstr(value, "All")) {
+        traceOptions = (uint64_t)(-1);
+    } else {
+        if (strstr(value, "NuPlayer") != NULL) {
+            traceOptions |= (uint64_t)1 << TraceSubmodule::NuPlayer;
+        }
+        if (strstr(value, "Codec") != NULL) {
+            traceOptions |= (uint64_t)1 << TraceSubmodule::Codec;
+        }
+        if (strstr(value, "Extract") != NULL) {
+            traceOptions |= (uint64_t)1 << TraceSubmodule::Extract;
+        }
+        if (strstr(value, "Mux") != NULL) {
+            traceOptions |= (uint64_t)1 << TraceSubmodule::Mux;
+        }
+        if (strstr(value, "Render") != NULL) {
+            traceOptions |= (uint64_t)1 << TraceSubmodule::Render;
+        }
+        if (strstr(value, "Drm") != NULL) {
+            traceOptions |= (uint64_t)1 << TraceSubmodule::Drm;
+        }
+    }
+
+    ALOGI("Trace options: %llx", (unsigned long long)traceOptions);
+    return traceOptions;
+}
+
+uint64_t ADebug::sTraceOptions = ADebug::getTraceOptionsFromProperty();
+
+//static
 long ADebug::GetLevelFromSettingsString(
         const char *name, const char *value, long def) {
     // split on ,

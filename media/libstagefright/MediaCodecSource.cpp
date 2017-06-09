@@ -17,6 +17,8 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "MediaCodecSource"
 #define DEBUG_DRIFT_TIME 0
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_MUX
+#define __CLASS__ "MediaCodecSource"
 
 #include <inttypes.h>
 
@@ -399,12 +401,18 @@ status_t MediaCodecSource::read(
     if (!output->mEncoderReachedEOS) {
         *buffer = *output->mBufferQueue.begin();
         output->mBufferQueue.erase(output->mBufferQueue.begin());
+        int64_t timeUs = 0;
+        (*buffer)->meta_data()->findInt64(kKeyTime, &timeUs);
+        VTRACE_ASYNC_BEGIN(mIsVideo?"write-video":"write-audio", (int)timeUs);
         return OK;
     }
     return output->mErrorCode;
 }
 
 void MediaCodecSource::signalBufferReturned(MediaBuffer *buffer) {
+    int64_t timeUs = 0;
+    buffer->meta_data()->findInt64(kKeyTime, &timeUs);
+    VTRACE_ASYNC_END(mIsVideo?"write-video":"write-audio", (int)timeUs);
     buffer->setObserver(0);
     buffer->release();
 }

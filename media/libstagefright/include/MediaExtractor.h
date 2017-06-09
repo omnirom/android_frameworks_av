@@ -110,6 +110,10 @@ private:
 
     MediaExtractor(const MediaExtractor &);
     MediaExtractor &operator=(const MediaExtractor &);
+
+    static sp<IMediaExtractor> CreateImp(
+            const sp<DataSource> &source, const char *mime,
+            const uint32_t flags);
 };
 
 }  // namespace android

@@ -43,6 +43,7 @@ namespace android {
 struct ACodec;
 struct MediaCodec;
 struct ALooper;
+class IMediaExtractor;
 class MediaExtractor;
 class AudioParameter;
 class MetaData;
@@ -162,6 +163,9 @@ struct AVUtils {
 
     // Used by ATSParser
     virtual bool IsHevcIDR(const sp<ABuffer> &accessUnit);
+
+    virtual sp<DataSource> wrapTraceDataSource(const sp<DataSource> &dataSource);
+    virtual sp<IMediaExtractor> wrapTraceMediaExtractor(const sp<IMediaExtractor> &extractor);
 
     // ----- NO TRESSPASSING BEYOND THIS LINE ------
     DECLARE_LOADABLE_SINGLETON(AVUtils);

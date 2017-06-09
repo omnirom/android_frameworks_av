@@ -16,6 +16,8 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "GenericSource"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_EXTRACT
+#define __CLASS__ "GenericSource"
 
 #include "GenericSource.h"
 #include "NuPlayerDrm.h"
@@ -559,6 +561,7 @@ status_t NuPlayer::GenericSource::feedMoreTSData() {
 }
 
 void NuPlayer::GenericSource::onMessageReceived(const sp<AMessage> &msg) {
+    VTRACE_METHOD();
     switch (msg->what()) {
       case kWhatPrepareAsync:
       {
@@ -1386,6 +1389,7 @@ void NuPlayer::GenericSource::onReadBuffer(const sp<AMessage>& msg) {
 void NuPlayer::GenericSource::readBuffer(
         media_track_type trackType, int64_t seekTimeUs, MediaPlayerSeekMode mode,
         int64_t *actualTimeUs, bool formatChange) {
+    VTRACE_METHOD();
     // Do not read data if Widevine source is stopped
     //
     // TODO: revisit after widevine is removed.  May be able to
