@@ -223,6 +223,7 @@ private:
     int64_t mDurationUs;
     bool mAudioIsVorbis;
     bool mIsByteMode;
+    // Secure codec is required.
     bool mIsSecure;
     bool mIsStreaming;
     bool mUIDValid;
@@ -311,7 +312,9 @@ private:
             bool seeking, bool formatChange, media_track_type trackType, Track *track);
 
     // Modular DRM
+    // The source is DRM protected and is prepared for DRM.
     bool mIsDrmProtected;
+    // releaseDrm has been processed.
     bool mIsDrmReleased;
     Vector<String8> mMimes;
 
