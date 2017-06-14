@@ -22,6 +22,7 @@
 #include <pthread.h>
 
 #include <aaudio/AAudio.h>
+#include <aaudio/AAudioTesting.h>
 
 #include "AudioStreamBuilder.h"
 #include "AudioStream.h"
@@ -94,6 +95,13 @@ AAUDIO_API const char * AAudio_convertStreamStateToText(aaudio_stream_state_t st
 
 #undef AAUDIO_CASE_ENUM
 
+
+/******************************************
+ * Static globals.
+ */
+static aaudio_policy_t s_MMapPolicy = AAUDIO_UNSPECIFIED;
+
+
 static AudioStream *convertAAudioStreamToAudioStream(AAudioStream* stream)
 {
     return (AudioStream*) stream;
@@ -157,7 +165,7 @@ AAUDIO_API void AAudioStreamBuilder_setDirection(AAudioStreamBuilder* builder,
 }
 
 AAUDIO_API void AAudioStreamBuilder_setFormat(AAudioStreamBuilder* builder,
-                                                   aaudio_audio_format_t format)
+                                                   aaudio_format_t format)
 {
     AudioStreamBuilder *streamBuilder = convertAAudioBuilderToStreamBuilder(builder);
     streamBuilder->setFormat(format);
@@ -359,7 +367,7 @@ AAUDIO_API aaudio_stream_state_t AAudioStream_getState(AAudioStream* stream)
     return audioStream->getState();
 }
 
-AAUDIO_API aaudio_audio_format_t AAudioStream_getFormat(AAudioStream* stream)
+AAUDIO_API aaudio_format_t AAudioStream_getFormat(AAudioStream* stream)
 {
     AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
     return audioStream->getFormat();
@@ -453,4 +461,30 @@ AAUDIO_API aaudio_result_t AAudioStream_getTimestamp(AAudioStream* stream,
     }
 
     return audioStream->getTimestamp(clockid, framePosition, timeNanoseconds);
+}
+
+AAUDIO_API aaudio_policy_t AAudio_getMMapPolicy() {
+    return s_MMapPolicy;
+}
+
+AAUDIO_API aaudio_result_t AAudio_setMMapPolicy(aaudio_policy_t policy) {
+    aaudio_result_t result = AAUDIO_OK;
+    switch(policy) {
+        case AAUDIO_UNSPECIFIED:
+        case AAUDIO_POLICY_NEVER:
+        case AAUDIO_POLICY_AUTO:
+        case AAUDIO_POLICY_ALWAYS:
+            s_MMapPolicy = policy;
+            break;
+        default:
+            result = AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+            break;
+    }
+    return result;
+}
+
+AAUDIO_API bool AAudioStream_isMMapUsed(AAudioStream* stream)
+{
+    AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
+    return audioStream->isMMap();
 }

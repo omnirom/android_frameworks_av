@@ -30,6 +30,7 @@
 #define LOG_TAG "AVUtils"
 #include <utils/Log.h>
 
+#include <media/IMediaExtractor.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -126,6 +127,15 @@ void AVUtils::cacheCaptureBuffers(sp<hardware::ICamera>, video_encoder) {
     return;
 }
 
+void AVUtils::getHFRParams(bool*, int32_t*, sp<AMessage>) {
+    return;
+}
+
+int64_t AVUtils::overwriteTimeOffset(bool, int64_t inputBufferTimeOffsetUs, int64_t*,
+           int64_t, int32_t) {
+    return inputBufferTimeOffsetUs;
+}
+
 const char *AVUtils::getCustomCodecsLocation() {
     return "/etc/media_codecs.xml";
 }
@@ -145,6 +155,14 @@ const char *AVUtils::getComponentRole(bool isEncoder, const char *mime) {
 
 bool AVUtils::IsHevcIDR(const sp<ABuffer> &) {
    return false;
+}
+
+sp<DataSource> AVUtils::wrapTraceDataSource(const sp<DataSource> &dataSource) {
+    return dataSource;
+}
+
+sp<IMediaExtractor> AVUtils::wrapTraceMediaExtractor(const sp<IMediaExtractor> &extractor) {
+    return extractor;
 }
 
 // ----- NO TRESSPASSING BEYOND THIS LINE ------
