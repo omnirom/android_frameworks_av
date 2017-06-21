@@ -42,7 +42,6 @@ extern "C" {
  * and would accept whatever it was given.
  */
 #define AAUDIO_UNSPECIFIED           0
-#define AAUDIO_DEVICE_UNSPECIFIED    0
 
 enum {
     AAUDIO_DIRECTION_OUTPUT,
@@ -63,14 +62,14 @@ enum {
     AAUDIO_ERROR_BASE = -900, // TODO review
     AAUDIO_ERROR_DISCONNECTED,
     AAUDIO_ERROR_ILLEGAL_ARGUMENT,
-    AAUDIO_ERROR_INCOMPATIBLE,
-    AAUDIO_ERROR_INTERNAL, // an underlying API returned an error code
+    // reserved
+    AAUDIO_ERROR_INTERNAL = AAUDIO_ERROR_ILLEGAL_ARGUMENT + 2,
     AAUDIO_ERROR_INVALID_STATE,
-    AAUDIO_ERROR_UNEXPECTED_STATE,
-    AAUDIO_ERROR_UNEXPECTED_VALUE,
-    AAUDIO_ERROR_INVALID_HANDLE,
-    AAUDIO_ERROR_INVALID_QUERY,
-    AAUDIO_ERROR_UNIMPLEMENTED,
+    // reserved
+    // reserved
+    AAUDIO_ERROR_INVALID_HANDLE = AAUDIO_ERROR_INVALID_STATE + 3,
+    // reserved
+    AAUDIO_ERROR_UNIMPLEMENTED = AAUDIO_ERROR_INVALID_HANDLE + 2,
     AAUDIO_ERROR_UNAVAILABLE,
     AAUDIO_ERROR_NO_FREE_HANDLES,
     AAUDIO_ERROR_NO_MEMORY,
@@ -191,11 +190,11 @@ AAUDIO_API aaudio_result_t AAudio_createStreamBuilder(AAudioStreamBuilder** buil
  * Request an audio device identified device using an ID.
  * On Android, for example, the ID could be obtained from the Java AudioManager.
  *
- * The default, if you do not call this function, is AAUDIO_DEVICE_UNSPECIFIED,
+ * The default, if you do not call this function, is AAUDIO_UNSPECIFIED,
  * in which case the primary device will be used.
  *
  * @param builder reference provided by AAudio_createStreamBuilder()
- * @param deviceId device identifier or AAUDIO_DEVICE_UNSPECIFIED
+ * @param deviceId device identifier or AAUDIO_UNSPECIFIED
  */
 AAUDIO_API void AAudioStreamBuilder_setDeviceId(AAudioStreamBuilder* builder,
                                                      int32_t deviceId);
