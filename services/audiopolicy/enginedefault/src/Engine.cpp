@@ -251,7 +251,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
 {
     uint32_t device = AUDIO_DEVICE_NONE;
     uint32_t availableOutputDevicesType = availableOutputDevices.types();
-    bool isFmA2dpConcurrencyOn = property_get_bool("fm.a2dp.conc.disabled", false);
+    bool isFmA2dpConcurrencyOn = property_get_bool("vendor.fm.a2dp.conc.disabled", false);
 
     // Do not support a2dp device when FM is active based on concurrency property
     if (isFmA2dpConcurrencyOn && (availableOutputDevicesType & AUDIO_DEVICE_OUT_FM)) {
