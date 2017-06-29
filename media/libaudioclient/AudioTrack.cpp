@@ -2250,7 +2250,14 @@ status_t AudioTrack::restoreTrack_l(const char *from)
     if (isOffloadedOrDirect_l() || mDoNotReconnect) {
         // FIXME re-creation of offloaded and direct tracks is not yet implemented;
         // reconsider enabling for linear PCM encodings when position can be preserved.
-        return DEAD_OBJECT;
+
+        // Tear down sink only for non-internal invalidation.
+        // Since new track could again have invalidation on setPlayback rate causing
+        // continuous creation and tear down.
+        if (!mTrackOffloaded ||
+              isAudioPlaybackRateEqual(mPlaybackRate, AUDIO_PLAYBACK_RATE_DEFAULT)) {
+            return DEAD_OBJECT;
+        }
     }
 
     // Save so we can return count since creation.
