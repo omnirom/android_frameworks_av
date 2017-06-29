@@ -585,6 +585,10 @@ protected:
         return OK;
     }
 
+    virtual bool getDSModeHint(const sp<AMessage>& msg, int64_t timeUs) {
+        return false;
+    }
+
     sp<IOMXObserver> createObserver();
 
     // Force EXEC->IDLE->LOADED shutdown sequence if not stale.
