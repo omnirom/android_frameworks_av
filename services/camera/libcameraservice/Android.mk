@@ -46,7 +46,8 @@ LOCAL_SRC_FILES :=  \
     gui/RingBufferConsumer.cpp \
     utils/CameraTraces.cpp \
     utils/AutoConditionLock.cpp \
-    utils/TagMonitor.cpp
+    utils/TagMonitor.cpp \
+    utils/LatencyHistogram.cpp
 
 #use QTI Camera2Client layer, if TARGET_USES_QTI_CAMERA2CLIENT is enabled.
 ifeq ($(TARGET_USES_QTI_CAMERA2CLIENT),true)
