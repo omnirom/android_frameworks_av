@@ -832,10 +832,11 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             readFromAMessage(msg, &rate);
             status_t err = OK;
             if (mRenderer != NULL) {
-                // AudioSink allows only 1.f and 0.f for offload mode.
-                // For other speed, switch to non-offload mode.
-                if (mOffloadAudio && ((rate.mSpeed != 0.f && rate.mSpeed != 1.f)
-                        || rate.mPitch != 1.f)) {
+                // AudioSink allows only 1.f and 0.f for offload and direct modes.
+                // For other speeds, restart audio to fallback to supported paths
+                if ((mOffloadAudio || (mAudioSink->getFlags() & AUDIO_OUTPUT_FLAG_DIRECT)) &&
+                        ((rate.mSpeed != 0.f && rate.mSpeed != 1.f) || rate.mPitch != 1.f)) {
+
                     int64_t currentPositionUs;
                     if (getCurrentPosition(&currentPositionUs) != OK) {
                         currentPositionUs = mPreviousSeekTimeUs;
@@ -1698,10 +1699,21 @@ void NuPlayer::restartAudio(
     closeAudioSink();
     mRenderer->flush(true /* audio */, false /* notifyComplete */);
     if (mVideoDecoder != NULL) {
-        mRenderer->flush(false /* audio */, false /* notifyComplete */);
+        mDeferredActions.push_back(
+                new FlushDecoderAction(FLUSH_CMD_NONE /* audio */,
+                                       FLUSH_CMD_FLUSH /* video */));
     }
 
-    performSeek(currentPositionUs, MediaPlayerSeekMode::SEEK_PREVIOUS_SYNC /* mode */);
+    mDeferredActions.push_back(
+            new SeekAction(currentPositionUs, MediaPlayerSeekMode::SEEK_PREVIOUS_SYNC /* mode */));
+
+    // After a flush without shutdown, decoder is paused.
+    // Don't resume it until source seek is done, otherwise it could
+    // start pulling stale data too soon.
+    mDeferredActions.push_back(
+            new ResumeDecoderAction(false));
+
+    processDeferredActions();
 
     if (forceNonOffload) {
         mRenderer->signalDisableOffloadAudio();
