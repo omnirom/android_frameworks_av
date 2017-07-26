@@ -68,5 +68,6 @@ const char *MEDIA_MIMETYPE_CONTAINER_DSF = "audio/x-dsf"; // For DSF clip
 const char *MEDIA_MIMETYPE_CONTAINER_DFF = "audio/x-dff"; // For DFF or DIF clip
 const char *MEDIA_MIMETYPE_AUDIO_DSD = "audio/dsd";
 const char *MEDIA_MIMETYPE_CONTAINER_MOV = "video/quicktime"; //mov clip
+const char *MEDIA_MIMETYPE_VIDEO_TME = "video/tme";
 
 }  // namespace android
