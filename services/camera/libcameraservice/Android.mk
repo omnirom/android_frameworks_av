@@ -52,6 +52,7 @@ LOCAL_SRC_FILES :=  \
 #use QTI Camera2Client layer, if TARGET_USES_QTI_CAMERA2CLIENT is enabled.
 ifeq ($(TARGET_USES_QTI_CAMERA2CLIENT),true)
 LOCAL_SRC_FILES +=  \
+    api1/QTICamera2Client.cpp \
     api1/qticlient2/Parameters.cpp \
     api1/qticlient2/QTIParameters.cpp \
     api1/qticlient2/FrameProcessor.cpp \
@@ -60,6 +61,7 @@ LOCAL_SRC_FILES +=  \
     api1/qticlient2/CallbackProcessor.cpp \
     api1/qticlient2/JpegCompressor.cpp \
     api1/qticlient2/CaptureSequencer.cpp \
+    api1/qticlient2/QTICaptureSequencer.cpp \
     api1/qticlient2/ZslProcessor.cpp
 else
 LOCAL_SRC_FILES +=  \
