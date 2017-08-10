@@ -734,7 +734,10 @@ sp<IOProfile> AudioPolicyManager::getProfileForDirectOutput(
                 continue;
             }
             // if several profiles are compatible, give priority to one with offload capability
-            if (profile != 0 && ((curProfile->getFlags() & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0)) {
+            // exact match is also not skipped as it should be preferred over any existing selection
+            if (profile != 0 &&
+                ((curProfile->getFlags() & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) &&
+                (curProfile->getFlags() != flags)) {
                 continue;
             }
             profile = curProfile;
