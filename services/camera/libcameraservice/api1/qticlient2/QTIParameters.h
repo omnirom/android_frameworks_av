@@ -53,6 +53,7 @@ class CameraDeviceBase;
 namespace camera2 {
 
 #define QTIAMERA_MAX_EXP_TIME_LEVEL1      100
+#define MAX_BURST_COUNT_AE_BRACKETING     8
 
 typedef enum {
     CAM_MANUAL_WB_MODE_CCT,
@@ -89,21 +90,40 @@ private:
     int32_t instantAecValue;
     int64_t exposureTime;
     cam_manual_wb_parm_t manualWb;
+    int32_t aeBracketValues[MAX_BURST_COUNT_AE_BRACKETING];
+
     enum flashMode_t {
         FLASH_MODE_RED_EYE = ANDROID_CONTROL_AE_MODE_ON_AUTO_FLASH_REDEYE,
         FLASH_MODE_INVALID = -1
     } flashMode;
-    metadata_vendor_id_t mVendorTagId;
 
 public:
+    int32_t videoHdr;
+    int32_t prevVideoHdr;
+    uint8_t histogramMode;
+    int32_t histogramBucketSize;
+    bool isHdrScene;
+    bool autoHDREnabled;
+    bool mNeedRestart;
+    uint8_t burstCount;
+    uint8_t lastBurstCount;
+    bool aeBracketEnable;
+    bool hfrMode;
+    int32_t hfrPreviewFpsRange[2];
+    int32_t nonHfrPreviewFpsRange[2];
+    bool Hdr1xEnable;
+    bool HdrSceneEnable;
+    metadata_vendor_id_t vendorTagId;
     // Sets up default QTI parameters
     status_t initialize(void *parametersParent, sp<CameraDeviceBase> device, sp<CameraProviderManager> manager);
     // Validate and update camera parameters based on new settings
-    status_t set(CameraParameters2& newParams);
+    status_t set(CameraParameters2& newParams, void *parametersParent);
     // Update passed-in request for common parameters
     status_t updateRequest(CameraMetadata *request) const;
+    status_t updateRequestForQTICapture(Vector<CameraMetadata> *requests) const;
     static const char* wbModeEnumToString(uint8_t wbMode);
     static int wbModeStringToEnum(const char *wbMode);
+    static int sceneModeStringToEnum(const char *sceneMode);
 
 private:
     int32_t setContinuousISO(const char *isoValue, CameraParameters2& newParams);

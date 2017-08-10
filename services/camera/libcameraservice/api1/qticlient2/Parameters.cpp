@@ -1974,7 +1974,7 @@ status_t Parameters::set(const String8& paramString) {
     }
 
     // QTI Parameters
-    qtiParams->set(newParams);
+    qtiParams->set(newParams, (void*)&validatedParams);
 
     /** Update internal parameters */
 
@@ -1999,7 +1999,7 @@ status_t Parameters::set(const String8& paramString) {
     // Need to flatten again in case of overrides
     paramsFlattened = newParams.flatten();
     params = newParams;
-
+#ifndef USE_QTI_CAMERA2CLIENT
     slowJpegMode = false;
     Size pictureSize = { pictureWidth, pictureHeight };
     int64_t minFrameDurationNs = getJpegStreamMinFrameDurationNs(pictureSize);
@@ -2012,7 +2012,7 @@ status_t Parameters::set(const String8& paramString) {
         allowZslMode = isZslReprocessPresent;
     }
     ALOGV("%s: allowZslMode: %d slowJpegMode %d", __FUNCTION__, allowZslMode, slowJpegMode);
-
+#endif
     return OK;
 }
 
@@ -2560,7 +2560,7 @@ int Parameters::sceneModeStringToEnum(const char *sceneMode) {
             ANDROID_CONTROL_SCENE_MODE_BARCODE:
         !strcmp(sceneMode, CameraParameters::SCENE_MODE_HDR) ?
             ANDROID_CONTROL_SCENE_MODE_HDR:
-        -1;
+        QTIParameters::sceneModeStringToEnum(sceneMode);;
 }
 
 Parameters::Parameters::flashMode_t Parameters::flashModeStringToEnum(
