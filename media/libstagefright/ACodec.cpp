@@ -6153,9 +6153,14 @@ void ACodec::BaseState::onOutputBufferDrained(const sp<AMessage> &msg) {
         mCodec->signalError(OMX_ErrorUndefined, FAILED_TRANSACTION);
         return;
     }
+
+    int64_t timeUs = -1;
+    buffer->meta()->findInt64("timeUs", &timeUs);
+    bool skip = mCodec->getDSModeHint(msg, timeUs);
+
     info->mData = buffer;
     int32_t render;
-    if (mCodec->mNativeWindow != NULL
+    if (!skip && mCodec->mNativeWindow != NULL
             && msg->findInt32("render", &render) && render != 0
             && !discarded && buffer->size() != 0) {
         ATRACE_NAME("render");
