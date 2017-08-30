@@ -494,6 +494,10 @@ status_t OMXNodeInstance::freeNode() {
             LOG_ALWAYS_FATAL("unknown state %s(%#x).", asString(state), state);
             break;
     }
+
+    if (mActiveBuffers.size() > 0) {
+        freeActiveBuffers();
+    }
     status_t err = mOwner->freeNode(this);
 
     mDispatcher.clear();
