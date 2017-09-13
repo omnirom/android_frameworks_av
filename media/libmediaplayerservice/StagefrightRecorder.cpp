@@ -1603,10 +1603,11 @@ status_t StagefrightRecorder::setupCameraSource(
                 std::llround(1e6 / mCaptureFps));
         *cameraSource = mCameraSourceTimeLapse;
     } else {
-        *cameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
+        mCameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid, mClientPid,
                 videoSize, mFrameRate,
                 mPreviewSurface);
+        *cameraSource = mCameraSource;
     }
     AVUtils::get()->cacheCaptureBuffers(mCamera, mVideoEncoder);
     mCamera.clear();
@@ -2023,6 +2024,10 @@ status_t StagefrightRecorder::stop() {
         int64_t stopTimeUs = systemTime() / 1000;
         sp<MetaData> meta = new MetaData;
         err = mVideoEncoderSource->setStopStimeUs(stopTimeUs);
+        mVideoEncoderSource->notifyPerformanceMode();
+    }
+    if (mCameraSource != NULL) {
+        mCameraSource->notifyPerformanceMode();
     }
 
     if (mWriter != NULL) {
@@ -2105,6 +2110,7 @@ status_t StagefrightRecorder::reset() {
     mCaptureFpsEnable = false;
     mCaptureFps = -1.0;
     mCameraSourceTimeLapse = NULL;
+    mCameraSource = NULL;
     mMetaDataStoredInVideoBuffers = kMetadataBufferTypeInvalid;
     mEncoderProfiles = MediaProfiles::getInstance();
     mRotationDegrees = 0;
