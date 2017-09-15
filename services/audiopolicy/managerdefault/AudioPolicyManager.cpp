@@ -4667,7 +4667,11 @@ audio_devices_t AudioPolicyManager::getNewInputDevice(const sp<AudioInputDescrip
     }
 
     audio_source_t source = inputDesc->getHighestPrioritySource(true /*activeOnly*/);
-    if (isInCall()) {
+    // Check for source AUDIO_SOURCE_VOICE_UPLINK when in call.
+    // Device switch during in call record use case returns built-in mic
+    // as new device which is not supported on primary input.
+    // Avoid this by retrieving device based on highest priority source.
+    if (isInCall() && !(source == AUDIO_SOURCE_VOICE_UPLINK)) {
         device = getDeviceAndMixForInputSource(AUDIO_SOURCE_VOICE_COMMUNICATION);
     } else if (source != AUDIO_SOURCE_DEFAULT) {
         device = getDeviceAndMixForInputSource(source);
