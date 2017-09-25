@@ -67,6 +67,7 @@ extern const char *MEDIA_MIMETYPE_AUDIO_DSD;
 extern const char *MEDIA_MIMETYPE_CONTAINER_DSF;
 extern const char *MEDIA_MIMETYPE_CONTAINER_DFF;
 extern const char *MEDIA_MIMETYPE_CONTAINER_MOV;
+extern const char *MEDIA_MIMETYPE_VIDEO_TME;
 
 }  // namespace android
 
