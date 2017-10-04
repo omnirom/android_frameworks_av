@@ -16,6 +16,9 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "MediaAdapter"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_MUX
+#define __CLASS__ "MediaAdapter"
+
 #include <utils/Log.h>
 
 #include <media/stagefright/foundation/ADebug.h>
@@ -66,6 +69,7 @@ sp<MetaData> MediaAdapter::getFormat() {
 }
 
 void MediaAdapter::signalBufferReturned(MediaBuffer *buffer) {
+    VTRACE_ASYNC_END("write-buffer", (int32_t)(int64_t)buffer);
     Mutex::Autolock autoLock(mAdapterLock);
     CHECK(buffer != NULL);
     buffer->setObserver(0);
@@ -103,6 +107,7 @@ status_t MediaAdapter::read(
 }
 
 status_t MediaAdapter::pushBuffer(MediaBuffer *buffer) {
+    VTRACE_ASYNC_BEGIN("write-buffer", (int32_t)(int64_t)buffer);
     if (buffer == NULL) {
         ALOGE("pushBuffer get an NULL buffer");
         return -EINVAL;

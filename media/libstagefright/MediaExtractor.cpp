@@ -16,6 +16,7 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "MediaExtractor"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_EXTRACT
 #include <utils/Log.h>
 #include <inttypes.h>
 #include <pwd.h>
@@ -48,9 +49,10 @@
 #include <utils/String8.h>
 #include <private/android_filesystem_config.h>
 
+#include <stagefright/AVExtensions.h>
+
 // still doing some on/off toggling here.
 #define MEDIA_LOG       1
-
 
 namespace android {
 
@@ -117,15 +119,20 @@ uint32_t MediaExtractor::flags() const {
     return CAN_SEEK_BACKWARD | CAN_SEEK_FORWARD | CAN_PAUSE | CAN_SEEK;
 }
 
+#undef __CLASS__
+#define __CLASS__ "MediaExtractor"
+
 // static
-sp<IMediaExtractor> MediaExtractor::Create(
-        const sp<DataSource> &source, const char *mime) {
-    ALOGV("MediaExtractor::Create %s", mime);
+sp<IMediaExtractor> MediaExtractor::CreateImp(
+        const sp<DataSource> &source, const char *mime,
+        const uint32_t flags) {
+    VTRACE_CALL();
+    ALOGV("MediaExtractor::Create %s flags %d", mime, flags);
 
     if (!property_get_bool("media.stagefright.extractremote", true)) {
         // local extractor
         ALOGW("creating media extractor in calling process");
-        return CreateFromService(source, mime);
+        return CreateFromService(source, mime, flags);
     } else {
         // remote extractor
         ALOGV("get service manager");
@@ -133,7 +140,7 @@ sp<IMediaExtractor> MediaExtractor::Create(
 
         if (binder != 0) {
             sp<IMediaExtractorService> mediaExService(interface_cast<IMediaExtractorService>(binder));
-            sp<IMediaExtractor> ex = mediaExService->makeExtractor(source->asIDataSource(), mime);
+            sp<IMediaExtractor> ex = mediaExService->makeExtractor(source->asIDataSource(), mime, flags);
             return ex;
         } else {
             ALOGE("extractor service not running");
@@ -143,10 +150,22 @@ sp<IMediaExtractor> MediaExtractor::Create(
     return NULL;
 }
 
-sp<MediaExtractor> MediaExtractor::CreateFromService(
-        const sp<DataSource> &source, const char *mime) {
+// static
+sp<IMediaExtractor> MediaExtractor::Create(
+        const sp<DataSource> &source, const char *mime,
+        const uint32_t flags) {
+    VTRACE_CALL();
+    sp<DataSource> dataSource = AVUtils::get()->wrapTraceDataSource(source);
+    sp<IMediaExtractor> extractor = MediaExtractor::CreateImp(dataSource, mime, flags);
+    VTRACE_CONNECT(extractor.get(), dataSource.get());
+    return AVUtils::get()->wrapTraceMediaExtractor(extractor);
+}
 
-    ALOGV("MediaExtractor::CreateFromService %s", mime);
+sp<MediaExtractor> MediaExtractor::CreateFromService(
+        const sp<DataSource> &source, const char *mime,
+        const uint32_t flags) {
+
+    ALOGV("MediaExtractor::CreateFromService %s flags %d", mime, flags);
     RegisterDefaultSniffers();
 
     // initialize source decryption if needed
@@ -169,7 +188,8 @@ sp<MediaExtractor> MediaExtractor::CreateFromService(
     }
 
     MediaExtractor *ret = NULL;
-    if (!strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_MPEG4)
+    if ((ret = AVFactory::get()->createExtendedExtractor(source, mime, meta, flags)) != NULL) {
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_MPEG4)
             || !strcasecmp(mime, "audio/mp4")) {
         ret = new MPEG4Extractor(source);
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MPEG)) {
@@ -215,7 +235,7 @@ sp<MediaExtractor> MediaExtractor::CreateFromService(
                 }
                 // what else is interesting and not already available?
               }
-	  }
+    }
        }
     }
 
@@ -287,6 +307,7 @@ void MediaExtractor::RegisterDefaultSniffers() {
     RegisterSniffer_l(SniffAAC);
     RegisterSniffer_l(SniffMPEG2PS);
     RegisterSniffer_l(SniffMidi);
+    RegisterSniffer_l(AVUtils::get()->getExtendedSniffer());
 
     gSniffersRegistered = true;
 }
