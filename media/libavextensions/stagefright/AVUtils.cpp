@@ -148,8 +148,8 @@ int64_t AVUtils::overwriteTimeOffset(bool, int64_t inputBufferTimeOffsetUs, int6
     return inputBufferTimeOffsetUs;
 }
 
-const char *AVUtils::getCustomCodecsLocation() {
-    return "/etc/media_codecs.xml";
+void AVUtils::getCustomCodecsLocation(char *, int32_t) {
+    return;
 }
 
 void AVUtils::setIntraPeriod(
@@ -157,8 +157,8 @@ void AVUtils::setIntraPeriod(
     return;
 }
 
-const char *AVUtils::getCustomCodecsPerformanceLocation() {
-    return "/etc/media_codecs_performance.xml";
+void AVUtils::getCustomCodecsPerformanceLocation(char *, int32_t) {
+    return;
 }
 
 const char *AVUtils::getComponentRole(bool isEncoder, const char *mime) {

@@ -199,10 +199,19 @@ MediaCodecList::MediaCodecList()
       mGlobalSettings(new AMessage()) {
     char config_file_path[MEDIA_CODECS_CONFIG_FILE_PATH_MAX_LENGTH];
     if (findMediaCodecListFileFullPath("media_codecs.xml", config_file_path)) {
+        if (!strncmp(config_file_path, "/vendor/etc", strlen("/vendor/etc"))) {
+            AVUtils::get()->getCustomCodecsLocation(config_file_path,
+                    MEDIA_CODECS_CONFIG_FILE_PATH_MAX_LENGTH);
+        }
         parseTopLevelXMLFile(config_file_path);
     }
+
     if (findMediaCodecListFileFullPath("media_codecs_performance.xml",
                                        config_file_path)) {
+        if (!strncmp(config_file_path, "/vendor/etc", strlen("/vendor/etc"))) {
+            AVUtils::get()->getCustomCodecsPerformanceLocation(config_file_path,
+                    MEDIA_CODECS_CONFIG_FILE_PATH_MAX_LENGTH);
+        }
         parseTopLevelXMLFile(config_file_path, true/* ignore_errors */);
     }
     parseTopLevelXMLFile(kProfilingResults, true/* ignore_errors */);
