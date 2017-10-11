@@ -72,6 +72,7 @@ struct MediaCodecSource : public MediaSource,
     // All the buffers with timestamp larger or equal to stopTimeUs will be
     // discarded. stopTimeUs uses SYSTEM_TIME_MONOTONIC time base.
     status_t setStopStimeUs(int64_t stopTimeUs);
+    void notifyPerformanceMode();
 
 protected:
     virtual ~MediaCodecSource();

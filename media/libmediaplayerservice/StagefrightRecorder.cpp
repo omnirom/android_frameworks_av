@@ -88,6 +88,7 @@ static const char *kRecorderVideoLevel = "android.media.mediarecorder.video-enco
 static const char *kRecorderCaptureFpsEnable = "android.media.mediarecorder.capture-fpsenable";
 static const char *kRecorderCaptureFps = "android.media.mediarecorder.capture-fps";
 static const char *kRecorderRotation = "android.media.mediarecorder.rotation";
+static const int64_t kMax32BitFileSize = 0x00ffffffffLL; // 4GB
 
 // To collect the encoder usage for the battery app
 static void addBatteryData(uint32_t params) {
@@ -582,6 +583,10 @@ status_t StagefrightRecorder::setParamMaxFileSizeBytes(int64_t bytes) {
     }
 
     mMaxFileSizeBytes = bytes;
+
+    // If requested size is >4GB, force 64-bit offsets
+    mUse64BitFileOffset |= (bytes >= kMax32BitFileSize);
+
     return OK;
 }
 
@@ -1598,10 +1603,11 @@ status_t StagefrightRecorder::setupCameraSource(
                 std::llround(1e6 / mCaptureFps));
         *cameraSource = mCameraSourceTimeLapse;
     } else {
-        *cameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
+        mCameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid, mClientPid,
                 videoSize, mFrameRate,
                 mPreviewSurface);
+        *cameraSource = mCameraSource;
     }
     AVUtils::get()->cacheCaptureBuffers(mCamera, mVideoEncoder);
     mCamera.clear();
@@ -2018,6 +2024,10 @@ status_t StagefrightRecorder::stop() {
         int64_t stopTimeUs = systemTime() / 1000;
         sp<MetaData> meta = new MetaData;
         err = mVideoEncoderSource->setStopStimeUs(stopTimeUs);
+        mVideoEncoderSource->notifyPerformanceMode();
+    }
+    if (mCameraSource != NULL) {
+        mCameraSource->notifyPerformanceMode();
     }
 
     if (mWriter != NULL) {
@@ -2100,6 +2110,7 @@ status_t StagefrightRecorder::reset() {
     mCaptureFpsEnable = false;
     mCaptureFps = -1.0;
     mCameraSourceTimeLapse = NULL;
+    mCameraSource = NULL;
     mMetaDataStoredInVideoBuffers = kMetadataBufferTypeInvalid;
     mEncoderProfiles = MediaProfiles::getInstance();
     mRotationDegrees = 0;

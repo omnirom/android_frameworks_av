@@ -125,6 +125,7 @@ protected:
     bool mCaptureFpsEnable;
     double mCaptureFps;
     sp<CameraSourceTimeLapse> mCameraSourceTimeLapse;
+    sp<CameraSource> mCameraSource;
 
     String8 mParams;
 
