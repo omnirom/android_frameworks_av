@@ -21,6 +21,7 @@
 #define LOG_TAG "MediaPlayerService"
 #include <utils/Log.h>
 
+#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -82,6 +83,9 @@
 #include "HDCP.h"
 #include "HTTPBase.h"
 #include "RemoteDisplay.h"
+
+static const int kDumpLockRetries = 50;
+static const int kDumpLockSleepUs = 20000;
 
 namespace {
 using android::media::Metadata;
@@ -392,12 +396,32 @@ status_t MediaPlayerService::Client::dump(int fd, const Vector<String16>& args)
     snprintf(buffer, 255, "  pid(%d), connId(%d), status(%d), looping(%s)\n",
             mPid, mConnId, mStatus, mLoop?"true": "false");
     result.append(buffer);
-    write(fd, result.string(), result.size());
-    if (mPlayer != NULL) {
-        mPlayer->dump(fd, args);
+
+    sp<MediaPlayerBase> p;
+    sp<AudioOutput> audioOutput;
+    bool locked = false;
+    for (int i = 0; i < kDumpLockRetries; ++i) {
+        if (mLock.tryLock() == NO_ERROR) {
+            locked = true;
+            break;
+        }
+        usleep(kDumpLockSleepUs);
     }
-    if (mAudioOutput != 0) {
-        mAudioOutput->dump(fd, args);
+
+    if (locked) {
+        p = mPlayer;
+        audioOutput = mAudioOutput;
+        mLock.unlock();
+    } else {
+        result.append("  lock is taken, no dump from player and audio output\n");
+    }
+    write(fd, result.string(), result.size());
+
+    if (p != NULL) {
+        p->dump(fd, args);
+    }
+    if (audioOutput != 0) {
+        audioOutput->dump(fd, args);
     }
     write(fd, "\n", 1);
     return NO_ERROR;
@@ -577,7 +601,10 @@ MediaPlayerService::Client::Client(
 MediaPlayerService::Client::~Client()
 {
     ALOGV("Client(%d) destructor pid = %d", mConnId, mPid);
-    mAudioOutput.clear();
+    {
+        Mutex::Autolock l(mLock);
+        mAudioOutput.clear();
+    }
     wp<Client> client(this);
     disconnect();
     mService->removeClient(client);
@@ -597,9 +624,8 @@ void MediaPlayerService::Client::disconnect()
         Mutex::Autolock l(mLock);
         p = mPlayer;
         mClient.clear();
+        mPlayer.clear();
     }
-
-    mPlayer.clear();
 
     // clear the notification to prevent callbacks to dead client
     // and reset the player. We assume the player will serialize
@@ -621,7 +647,7 @@ void MediaPlayerService::Client::disconnect()
 sp<MediaPlayerBase> MediaPlayerService::Client::createPlayer(player_type playerType)
 {
     // determine if we have the right player type
-    sp<MediaPlayerBase> p = mPlayer;
+    sp<MediaPlayerBase> p = getPlayer();
     if ((p != NULL) && (p->playerType() != playerType)) {
         ALOGV("delete player");
         p.clear();
@@ -772,6 +798,7 @@ void MediaPlayerService::Client::setDataSource_post(
     }
 
     if (mStatus == OK) {
+        Mutex::Autolock l(mLock);
         mPlayer = p;
     }
 }
@@ -821,8 +848,7 @@ status_t MediaPlayerService::Client::setDataSource(
 
 status_t MediaPlayerService::Client::setDataSource(int fd, int64_t offset, int64_t length)
 {
-    ALOGV("setDataSource fd=%d (%s), offset=%lld, length=%lld",
-            fd, nameForFd(fd).c_str(), (long long) offset, (long long) length);
+    ALOGV("setDataSource fd=%d, offset=%" PRId64 ", length=%" PRId64 "", fd, offset, length);
     struct stat sb;
     int ret = fstat(fd, &sb);
     if (ret != 0) {
@@ -830,11 +856,11 @@ status_t MediaPlayerService::Client::setDataSource(int fd, int64_t offset, int64
         return UNKNOWN_ERROR;
     }
 
-    ALOGV("st_dev  = %llu", static_cast<unsigned long long>(sb.st_dev));
+    ALOGV("st_dev  = %" PRIu64 "", static_cast<uint64_t>(sb.st_dev));
     ALOGV("st_mode = %u", sb.st_mode);
     ALOGV("st_uid  = %lu", static_cast<unsigned long>(sb.st_uid));
     ALOGV("st_gid  = %lu", static_cast<unsigned long>(sb.st_gid));
-    ALOGV("st_size = %llu", static_cast<unsigned long long>(sb.st_size));
+    ALOGV("st_size = %" PRId64 "", sb.st_size);
 
     if (offset >= sb.st_size) {
         ALOGE("offset error");
@@ -842,7 +868,7 @@ status_t MediaPlayerService::Client::setDataSource(int fd, int64_t offset, int64
     }
     if (offset + length > sb.st_size) {
         length = sb.st_size - offset;
-        ALOGV("calculated length = %lld", (long long)length);
+        ALOGV("calculated length = %" PRId64 "\n", length);
     }
 
     player_type playerType = MediaPlayerFactory::getPlayerType(this,
@@ -1684,7 +1710,11 @@ int64_t MediaPlayerService::AudioOutput::getPlayedOutDurationUs(int64_t nowUs) c
         //        numFramesPlayed, (long long)numFramesPlayedAtUs);
     } else {                         // case 3: transitory at new track or audio fast tracks.
         res = mTrack->getPosition(&numFramesPlayed);
-        CHECK_EQ(res, (status_t)OK);
+        if (res != OK) {
+            // return with invalid duration to indicate playback position should
+            // be queried from MediaClock using system clock
+            return -1;
+        }
         numFramesPlayedAtUs = nowUs;
         numFramesPlayedAtUs += 1000LL * mTrack->latency() / 2; /* XXX */
         //ALOGD("getPosition: %u %lld", numFramesPlayed, (long long)numFramesPlayedAtUs);
@@ -1986,6 +2016,13 @@ status_t MediaPlayerService::AudioOutput::open(
             if (mRecycledTrack->frameCount() != t->frameCount()) {
                 ALOGV("framecount differs: %zu/%zu frames",
                       mRecycledTrack->frameCount(), t->frameCount());
+                reuse = false;
+            }
+            // If recycled and new tracks are not on the same output,
+            // don't reuse the recycled one.
+            if (mRecycledTrack->getOutput() != t->getOutput()) {
+                ALOGV("effect chain if exists has already moved to new output, \
+                        giving up reusing recycled track.");
                 reuse = false;
             }
         }

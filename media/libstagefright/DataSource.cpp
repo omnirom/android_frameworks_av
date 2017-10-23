@@ -15,6 +15,7 @@
  */
 //#define LOG_NDEBUG 0
 #define LOG_TAG "DataSource"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_EXTRACT
 
 #include "include/CallbackDataSource.h"
 #include "include/HTTPBase.h"
@@ -40,6 +41,7 @@
 
 namespace android {
 
+#define __CLASS__ "DataSource"
 bool DataSource::getUInt16(off64_t offset, uint16_t *x) {
     *x = 0;
 
@@ -111,6 +113,7 @@ sp<DataSource> DataSource::CreateFromURI(
         const KeyedVector<String8, String8> *headers,
         String8 *contentType,
         HTTPBase *httpSource) {
+    VTRACE_CALL();
     if (contentType != NULL) {
         *contentType = "";
     }

@@ -71,7 +71,7 @@ public:
 
     virtual void toAudioPort(struct audio_port *port) const;
 
-    virtual void importAudioPort(const sp<AudioPort>& port);
+    virtual void importAudioPort(const sp<AudioPort>& port, bool force = false);
 
     void addAudioProfile(const sp<AudioProfile> &profile) { mProfiles.add(profile); }
 
@@ -94,9 +94,11 @@ public:
     // parameters are input|output, returned value is the best match.
     status_t checkCompatibleAudioProfile(uint32_t &samplingRate,
                                          audio_channel_mask_t &channelMask,
-                                         audio_format_t &format) const
+                                         audio_format_t &format,
+                                         bool checkExactFormat) const
     {
-        return mProfiles.checkCompatibleProfile(samplingRate, channelMask, format, mType, mRole);
+        return mProfiles.checkCompatibleProfile(samplingRate, channelMask, format, mType,
+                                                  mRole, checkExactFormat);
     }
 
     void clearAudioProfiles() { return mProfiles.clearProfiles(); }

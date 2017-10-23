@@ -16,6 +16,8 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "GenericSource"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_EXTRACT
+#define __CLASS__ "GenericSource"
 
 #include "GenericSource.h"
 #include "NuPlayerDrm.h"
@@ -38,6 +40,7 @@
 #include <media/stagefright/Utils.h>
 #include "../../libstagefright/include/NuCachedSource2.h"
 #include "../../libstagefright/include/HTTPBase.h"
+#include "mediaplayerservice/AVNuExtensions.h"
 
 namespace android {
 
@@ -61,6 +64,7 @@ NuPlayer::GenericSource::GenericSource(
       mFetchTimedTextDataGeneration(0),
       mDurationUs(-1ll),
       mAudioIsVorbis(false),
+      mIsByteMode(false),
       mIsSecure(false),
       mIsStreaming(false),
       mUIDValid(uidValid),
@@ -81,6 +85,7 @@ void NuPlayer::GenericSource::resetDataSource() {
     mHttpSource.clear();
     mUri.clear();
     mUriHeaders.clear();
+    mSources.clear();
     if (mFd >= 0) {
         close(mFd);
         mFd = -1;
@@ -154,7 +159,8 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
     sp<IMediaExtractor> extractor;
     CHECK(mDataSource != NULL);
 
-    extractor = MediaExtractor::Create(mDataSource, NULL);
+    extractor = MediaExtractor::Create(mDataSource, NULL,
+                mIsStreaming ? 0 : AVNuUtils::get()->getFlags());
 
     if (extractor == NULL) {
         ALOGE("initFromDataSource, cannot create extractor!");
@@ -211,6 +217,9 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
                     mAudioIsVorbis = true;
                 } else {
                     mAudioIsVorbis = false;
+                }
+                if (AVNuUtils::get()->isByteStreamModeEnabled(meta)) {
+                    mIsByteMode = true;
                 }
 
                 mMimes.add(String8(mime));
@@ -552,6 +561,7 @@ status_t NuPlayer::GenericSource::feedMoreTSData() {
 }
 
 void NuPlayer::GenericSource::onMessageReceived(const sp<AMessage> &msg) {
+    VTRACE_METHOD();
     switch (msg->what()) {
       case kWhatPrepareAsync:
       {
@@ -1232,7 +1242,7 @@ status_t NuPlayer::GenericSource::doSeek(int64_t seekTimeUs, MediaPlayerSeekMode
         readBuffer(MEDIA_TRACK_TYPE_VIDEO, seekTimeUs, mode, &actualTimeUs);
 
         if (mode != MediaPlayerSeekMode::SEEK_CLOSEST) {
-            seekTimeUs = actualTimeUs;
+                seekTimeUs = actualTimeUs;
         }
         mVideoLastDequeueTimeUs = actualTimeUs;
     }
@@ -1377,6 +1387,7 @@ void NuPlayer::GenericSource::onReadBuffer(const sp<AMessage>& msg) {
 void NuPlayer::GenericSource::readBuffer(
         media_track_type trackType, int64_t seekTimeUs, MediaPlayerSeekMode mode,
         int64_t *actualTimeUs, bool formatChange) {
+    VTRACE_METHOD();
     // Do not read data if Widevine source is stopped
     //
     // TODO: revisit after widevine is removed.  May be able to
@@ -1394,6 +1405,12 @@ void NuPlayer::GenericSource::readBuffer(
         case MEDIA_TRACK_TYPE_AUDIO:
             track = &mAudioTrack;
             maxBuffers = 64;
+            if (mIsByteMode) {
+                // byte stream mode is enabled only for mp3 & aac
+                // and the parser gives a huge chunk of data per read,
+                // so reading one buffer is sufficient.
+                maxBuffers = 1;
+            }
             break;
         case MEDIA_TRACK_TYPE_SUBTITLE:
             track = &mSubtitleTrack;
