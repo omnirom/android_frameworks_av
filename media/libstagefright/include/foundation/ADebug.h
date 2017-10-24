@@ -23,6 +23,7 @@
 #include <media/stagefright/foundation/ABase.h>
 #include <media/stagefright/foundation/AString.h>
 #include <utils/Log.h>
+#include <utils/Trace.h>
 
 namespace android {
 
@@ -171,14 +172,177 @@ struct ADebug {
         return false;
     }
 
+    static const int kTraceLength = 1024;
+    enum TraceSubmodule {
+        NuPlayer,
+        Codec,
+        Extract,
+        Mux,
+        Render,
+        Drm,
+    };
+
+    inline static bool isTraceEnabled(TraceSubmodule submodule) {
+        return sTraceOptions & (((uint64_t)1) << (int)submodule);
+    }
+
+    inline static void TraceBegin(TraceSubmodule submodule,
+            uint64_t tag, const char *name) {
+        if (isTraceEnabled(submodule)) {
+            atrace_begin(tag, name);
+        }
+    }
+
+    inline static void TraceBegin(TraceSubmodule submodule,
+            uint64_t tag, const char *className,
+            const char *functionName) {
+        if (isTraceEnabled(submodule)) {
+            char msg[kTraceLength];
+            snprintf(msg, sizeof(msg), "%s::%s", className, functionName);
+            atrace_begin(tag, msg);
+        }
+    }
+
+    inline static void TraceBegin(TraceSubmodule submodule,
+            uint64_t tag, const char *className,
+            const char *functionName, const void *thisPtr) {
+        if (isTraceEnabled(submodule)) {
+            char msg[kTraceLength];
+            snprintf(msg, sizeof(msg), "%s::%s@%p", className, functionName, thisPtr);
+            atrace_begin(tag, msg);
+        }
+    }
+
+    inline static void TraceEnd(TraceSubmodule submodule, uint64_t tag) {
+        if (isTraceEnabled(submodule)) {
+            atrace_end(tag);
+        }
+    }
+
+    inline static void TraceAsyncBegin(TraceSubmodule submodule,
+            uint64_t tag, int cookie, const char *name, const void *thisPtr) {
+        if (isTraceEnabled(submodule)) {
+            char msg[kTraceLength];
+            snprintf(msg, sizeof(msg), "%s@%p", name, thisPtr);
+            atrace_async_begin(tag, msg, cookie);
+        }
+    }
+
+    inline static void TraceAsyncEnd(TraceSubmodule submodule,
+            uint64_t tag, int cookie, const char *name, const void *thisPtr) {
+        if (isTraceEnabled(submodule)) {
+            char msg[kTraceLength];
+            snprintf(msg, sizeof(msg), "%s@%p", name, thisPtr);
+            atrace_async_end(tag, msg, cookie);
+        }
+    }
+
+    inline static void TraceInt(TraceSubmodule submodule,
+            uint64_t tag, int32_t value, const char *name) {
+        if (isTraceEnabled(submodule)) {
+            atrace_int(tag, name, value);
+        }
+    }
+
+    inline static void TraceInt(TraceSubmodule submodule,
+            uint64_t tag, int32_t value, const char *name, const void *thisPtr) {
+        if (isTraceEnabled(submodule)) {
+            char msg[kTraceLength];
+            snprintf(msg, sizeof(msg), "%s@%p", name, thisPtr);
+            atrace_int(tag, msg, value);
+        }
+    }
+
+    inline static void TraceInt64(TraceSubmodule submodule,
+            uint64_t tag, int64_t value, const char *name, const void *thisPtr) {
+        if (isTraceEnabled(submodule)) {
+            char msg[kTraceLength];
+            snprintf(msg, sizeof(msg), "%s@%p", name, thisPtr);
+            atrace_int64(tag, msg, value);
+        }
+    }
+
+    class ScopedTrace {
+    public:
+        inline ScopedTrace(TraceSubmodule submodule, uint64_t tag, const char *name)
+        : mSubmodule(submodule), mTag(tag) {
+            TraceBegin(mSubmodule, mTag, name);
+        }
+
+        inline ScopedTrace(TraceSubmodule submodule, uint64_t tag, const char *className,
+               const char *functionName)
+        : mSubmodule(submodule), mTag(tag) {
+            TraceBegin(mSubmodule, mTag, className, functionName);
+        }
+
+        inline ScopedTrace(TraceSubmodule submodule, uint64_t tag, const char *className,
+               const char *functionName, const void *thisPtr)
+        : mSubmodule(submodule), mTag(tag) {
+            TraceBegin(mSubmodule, mTag, className, functionName, thisPtr);
+        }
+
+        inline ~ScopedTrace() {
+            TraceEnd(mSubmodule, mTag);
+        }
+
+    private:
+        const TraceSubmodule mSubmodule;
+        const uint64_t mTag;
+    };
+
 private:
     // pass in allow, so we can print in the log if the experiment is disabled
     static bool getExperimentFlag(
             bool allow, const char *name, uint64_t modulo, uint64_t limit,
             uint64_t plus = 0, uint64_t timeDivisor = 24 * 60 * 60 /* 1 day */);
+
+    static uint64_t getTraceOptionsFromProperty();
+    static uint64_t sTraceOptions; // from property persist.sys.media.traces
 };
 
 }  // namespace android
 
-#endif  // A_DEBUG_H_
+#define VTRACE_SUBMODULE_NUPLAYER    android::ADebug::TraceSubmodule::NuPlayer
+#define VTRACE_SUBMODULE_CODEC       android::ADebug::TraceSubmodule::Codec
+#define VTRACE_SUBMODULE_EXTRACT     android::ADebug::TraceSubmodule::Extract
+#define VTRACE_SUBMODULE_MUX         android::ADebug::TraceSubmodule::Mux
+#define VTRACE_SUBMODULE_RENDER      android::ADebug::TraceSubmodule::Render
+#define VTRACE_SUBMODULE_DRM         android::ADebug::TraceSubmodule::Drm
 
+#define VTRACE_IS_ENABLED() android::ADebug::isTraceEnabled(TRACE_SUBMODULE)
+
+#define VTRACE_CONNECT(ptr1, ptr2) \
+    do { \
+        char msg[android::ADebug::kTraceLength]; \
+        snprintf(msg, sizeof(msg), "Trace connect %p %p", ptr1, ptr2); \
+        ALOGE("Trace connect %p %p", ptr1, ptr2); \
+        VTRACE_SCOPE(msg); \
+    } while (0)
+
+#define VTRACE_SCOPE(name) android::ADebug::ScopedTrace ___scopedTrace(TRACE_SUBMODULE, \
+        ATRACE_TAG_VIDEO, name)
+
+#define VTRACE_CALL() android::ADebug::ScopedTrace ___scopedTrace(TRACE_SUBMODULE, \
+        ATRACE_TAG_VIDEO, __CLASS__, __FUNCTION__)
+
+#define VTRACE_METHOD() android::ADebug::ScopedTrace ___scopedTrace(TRACE_SUBMODULE, \
+        ATRACE_TAG_VIDEO, __CLASS__, __FUNCTION__, this)
+
+#define VTRACE_ASYNC_BEGIN(name, cookie) android::ADebug::TraceAsyncBegin(TRACE_SUBMODULE, \
+        ATRACE_TAG_VIDEO, cookie, name, this)
+
+#define VTRACE_ASYNC_END(name, cookie) android::ADebug::TraceAsyncEnd(TRACE_SUBMODULE, \
+        ATRACE_TAG_VIDEO, cookie, name, this)
+
+#define VTRACE_INT(name, value) android::ADebug::TraceInt(TRACE_SUBMODULE, \
+        ATRACE_TAG_VIDEO, value, name, this)
+
+#define VTRACE_INT64(name, value) android::ADebug::TraceInt64(TRACE_SUBMODULE, \
+        ATRACE_TAG_VIDEO, value, name, this)
+
+#define VTRACE_STRING(str) \
+    do { \
+        VTRACE_SCOPE(str); \
+    } while (0)
+
+#endif  // A_DEBUG_H_

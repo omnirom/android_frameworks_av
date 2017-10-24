@@ -20,8 +20,13 @@
 #include "CameraService.h"
 #include "common/CameraDeviceBase.h"
 #include "common/Camera2ClientBase.h"
+#ifndef USE_QTI_CAMERA2CLIENT
 #include "api1/client2/Parameters.h"
 #include "api1/client2/FrameProcessor.h"
+#else
+#include "api1/qticlient2/Parameters.h"
+#include "api1/qticlient2/FrameProcessor.h"
+#endif
 //#include "api1/client2/StreamingProcessor.h"
 //#include "api1/client2/JpegProcessor.h"
 //#include "api1/client2/ZslProcessor.h"
@@ -30,10 +35,17 @@
 
 namespace android {
 
+#ifdef USE_QTI_CAMERA2CLIENT
+class QTICamera2Client;
+#endif
+
 namespace camera2 {
 
 class StreamingProcessor;
 class JpegProcessor;
+#ifdef USE_QTI_CAMERA2CLIENT
+class RawProcessor;
+#endif
 class ZslProcessor;
 class CaptureSequencer;
 class CallbackProcessor;
@@ -48,6 +60,10 @@ class IMemory;
 class Camera2Client :
         public Camera2ClientBase<CameraService::Client>
 {
+#ifdef USE_QTI_CAMERA2CLIENT
+friend class QTICamera2Client;
+#endif
+
 public:
     /**
      * ICamera interface (see ICamera for details)
@@ -126,7 +142,9 @@ public:
     int getCallbackStreamId() const;
     int getRecordingStreamId() const;
     int getZslStreamId() const;
-
+#ifdef USE_QTI_CAMERA2CLIENT
+    int getRawStreamId() const;
+#endif
     status_t registerFrameListener(int32_t minId, int32_t maxId,
             const wp<camera2::FrameProcessor::FilteredListener>& listener,
             bool sendPartials = true);
@@ -211,7 +229,13 @@ private:
 
     sp<camera2::CaptureSequencer> mCaptureSequencer;
     sp<camera2::JpegProcessor> mJpegProcessor;
+#ifdef USE_QTI_CAMERA2CLIENT
+    sp<camera2::RawProcessor> mRawProcessor;
+#endif
     sp<camera2::ZslProcessor> mZslProcessor;
+#ifdef USE_QTI_CAMERA2CLIENT
+    sp<QTICamera2Client> mQTICamera2Client;
+#endif
 
     /** Utility members */
     bool mLegacyMode;

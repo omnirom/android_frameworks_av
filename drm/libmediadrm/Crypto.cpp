@@ -16,6 +16,8 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "Crypto"
+#define TRACE_SUBMODULE VTRACE_SUBMODULE_DRM
+#define __CLASS__ "Crypto"
 #include <utils/Log.h>
 #include <dirent.h>
 #include <dlfcn.h>
@@ -49,6 +51,7 @@ Crypto::Crypto()
     : mInitCheck(NO_INIT),
       mFactory(NULL),
       mPlugin(NULL) {
+    VTRACE_METHOD();
 }
 
 Crypto::~Crypto() {
@@ -239,7 +242,7 @@ ssize_t Crypto::decrypt(const uint8_t key[16], const uint8_t iv[16],
         const sp<IMemory> &source, size_t offset,
         const CryptoPlugin::SubSample *subSamples, size_t numSubSamples,
         const ICrypto::DestinationBuffer &destination, AString *errorDetailMsg) {
-
+    VTRACE_METHOD();
     Mutex::Autolock autoLock(mLock);
 
     if (mInitCheck != OK) {

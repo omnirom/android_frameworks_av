@@ -56,6 +56,12 @@ LOCAL_EXPORT_C_INCLUDES := \
 LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := \
         android.hidl.memory@1.0
 
+ifeq ($(call is-vendor-board-platform,QCOM),true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
+LOCAL_CFLAGS += -DQTI_FLAC_DECODER
+endif
+endif
+
 LOCAL_MODULE:= libstagefright_omx
 LOCAL_CFLAGS += -Werror -Wall -Wno-unused-parameter -Wno-documentation
 LOCAL_SANITIZE := unsigned-integer-overflow signed-integer-overflow cfi
