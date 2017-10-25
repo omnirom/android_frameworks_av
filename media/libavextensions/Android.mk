@@ -16,7 +16,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/external/flac/include \
         $(TOP)/system/core/base/include \
 
-ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),)
+ifeq ($(TARGET_QCOM_MEDIA_VARIANT),)
     LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 else
     LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
@@ -64,7 +64,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/external/flac/include \
         $(TOP)/system/core/base/include \
 
-ifeq ($(TARGET_QCOM_DISPLAY_VARIANT),)
+ifeq ($(TARGET_QCOM_MEDIA_VARIANT),)
     LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 else
     LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
