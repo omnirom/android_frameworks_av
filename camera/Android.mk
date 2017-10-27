@@ -71,7 +71,7 @@ LOCAL_EXPORT_C_INCLUDE_DIRS := \
 	system/media/camera/include \
 	$(LOCAL_PATH)/include/camera
 
-ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+ifeq (false,true)
     LOCAL_CFLAGS += -DQCOM_HARDWARE
 endif
 

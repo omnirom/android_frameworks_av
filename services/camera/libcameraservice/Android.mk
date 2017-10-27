@@ -104,7 +104,7 @@ ifeq ($(TARGET_USES_QCOM_BSP),true)
 LOCAL_SHARED_LIBRARIES += \
     vendor.qti.hardware.camera.device@1.0
 endif
-ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
+ifeq (false,true)
     LOCAL_CFLAGS += -DQCOM_HARDWARE
 endif
 
