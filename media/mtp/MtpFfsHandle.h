@@ -42,14 +42,11 @@ struct io_buffer {
 };
 
 template <class T> class MtpFfsHandleTest;
-template <class T> class MtpFfsHandleTest_testControl_Test;
 
 class MtpFfsHandle : public IMtpHandle {
-    template <class T> friend class MtpFfsHandleTest;
-    template <class T> friend class MtpFfsHandleTest_testControl_Test;
+    template <class T> friend class android::MtpFfsHandleTest;
 protected:
     bool initFunctionfs();
-    bool writeDescriptors();
     void closeConfig();
     void closeEndpoints();
     void advise(int fd);
