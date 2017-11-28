@@ -349,7 +349,8 @@ AImageReader::~AImageReader() {
     for (auto it = mAcquiredImages.begin();
               it != mAcquiredImages.end(); it++) {
         AImage* image = *it;
-        image->close();
+        Mutex::Autolock _l(image->mLock);
+        releaseImageLocked(image, /*releaseFenceFd*/-1);
     }
 
     // Delete Buffer Items
@@ -501,6 +502,8 @@ AImageReader::releaseImageLocked(AImage* image, int releaseFenceFd) {
     mBufferItemConsumer->releaseBuffer(*buffer, bufferFence);
     returnBufferItemLocked(buffer);
     image->mBuffer = nullptr;
+    image->mLockedBuffer = nullptr;
+    image->mIsClosed = true;
 
     bool found = false;
     // cleanup acquired image list

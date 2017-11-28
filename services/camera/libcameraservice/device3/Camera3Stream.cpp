@@ -62,7 +62,9 @@ Camera3Stream::Camera3Stream(int id,
     mPrepared(false),
     mPreparedBufferIdx(0),
     mLastMaxCount(Camera3StreamInterface::ALLOCATE_PIPELINE_MAX),
-    mBufferLimitLatency(kBufferLimitLatencyBinSize) {
+    mBufferLimitLatency(kBufferLimitLatencyBinSize),
+    mFormatOverridden(false),
+    mOriginalFormat(-1) {
 
     camera3_stream::stream_type = type;
     camera3_stream::width = width;
@@ -110,6 +112,32 @@ uint64_t Camera3Stream::getUsage() const {
 
 void Camera3Stream::setUsage(uint64_t usage) {
     mUsage = usage;
+}
+
+void Camera3Stream::setFormatOverride(bool formatOverridden) {
+    mFormatOverridden = formatOverridden;
+    if (formatOverridden) mOriginalFormat = camera3_stream::format;
+}
+
+bool Camera3Stream::isFormatOverridden() const {
+    return mFormatOverridden;
+}
+
+int Camera3Stream::getOriginalFormat() const {
+    return mOriginalFormat;
+}
+
+void Camera3Stream::setDataSpaceOverride(bool dataSpaceOverridden) {
+    mDataSpaceOverridden = dataSpaceOverridden;
+    if (dataSpaceOverridden) mOriginalDataSpace = camera3_stream::data_space;
+}
+
+bool Camera3Stream::isDataSpaceOverridden() const {
+    return mDataSpaceOverridden;
+}
+
+android_dataspace Camera3Stream::getOriginalDataSpace() const {
+    return mOriginalDataSpace;
 }
 
 camera3_stream* Camera3Stream::startConfiguration() {

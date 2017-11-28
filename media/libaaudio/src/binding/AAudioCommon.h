@@ -14,32 +14,19 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "MetricsSummarizerCodec"
-#include <utils/Log.h>
+#ifndef ANDROID_AAUDIO_COMMON_H
+#define ANDROID_AAUDIO_COMMON_H
 
 #include <stdint.h>
-#include <inttypes.h>
 
-#include <utils/threads.h>
-#include <utils/Errors.h>
-#include <utils/KeyedVector.h>
-#include <utils/String8.h>
-#include <utils/List.h>
+/*
+ * Internal header that is common to both client and server.
+ *
+ */
+namespace aaudio {
 
-#include <media/IMediaAnalyticsService.h>
+typedef int32_t aaudio_handle_t;
 
-#include "MetricsSummarizer.h"
-#include "MetricsSummarizerCodec.h"
+} /* namespace aaudio */
 
-
-
-
-namespace android {
-
-MetricsSummarizerCodec::MetricsSummarizerCodec(const char *key)
-    : MetricsSummarizer(key)
-{
-    ALOGV("MetricsSummarizerCodec::MetricsSummarizerCodec");
-}
-
-} // namespace android
+#endif // ANDROID_AAUDIO_COMMON_H

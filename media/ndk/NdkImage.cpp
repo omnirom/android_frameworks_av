@@ -58,11 +58,13 @@ AImage::close(int releaseFenceFd) {
         return;
     }
     sp<AImageReader> reader = mReader.promote();
-    if (reader == nullptr) {
-        LOG_ALWAYS_FATAL("Error: AImage not closed before AImageReader close!");
-        return;
+    if (reader != nullptr) {
+        reader->releaseImageLocked(this, releaseFenceFd);
+    } else if (mBuffer != nullptr) {
+        LOG_ALWAYS_FATAL("%s: parent AImageReader closed without releasing image %p",
+                __FUNCTION__, this);
     }
-    reader->releaseImageLocked(this, releaseFenceFd);
+
     // Should have been set to nullptr in releaseImageLocked
     // Set to nullptr here for extra safety only
     mBuffer = nullptr;

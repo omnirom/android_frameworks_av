@@ -354,6 +354,10 @@ MPEG4Extractor::MPEG4Extractor(const sp<DataSource> &source)
 }
 
 MPEG4Extractor::~MPEG4Extractor() {
+    release();
+}
+
+void MPEG4Extractor::release() {
     Track *track = mFirstTrack;
     while (track) {
         Track *next = track->next;
@@ -374,6 +378,12 @@ MPEG4Extractor::~MPEG4Extractor() {
 
     for (size_t i = 0; i < mPssh.size(); i++) {
         delete [] mPssh[i].data;
+    }
+    mPssh.clear();
+
+    if (mDataSource != NULL) {
+        mDataSource->close();
+        mDataSource.clear();
     }
 }
 
@@ -1666,6 +1676,9 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                     // ratio. Use compression ratio of 1.
                     max_size = width * height * 3 / 2;
                 }
+                // HACK: allow 10% overhead
+                // TODO: read sample size from traf atom for fragmented MPEG4.
+                max_size += max_size / 10;
                 mLastTrack->meta->setInt32(kKeyMaxInputSize, max_size);
             }
 
@@ -4684,6 +4697,8 @@ status_t MPEG4Source::read(
         }
         if (size > mBuffer->size()) {
             ALOGE("buffer too small: %zu > %zu", size, mBuffer->size());
+            mBuffer->release();
+            mBuffer = NULL;
             return ERROR_BUFFER_TOO_SMALL;
         }
     }
@@ -4976,6 +4991,8 @@ status_t MPEG4Source::fragmentedRead(
         }
         if (size > mBuffer->size()) {
             ALOGE("buffer too small: %zu > %zu", size, mBuffer->size());
+            mBuffer->release();
+            mBuffer = NULL;
             return ERROR_BUFFER_TOO_SMALL;
         }
     }

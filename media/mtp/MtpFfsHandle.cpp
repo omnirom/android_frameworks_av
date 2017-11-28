@@ -62,6 +62,8 @@ constexpr int MAX_FILE_CHUNK_SIZE = 3145728;
 constexpr int USB_FFS_MAX_WRITE = MTP_BUFFER_SIZE;
 constexpr int USB_FFS_MAX_READ = MTP_BUFFER_SIZE;
 
+constexpr unsigned FFS_NUM_EVENTS = 5;
+
 static_assert(USB_FFS_MAX_WRITE > 0, "Max r/w values must be > 0!");
 static_assert(USB_FFS_MAX_READ > 0, "Max r/w values must be > 0!");
 
@@ -102,8 +104,11 @@ struct desc_v2 {
     __le32 fs_count;
     __le32 hs_count;
     __le32 ss_count;
+    __le32 os_count;
     struct func_desc fs_descs, hs_descs;
     struct ss_func_desc ss_descs;
+    struct usb_os_desc_header os_header;
+    struct usb_ext_compat_desc os_desc;
 } __attribute__((packed));
 
 const struct usb_interface_descriptor mtp_interface_desc = {
@@ -287,6 +292,36 @@ const struct {
     },
 };
 
+struct usb_os_desc_header mtp_os_desc_header = {
+    .interface = htole32(1),
+    .dwLength = htole32(sizeof(usb_os_desc_header) + sizeof(usb_ext_compat_desc)),
+    .bcdVersion = htole16(1),
+    .wIndex = htole16(4),
+    .bCount = htole16(1),
+    .Reserved = htole16(0),
+};
+
+struct usb_ext_compat_desc mtp_os_desc_compat = {
+    .bFirstInterfaceNumber = 0,
+    .Reserved1 = htole32(1),
+    .CompatibleID = { 'M', 'T', 'P' },
+    .SubCompatibleID = {0},
+    .Reserved2 = {0},
+};
+
+struct usb_ext_compat_desc ptp_os_desc_compat = {
+    .bFirstInterfaceNumber = 0,
+    .Reserved1 = htole32(1),
+    .CompatibleID = { 'P', 'T', 'P' },
+    .SubCompatibleID = {0},
+    .Reserved2 = {0},
+};
+
+struct mtp_device_status {
+    uint16_t  wLength;
+    uint16_t  wCode;
+};
+
 } // anonymous namespace
 
 namespace android {
@@ -311,13 +346,16 @@ bool MtpFfsHandle::initFunctionfs() {
     v2_descriptor.header.magic = cpu_to_le32(FUNCTIONFS_DESCRIPTORS_MAGIC_V2);
     v2_descriptor.header.length = cpu_to_le32(sizeof(v2_descriptor));
     v2_descriptor.header.flags = FUNCTIONFS_HAS_FS_DESC | FUNCTIONFS_HAS_HS_DESC |
-                                 FUNCTIONFS_HAS_SS_DESC;
+                                 FUNCTIONFS_HAS_SS_DESC | FUNCTIONFS_HAS_MS_OS_DESC;
     v2_descriptor.fs_count = 4;
     v2_descriptor.hs_count = 4;
     v2_descriptor.ss_count = 7;
+    v2_descriptor.os_count = 1;
     v2_descriptor.fs_descs = mPtp ? ptp_fs_descriptors : mtp_fs_descriptors;
     v2_descriptor.hs_descs = mPtp ? ptp_hs_descriptors : mtp_hs_descriptors;
     v2_descriptor.ss_descs = mPtp ? ptp_ss_descriptors : mtp_ss_descriptors;
+    v2_descriptor.os_header = mtp_os_desc_header;
+    v2_descriptor.os_desc = mPtp ? ptp_os_desc_compat : mtp_os_desc_compat;
 
     if (mControl < 0) { // might have already done this before
         mControl.reset(TEMP_FAILURE_RETRY(open(FFS_MTP_EP0, O_RDWR)));
@@ -359,6 +397,88 @@ err:
 
 void MtpFfsHandle::closeConfig() {
     mControl.reset();
+}
+
+void MtpFfsHandle::controlLoop() {
+    while (!handleEvent()) {}
+    LOG(DEBUG) << "Mtp server shutting down";
+}
+
+int MtpFfsHandle::handleEvent() {
+    std::vector<usb_functionfs_event> events(FFS_NUM_EVENTS);
+    usb_functionfs_event *event = events.data();
+    int nbytes = TEMP_FAILURE_RETRY(::read(mControl, event,
+                events.size() * sizeof(usb_functionfs_event)));
+    if (nbytes == -1) {
+        return -1;
+    }
+    int ret = 0;
+    for (size_t n = nbytes / sizeof *event; n; --n, ++event) {
+        switch (event->type) {
+        case FUNCTIONFS_BIND:
+        case FUNCTIONFS_ENABLE:
+        case FUNCTIONFS_RESUME:
+            ret = 0;
+            errno = 0;
+            break;
+        case FUNCTIONFS_SUSPEND:
+        case FUNCTIONFS_UNBIND:
+        case FUNCTIONFS_DISABLE:
+            errno = ESHUTDOWN;
+            ret = -1;
+            break;
+        case FUNCTIONFS_SETUP:
+            if (handleControlRequest(&event->u.setup) == -1)
+                ret = -1;
+            break;
+        default:
+            LOG(DEBUG) << "Mtp Event " << event->type << " (unknown)";
+        }
+    }
+    return ret;
+}
+
+int MtpFfsHandle::handleControlRequest(const struct usb_ctrlrequest *setup) {
+    uint8_t type = setup->bRequestType;
+    uint8_t code = setup->bRequest;
+    uint16_t length = setup->wLength;
+    uint16_t index = setup->wIndex;
+    uint16_t value = setup->wValue;
+    std::vector<char> buf;
+    buf.resize(length);
+
+    if (!(type & USB_DIR_IN)) {
+        if (::read(mControl, buf.data(), length) != length) {
+            PLOG(DEBUG) << "Mtp error ctrlreq read data";
+        }
+    }
+
+    if ((type & USB_TYPE_MASK) == USB_TYPE_CLASS && index == 0 && value == 0) {
+        switch(code) {
+        case MTP_REQ_GET_DEVICE_STATUS:
+        {
+            if (length < sizeof(struct mtp_device_status)) {
+                return -1;
+            }
+            struct mtp_device_status *st = reinterpret_cast<struct mtp_device_status*>(buf.data());
+            st->wLength = htole16(sizeof(st));
+            st->wCode = MTP_RESPONSE_OK;
+            length = st->wLength;
+            break;
+        }
+        default:
+            LOG(DEBUG) << "Unrecognized Mtp class request! " << code;
+        }
+    } else {
+        LOG(DEBUG) << "Unrecognized request type " << type;
+    }
+
+    if (type & USB_DIR_IN) {
+        if (::write(mControl, buf.data(), length) != length) {
+            PLOG(DEBUG) << "Mtp error ctrlreq write data";
+        }
+    }
+    return 0;
 }
 
 int MtpFfsHandle::writeHandle(int fd, const void* data, int len) {
@@ -460,6 +580,10 @@ int MtpFfsHandle::start() {
     posix_madvise(mBuffer2.data(), MAX_FILE_CHUNK_SIZE,
             POSIX_MADV_SEQUENTIAL | POSIX_MADV_WILLNEED);
 
+    // Handle control requests.
+    std::thread t([this]() { this->controlLoop(); });
+    t.detach();
+
     // Get device specific r/w size
     mMaxWrite = android::base::GetIntProperty("sys.usb.ffs.max_write", USB_FFS_MAX_WRITE);
     mMaxRead = android::base::GetIntProperty("sys.usb.ffs.max_read", USB_FFS_MAX_READ);
@@ -542,6 +666,7 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr, bool zero_packet) {
     size_t length;
     bool read = false;
     bool write = false;
+    bool short_packet = false;
 
     posix_fadvise(mfr.fd, 0, 0, POSIX_FADV_SEQUENTIAL | POSIX_FADV_NOREUSE);
 
@@ -586,6 +711,7 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr, bool zero_packet) {
                 // For larger files, receive until a short packet is received.
                 if (static_cast<size_t>(ret) < length) {
                     file_length = 0;
+                    short_packet = true;
                 }
             } else {
                 // Receive an empty packet if size is a multiple of the endpoint size.
@@ -605,7 +731,7 @@ int MtpFfsHandle::receiveFile(mtp_file_range mfr, bool zero_packet) {
             read = false;
         }
     }
-    if (ret % packet_size == 0 || zero_packet) {
+    if ((ret % packet_size == 0 && !short_packet) || zero_packet) {
         if (TEMP_FAILURE_RETRY(::read(mBulkOut, data, packet_size)) != 0) {
             return -1;
         }

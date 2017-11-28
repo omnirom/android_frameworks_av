@@ -250,23 +250,33 @@ aaudio_result_t AAudioServiceEndpointMMAP::close() {
 
 aaudio_result_t AAudioServiceEndpointMMAP::startStream(sp<AAudioServiceStreamBase> stream,
                                                    audio_port_handle_t *clientHandle) {
+    // Start the client on behalf of the AAudio service.
+    // Use the port handle that was provided by openMmapStream().
     return startClient(mMmapClient, &mPortHandle);
 }
 
 aaudio_result_t AAudioServiceEndpointMMAP::stopStream(sp<AAudioServiceStreamBase> stream,
                                                   audio_port_handle_t clientHandle) {
     mFramesTransferred.reset32();
+
+    // Round 64-bit counter up to a multiple of the buffer capacity.
+    // This is required because the 64-bit counter is used as an index
+    // into a circular buffer and the actual HW position is reset to zero
+    // when the stream is stopped.
+    mFramesTransferred.roundUp64(getBufferCapacity());
+
     return stopClient(mPortHandle);
 }
 
 aaudio_result_t AAudioServiceEndpointMMAP::startClient(const android::AudioClient& client,
                                                        audio_port_handle_t *clientHandle) {
     if (mMmapStream == nullptr) return AAUDIO_ERROR_NULL;
+    ALOGD("AAudioServiceEndpointMMAP::startClient(%p(uid=%d, pid=%d))",
+          &client, client.clientUid, client.clientPid);
     audio_port_handle_t originalHandle =  *clientHandle;
-    aaudio_result_t result = AAudioConvert_androidToAAudioResult(mMmapStream->start(client,
-                                                                                    clientHandle));
-    ALOGD("AAudioServiceEndpointMMAP::startClient(%p(uid=%d, pid=%d), %d => %d) returns %d",
-          &client, client.clientUid, client.clientPid,
+    status_t status = mMmapStream->start(client, clientHandle);
+    aaudio_result_t result = AAudioConvert_androidToAAudioResult(status);
+    ALOGD("AAudioServiceEndpointMMAP::startClient() , %d => %d returns %d",
           originalHandle, *clientHandle, result);
     return result;
 }

@@ -30,6 +30,7 @@
 
 #include <android/hardware/camera/device/3.2/ICameraDevice.h>
 #include <android/hardware/camera/device/3.2/ICameraDeviceSession.h>
+#include <android/hardware/camera/device/3.3/ICameraDeviceSession.h>
 #include <android/hardware/camera/device/3.2/ICameraDeviceCallback.h>
 #include <fmq/MessageQueue.h>
 #include <hardware/camera3.h>
@@ -128,9 +129,7 @@ class Camera3Device :
             uint32_t width, uint32_t height, int format,
             int *id) override;
 
-    status_t getStreamInfo(int id,
-            uint32_t *width, uint32_t *height,
-            uint32_t *format, android_dataspace *dataSpace) override;
+    status_t getStreamInfo(int id, StreamInfo *streamInfo) override;
     status_t setStreamTransform(int id, int transform) override;
 
     status_t deleteStream(int id) override;
@@ -597,6 +596,8 @@ class Camera3Device :
             /*out*/ hardware::camera::device::V3_2::StreamConfigurationMode *mode);
     static camera3_buffer_status_t mapHidlBufferStatus(hardware::camera::device::V3_2::BufferStatus status);
     static int mapToFrameworkFormat(hardware::graphics::common::V1_0::PixelFormat pixelFormat);
+    static android_dataspace mapToFrameworkDataspace(
+            hardware::camera::device::V3_2::DataspaceFlags);
     static uint64_t mapConsumerToFrameworkUsage(
             hardware::camera::device::V3_2::BufferUsageFlags usage);
     static uint64_t mapProducerToFrameworkUsage(

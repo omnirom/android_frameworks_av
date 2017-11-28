@@ -53,14 +53,6 @@ public:
     aaudio_result_t open(const aaudio::AAudioStreamRequest &request) override;
 
     /**
-     * Start the flow of audio data.
-     *
-     * This is not guaranteed to be synchronous but it currently is.
-     * An AAUDIO_SERVICE_EVENT_STARTED will be sent to the client when complete.
-     */
-    aaudio_result_t start() override;
-
-    /**
      * Stop the flow of data so that start() can resume without loss of data.
      *
      * This is not guaranteed to be synchronous but it currently is.
@@ -83,11 +75,17 @@ public:
 
 protected:
 
-    aaudio_result_t getDownDataDescription(AudioEndpointParcelable &parcelable) override;
+    aaudio_result_t getAudioDataDescription(AudioEndpointParcelable &parcelable) override;
 
     aaudio_result_t getFreeRunningPosition(int64_t *positionFrames, int64_t *timeNanos) override;
 
     aaudio_result_t getHardwareTimestamp(int64_t *positionFrames, int64_t *timeNanos) override;
+
+    /**
+     * Device specific startup.
+     * @return AAUDIO_OK or negative error.
+     */
+    aaudio_result_t startDevice() override;
 
 private:
 

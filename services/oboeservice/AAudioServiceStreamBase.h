@@ -32,7 +32,10 @@
 
 #include "SharedRingBuffer.h"
 #include "AAudioThread.h"
-#include "AAudioService.h"
+
+namespace android {
+    class AAudioService;
+}
 
 namespace aaudio {
 
@@ -191,6 +194,12 @@ protected:
         mState = state;
     }
 
+    /**
+     * Device specific startup.
+     * @return AAUDIO_OK or negative error.
+     */
+    virtual aaudio_result_t startDevice();
+
     aaudio_result_t writeUpMessageQueue(AAudioServiceMessage *command);
 
     aaudio_result_t sendCurrentTimestamp();
@@ -204,7 +213,7 @@ protected:
 
     virtual aaudio_result_t getHardwareTimestamp(int64_t *positionFrames, int64_t *timeNanos) = 0;
 
-    virtual aaudio_result_t getDownDataDescription(AudioEndpointParcelable &parcelable) = 0;
+    virtual aaudio_result_t getAudioDataDescription(AudioEndpointParcelable &parcelable) = 0;
 
     aaudio_stream_state_t   mState = AAUDIO_STREAM_STATE_UNINITIALIZED;
 
@@ -213,7 +222,7 @@ protected:
     SharedRingBuffer*       mUpMessageQueue;
     std::mutex              mUpMessageQueueLock;
 
-    AAudioThread            mAAudioThread;
+    AAudioThread            mTimestampThread;
     // This is used by one thread to tell another thread to exit. So it must be atomic.
     std::atomic<bool>       mThreadEnabled{false};
 

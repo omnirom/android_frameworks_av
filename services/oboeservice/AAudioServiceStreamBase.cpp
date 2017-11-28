@@ -42,7 +42,7 @@ using namespace aaudio;   // TODO just import names needed
 
 AAudioServiceStreamBase::AAudioServiceStreamBase(AAudioService &audioService)
         : mUpMessageQueue(nullptr)
-        , mAAudioThread()
+        , mTimestampThread()
         , mAtomicTimestamp()
         , mAudioService(audioService) {
     mMmapClient.clientUid = -1;
@@ -54,10 +54,10 @@ AAudioServiceStreamBase::~AAudioServiceStreamBase() {
     ALOGD("AAudioServiceStreamBase::~AAudioServiceStreamBase() destroying %p", this);
     // If the stream is deleted when OPEN or in use then audio resources will leak.
     // This would indicate an internal error. So we want to find this ASAP.
-    LOG_ALWAYS_FATAL_IF(!(mState == AAUDIO_STREAM_STATE_CLOSED
-                        || mState == AAUDIO_STREAM_STATE_UNINITIALIZED
-                        || mState == AAUDIO_STREAM_STATE_DISCONNECTED),
-                        "service stream still open, state = %d", mState);
+    LOG_ALWAYS_FATAL_IF(!(getState() == AAUDIO_STREAM_STATE_CLOSED
+                        || getState() == AAUDIO_STREAM_STATE_UNINITIALIZED
+                        || getState() == AAUDIO_STREAM_STATE_DISCONNECTED),
+                        "service stream still open, state = %d", getState());
 }
 
 std::string AAudioServiceStreamBase::dumpHeader() {
@@ -71,7 +71,7 @@ std::string AAudioServiceStreamBase::dump() const {
            << std::dec << std::setfill(' ') ;
     result << std::setw(6) << mMmapClient.clientUid;
     result << std::setw(4) << (isRunning() ? "yes" : " no");
-    result << std::setw(6) << mState;
+    result << std::setw(6) << getState();
     result << std::setw(7) << getFormat();
     result << std::setw(6) << mFramesPerBurst;
     result << std::setw(5) << getSamplesPerFrame();
@@ -124,7 +124,7 @@ error:
 
 aaudio_result_t AAudioServiceStreamBase::close() {
     aaudio_result_t result = AAUDIO_OK;
-    if (mState == AAUDIO_STREAM_STATE_CLOSED) {
+    if (getState() == AAUDIO_STREAM_STATE_CLOSED) {
         return AAUDIO_OK;
     }
 
@@ -146,8 +146,13 @@ aaudio_result_t AAudioServiceStreamBase::close() {
         mUpMessageQueue = nullptr;
     }
 
-    mState = AAUDIO_STREAM_STATE_CLOSED;
+    setState(AAUDIO_STREAM_STATE_CLOSED);
     return result;
+}
+
+aaudio_result_t AAudioServiceStreamBase::startDevice() {
+    mClientHandle = AUDIO_PORT_HANDLE_NONE;
+    return mServiceEndpoint->startStream(this, &mClientHandle);
 }
 
 /**
@@ -156,27 +161,35 @@ aaudio_result_t AAudioServiceStreamBase::close() {
  * An AAUDIO_SERVICE_EVENT_STARTED will be sent to the client when complete.
  */
 aaudio_result_t AAudioServiceStreamBase::start() {
+    aaudio_result_t result = AAUDIO_OK;
     if (isRunning()) {
         return AAUDIO_OK;
     }
 
     if (mServiceEndpoint == nullptr) {
         ALOGE("AAudioServiceStreamBase::start() missing endpoint");
-        return AAUDIO_ERROR_INVALID_STATE;
+        result = AAUDIO_ERROR_INVALID_STATE;
+        goto error;
     }
+
+    // Start with fresh presentation timestamps.
+    mAtomicTimestamp.clear();
+
     mClientHandle = AUDIO_PORT_HANDLE_NONE;
-    aaudio_result_t result = mServiceEndpoint->startStream(this, &mClientHandle);
-    if (result != AAUDIO_OK) {
-        ALOGE("AAudioServiceStreamBase::start() mServiceEndpoint returned %d", result);
-        disconnect();
-    } else {
-        if (result == AAUDIO_OK) {
-            sendServiceEvent(AAUDIO_SERVICE_EVENT_STARTED);
-            mState = AAUDIO_STREAM_STATE_STARTED;
-            mThreadEnabled.store(true);
-            result = mAAudioThread.start(this);
-        }
-    }
+    result = startDevice();
+    if (result != AAUDIO_OK) goto error;
+
+    // This should happen at the end of the start.
+    sendServiceEvent(AAUDIO_SERVICE_EVENT_STARTED);
+    setState(AAUDIO_STREAM_STATE_STARTED);
+    mThreadEnabled.store(true);
+    result = mTimestampThread.start(this);
+    if (result != AAUDIO_OK) goto error;
+
+    return result;
+
+error:
+    disconnect();
     return result;
 }
 
@@ -189,21 +202,25 @@ aaudio_result_t AAudioServiceStreamBase::pause() {
         ALOGE("AAudioServiceStreamShared::pause() missing endpoint");
         return AAUDIO_ERROR_INVALID_STATE;
     }
+
+    // Send it now because the timestamp gets rounded up when stopStream() is called below.
+    // Also we don't need the timestamps while we are shutting down.
+    sendCurrentTimestamp();
+
+    result = stopTimestampThread();
+    if (result != AAUDIO_OK) {
+        disconnect();
+        return result;
+    }
+
     result = mServiceEndpoint->stopStream(this, mClientHandle);
     if (result != AAUDIO_OK) {
         ALOGE("AAudioServiceStreamShared::pause() mServiceEndpoint returned %d", result);
         disconnect(); // TODO should we return or pause Base first?
     }
 
-    sendCurrentTimestamp();
-    mThreadEnabled.store(false);
-    result = mAAudioThread.stop();
-    if (result != AAUDIO_OK) {
-        disconnect();
-        return result;
-    }
     sendServiceEvent(AAUDIO_SERVICE_EVENT_PAUSED);
-    mState = AAUDIO_STREAM_STATE_PAUSED;
+    setState(AAUDIO_STREAM_STATE_PAUSED);
     return result;
 }
 
@@ -218,6 +235,8 @@ aaudio_result_t AAudioServiceStreamBase::stop() {
         return AAUDIO_ERROR_INVALID_STATE;
     }
 
+    // Send it now because the timestamp gets rounded up when stopStream() is called below.
+    // Also we don't need the timestamps while we are shutting down.
     sendCurrentTimestamp(); // warning - this calls a virtual function
     result = stopTimestampThread();
     if (result != AAUDIO_OK) {
@@ -234,7 +253,7 @@ aaudio_result_t AAudioServiceStreamBase::stop() {
     }
 
     sendServiceEvent(AAUDIO_SERVICE_EVENT_STOPPED);
-    mState = AAUDIO_STREAM_STATE_STOPPED;
+    setState(AAUDIO_STREAM_STATE_STOPPED);
     return result;
 }
 
@@ -242,20 +261,20 @@ aaudio_result_t AAudioServiceStreamBase::stopTimestampThread() {
     aaudio_result_t result = AAUDIO_OK;
     // clear flag that tells thread to loop
     if (mThreadEnabled.exchange(false)) {
-        result = mAAudioThread.stop();
+        result = mTimestampThread.stop();
     }
     return result;
 }
 
 aaudio_result_t AAudioServiceStreamBase::flush() {
-    if (mState != AAUDIO_STREAM_STATE_PAUSED) {
+    if (getState() != AAUDIO_STREAM_STATE_PAUSED) {
         ALOGE("AAudioServiceStreamBase::flush() stream not paused, state = %s",
               AAudio_convertStreamStateToText(mState));
         return AAUDIO_ERROR_INVALID_STATE;
     }
     // Data will get flushed when the client receives the FLUSHED event.
     sendServiceEvent(AAUDIO_SERVICE_EVENT_FLUSHED);
-    mState = AAUDIO_STREAM_STATE_FLUSHED;
+    setState(AAUDIO_STREAM_STATE_FLUSHED);
     return AAUDIO_OK;
 }
 
@@ -283,9 +302,9 @@ void AAudioServiceStreamBase::run() {
 }
 
 void AAudioServiceStreamBase::disconnect() {
-    if (mState != AAUDIO_STREAM_STATE_DISCONNECTED) {
+    if (getState() != AAUDIO_STREAM_STATE_DISCONNECTED) {
         sendServiceEvent(AAUDIO_SERVICE_EVENT_DISCONNECTED);
-        mState = AAUDIO_STREAM_STATE_DISCONNECTED;
+        setState(AAUDIO_STREAM_STATE_DISCONNECTED);
     }
 }
 
@@ -321,6 +340,9 @@ aaudio_result_t AAudioServiceStreamBase::sendCurrentTimestamp() {
     aaudio_result_t result = getFreeRunningPosition(&command.timestamp.position,
                                                     &command.timestamp.timestamp);
     if (result == AAUDIO_OK) {
+        ALOGV("sendCurrentTimestamp() SERVICE  %8lld at %lld",
+              (long long) command.timestamp.position,
+              (long long) command.timestamp.timestamp);
         command.what = AAudioServiceMessage::code::TIMESTAMP_SERVICE;
         result = writeUpMessageQueue(&command);
 
@@ -329,13 +351,16 @@ aaudio_result_t AAudioServiceStreamBase::sendCurrentTimestamp() {
             result = getHardwareTimestamp(&command.timestamp.position,
                                           &command.timestamp.timestamp);
             if (result == AAUDIO_OK) {
+                ALOGV("sendCurrentTimestamp() HARDWARE %8lld at %lld",
+                      (long long) command.timestamp.position,
+                      (long long) command.timestamp.timestamp);
                 command.what = AAudioServiceMessage::code::TIMESTAMP_HARDWARE;
                 result = writeUpMessageQueue(&command);
             }
         }
     }
 
-    if (result == AAUDIO_ERROR_UNAVAILABLE) {
+    if (result == AAUDIO_ERROR_UNAVAILABLE) { // TODO review best error code
         result = AAUDIO_OK; // just not available yet, try again later
     }
     return result;
@@ -346,10 +371,17 @@ aaudio_result_t AAudioServiceStreamBase::sendCurrentTimestamp() {
  * used to communicate with the underlying HAL or Service.
  */
 aaudio_result_t AAudioServiceStreamBase::getDescription(AudioEndpointParcelable &parcelable) {
-    // Gather information on the message queue.
-    mUpMessageQueue->fillParcelable(parcelable,
-                                    parcelable.mUpMessageQueueParcelable);
-    return getDownDataDescription(parcelable);
+    {
+        std::lock_guard<std::mutex> lock(mUpMessageQueueLock);
+        if (mUpMessageQueue == nullptr) {
+            ALOGE("getDescription(): mUpMessageQueue null! - stream not open");
+            return AAUDIO_ERROR_NULL;
+        }
+        // Gather information on the message queue.
+        mUpMessageQueue->fillParcelable(parcelable,
+                                        parcelable.mUpMessageQueueParcelable);
+    }
+    return getAudioDataDescription(parcelable);
 }
 
 void AAudioServiceStreamBase::onVolumeChanged(float volume) {
