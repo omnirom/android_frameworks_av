@@ -31,21 +31,13 @@ status_t ConversionHelperHidl::keysFromHal(const String8& keys, hidl_vec<hidl_st
     AudioParameter halKeys(keys);
     if (halKeys.size() == 0) return BAD_VALUE;
     hidlKeys->resize(halKeys.size());
-    //FIXME:  keyStreamSupportedChannels and keyStreamSupportedSamplingRates come with a
-    // "keyFormat=<value>" pair. We need to transform it into a single key string so that it is
-    // carried over to the legacy HAL via HIDL.
-    String8 value;
-    bool keepFormatValue = halKeys.size() == 2 &&
-         (halKeys.get(String8(AudioParameter::keyStreamSupportedChannels), value) == NO_ERROR ||
-         halKeys.get(String8(AudioParameter::keyStreamSupportedSamplingRates), value) == NO_ERROR);
 
     for (size_t i = 0; i < halKeys.size(); ++i) {
-        String8 key;
-        status_t status = halKeys.getAt(i, key);
+        String8 key, value;
+        status_t status = halKeys.getAt(i, key, value);
         if (status != OK) return status;
-        if (keepFormatValue && key == AudioParameter::keyFormat) {
+        if (!value.isEmpty()) {
             AudioParameter formatParam;
-            halKeys.getAt(i, key, value);
             formatParam.add(key, value);
             key = formatParam.toString();
         }
