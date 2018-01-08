@@ -166,11 +166,29 @@ class Camera3OutputStream :
     virtual status_t notifyBufferReleased(ANativeWindowBuffer *anwBuffer);
 
     /**
+     * Drop buffers if dropping is true. If dropping is false, do not drop buffers.
+     */
+    virtual status_t dropBuffers(bool dropping) override;
+
+    /**
      * Set the graphic buffer manager to get/return the stream buffers.
      *
      * It is only legal to call this method when stream is in STATE_CONSTRUCTED state.
      */
     status_t setBufferManager(sp<Camera3BufferManager> bufferManager);
+
+    /**
+     * Query the ouput surface id.
+     */
+    virtual ssize_t getSurfaceId(const sp<Surface> &/*surface*/) { return 0; }
+
+    /**
+     * Update the stream output surfaces.
+     */
+    virtual status_t updateStream(const std::vector<sp<Surface>> &outputSurfaces,
+            const std::vector<OutputStreamInfo> &outputInfo,
+            const std::vector<size_t> &removedSurfaceIds,
+            KeyedVector<sp<Surface>, size_t> *outputMap/*out*/);
 
   protected:
     Camera3OutputStream(int id, camera3_stream_type_t type,
@@ -246,6 +264,9 @@ class Camera3OutputStream :
      * consumer case.
      */
     uint64_t    mConsumerUsage;
+
+    // Whether to drop valid buffers.
+    bool mDropBuffers;
 
     /**
      * Internal Camera3Stream interface

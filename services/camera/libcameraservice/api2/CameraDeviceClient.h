@@ -26,6 +26,8 @@
 #include "common/FrameProcessorBase.h"
 #include "common/Camera2ClientBase.h"
 
+using android::camera3::OutputStreamInfo;
+
 namespace android {
 
 struct CameraDeviceClientBase :
@@ -83,7 +85,8 @@ public:
 
     virtual binder::Status beginConfigure() override;
 
-    virtual binder::Status endConfigure(int operatingMode) override;
+    virtual binder::Status endConfigure(int operatingMode,
+            const hardware::camera2::impl::CameraMetadataNative& sessionParams) override;
 
     // Returns -EBUSY if device is not idle or in error state
     virtual binder::Status deleteStream(int streamId) override;
@@ -130,6 +133,10 @@ public:
 
     // Prepare stream by preallocating up to maxCount of its buffers
     virtual binder::Status prepare2(int32_t maxCount, int32_t streamId) override;
+
+    // Update an output configuration
+    virtual binder::Status updateOutputConfiguration(int streamId,
+            const hardware::camera2::params::OutputConfiguration &outputConfiguration) override;
 
     // Finalize the output configurations with surfaces not added before.
     virtual binder::Status finalizeOutputConfigurations(int32_t streamId,
@@ -206,24 +213,6 @@ private:
 
     }; // class StreamSurfaceId
 
-    // OutputStreamInfo describes the property of a camera stream.
-    class OutputStreamInfo {
-    public:
-        int width;
-        int height;
-        int format;
-        android_dataspace dataSpace;
-        uint64_t consumerUsage;
-        bool finalized = false;
-        OutputStreamInfo() :
-                width(-1), height(-1), format(-1), dataSpace(HAL_DATASPACE_UNKNOWN),
-                consumerUsage(0) {}
-        OutputStreamInfo(int _width, int _height, int _format, android_dataspace _dataSpace,
-                uint64_t _consumerUsage) :
-                    width(_width), height(_height), format(_format),
-                    dataSpace(_dataSpace), consumerUsage(_consumerUsage) {}
-    };
-
 private:
     /** ICameraDeviceUser interface-related private members */
 
@@ -267,8 +256,17 @@ private:
     binder::Status createSurfaceFromGbp(OutputStreamInfo& streamInfo, bool isStreamInfoValid,
             sp<Surface>& surface, const sp<IGraphicBufferProducer>& gbp);
 
+
+    // Utility method to insert the surface into SurfaceMap
+    binder::Status insertGbpLocked(const sp<IGraphicBufferProducer>& gbp,
+            /*out*/SurfaceMap* surfaceMap,
+            /*out*/Vector<int32_t>* streamIds);
+
     // IGraphicsBufferProducer binder -> Stream ID + Surface ID for output streams
     KeyedVector<sp<IBinder>, StreamSurfaceId> mStreamMap;
+
+    // Stream ID -> OutputConfiguration. Used for looking up Surface by stream/surface index
+    KeyedVector<int32_t, hardware::camera2::params::OutputConfiguration> mConfiguredOutputs;
 
     struct InputStreamConfiguration {
         bool configured;

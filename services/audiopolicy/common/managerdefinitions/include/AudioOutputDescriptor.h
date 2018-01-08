@@ -101,8 +101,6 @@ public:
 
     status_t    dump(int fd);
 
-    void setIoHandle(audio_io_handle_t ioHandle);
-
     virtual audio_devices_t device() const;
     virtual bool sharesHwModuleWith(const sp<AudioOutputDescriptor>& outputDesc);
     virtual audio_devices_t supportedDevices();
@@ -121,6 +119,20 @@ public:
     virtual void toAudioPortConfig(struct audio_port_config *dstConfig,
                            const struct audio_port_config *srcConfig = NULL) const;
     virtual void toAudioPort(struct audio_port *port) const;
+
+            status_t open(const audio_config_t *config,
+                          audio_devices_t device,
+                          const String8& address,
+                          audio_stream_type_t stream,
+                          audio_output_flags_t flags,
+                          audio_io_handle_t *output);
+            // Called when a stream is about to be started
+            // Note: called before changeRefCount(1);
+            status_t start();
+            // Called after a stream is stopped.
+            // Note: called after changeRefCount(-1);
+            void stop();
+            void close();
 
     const sp<IOProfile> mProfile;          // I/O profile this output derives from
     audio_io_handle_t mIoHandle;           // output handle
@@ -208,4 +220,4 @@ public:
 };
 
 
-}; // namespace android
+} // namespace android

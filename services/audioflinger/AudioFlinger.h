@@ -114,39 +114,13 @@ public:
     virtual     status_t    dump(int fd, const Vector<String16>& args);
 
     // IAudioFlinger interface, in binder opcode order
-    virtual sp<IAudioTrack> createTrack(
-                                audio_stream_type_t streamType,
-                                uint32_t sampleRate,
-                                audio_format_t format,
-                                audio_channel_mask_t channelMask,
-                                size_t *pFrameCount,
-                                audio_output_flags_t *flags,
-                                const sp<IMemory>& sharedBuffer,
-                                audio_io_handle_t output,
-                                pid_t pid,
-                                pid_t tid,
-                                audio_session_t *sessionId,
-                                int clientUid,
-                                status_t *status /*non-NULL*/,
-                                audio_port_handle_t portId);
+    virtual sp<IAudioTrack> createTrack(const CreateTrackInput& input,
+                                        CreateTrackOutput& output,
+                                        status_t *status);
 
-    virtual sp<media::IAudioRecord> openRecord(
-                                audio_io_handle_t input,
-                                uint32_t sampleRate,
-                                audio_format_t format,
-                                audio_channel_mask_t channelMask,
-                                const String16& opPackageName,
-                                size_t *pFrameCount,
-                                audio_input_flags_t *flags,
-                                pid_t pid,
-                                pid_t tid,
-                                int clientUid,
-                                audio_session_t *sessionId,
-                                size_t *notificationFrames,
-                                sp<IMemory>& cblk,
-                                sp<IMemory>& buffers,
-                                status_t *status /*non-NULL*/,
-                                audio_port_handle_t portId);
+    virtual sp<media::IAudioRecord> createRecord(const CreateRecordInput& input,
+                                                 CreateRecordOutput& output,
+                                                 status_t *status);
 
     virtual     uint32_t    sampleRate(audio_io_handle_t ioHandle) const;
     virtual     audio_format_t format(audio_io_handle_t output) const;
@@ -538,6 +512,13 @@ private:
     };
 
     // --- PlaybackThread ---
+#ifdef FLOAT_EFFECT_CHAIN
+#define EFFECT_BUFFER_FORMAT AUDIO_FORMAT_PCM_FLOAT
+using effect_buffer_t = float;
+#else
+#define EFFECT_BUFFER_FORMAT AUDIO_FORMAT_PCM_16_BIT
+using effect_buffer_t = int16_t;
+#endif
 
 #include "Threads.h"
 

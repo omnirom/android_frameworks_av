@@ -66,8 +66,8 @@ enum {
  * mitigate binary breaks by adhering to the following conventions:
  *
  * - at most one vtable with placeholder virtual methods
- * - all optional/placeholder virtual methods returning a status_t, with C2_NOT_IMPLEMENTED not
- *   requiring any update to input/output arguments.
+ * - all optional/placeholder virtual methods returning a c2_status_t, with C2_OMITTED not requiring
+ *   any update to input/output arguments.
  * - limiting symbol export of inline methods
  * - use of pimpl (or shared-pimpl)
  *
@@ -98,49 +98,82 @@ enum {
  * C2String: basic string implementation
  */
 typedef std::string C2String;
+
+/**
+ * C2StringLiteral: basic string literal implementation.
+ * \note these are never owned by any object, and can only refer to C string literals.
+ */
 typedef const char *C2StringLiteral;
 
 /**
- * C2Error: status codes used.
+ * c2_status_t: status codes used.
  */
-typedef int32_t C2Error;
-enum {
+enum c2_status_t : int32_t {
+
+/*
+ * Use android status constants if available. Otherwise, define the android status constants as
+ * additional enum values using POSIX errno constants.
+ */
 #ifndef __ANDROID__
-    OK                  = 0,
+    ALREADY_EXISTS      = -EEXIST,
     BAD_VALUE           = -EINVAL,
     BAD_INDEX           = -EOVERFLOW,
-    UNKNOWN_TRANSACTION = -EBADMSG,
-    ALREADY_EXISTS      = -EEXIST,
-    NAME_NOT_FOUND      = -ENOENT,
+    FAILED_TRANSACTION  = -ENOTSUP,
     INVALID_OPERATION   = -ENOSYS,
+    NAME_NOT_FOUND      = -ENOENT,
     NO_MEMORY           = -ENOMEM,
+    NO_INIT             = -ENODEV,
+    OK                  = 0,
     PERMISSION_DENIED   = -EPERM,
     TIMED_OUT           = -ETIMEDOUT,
-    UNKNOWN_ERROR       = -EINVAL,
+    UNKNOWN_ERROR       = -EFAULT,
+    UNKNOWN_TRANSACTION = -EBADMSG,
+    WOULD_BLOCK         = -EWOULDBLOCK,
 #endif
 
-    C2_OK               = OK,                   ///< operation completed successfully
+    C2_OK        = OK,                   ///< operation completed successfully
 
     // bad input
-    C2_BAD_VALUE        = BAD_VALUE,            ///< argument has invalid value (user error)
-    C2_BAD_INDEX        = BAD_INDEX,            ///< argument uses invalid index (user error)
-    C2_UNSUPPORTED      = UNKNOWN_TRANSACTION,  ///< argument/index is value but not supported \todo is this really BAD_INDEX/VALUE?
+    C2_BAD_VALUE = BAD_VALUE,            ///< argument has invalid value (user error)
+    C2_BAD_INDEX = BAD_INDEX,            ///< argument uses invalid index (user error)
+    C2_CANNOT_DO = FAILED_TRANSACTION,   ///< argument/index is valid but not possible
 
     // bad sequencing of events
-    C2_DUPLICATE        = ALREADY_EXISTS,       ///< object already exists
-    C2_NOT_FOUND        = NAME_NOT_FOUND,       ///< object not found
-    C2_BAD_STATE        = INVALID_OPERATION,    ///< operation is not permitted in the current state
+    C2_DUPLICATE = ALREADY_EXISTS,       ///< object already exists
+    C2_NOT_FOUND = NAME_NOT_FOUND,       ///< object not found
+    C2_BAD_STATE = INVALID_OPERATION,    ///< operation is not permitted in the current state
+    C2_BLOCKING  = WOULD_BLOCK,          ///< operation would block but blocking is not permitted
 
     // bad environment
-    C2_NO_MEMORY        = NO_MEMORY,            ///< not enough memory to complete operation
-    C2_NO_PERMISSION    = PERMISSION_DENIED,    ///< missing permission to complete operation
-    C2_TIMED_OUT        = TIMED_OUT,            ///< operation did not complete within timeout
+    C2_NO_MEMORY = NO_MEMORY,            ///< not enough memory to complete operation
+    C2_REFUSED   = PERMISSION_DENIED,    ///< missing permission to complete operation
+
+    C2_TIMED_OUT = TIMED_OUT,            ///< operation did not complete within timeout
 
     // bad versioning
-    C2_NOT_IMPLEMENTED  = UNKNOWN_TRANSACTION,  ///< operation is not implemented (optional only) \todo for now reuse error code
+    C2_OMITTED   = UNKNOWN_TRANSACTION,  ///< operation is not implemented/supported (optional only)
 
     // unknown fatal
-    C2_CORRUPTED        = UNKNOWN_ERROR,        ///< some unexpected error prevented the operation
+    C2_CORRUPTED = UNKNOWN_ERROR,        ///< some unexpected error prevented the operation
+    C2_NO_INIT   = NO_INIT,              ///< status has not been initialized
+};
+
+/**
+ * Type that describes the desired blocking behavior for variable blocking calls. Blocking in this
+ * API is used in a somewhat modified meaning such that operations that merely update variables
+ * protected by mutexes are still considered "non-blocking" (always used in quotes).
+ */
+enum c2_blocking_t : int32_t {
+    /**
+     * The operation SHALL be "non-blocking". This means that it shall not perform any file
+     * operations, or call/wait on other processes. It may use a protected region as long as the
+     * mutex is never used to protect code that is otherwise "may block".
+     */
+    C2_DONT_BLOCK = false,
+    /**
+     * The operation MAY be temporarily blocking.
+     */
+    C2_MAY_BLOCK = true,
 };
 
 /// @}

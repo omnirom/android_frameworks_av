@@ -17,6 +17,8 @@
 #ifndef ANDROID_MEDIAPLAYER_H
 #define ANDROID_MEDIAPLAYER_H
 
+#include <media/mediaplayer_common.h>
+
 #include <arpa/inet.h>
 
 #include <binder/IMemory.h>
@@ -188,16 +190,6 @@ enum media_player_invoke_ids {
     INVOKE_ID_GET_SELECTED_TRACK = 7
 };
 
-// Keep MEDIA_TRACK_TYPE_* in sync with MediaPlayer.java.
-enum media_track_type {
-    MEDIA_TRACK_TYPE_UNKNOWN = 0,
-    MEDIA_TRACK_TYPE_VIDEO = 1,
-    MEDIA_TRACK_TYPE_AUDIO = 2,
-    MEDIA_TRACK_TYPE_TIMEDTEXT = 3,
-    MEDIA_TRACK_TYPE_SUBTITLE = 4,
-    MEDIA_TRACK_TYPE_METADATA = 5,
-};
-
 // ----------------------------------------------------------------------------
 // ref-counted object for callbacks
 class MediaPlayerListener: virtual public RefBase
@@ -227,7 +219,6 @@ public:
             status_t        setVideoSurfaceTexture(
                                     const sp<IGraphicBufferProducer>& bufferProducer);
             status_t        setListener(const sp<MediaPlayerListener>& listener);
-            status_t        getDefaultBufferingSettings(BufferingSettings* buffering /* nonnull */);
             status_t        getBufferingSettings(BufferingSettings* buffering /* nonnull */);
             status_t        setBufferingSettings(const BufferingSettings& buffering);
             status_t        prepare();
@@ -316,7 +307,6 @@ private:
     float                       mSendLevel;
     struct sockaddr_in          mRetransmitEndpoint;
     bool                        mRetransmitEndpointValid;
-    BufferingSettings           mCurrentBufferingSettings;
 };
 
 }; // namespace android

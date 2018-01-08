@@ -16,6 +16,9 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
+
 #include <stdint.h>
 #include <sys/types.h>
 #include <cutils/config_utils.h>
@@ -31,6 +34,7 @@
 #include <AudioPolicyManagerInterface.h>
 #include <AudioPolicyManagerObserver.h>
 #include <AudioGain.h>
+#include <AudioPolicyConfig.h>
 #include <AudioPort.h>
 #include <AudioPatch.h>
 #include <DeviceDescriptor.h>
@@ -232,6 +236,21 @@ public:
         routing_strategy getStrategy(audio_stream_type_t stream) const;
 
 protected:
+        // A constructor that allows more fine-grained control over initialization process,
+        // used in automatic tests.
+        AudioPolicyManager(AudioPolicyClientInterface *clientInterface, bool forTesting);
+
+        // These methods should be used when finer control over APM initialization
+        // is needed, e.g. in tests. Must be used in conjunction with the constructor
+        // that only performs fields initialization. The public constructor comprises
+        // these steps in the following sequence:
+        //   - field initializing constructor;
+        //   - loadConfig;
+        //   - initialize.
+        AudioPolicyConfig& getConfig() { return mConfig; }
+        void loadConfig();
+        status_t initialize();
+
         // From AudioPolicyManagerObserver
         virtual const AudioPatchCollection &getAudioPatches() const
         {
@@ -266,7 +285,7 @@ protected:
         {
             return mDefaultOutputDevice;
         }
-protected:
+
         void addOutput(audio_io_handle_t output, const sp<SwAudioOutputDescriptor>& outputDesc);
         void removeOutput(audio_io_handle_t output);
         void addInput(audio_io_handle_t input, const sp<AudioInputDescriptor>& inputDesc);
@@ -468,6 +487,9 @@ protected:
         }
 
         uint32_t updateCallRouting(audio_devices_t rxDevice, uint32_t delayMs = 0);
+        sp<AudioPatch> createTelephonyPatch(bool isRx, audio_devices_t device, uint32_t delayMs);
+        sp<DeviceDescriptor> fillAudioPortConfigForDevice(
+                const DeviceVector& devices, audio_devices_t device, audio_port_config *config);
 
         // if argument "device" is different from AUDIO_DEVICE_NONE,  startSource() will force
         // the re-evaluation of the output device.
@@ -521,18 +543,20 @@ protected:
         SessionRouteMap mOutputRoutes = SessionRouteMap(SessionRouteMap::MAPTYPE_OUTPUT);
         SessionRouteMap mInputRoutes = SessionRouteMap(SessionRouteMap::MAPTYPE_INPUT);
 
-        IVolumeCurvesCollection *mVolumeCurves; // Volume Curves per use case and device category
-
         bool    mLimitRingtoneVolume;        // limit ringtone volume to music volume if headset connected
         audio_devices_t mDeviceForStrategy[NUM_STRATEGIES];
         float   mLastVoiceVolume;            // last voice volume value sent to audio HAL
-
-        EffectDescriptorCollection mEffects;  // list of registered audio effects
         bool    mA2dpSuspended;  // true if A2DP output is suspended
-        sp<DeviceDescriptor> mDefaultOutputDevice; // output device selected by default at boot time
-        HwModuleCollection mHwModules;
 
-        volatile int32_t mAudioPortGeneration;
+        std::unique_ptr<IVolumeCurvesCollection> mVolumeCurves; // Volume Curves per use case and device category
+        EffectDescriptorCollection mEffects;  // list of registered audio effects
+        sp<DeviceDescriptor> mDefaultOutputDevice; // output device selected by default at boot time
+        HwModuleCollection mHwModules; // contains only modules that have been loaded successfully
+        HwModuleCollection mHwModulesAll; // normally not needed, used during construction and for
+                                          // dumps
+        AudioPolicyConfig mConfig;
+
+        std::atomic<uint32_t> mAudioPortGeneration;
 
         AudioPatchCollection mAudioPatches;
 
@@ -601,20 +625,15 @@ private:
                 audio_devices_t device,
                 audio_session_t session,
                 audio_stream_type_t stream,
-                uint32_t samplingRate,
-                audio_format_t format,
-                audio_channel_mask_t channelMask,
-                audio_output_flags_t flags,
-                const audio_offload_info_t *offloadInfo);
+                const audio_config_t *config,
+                audio_output_flags_t flags);
         // internal method to return the input handle for the given device and format
         audio_io_handle_t getInputForDevice(audio_devices_t device,
                 String8 address,
                 audio_session_t session,
                 uid_t uid,
                 audio_source_t inputSource,
-                uint32_t samplingRate,
-                audio_format_t format,
-                audio_channel_mask_t channelMask,
+                const audio_config_base_t *config,
                 audio_input_flags_t flags,
                 AudioMix *policyMix);
 

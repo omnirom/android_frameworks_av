@@ -30,38 +30,32 @@ public:
     typedef std::function<int (C2MemoryUsage, size_t,
                       /* => */ size_t*, unsigned*, unsigned*)> usage_mapper_fn;
 
-    virtual C2Error allocateGraphicBuffer(
+    virtual id_t getId() const override;
+
+    virtual C2String getName() const override;
+
+    virtual std::shared_ptr<const Traits> getTraits() const override {
+        return nullptr; // \todo
+    }
+
+    virtual c2_status_t newGraphicAllocation(
             uint32_t width, uint32_t height, uint32_t format, C2MemoryUsage usage,
             std::shared_ptr<C2GraphicAllocation> *allocation) override;
 
-    virtual C2Error recreateGraphicBuffer(
+    virtual c2_status_t priorGraphicAllocation(
             const C2Handle *handle,
             std::shared_ptr<C2GraphicAllocation> *allocation) override;
 
     C2AllocatorGralloc();
 
-    C2Error status() const;
+    c2_status_t status() const;
 
-    virtual ~C2AllocatorGralloc();
+    virtual ~C2AllocatorGralloc() override;
 
 private:
     class Impl;
     Impl *mImpl;
 };
-
-#if 0
-class C2Allocation::Impl {
-public:
-    Impl() : mMapped(false), mBase(nullptr) { }
-    uint8_t* base() { return mMapped ? mBase : nullptr; }
-
-    // TODO: call map...
-
-private:
-    bool mMapped;
-    uint8_t *mBase;
-};
-#endif
 
 } // namespace android
 

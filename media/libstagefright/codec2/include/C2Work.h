@@ -28,42 +28,56 @@
 #include <list>
 #include <vector>
 
-typedef int status_t;
-
 namespace android {
 
 /// \defgroup work Work and data processing
 /// @{
 
+/**
+ * Information describing the reason a parameter settings may fail, or
+ * may be overriden.
+ */
 struct C2SettingResult {
-    enum Failure {
+    enum Failure : uint32_t {
         READ_ONLY,  ///< parameter is read-only and cannot be set
         MISMATCH,   ///< parameter mismatches input data
         BAD_VALUE,  ///< parameter does not accept value
         BAD_TYPE,   ///< parameter is not supported
         BAD_PORT,   ///< parameter is not supported on the specific port
         BAD_INDEX,  ///< parameter is not supported on the specific stream
-        CONFLICT,   ///< parameter is in conflict with another setting
+        CONFLICT,   ///< parameter is in conflict with an/other setting(s)
+        /// parameter is out of range due to other settings (this failure mode
+        /// can only be used for strict parameters)
+        UNSUPPORTED,
+
+
+        /// requested parameter value is in conflict with an/other setting(s)
+        /// and has been corrected to the closest supported value. This failure
+        /// mode is given to provide suggestion to the client as to how to
+        /// enable the requested parameter value.
+        INFO_CONFLICT,
     };
 
-    C2ParamField field;
-    Failure failure;
-    std::unique_ptr<C2FieldSupportedValues> supportedValues; //< if different from normal (e.g. in conflict w/another param or input data)
-    std::list<C2ParamField> conflictingFields;
+    Failure failure;    ///< failure code
+
+    /// Failing (or corrected) field. Currently supported values for the field. This is set if
+    /// different from the globally supported values (e.g. due to restrictions by another param or
+    /// input data)
+    /// \todo need to define suggestions for masks to be set and unset.
+    C2ParamFieldValues field;
+
+    /// Conflicting parameters or fields with optional suggestions with (optional) suggested values
+    /// for any conflicting fields to avoid the conflict.
+    std::list<C2ParamFieldValues> conflicts;
 };
 
 // ================================================================================================
 //  WORK
 // ================================================================================================
 
-// node_id-s
-typedef uint32_t node_id;
-
-enum flags_t : uint32_t {
-    BUFFERFLAG_CODEC_CONFIG  = (1 << 0),
-    BUFFERFLAG_DROP_FRAME    = (1 << 1),
-    BUFFERFLAG_END_OF_STREAM = (1 << 2),
-};
+// c2_node_id_t-s
+typedef uint32_t c2_node_id_t;
+typedef c2_node_id_t c2_node_id_t;
 
 enum {
     kParamIndexWorkOrdinal,
@@ -82,6 +96,12 @@ struct C2WorkOrdinalStruct {
 
 struct C2BufferPack {
 //public:
+    enum flags_t : uint32_t {
+        FLAG_CODEC_CONFIG  = (1 << 0),
+        FLAG_DROP_FRAME    = (1 << 1),
+        FLAG_END_OF_STREAM = (1 << 2),
+    };
+
     flags_t  flags;
     C2WorkOrdinalStruct ordinal;
     std::vector<std::shared_ptr<C2Buffer>> buffers;
@@ -94,13 +114,13 @@ struct C2BufferPack {
 struct C2Worklet {
 //public:
     // IN
-    node_id component;
+    c2_node_id_t component;
 
     std::list<std::unique_ptr<C2Param>> tunings; //< tunings to be applied before processing this
                                                  // worklet
     std::list<C2Param::Type> requestedInfos;
-    std::vector<std::shared_ptr<C2BlockAllocator>> allocators; //< This vector shall be the same size as
-                                                          //< output.buffers.
+    std::vector<std::shared_ptr<C2BlockPool>> allocators; //< This vector shall be the same size as
+                                                          //< output.buffers. \deprecated
 
     // OUT
     C2BufferPack output;
@@ -146,13 +166,13 @@ struct C2Work {
     std::list<std::unique_ptr<C2Worklet>> worklets;
 
     uint32_t worklets_processed;
-    status_t result;
+    c2_status_t result;
 };
 
 struct C2WorkOutline {
 //public:
     C2WorkOrdinalStruct ordinal;
-    std::list<node_id> chain;
+    std::list<c2_node_id_t> chain;
 };
 
 /// @}

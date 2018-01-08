@@ -159,7 +159,8 @@ MediaAnalyticsService::MediaAnalyticsService()
           mMaxRecordAgeNs(kMaxRecordAgeNs),
           mMaxRecordSets(kMaxRecordSets),
           mNewSetInterval(kNewSetIntervalNs),
-          mDumpProto(MediaAnalyticsItem::PROTO_V0) {
+          mDumpProto(MediaAnalyticsItem::PROTO_V1),
+          mDumpProtoDefault(MediaAnalyticsItem::PROTO_V1) {
 
     ALOGD("MediaAnalyticsService created");
     // clear our queues
@@ -271,7 +272,7 @@ MediaAnalyticsItem::SessionID_t MediaAnalyticsService::submit(MediaAnalyticsItem
     }
 
     ALOGV("given uid %d; sanitized uid: %d sanitized pkg: %s "
-          "sanitized pkg version: %d",
+          "sanitized pkg version: %"  PRId64,
           uid_given, item->getUid(),
           item->getPkgName().c_str(),
           item->getPkgVersionCode());
@@ -318,6 +319,7 @@ MediaAnalyticsItem::SessionID_t MediaAnalyticsService::submit(MediaAnalyticsItem
                 saveItem(mFinalized, oitem, 0);
             }
             // new record could itself be marked finalized...
+            id = item->getSessionID();
             if (finalizing) {
                 summarize(item);
                 saveItem(mFinalized, item, 0);
@@ -325,16 +327,15 @@ MediaAnalyticsItem::SessionID_t MediaAnalyticsService::submit(MediaAnalyticsItem
             } else {
                 saveItem(mOpen, item, 1);
             }
-            id = item->getSessionID();
         } else {
             // combine the records, send it to finalized if appropriate
             oitem->merge(item);
+            id = oitem->getSessionID();
             if (finalizing) {
                 summarize(oitem);
                 saveItem(mFinalized, oitem, 0);
                 mItemsFinalized++;
             }
-            id = oitem->getSessionID();
 
             // we're responsible for disposing of the dead record
             delete item;
@@ -381,6 +382,7 @@ status_t MediaAnalyticsService::dump(int fd, const Vector<String16>& args)
     String16 summaryOption("-summary");
     bool summary = false;
     String16 protoOption("-proto");
+    int chosenProto = mDumpProtoDefault;
     String16 clearOption("-clear");
     bool clear = false;
     String16 sinceOption("-since");
@@ -400,7 +402,7 @@ status_t MediaAnalyticsService::dump(int fd, const Vector<String16>& args)
             i++;
             if (i < n) {
                 String8 value(args[i]);
-                int proto = MediaAnalyticsItem::PROTO_V0;       // default to original
+                int proto = MediaAnalyticsItem::PROTO_V0;
                 char *endp;
                 const char *p = value.string();
                 proto = strtol(p, &endp, 10);
@@ -410,8 +412,12 @@ status_t MediaAnalyticsService::dump(int fd, const Vector<String16>& args)
                     } else if (proto > MediaAnalyticsItem::PROTO_LAST) {
                         proto = MediaAnalyticsItem::PROTO_LAST;
                     }
-                    mDumpProto = proto;
+                    chosenProto = proto;
+                } else {
+                    result.append("unable to parse value for -proto\n\n");
                 }
+            } else {
+                result.append("missing value for -proto\n\n");
             }
         } else if (args[i] == sinceOption) {
             i++;
@@ -437,7 +443,7 @@ status_t MediaAnalyticsService::dump(int fd, const Vector<String16>& args)
         } else if (args[i] == helpOption) {
             result.append("Recognized parameters:\n");
             result.append("-help        this help message\n");
-            result.append("-proto X     dump using protocol X (defaults to 1)");
+            result.append("-proto #     dump using protocol #");
             result.append("-summary     show summary info\n");
             result.append("-clear       clears out saved records\n");
             result.append("-only X      process records for component X\n");
@@ -449,6 +455,8 @@ status_t MediaAnalyticsService::dump(int fd, const Vector<String16>& args)
     }
 
     Mutex::Autolock _l(mLock);
+
+    mDumpProto = chosenProto;
 
     // we ALWAYS dump this piece
     snprintf(buffer, SIZE, "Dump of the %s process:\n", kServiceName);
@@ -614,17 +622,28 @@ String8 MediaAnalyticsService::dumpQueue(List<MediaAnalyticsItem *> *theList, ns
 // caller should hold mLock
 void MediaAnalyticsService::saveItem(List<MediaAnalyticsItem *> *l, MediaAnalyticsItem * item, int front) {
 
-    // adding at back of queue (fifo order)
     if (front)  {
+        // for non-finalized stuff, since we expect to reference it again soon,
+        // make it quicker to find (nearer the front of our list)
         l->push_front(item);
     } else {
+        // for finalized records, which we want to dump 'in sequence order'
         l->push_back(item);
     }
+
+    // our reclaim process is for oldest-first queues
+    if (front) {
+        return;
+    }
+
 
     // keep removing old records the front until we're in-bounds (count)
     if (mMaxRecords > 0) {
         while (l->size() > (size_t) mMaxRecords) {
             MediaAnalyticsItem * oitem = *(l->begin());
+            if (oitem == item) {
+                break;
+            }
             l->erase(l->begin());
             delete oitem;
             mItemsDiscarded++;
@@ -638,6 +657,9 @@ void MediaAnalyticsService::saveItem(List<MediaAnalyticsItem *> *l, MediaAnalyti
         while (l->size() > 0) {
             MediaAnalyticsItem * oitem = *(l->begin());
             nsecs_t when = oitem->getTimestamp();
+            if (oitem == item) {
+                break;
+            }
             // careful about timejumps too
             if ((now > when) && (now-when) <= mMaxRecordAgeNs) {
                 // this (and the rest) are recent enough to keep
@@ -834,7 +856,7 @@ void MediaAnalyticsService::setPkgInfo(MediaAnalyticsItem *item, uid_t uid, bool
     } else {
         AString pkg;
         std::string installer = "";
-        int32_t versionCode = 0;
+        int64_t versionCode = 0;
 
         struct passwd *pw = getpwuid(uid);
         if (pw) {
@@ -904,7 +926,7 @@ void MediaAnalyticsService::setPkgInfo(MediaAnalyticsItem *item, uid_t uid, bool
                 }
 
 
-                ALOGV("package '%s' installed by '%s' versioncode %d / %08x",
+                ALOGV("package '%s' installed by '%s' versioncode %"  PRId64 " / %" PRIx64,
                       pkg.c_str(), installer.c_str(), versionCode, versionCode);
 
                 if (strncmp(installer.c_str(), "com.android.", 12) == 0) {

@@ -140,7 +140,8 @@ aaudio_result_t AudioStreamInternalPlay::processDataNow(void *buffer, int32_t nu
     }
 
     // If the read index passed the write index then consider it an underrun.
-    if (mAudioEndpoint.getFullFramesAvailable() < 0) {
+    // For shared streams, the xRunCount is passed up from the service.
+    if (mAudioEndpoint.isFreeRunning() && mAudioEndpoint.getFullFramesAvailable() < 0) {
         mXRunCount++;
         if (ATRACE_ENABLED()) {
             ATRACE_INT("aaUnderRuns", mXRunCount);
@@ -219,8 +220,7 @@ aaudio_result_t AudioStreamInternalPlay::writeNowWithConversion(const void *buff
             // Data conversion.
             float levelFrom;
             float levelTo;
-            bool ramping = mVolumeRamp.nextSegment(framesToWrite * getSamplesPerFrame(),
-                                                   &levelFrom, &levelTo);
+            bool ramping = mVolumeRamp.nextSegment(framesToWrite, &levelFrom, &levelTo);
             // The formats are validated when the stream is opened so we do not have to
             // check for illegal combinations here.
             // TODO factor this out into a utility function
@@ -323,18 +323,13 @@ int64_t AudioStreamInternalPlay::getFramesWritten()
 void *AudioStreamInternalPlay::callbackLoop() {
     aaudio_result_t result = AAUDIO_OK;
     aaudio_data_callback_result_t callbackResult = AAUDIO_CALLBACK_RESULT_CONTINUE;
-    AAudioStream_dataCallback appCallback = getDataCallbackProc();
-    if (appCallback == nullptr) return NULL;
+    if (!isDataCallbackSet()) return NULL;
     int64_t timeoutNanos = calculateReasonableTimeout(mCallbackFrames);
 
     // result might be a frame count
     while (mCallbackEnabled.load() && isActive() && (result >= 0)) {
         // Call application using the AAudio callback interface.
-        callbackResult = (*appCallback)(
-                (AAudioStream *) this,
-                getDataCallbackUserData(),
-                mCallbackBuffer,
-                mCallbackFrames);
+        callbackResult = maybeCallDataCallback(mCallbackBuffer, mCallbackFrames);
 
         if (callbackResult == AAUDIO_CALLBACK_RESULT_CONTINUE) {
             // Write audio data to stream. This is a BLOCKING WRITE!
@@ -345,13 +340,7 @@ void *AudioStreamInternalPlay::callbackLoop() {
                     // Only wrote some of the frames requested. Must have timed out.
                     result = AAUDIO_ERROR_TIMEOUT;
                 }
-                AAudioStream_errorCallback errorCallback = getErrorCallbackProc();
-                if (errorCallback != nullptr) {
-                    (*errorCallback)(
-                            (AAudioStream *) this,
-                            getErrorCallbackUserData(),
-                            result);
-                }
+                maybeCallErrorCallback(result);
                 break;
             }
         } else if (callbackResult == AAUDIO_CALLBACK_RESULT_STOP) {

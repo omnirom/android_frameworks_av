@@ -395,7 +395,7 @@ AudioFlinger::PlaybackThread::Track::Track(
     mSharedBuffer(sharedBuffer),
     mStreamType(streamType),
     mName(-1),  // see note below
-    mMainBuffer(thread->mixBuffer()),
+    mMainBuffer(thread->sinkBuffer()),
     mAuxBuffer(NULL),
     mAuxEffectId(0), mHasVolumeController(false),
     mPresentationCompleteFrames(0),
@@ -1102,11 +1102,12 @@ bool AudioFlinger::PlaybackThread::Track::presentationComplete(
 
 void AudioFlinger::PlaybackThread::Track::triggerEvents(AudioSystem::sync_event_t type)
 {
-    for (size_t i = 0; i < mSyncEvents.size(); i++) {
+    for (size_t i = 0; i < mSyncEvents.size();) {
         if (mSyncEvents[i]->type() == type) {
             mSyncEvents[i]->trigger();
             mSyncEvents.removeAt(i);
-            i--;
+        } else {
+            ++i;
         }
     }
 }

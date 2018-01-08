@@ -102,7 +102,6 @@ public:
     virtual sp<DecryptHandle> DrmInitialization(const char * /*mime*/ = NULL) {
         return NULL;
     }
-    virtual void getDrmInfo(sp<DecryptHandle> &/*handle*/, DrmManagerClient ** /*client*/) {};
 
     virtual String8 getUri() {
         return String8();
@@ -111,9 +110,6 @@ public:
     virtual String8 getMIMEType() const;
 
     virtual void close() {};
-
-    // returns a pointer to IDataSource if it is wrapped.
-    virtual sp<IDataSource> getIDataSource() const;
 
 protected:
     virtual ~DataSource() {}

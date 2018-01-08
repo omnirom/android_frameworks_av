@@ -58,6 +58,9 @@
 #include <C2PlatformSupport.h>
 #include <C2Work.h>
 
+extern "C" ::android::C2ComponentFactory *CreateCodec2Factory();
+extern "C" void DestroyCodec2Factory(::android::C2ComponentFactory *);
+
 #include "../avcdec/C2SoftAvcDec.h"
 
 using namespace android;
@@ -95,9 +98,7 @@ private:
     sp<IProducerListener> mProducerListener;
 
     std::shared_ptr<C2Allocator> mAllocIon;
-    std::shared_ptr<C2Allocator> mAllocGralloc;
-    std::shared_ptr<C2BlockAllocator> mLinearAlloc;
-    std::shared_ptr<C2BlockAllocator> mGraphicAlloc;
+    std::shared_ptr<C2BlockPool> mLinearPool;
 
     std::mutex mQueueLock;
     std::condition_variable mQueueCondition;
@@ -112,22 +113,22 @@ private:
     sp<SurfaceControl> mControl;
 };
 
-class Listener : public C2ComponentListener {
+class Listener : public C2Component::Listener {
 public:
     explicit Listener(SimplePlayer *thiz) : mThis(thiz) {}
     virtual ~Listener() = default;
 
-    virtual void onWorkDone(std::weak_ptr<C2Component> component,
+    virtual void onWorkDone_nb(std::weak_ptr<C2Component> component,
                             std::vector<std::unique_ptr<C2Work>> workItems) override {
         mThis->onWorkDone(component, std::move(workItems));
     }
 
-    virtual void onTripped(std::weak_ptr<C2Component> component,
+    virtual void onTripped_nb(std::weak_ptr<C2Component> component,
                            std::vector<std::shared_ptr<C2SettingResult>> settingResult) override {
         mThis->onTripped(component, settingResult);
     }
 
-    virtual void onError(std::weak_ptr<C2Component> component,
+    virtual void onError_nb(std::weak_ptr<C2Component> component,
                          uint32_t errorCode) override {
         mThis->onError(component, errorCode);
     }
@@ -144,11 +145,8 @@ SimplePlayer::SimplePlayer()
     CHECK_EQ(mComposerClient->initCheck(), (status_t)OK);
 
     std::shared_ptr<C2AllocatorStore> store = GetCodec2PlatformAllocatorStore();
-    CHECK_EQ(store->createAllocator(C2AllocatorStore::DEFAULT_LINEAR, &mAllocIon), C2_OK);
-    CHECK_EQ(store->createAllocator(C2AllocatorStore::DEFAULT_GRAPHIC, &mAllocGralloc), C2_OK);
-
-    mLinearAlloc = std::make_shared<C2DefaultBlockAllocator>(mAllocIon);
-    mGraphicAlloc = std::make_shared<C2DefaultGraphicBlockAllocator>(mAllocGralloc);
+    CHECK_EQ(store->fetchAllocator(C2AllocatorStore::DEFAULT_LINEAR, &mAllocIon), C2_OK);
+    mLinearPool = std::make_shared<C2BasicLinearBlockPool>(mAllocIon);
 
     mControl = mComposerClient->createSurface(
             String8("A Surface"),
@@ -199,6 +197,7 @@ void SimplePlayer::onError(std::weak_ptr<C2Component> component, uint32_t errorC
 }
 
 void SimplePlayer::play(const sp<IMediaSource> &source) {
+    ALOGV("SimplePlayer::play");
     sp<AMessage> format;
     (void) convertMetaDataToMessage(source->getFormat(), &format);
 
@@ -213,7 +212,15 @@ void SimplePlayer::play(const sp<IMediaSource> &source) {
         return;
     }
 
-    std::shared_ptr<C2Component> component(std::make_shared<C2SoftAvcDec>("avc", 0, mListener));
+    std::shared_ptr<C2ComponentStore> store = GetCodec2PlatformComponentStore();
+    std::shared_ptr<C2Component> component;
+    (void)store->createComponent("c2.google.avc.decoder", &component);
+
+    (void)component->setListener_vb(mListener, C2_DONT_BLOCK);
+    std::unique_ptr<C2PortBlockPoolsTuning::output> pools =
+        C2PortBlockPoolsTuning::output::alloc_unique({ (uint64_t)C2BlockPool::BASIC_GRAPHIC });
+    std::vector<std::unique_ptr<C2SettingResult>> result;
+    (void)component->intf()->config_vb({pools.get()}, C2_DONT_BLOCK, &result);
     component->start();
 
     for (int i = 0; i < 8; ++i) {
@@ -274,7 +281,7 @@ void SimplePlayer::play(const sp<IMediaSource> &source) {
     });
 
     long numFrames = 0;
-    mLinearAlloc.reset(new C2DefaultBlockAllocator(mAllocIon));
+    mLinearPool.reset(new C2BasicLinearBlockPool(mAllocIon));
 
     for (;;) {
         size_t size = 0u;
@@ -323,12 +330,12 @@ void SimplePlayer::play(const sp<IMediaSource> &source) {
                 mQueueCondition.wait_for(l, 100ms);
             }
         }
-        work->input.flags = (flags_t)0;
+        work->input.flags = (C2BufferPack::flags_t)0;
         work->input.ordinal.timestamp = timestamp;
         work->input.ordinal.frame_index = numFrames;
 
         std::shared_ptr<C2LinearBlock> block;
-        mLinearAlloc->allocateLinearBlock(
+        mLinearPool->fetchLinearBlock(
                 size,
                 { C2MemoryUsage::kSoftwareRead, C2MemoryUsage::kSoftwareWrite },
                 &block);
@@ -343,11 +350,11 @@ void SimplePlayer::play(const sp<IMediaSource> &source) {
         work->input.buffers.emplace_back(new LinearBuffer(block));
         work->worklets.clear();
         work->worklets.emplace_back(new C2Worklet);
-        work->worklets.front()->allocators.emplace_back(mGraphicAlloc);
 
         std::list<std::unique_ptr<C2Work>> items;
         items.push_back(std::move(work));
 
+        ALOGV("Frame #%ld size = %zu", numFrames, size);
         // DO THE DECODING
         component->queue_nb(&items);
 

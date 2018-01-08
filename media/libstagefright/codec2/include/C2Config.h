@@ -41,7 +41,7 @@ DEFINE_C2_ENUM_VALUE_AUTO_HELPER(name, type, prefix, __VA_ARGS__)
 enum name : type { __VA_ARGS__ }; \
 DEFINE_C2_ENUM_VALUE_CUSTOM_HELPER(name, type, names, __VA_ARGS__)
 
-enum C2ParamIndexKind : uint32_t {
+enum C2ParamIndexKind : C2Param::ParamIndex {
     /// domain
     kParamIndexDomain,
 
@@ -61,13 +61,15 @@ enum C2ParamIndexKind : uint32_t {
     kParamIndexMime,
     kParamIndexStreamCount,
     kParamIndexFormat,
+    kParamIndexBlockPools,
+
+    kParamIndexMaxVideoSizeHint,
+    kParamIndexVideoSizeTuning,
 
     // video info
 
     kParamIndexStructStart = 0x1,
     kParamIndexVideoSize,
-    kParamIndexMaxVideoSizeHint,
-    kParamIndexVideoSizeTuning,
 
     kParamIndexParamStart = 0x800,
 };
@@ -124,6 +126,8 @@ C2ENUM(C2FormatKind, uint32_t,
 )
 
 typedef C2StreamParam<C2Tuning, C2Uint32Value, kParamIndexFormat> C2StreamFormatConfig;
+
+typedef C2PortParam<C2Tuning, C2Uint64Array, kParamIndexBlockPools> C2PortBlockPoolsTuning;
 
 /*
    Component description fields:
@@ -231,13 +235,10 @@ struct C2VideoSizeStruct {
     int32_t mWidth;     ///< video width
     int32_t mHeight;    ///< video height
 
-    DEFINE_C2STRUCT_NO_BASE(VideoSize)
-} C2_PACK;
-
-DESCRIBE_C2STRUCT(VideoSize, {
+    DEFINE_AND_DESCRIBE_BASE_C2STRUCT(VideoSize)
     C2FIELD(mWidth, "width")
     C2FIELD(mHeight, "height")
-})
+};
 
 // video size for video decoder [OUT]
 typedef C2StreamParam<C2Info, C2VideoSizeStruct, kParamIndexVideoSize> C2VideoSizeStreamInfo;

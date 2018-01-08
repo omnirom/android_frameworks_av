@@ -108,11 +108,24 @@ bool Camera3DummyStream::isConsumerConfigurationDeferred(size_t /*surface_id*/) 
     return false;
 }
 
+status_t Camera3DummyStream::dropBuffers(bool /*dropping*/) {
+    return OK;
+}
+
 status_t Camera3DummyStream::setConsumers(const std::vector<sp<Surface>>& /*consumers*/) {
     ALOGE("%s: Stream %d: Dummy stream doesn't support set consumer surface!",
             __FUNCTION__, mId);
     return INVALID_OPERATION;
 }
+
+status_t Camera3DummyStream::updateStream(const std::vector<sp<Surface>> &/*outputSurfaces*/,
+            const std::vector<OutputStreamInfo> &/*outputInfo*/,
+            const std::vector<size_t> &/*removedSurfaceIds*/,
+            KeyedVector<sp<Surface>, size_t> * /*outputMap*/) {
+    ALOGE("%s: this method is not supported!", __FUNCTION__);
+    return INVALID_OPERATION;
+}
+
 }; // namespace camera3
 
 }; // namespace android

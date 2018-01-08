@@ -72,10 +72,6 @@ struct MediaSource : public virtual RefBase {
         void clearSeekTo();
         bool getSeekTo(int64_t *time_us, SeekMode *mode) const;
 
-        // TODO: remove this if unused.
-        void setLateBy(int64_t lateness_us);
-        int64_t getLateBy() const;
-
         void setNonBlocking();
         void clearNonBlocking();
         bool getNonBlocking() const;
@@ -93,7 +89,6 @@ struct MediaSource : public virtual RefBase {
         uint32_t mOptions;
         int64_t mSeekTimeUs;
         SeekMode mSeekMode;
-        int64_t mLatenessUs;
         bool mNonBlocking;
     } __attribute__((packed)); // sent through Binder
 
@@ -112,15 +107,6 @@ struct MediaSource : public virtual RefBase {
     // as such by any source. E.g. MediaCodecSource does not suspend its
     // upstream source, and instead discard upstream data while paused.
     virtual status_t pause() {
-        return ERROR_UNSUPPORTED;
-    }
-
-    // The consumer of this media source requests that the given buffers
-    // are to be returned exclusively in response to read calls.
-    // This will be called after a successful start() and before the
-    // first read() call.
-    // Callee assumes ownership of the buffers if no error is returned.
-    virtual status_t setBuffers(const Vector<MediaBuffer *> & /* buffers */) {
         return ERROR_UNSUPPORTED;
     }
 

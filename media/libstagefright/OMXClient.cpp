@@ -36,6 +36,10 @@ namespace android {
 OMXClient::OMXClient() {
 }
 
+status_t OMXClient::connect() {
+    return connect("default");
+}
+
 status_t OMXClient::connect(const char* name) {
     using namespace ::android::hardware::media::omx::V1_0;
     if (name == nullptr) {

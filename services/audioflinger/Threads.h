@@ -706,10 +706,13 @@ public:
                 sp<Track>   createTrack_l(
                                 const sp<AudioFlinger::Client>& client,
                                 audio_stream_type_t streamType,
-                                uint32_t sampleRate,
+                                uint32_t *sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
                                 size_t *pFrameCount,
+                                size_t *pNotificationFrameCount,
+                                uint32_t notificationsPerBuffer,
+                                float speed,
                                 const sp<IMemory>& sharedBuffer,
                                 audio_session_t sessionId,
                                 audio_output_flags_t *flags,
@@ -738,11 +741,10 @@ public:
     virtual     String8     getParameters(const String8& keys);
     virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0);
                 status_t    getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames);
-                // FIXME rename mixBuffer() to sinkBuffer() and remove int16_t* dependency.
                 // Consider also removing and passing an explicit mMainBuffer initialization
                 // parameter to AF::PlaybackThread::Track::Track().
-                int16_t     *mixBuffer() const {
-                    return reinterpret_cast<int16_t *>(mSinkBuffer); };
+                effect_buffer_t *sinkBuffer() const {
+                    return reinterpret_cast<effect_buffer_t *>(mSinkBuffer); };
 
     virtual     void detachAuxEffect_l(int effectId);
                 status_t attachAuxEffect(const sp<AudioFlinger::PlaybackThread::Track>& track,
@@ -1325,12 +1327,12 @@ public:
 
             sp<AudioFlinger::RecordThread::RecordTrack>  createRecordTrack_l(
                     const sp<AudioFlinger::Client>& client,
-                    uint32_t sampleRate,
+                    uint32_t *pSampleRate,
                     audio_format_t format,
                     audio_channel_mask_t channelMask,
                     size_t *pFrameCount,
                     audio_session_t sessionId,
-                    size_t *notificationFrames,
+                    size_t *pNotificationFrameCount,
                     uid_t uid,
                     audio_input_flags_t *flags,
                     pid_t tid,

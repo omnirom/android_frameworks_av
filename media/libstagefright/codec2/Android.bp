@@ -7,9 +7,60 @@ cc_library_shared {
 
     srcs: ["C2.cpp"],
 
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
     include_dirs: [
         "frameworks/av/media/libstagefright/codec2/include",
         "frameworks/native/include/media/hardware",
+    ],
+
+    export_include_dirs: [
+        "include",
+    ],
+
+    sanitize: {
+        misc_undefined: [
+            "unsigned-integer-overflow",
+            "signed-integer-overflow",
+        ],
+        cfi: false, // true,
+        diag: {
+            cfi: false, // true,
+        },
+    },
+
+    ldflags: ["-Wl,-Bsymbolic"],
+}
+
+cc_library_shared {
+    name: "libstagefright_simple_c2component",
+
+    tags: [
+        "optional",
+    ],
+
+    srcs: ["SimpleC2Component.cpp"],
+
+    include_dirs: [
+        "frameworks/av/media/libstagefright/codec2/include",
+    ],
+
+    shared_libs: [
+        "android.hardware.graphics.allocator@2.0",
+        "android.hardware.graphics.mapper@2.0",
+        "libhidlbase",
+        "libion",
+        "liblog",
+        "libstagefright_codec2",
+        "libstagefright_foundation",
+	"libutils",
+    ],
+
+    static_libs: [
+        "libstagefright_codec2_vndk",
     ],
 
     sanitize: {

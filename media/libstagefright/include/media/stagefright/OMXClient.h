@@ -26,8 +26,8 @@ class OMXClient {
 public:
     OMXClient();
 
-    status_t connect(const char* name = "default");
-
+    status_t connect();
+    status_t connect(const char* name);
     void disconnect();
 
     sp<IOMX> interface();

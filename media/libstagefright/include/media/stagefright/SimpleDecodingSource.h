@@ -47,7 +47,8 @@ public:
     static sp<SimpleDecodingSource> Create(
             const sp<MediaSource> &source, uint32_t flags,
             const sp<ANativeWindow> &nativeWindow,
-            const char *desiredCodec = NULL);
+            const char *desiredCodec = NULL,
+            bool skipMediaCodecList = false);
 
     static sp<SimpleDecodingSource> Create(
             const sp<MediaSource> &source, uint32_t flags = 0);
@@ -68,7 +69,6 @@ public:
 
     // unsupported methods
     virtual status_t pause() { return INVALID_OPERATION; }
-    virtual status_t setBuffers(const Vector<MediaBuffer *> &) { return INVALID_OPERATION; }
 
 private:
     // Construct this using a codec, source and looper.

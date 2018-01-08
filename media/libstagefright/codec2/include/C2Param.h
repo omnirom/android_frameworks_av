@@ -71,7 +71,7 @@ namespace android {
  *     an error for the specific setting, but should continue to apply other settings.
  *     TODO: this currently may result in unintended results.
  *
- * **NOTE:** unlike OMX, params are not versioned. Instead, a new struct with new base index
+ * **NOTE:** unlike OMX, params are not versioned. Instead, a new struct with new param index
  * SHALL be added as new versions are required.
  *
  * The proper subtype (Setting, Info or Param) is incorporated into the class type. Define structs
@@ -104,7 +104,7 @@ struct C2Param {
     // layout:
     //
     //      +------+-----+---+------+--------+----|------+--------------+
-    //      | kind | dir | - |stream|streamID|flex|vendor|  base index  |
+    //      | kind | dir | - |stream|streamID|flex|vendor|  core index  |
     //      +------+-----+---+------+--------+----+------+--------------+
     //  bit: 31..30 29.28       25   24 .. 17  16    15   14    ..     0
     //
@@ -119,6 +119,19 @@ public:
         SETTING = (1 << 2),
         TUNING  = (1 << 3) | SETTING, // tunings are settings
     };
+
+    /**
+     * Parameter index is associated with each parameter. It is used to identify and distinguish
+     * global parameters, and also parameters on a given port or stream. They must be unique for the
+     * set of global parameters, as well as for the set of parameters on each port or each stream,
+     * but the same parameter index can be used for parameters on different streams or ports, as
+     * well as for global parameters and port/stream parameters.
+     *
+     * Parameter index is also used to describe the layout of the parameter structures. Multiple
+     * parameter types can share the same layout, but the layout for all parameters with the same
+     * parameter index across all components must be identical.
+     */
+    typedef uint32_t ParamIndex;
 
     /**
      * base index (including the vendor extension bit) is a global index for
@@ -149,7 +162,7 @@ public:
             kFlexibleFlag  = 0x00010000,
             kVendorFlag    = 0x00008000,
             kParamMask     = 0x0000FFFF,
-            kBaseMask      = kParamMask | kFlexibleFlag,
+            kCoreMask      = kParamMask | kFlexibleFlag,
         };
 
     public:
@@ -170,11 +183,12 @@ public:
         /// returns true iff this is a flexible parameter (with variable size)
         inline bool isFlexible() const { return mIndex & kFlexibleFlag; }
 
-        /// returns the base type: the index for the underlying struct
-        inline unsigned int baseIndex() const { return mIndex & kBaseMask; }
+        /// returns the core parameter type (index) for the underlying struct.
+        /// This is the combination of the parameter index and the flexible flag.
+        inline unsigned int coreIndex() const { return mIndex & kCoreMask; }
 
-        /// returns the param index for the underlying struct
-        inline unsigned int paramIndex() const { return mIndex & kParamMask; }
+        /// returns the parameter index for the underlying struct
+        inline ParamIndex paramIndex() const { return mIndex & kParamMask; }
 
         DEFINE_FIELD_BASED_COMPARISON_OPERATORS(BaseIndex, mIndex)
 
@@ -330,6 +344,10 @@ public:
     /// returns the parameter type: the parameter index without the stream ID
     inline uint32_t type() const { return _mIndex.type(); }
 
+    /// returns the index of this parameter
+    /// \todo: should we restrict this to C2ParamField?
+    inline uint32_t index() const { return (uint32_t)_mIndex; }
+
     /// returns the kind of this parameter
     inline Kind kind() const { return _mIndex.kind(); }
 
@@ -450,8 +468,8 @@ private:
     friend struct _C2ParamInspector; // for testing
 
     /// returns the base type: the index for the underlying struct (for testing
-    /// as this can be gotten by the baseIndex enum)
-    inline uint32_t _baseIndex() const { return _mIndex.baseIndex(); }
+    /// as this can be gotten by the coreIndex enum)
+    inline uint32_t _coreIndex() const { return _mIndex.coreIndex(); }
 
     /// returns true iff |o| has the same size and index as this. This performs the
     /// basic check for equality.
@@ -548,7 +566,6 @@ struct _C2FieldId {
     /**
      * Constructor used to identify a field in an object.
      *
-     * \param U[type] pointer to the object that contains this field
      * \param pm[im] member pointer to the field
      */
     template<typename R, typename T, typename B=typename std::remove_extent<R>::type>
@@ -583,23 +600,93 @@ private:
 };
 
 /**
- * Structure uniquely specifying a field in a configuration
+ * Structure uniquely specifying a 'field' in a configuration. The field
+ * can be a field of a configuration, a subfield of a field of a configuration,
+ * and even the whole configuration. Moreover, if the field can point to an
+ * element in a array field, or to the entire array field.
+ *
+ * This structure is used for querying supported values for a field, as well
+ * as communicating configuration failures and conflicts when trying to change
+ * a configuration for a component/interface or a store.
  */
 struct C2ParamField {
 //public:
-    // TODO: fix what this is for T[] (for now size becomes T[1])
+    /**
+     * Create a field identifier using a configuration parameter (variable),
+     * and a pointer to member.
+     *
+     * ~~~~~~~~~~~~~ (.cpp)
+     *
+     * struct C2SomeParam {
+     *   uint32_t mField;
+     *   uint32_t mArray[2];
+     *   C2OtherStruct mStruct;
+     *   uint32_t mFlexArray[];
+     * } *mParam;
+     *
+     * C2ParamField(mParam, &mParam->mField);
+     * C2ParamField(mParam, &mParam->mArray);
+     * C2ParamField(mParam, &mParam->mArray[0]);
+     * C2ParamField(mParam, &mParam->mStruct.mSubField);
+     * C2ParamField(mParam, &mParam->mFlexArray);
+     * C2ParamField(mParam, &mParam->mFlexArray[2]);
+     *
+     * ~~~~~~~~~~~~~
+     *
+     * \todo fix what this is for T[] (for now size becomes T[1])
+     *
+     * \param param pointer to parameter
+     * \param offset member pointer
+     */
     template<typename S, typename T>
     inline C2ParamField(S* param, T* offset)
         : _mIndex(param->index()),
           _mFieldId(offset) {}
 
+    /**
+     * Create a field identifier using a configuration parameter (variable),
+     * and a member pointer. This method cannot be used to refer to an
+     * array element or a subfield.
+     *
+     * ~~~~~~~~~~~~~ (.cpp)
+     *
+     * C2SomeParam mParam;
+     * C2ParamField(&mParam, &C2SomeParam::mMemberField);
+     *
+     * ~~~~~~~~~~~~~
+     *
+     * \param p pointer to parameter
+     * \param T member pointer to the field member
+     */
     template<typename R, typename T, typename U>
-    inline C2ParamField(U *p, R T::* pm) : _mIndex(p->type()), _mFieldId(p, pm) { }
+    inline C2ParamField(U *p, R T::* pm) : _mIndex(p->index()), _mFieldId(p, pm) { }
 
+    /**
+     * Create a field identifier to a configuration parameter (variable).
+     *
+     * ~~~~~~~~~~~~~ (.cpp)
+     *
+     * C2SomeParam mParam;
+     * C2ParamField(&mParam);
+     *
+     * ~~~~~~~~~~~~~
+     *
+     * \param param pointer to parameter
+     */
+    template<typename S>
+    inline C2ParamField(S* param)
+        : _mIndex(param->index()), _mFieldId(0u, param->size()) {}
+
+    /**
+     * Equality operator.
+     */
     inline bool operator==(const C2ParamField &other) const {
         return _mIndex == other._mIndex && _mFieldId == other._mFieldId;
     }
 
+    /**
+     * Ordering operator.
+     */
     inline bool operator<(const C2ParamField &other) const {
         return _mIndex < other._mIndex ||
             (_mIndex == other._mIndex && _mFieldId < other._mFieldId);
@@ -608,8 +695,8 @@ struct C2ParamField {
     DEFINE_OTHER_COMPARISON_OPERATORS(C2ParamField)
 
 private:
-    C2Param::Index _mIndex;
-    _C2FieldId _mFieldId;
+    C2Param::Index _mIndex; ///< parameter index
+    _C2FieldId _mFieldId;   ///< field identifier
 };
 
 /**
@@ -711,7 +798,7 @@ struct C2FieldDescriptor {
                         ///< however, bytes cannot be individually addressed by clients.
 
         // complex types
-        STRUCT_FLAG = 0x10000, ///< structs. Marked with this flag in addition to their baseIndex.
+        STRUCT_FLAG = 0x10000, ///< structs. Marked with this flag in addition to their coreIndex.
     };
 
     typedef std::pair<C2String, C2Value::Primitive> named_value_type;
@@ -802,12 +889,12 @@ private:
         return getType(&underlying);
     }
 
-    // verify C2Struct by having a fieldList and a baseIndex.
+    // verify C2Struct by having a fieldList and a coreIndex.
     template<typename T,
-             class=decltype(T::baseIndex + 1), class=decltype(T::fieldList)>
+             class=decltype(T::coreIndex + 1), class=decltype(T::fieldList)>
     inline static Type getType(T*) {
         static_assert(!std::is_base_of<C2Param, T>::value, "cannot use C2Params as fields");
-        return (Type)(T::baseIndex | STRUCT_FLAG);
+        return (Type)(T::coreIndex | STRUCT_FLAG);
     }
 };
 
@@ -832,7 +919,7 @@ DEFINE_NO_NAMED_VALUES_FOR(float)
 struct C2StructDescriptor {
 public:
     /// Returns the parameter type
-    inline C2Param::BaseIndex baseIndex() const { return _mType.baseIndex(); }
+    inline C2Param::BaseIndex coreIndex() const { return _mType.coreIndex(); }
 
     // Returns the number of fields in this param (not counting any recursive fields).
     // Must be at least 1 for valid params.
@@ -849,7 +936,7 @@ public:
 
     template<typename T>
     inline C2StructDescriptor(T*)
-        : C2StructDescriptor(T::baseIndex, T::fieldList) { }
+        : C2StructDescriptor(T::coreIndex, T::fieldList) { }
 
     inline C2StructDescriptor(
             C2Param::BaseIndex type,
@@ -914,24 +1001,30 @@ private:
 };
 
 /// \ingroup internal
-/// Define a structure without baseIndex.
-#define DEFINE_C2STRUCT_NO_BASE(name) \
+/// Define a structure without coreIndex.
+#define DEFINE_BASE_C2STRUCT(name) \
 public: \
     typedef C2##name##Struct _type; /**< type name shorthand */ \
     const static std::initializer_list<const C2FieldDescriptor> fieldList; /**< structure fields */
 
-/// Define a structure with matching baseIndex.
+/// Define a structure with matching coreIndex.
 #define DEFINE_C2STRUCT(name) \
 public: \
-    enum : uint32_t { baseIndex = kParamIndex##name }; \
-    DEFINE_C2STRUCT_NO_BASE(name)
+    enum : uint32_t { coreIndex = kParamIndex##name }; \
+    DEFINE_BASE_C2STRUCT(name)
 
-/// Define a flexible structure with matching baseIndex.
+/// Define a flexible structure without coreIndex.
+#define DEFINE_BASE_FLEX_C2STRUCT(name, flexMember) \
+public: \
+    FLEX(C2##name##Struct, flexMember) \
+    DEFINE_BASE_C2STRUCT(name)
+
+/// Define a flexible structure with matching coreIndex.
 #define DEFINE_FLEX_C2STRUCT(name, flexMember) \
 public: \
     FLEX(C2##name##Struct, flexMember) \
-    enum : uint32_t { baseIndex = kParamIndex##name | C2Param::BaseIndex::_kFlexibleFlag }; \
-    DEFINE_C2STRUCT_NO_BASE(name)
+    enum : uint32_t { coreIndex = kParamIndex##name | C2Param::BaseIndex::_kFlexibleFlag }; \
+    DEFINE_BASE_C2STRUCT(name)
 
 #ifdef __C2_GENERATE_GLOBAL_VARS__
 /// \ingroup internal
@@ -1037,17 +1130,30 @@ public: \
 #define C2SOLE_FIELD(member, name) \
   C2FieldDescriptor(&_type::member, name, 0)
 
-/// Define a structure with matching baseIndex and start describing its fields.
+/// Define a structure with matching coreIndex and start describing its fields.
 /// This must be at the end of the structure definition.
 #define DEFINE_AND_DESCRIBE_C2STRUCT(name) \
     DEFINE_C2STRUCT(name) } C2_PACK; \
     const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::fieldList = {
 
-/// Define a flexible structure with matching baseIndex and start describing its fields.
+/// Define a flexible structure with matching coreIndex and start describing its fields.
 /// This must be at the end of the structure definition.
 #define DEFINE_AND_DESCRIBE_FLEX_C2STRUCT(name, flexMember) \
     DEFINE_FLEX_C2STRUCT(name, flexMember) } C2_PACK; \
     const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::fieldList = {
+
+/// Define a base structure (with no coreIndex) and start describing its fields.
+/// This must be at the end of the structure definition.
+#define DEFINE_AND_DESCRIBE_BASE_C2STRUCT(name) \
+    DEFINE_BASE_C2STRUCT(name) } C2_PACK; \
+    const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::fieldList = {
+
+/// Define a flexible base structure (with no coreIndex) and start describing its fields.
+/// This must be at the end of the structure definition.
+#define DEFINE_AND_DESCRIBE_BASE_FLEX_C2STRUCT(name, flexMember) \
+    DEFINE_BASE_FLEX_C2STRUCT(name, flexMember) } C2_PACK; \
+    const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::fieldList = {
+
 #else
 /// \if 0
 /* Alternate declaration of field definitions in case no field list is to be generated.
@@ -1056,14 +1162,22 @@ public: \
 #define C2FIELD(member, name)
 /// \deprecated
 #define C2SOLE_FIELD(member, name)
-/// Define a structure with matching baseIndex and start describing its fields.
+/// Define a structure with matching coreIndex and start describing its fields.
 /// This must be at the end of the structure definition.
 #define DEFINE_AND_DESCRIBE_C2STRUCT(name) \
     DEFINE_C2STRUCT(name) }  C2_PACK; namespace ignored {
-/// Define a flexible structure with matching baseIndex and start describing its fields.
+/// Define a flexible structure with matching coreIndex and start describing its fields.
 /// This must be at the end of the structure definition.
 #define DEFINE_AND_DESCRIBE_FLEX_C2STRUCT(name, flexMember) \
     DEFINE_FLEX_C2STRUCT(name, flexMember) } C2_PACK; namespace ignored {
+/// Define a base structure (with no coreIndex) and start describing its fields.
+/// This must be at the end of the structure definition.
+#define DEFINE_AND_DESCRIBE_BASE_C2STRUCT(name) \
+    DEFINE_BASE_C2STRUCT(name) } C2_PACK; namespace ignored {
+/// Define a flexible base structure (with no coreIndex) and start describing its fields.
+/// This must be at the end of the structure definition.
+#define DEFINE_AND_DESCRIBE_BASE_FLEX_C2STRUCT(name, flexMember) \
+    DEFINE_BASE_FLEX_C2STRUCT(name, flexMember) } C2_PACK; namespace ignored {
 /// \endif
 #endif
 
@@ -1080,7 +1194,8 @@ public:
     /**
      *  Describes a parameter structure.
      *
-     *  \param[in] paramIndex the base index of the parameter structure
+     *  \param[in] coreIndex the base index of the parameter structure containing at least the
+     *  core index
      *
      *  \return the description of the parameter structure
      *  \retval nullptr if the parameter is not supported by this reflector
@@ -1093,52 +1208,10 @@ public:
      *  descriptions, but we want to conserve memory if client only wants the description
      *  of a few indices.
      */
-    virtual std::unique_ptr<C2StructDescriptor> describe(C2Param::BaseIndex paramIndex) = 0;
+    virtual std::unique_ptr<C2StructDescriptor> describe(C2Param::BaseIndex coreIndex) = 0;
 
 protected:
     virtual ~C2ParamReflector() = default;
-};
-
-/**
- * A useable supported values for a field.
- *
- * This can be either a range or a set of values. The range can be linear or geometric with a
- * clear minimum and maximum value, and can have an optional step size or geometric ratio. Values
- * can optionally represent flags.
- *
- * \note Do not use flags to represent bitfields. Use individual values or separate fields instead.
- */
-template<typename T>
-struct C2TypedFieldSupportedValues {
-//public:
-    enum Type {
-        RANGE,      ///< a numeric range that can be continuous or discrete
-        VALUES,     ///< a list of values
-        FLAGS       ///< a list of flags that can be OR-ed
-    };
-
-    Type type;
-
-    struct {
-        T min;
-        T max;
-        T step;
-        T nom;
-        T denom;
-    } range;
-    std::vector<T> values;
-
-    C2TypedFieldSupportedValues(T min, T max, T step = T(std::is_floating_point<T>::value ? 0 : 1))
-        : type(RANGE),
-          range{min, max, step, (T)1, (T)1} { }
-
-    C2TypedFieldSupportedValues(T min, T max, T nom, T den) :
-        type(RANGE),
-        range{min, max, (T)0, nom, den} { }
-
-    C2TypedFieldSupportedValues(bool flags, std::initializer_list<T> list) :
-        type(flags ? FLAGS : VALUES),
-        values(list) {}
 };
 
 /**
@@ -1153,6 +1226,7 @@ struct C2TypedFieldSupportedValues {
 struct C2FieldSupportedValues {
 //public:
     enum Type {
+        EMPTY,      ///< no supported values
         RANGE,      ///< a numeric range that can be continuous or discrete
         VALUES,     ///< a list of values
         FLAGS       ///< a list of flags that can be OR-ed
@@ -1170,6 +1244,10 @@ struct C2FieldSupportedValues {
         Primitive denom;
     } range;
     std::vector<Primitive> values;
+
+    C2FieldSupportedValues()
+        : type(EMPTY) {
+    }
 
     template<typename T>
     C2FieldSupportedValues(T min, T max, T step = T(std::is_floating_point<T>::value ? 0 : 1))
@@ -1199,6 +1277,9 @@ struct C2FieldSupportedValues {
         }
     }
 
+    /// \internal
+    /// \todo: create separate values vs. flags initializer as for flags we want
+    /// to list both allowed and disallowed flags
     template<typename T, typename E=decltype(C2FieldDescriptor::namedValuesFor(*(T*)0))>
     C2FieldSupportedValues(bool flags, const T*)
         : type(flags ? FLAGS : VALUES),
@@ -1208,6 +1289,21 @@ struct C2FieldSupportedValues {
             values.emplace_back(item.second);
         }
     }
+};
+
+/**
+ * Spported values for a specific field.
+ *
+ * This is a pair of the field specifier together with an optional supported values object.
+ * This structure is used when reporting parameter configuration failures and conflicts.
+ */
+struct C2ParamFieldValues {
+    C2ParamField paramOrField; ///< the field or parameter
+    /// optional supported values for the field if paramOrField specifies an actual field that is
+    /// numeric (non struct, blob or string). Supported values for arrays (including string and
+    /// blobs) describe the supported values for each element (character for string, and bytes for
+    /// blobs). It is optional for read-only strings and blobs.
+    std::unique_ptr<C2FieldSupportedValues> values;
 };
 
 /// @}

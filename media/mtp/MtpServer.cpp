@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <algorithm>
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <chrono>
@@ -32,6 +33,10 @@
 
 #include "MtpDebug.h"
 #include "MtpDatabase.h"
+#include "IMtpDatabase.h"
+#include "MtpDevHandle.h"
+#include "MtpFfsCompatHandle.h"
+#include "MtpFfsHandle.h"
 #include "MtpObjectInfo.h"
 #include "MtpProperty.h"
 #include "MtpServer.h"
@@ -96,7 +101,7 @@ static const MtpEventCode kSupportedEventCodes[] = {
     MTP_EVENT_DEVICE_PROP_CHANGED,
 };
 
-MtpServer::MtpServer(MtpDatabase* database, bool ptp,
+MtpServer::MtpServer(IMtpDatabase* database, bool ptp,
                     const MtpString& deviceInfoManufacturer,
                     const MtpString& deviceInfoModel,
                     const MtpString& deviceInfoDeviceVersion,
@@ -123,14 +128,17 @@ IMtpHandle* MtpServer::sHandle = nullptr;
 
 int MtpServer::configure(bool usePtp) {
     if (sHandle == nullptr) {
-        bool ffs_ok = access(FFS_MTP_EP0, W_OK) == 0;
-        sHandle = ffs_ok ? get_ffs_handle() : get_mtp_handle();
+        if (ffs_ok) {
+            bool aio_compat = android::base::GetBoolProperty("sys.usb.ffs.aio_compat", false);
+            sHandle = aio_compat ? new MtpFfsCompatHandle() : new MtpFfsHandle();
+        } else {
+            sHandle = new MtpDevHandle();
+        }
     }
 
     int ret = sHandle->configure(usePtp);
     if (ret) ALOGE("Failed to configure MTP driver!");
     else android::base::SetProperty("sys.usb.ffs.mtp.ready", "1");
-
     return ret;
 }
 
@@ -143,21 +151,17 @@ void MtpServer::addStorage(MtpStorage* storage) {
 
 void MtpServer::removeStorage(MtpStorage* storage) {
     Mutex::Autolock autoLock(mMutex);
-
-    for (size_t i = 0; i < mStorages.size(); i++) {
-        if (mStorages[i] == storage) {
-            mStorages.removeAt(i);
-            sendStoreRemoved(storage->getStorageID());
-            break;
-        }
+    auto iter = std::find(mStorages.begin(), mStorages.end(), storage);
+    if (iter != mStorages.end()) {
+        sendStoreRemoved(storage->getStorageID());
+        mStorages.erase(iter);
     }
 }
 
 MtpStorage* MtpServer::getStorage(MtpStorageID id) {
     if (id == 0)
         return mStorages[0];
-    for (size_t i = 0; i < mStorages.size(); i++) {
-        MtpStorage* storage = mStorages[i];
+    for (MtpStorage *storage : mStorages) {
         if (storage->getStorageID() == id)
             return storage;
     }
@@ -258,9 +262,6 @@ void MtpServer::run() {
     }
     mObjectEditList.clear();
 
-    if (mSessionOpen)
-        mDatabase->sessionEnded();
-
     sHandle->close();
 }
 
@@ -328,7 +329,7 @@ void MtpServer::removeEditObject(MtpObjectHandle handle) {
 }
 
 void MtpServer::commitEdit(ObjectEdit* edit) {
-    mDatabase->endSendObject((const char *)edit->mPath, edit->mHandle, edit->mFormat, true);
+    mDatabase->rescanFile((const char *)edit->mPath, edit->mHandle, edit->mFormat);
 }
 
 
@@ -341,9 +342,9 @@ bool MtpServer::handleRequest() {
     mResponse.reset();
 
     if (mSendObjectHandle != kInvalidObjectHandle && operation != MTP_OPERATION_SEND_OBJECT) {
-        // FIXME - need to delete mSendObjectHandle from the database
-        ALOGE("expected SendObject after SendObjectInfo");
         mSendObjectHandle = kInvalidObjectHandle;
+        mSendObjectFormat = 0;
+        mSendObjectModifiedTime = 0;
     }
 
     int containertype = mRequest.getContainerType();
@@ -519,8 +520,6 @@ MtpResponseCode MtpServer::doOpenSession() {
     mSessionID = mRequest.getParameter(1);
     mSessionOpen = true;
 
-    mDatabase->sessionStarted();
-
     return MTP_RESPONSE_OK;
 }
 
@@ -529,7 +528,6 @@ MtpResponseCode MtpServer::doCloseSession() {
         return MTP_RESPONSE_SESSION_NOT_OPEN;
     mSessionID = 0;
     mSessionOpen = false;
-    mDatabase->sessionEnded();
     return MTP_RESPONSE_OK;
 }
 
@@ -597,6 +595,8 @@ MtpResponseCode MtpServer::doGetObjectHandles() {
         return MTP_RESPONSE_INVALID_STORAGE_ID;
 
     MtpObjectHandleList* handles = mDatabase->getObjectList(storageID, format, parent);
+    if (handles == NULL)
+        return MTP_RESPONSE_INVALID_OBJECT_HANDLE;
     mData.putAUInt32(handles);
     delete handles;
     return MTP_RESPONSE_OK;
@@ -983,26 +983,25 @@ MtpResponseCode MtpServer::doSendObjectInfo() {
     }
 
     ALOGD("path: %s parent: %d storageID: %08X", (const char*)path, parent, storageID);
-    MtpObjectHandle handle = mDatabase->beginSendObject((const char*)path,
-            format, parent, storageID, mSendObjectFileSize, modifiedTime);
+    MtpObjectHandle handle = mDatabase->beginSendObject((const char*)path, format,
+            parent, storageID);
     if (handle == kInvalidObjectHandle) {
         return MTP_RESPONSE_GENERAL_ERROR;
     }
 
-  if (format == MTP_FORMAT_ASSOCIATION) {
+    if (format == MTP_FORMAT_ASSOCIATION) {
         int ret = makeFolder((const char *)path);
         if (ret)
             return MTP_RESPONSE_GENERAL_ERROR;
 
         // SendObject does not get sent for directories, so call endSendObject here instead
-        mDatabase->endSendObject(path, handle, MTP_FORMAT_ASSOCIATION, MTP_RESPONSE_OK);
-    } else {
-        mSendObjectFilePath = path;
-        // save the handle for the SendObject call, which should follow
-        mSendObjectHandle = handle;
-        mSendObjectFormat = format;
-        mSendObjectModifiedTime = modifiedTime;
+        mDatabase->endSendObject(handle, MTP_RESPONSE_OK);
     }
+    mSendObjectFilePath = path;
+    // save the handle for the SendObject call, which should follow
+    mSendObjectHandle = handle;
+    mSendObjectFormat = format;
+    mSendObjectModifiedTime = modifiedTime;
 
     mResponse.setParameter(1, storageID);
     mResponse.setParameter(2, parent);
@@ -1053,6 +1052,10 @@ MtpResponseCode MtpServer::doMoveObject() {
         path += "/";
     path += info.mName;
 
+    result = mDatabase->beginMoveObject(objectHandle, parent, storageID);
+    if (result != MTP_RESPONSE_OK)
+        return result;
+
     if (info.mStorageID == storageID) {
         ALOGV("Moving file from %s to %s", (const char*)fromPath, (const char*)path);
         if (rename(fromPath, path)) {
@@ -1079,8 +1082,8 @@ MtpResponseCode MtpServer::doMoveObject() {
     }
 
     // If the move failed, undo the database change
-    if (result == MTP_RESPONSE_OK)
-        result = mDatabase->moveObject(objectHandle, parent, storageID, path);
+    mDatabase->endMoveObject(info.mParent, parent, info.mStorageID, storageID, objectHandle,
+            result == MTP_RESPONSE_OK);
 
     return result;
 }
@@ -1131,8 +1134,7 @@ MtpResponseCode MtpServer::doCopyObject() {
         path += "/";
     path += info.mName;
 
-    MtpObjectHandle handle = mDatabase->beginSendObject((const char*)path,
-            format, parent, storageID, fileLength, info.mDateModified);
+    MtpObjectHandle handle = mDatabase->beginCopyObject(objectHandle, parent, storageID);
     if (handle == kInvalidObjectHandle) {
         return MTP_RESPONSE_GENERAL_ERROR;
     }
@@ -1140,6 +1142,7 @@ MtpResponseCode MtpServer::doCopyObject() {
     ALOGV("Copying file from %s to %s", (const char*)fromPath, (const char*)path);
     if (format == MTP_FORMAT_ASSOCIATION) {
         int ret = makeFolder((const char *)path);
+        ret += copyRecursive(fromPath, path);
         if (ret) {
             result = MTP_RESPONSE_GENERAL_ERROR;
         }
@@ -1149,7 +1152,7 @@ MtpResponseCode MtpServer::doCopyObject() {
         }
     }
 
-    mDatabase->endSendObject(path, handle, format, result);
+    mDatabase->endCopyObject(handle, result);
     mResponse.setParameter(1, handle);
     return result;
 }
@@ -1178,6 +1181,15 @@ MtpResponseCode MtpServer::doSendObject() {
         goto done;
     }
     initialData = ret - MTP_CONTAINER_HEADER_SIZE;
+
+    if (mSendObjectFormat == MTP_FORMAT_ASSOCIATION) {
+        if (initialData != 0)
+            ALOGE("Expected folder size to be 0!");
+        mSendObjectHandle = kInvalidObjectHandle;
+        mSendObjectFormat = 0;
+        mSendObjectModifiedTime = 0;
+        return result;
+    }
 
     mtp_file_range  mfr;
     mfr.fd = open(mSendObjectFilePath, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
@@ -1244,8 +1256,7 @@ done:
     // reset so we don't attempt to send the data back
     mData.reset();
 
-    mDatabase->endSendObject(mSendObjectFilePath, mSendObjectHandle, mSendObjectFormat,
-            result == MTP_RESPONSE_OK);
+    mDatabase->endSendObject(mSendObjectHandle, result == MTP_RESPONSE_OK);
     mSendObjectHandle = kInvalidObjectHandle;
     mSendObjectFormat = 0;
     mSendObjectModifiedTime = 0;
@@ -1271,16 +1282,18 @@ MtpResponseCode MtpServer::doDeleteObject() {
     MtpString filePath;
     int64_t fileLength;
     int result = mDatabase->getObjectFilePath(handle, filePath, fileLength, format);
-    if (result == MTP_RESPONSE_OK) {
-        ALOGV("deleting %s", (const char *)filePath);
-        result = mDatabase->deleteFile(handle);
-        // Don't delete the actual files unless the database deletion is allowed
-        if (result == MTP_RESPONSE_OK) {
-            deletePath((const char *)filePath);
-        }
-    }
+    if (result != MTP_RESPONSE_OK)
+        return result;
 
-    return result;
+    // Don't delete the actual files unless the database deletion is allowed
+    result = mDatabase->beginDeleteObject(handle);
+    if (result != MTP_RESPONSE_OK)
+        return result;
+
+    bool success = deletePath((const char *)filePath);
+
+    mDatabase->endDeleteObject(handle, success);
+    return success ? result : MTP_RESPONSE_PARTIAL_DELETION;
 }
 
 MtpResponseCode MtpServer::doGetObjectPropDesc() {

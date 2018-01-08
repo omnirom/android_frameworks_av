@@ -1412,7 +1412,7 @@ status_t AudioFlinger::ThreadBase::addEffect_l(const sp<EffectModule>& effect)
     bool chainCreated = false;
 
     ALOGD_IF((mType == OFFLOAD) && !effect->isOffloadable(),
-             "addEffect_l() on offloaded thread %p: effect %s does not support offload flags %x",
+             "addEffect_l() on offloaded thread %p: effect %s does not support offload flags %#x",
                     this, effect->desc().name, effect->desc().flags);
 
     if (chain == 0) {
@@ -1837,10 +1837,13 @@ void AudioFlinger::PlaybackThread::preExit()
 sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrack_l(
         const sp<AudioFlinger::Client>& client,
         audio_stream_type_t streamType,
-        uint32_t sampleRate,
+        uint32_t *pSampleRate,
         audio_format_t format,
         audio_channel_mask_t channelMask,
         size_t *pFrameCount,
+        size_t *pNotificationFrameCount,
+        uint32_t notificationsPerBuffer,
+        float speed,
         const sp<IMemory>& sharedBuffer,
         audio_session_t sessionId,
         audio_output_flags_t *flags,
@@ -1850,9 +1853,16 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
         audio_port_handle_t portId)
 {
     size_t frameCount = *pFrameCount;
+    size_t notificationFrameCount = *pNotificationFrameCount;
     sp<Track> track;
     status_t lStatus;
     audio_output_flags_t outputFlags = mOutput->flags;
+    audio_output_flags_t requestedFlags = *flags;
+
+    if (*pSampleRate == 0) {
+        *pSampleRate = mSampleRate;
+    }
+    uint32_t sampleRate = *pSampleRate;
 
     // special case for FAST flag considered OK if fast mixer is present
     if (hasFastMixer()) {
@@ -1929,36 +1939,114 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
         *flags = (audio_output_flags_t)(*flags & ~AUDIO_OUTPUT_FLAG_FAST);
       }
     }
-    // For normal PCM streaming tracks, update minimum frame count.
-    // For compatibility with AudioTrack calculation, buffer depth is forced
-    // to be at least 2 x the normal mixer frame count and cover audio hardware latency.
-    // This is probably too conservative, but legacy application code may depend on it.
-    // If you change this calculation, also review the start threshold which is related.
-    if (!(*flags & AUDIO_OUTPUT_FLAG_FAST)
-            && audio_has_proportional_frames(format) && sharedBuffer == 0) {
-        // this must match AudioTrack.cpp calculateMinFrameCount().
-        // TODO: Move to a common library
-        uint32_t latencyMs = 0;
-        lStatus = mOutput->stream->getLatency(&latencyMs);
-        if (lStatus != OK) {
-            ALOGE("Error when retrieving output stream latency: %d", lStatus);
+
+    if (!audio_has_proportional_frames(format)) {
+        if (sharedBuffer != 0) {
+            // Same comment as below about ignoring frameCount parameter for set()
+            frameCount = sharedBuffer->size();
+        } else if (frameCount == 0) {
+            frameCount = mNormalFrameCount;
+        }
+        if (notificationFrameCount != frameCount) {
+            notificationFrameCount = frameCount;
+        }
+    } else if (sharedBuffer != 0) {
+        // FIXME: Ensure client side memory buffers need
+        // not have additional alignment beyond sample
+        // (e.g. 16 bit stereo accessed as 32 bit frame).
+        size_t alignment = audio_bytes_per_sample(format);
+        if (alignment & 1) {
+            // for AUDIO_FORMAT_PCM_24_BIT_PACKED (not exposed through Java).
+            alignment = 1;
+        }
+        uint32_t channelCount = audio_channel_count_from_out_mask(channelMask);
+        size_t frameSize = channelCount * audio_bytes_per_sample(format);
+        if (channelCount > 1) {
+            // More than 2 channels does not require stronger alignment than stereo
+            alignment <<= 1;
+        }
+        if (((uintptr_t)sharedBuffer->pointer() & (alignment - 1)) != 0) {
+            ALOGE("Invalid buffer alignment: address %p, channel count %u",
+                  sharedBuffer->pointer(), channelCount);
+            lStatus = BAD_VALUE;
             goto Exit;
         }
-        uint32_t minBufCount = latencyMs / ((1000 * mNormalFrameCount) / mSampleRate);
-        if (minBufCount < 2) {
-            minBufCount = 2;
+
+        // When initializing a shared buffer AudioTrack via constructors,
+        // there's no frameCount parameter.
+        // But when initializing a shared buffer AudioTrack via set(),
+        // there _is_ a frameCount parameter.  We silently ignore it.
+        frameCount = sharedBuffer->size() / frameSize;
+    } else {
+        size_t minFrameCount = 0;
+        // For fast tracks we try to respect the application's request for notifications per buffer.
+        if (*flags & AUDIO_OUTPUT_FLAG_FAST) {
+            if (notificationsPerBuffer > 0) {
+                // Avoid possible arithmetic overflow during multiplication.
+                if (notificationsPerBuffer > SIZE_MAX / mFrameCount) {
+                    ALOGE("Requested notificationPerBuffer=%u ignored for HAL frameCount=%zu",
+                          notificationsPerBuffer, mFrameCount);
+                } else {
+                    minFrameCount = mFrameCount * notificationsPerBuffer;
+                }
+            }
+        } else {
+            // For normal PCM streaming tracks, update minimum frame count.
+            // Buffer depth is forced to be at least 2 x the normal mixer frame count and
+            // cover audio hardware latency.
+            // This is probably too conservative, but legacy application code may depend on it.
+            // If you change this calculation, also review the start threshold which is related.
+            uint32_t latencyMs = latency_l();
+            if (latencyMs == 0) {
+                ALOGE("Error when retrieving output stream latency");
+                lStatus = UNKNOWN_ERROR;
+                goto Exit;
+            }
+
+            minFrameCount = AudioSystem::calculateMinFrameCount(latencyMs, mNormalFrameCount,
+                                mSampleRate, sampleRate, speed /*, 0 mNotificationsPerBufferReq*/);
+
         }
-        // For normal mixing tracks, if speed is > 1.0f (normal), AudioTrack
-        // or the client should compute and pass in a larger buffer request.
-        size_t minFrameCount =
-                minBufCount * sourceFramesNeededWithTimestretch(
-                        sampleRate, mNormalFrameCount,
-                        mSampleRate, AUDIO_TIMESTRETCH_SPEED_NORMAL /*speed*/);
-        if (frameCount < minFrameCount) { // including frameCount == 0
+        if (frameCount < minFrameCount) {
             frameCount = minFrameCount;
         }
     }
+
+    // Make sure that application is notified with sufficient margin before underrun.
+    // The client can divide the AudioTrack buffer into sub-buffers,
+    // and expresses its desire to server as the notification frame count.
+    if (sharedBuffer == 0 && audio_is_linear_pcm(format)) {
+        size_t maxNotificationFrames;
+        if (*flags & AUDIO_OUTPUT_FLAG_FAST) {
+            // notify every HAL buffer, regardless of the size of the track buffer
+            maxNotificationFrames = mFrameCount;
+        } else {
+            // For normal tracks, use at least double-buffering if no sample rate conversion,
+            // or at least triple-buffering if there is sample rate conversion
+            const int nBuffering = sampleRate == mSampleRate ? 2 : 3;
+            maxNotificationFrames = frameCount / nBuffering;
+            // If client requested a fast track but this was denied, then use the smaller maximum.
+            if (requestedFlags & AUDIO_OUTPUT_FLAG_FAST) {
+                size_t maxNotificationFramesFastDenied = FMS_20 * sampleRate / 1000;
+                if (maxNotificationFrames > maxNotificationFramesFastDenied) {
+                    maxNotificationFrames = maxNotificationFramesFastDenied;
+                }
+            }
+        }
+        if (notificationFrameCount == 0 || notificationFrameCount > maxNotificationFrames) {
+            if (notificationFrameCount == 0) {
+                ALOGD("Client defaulted notificationFrames to %zu for frameCount %zu",
+                    maxNotificationFrames, frameCount);
+            } else {
+                ALOGW("Client adjusted notificationFrames from %zu to %zu for frameCount %zu",
+                      notificationFrameCount, maxNotificationFrames, frameCount);
+            }
+            notificationFrameCount = maxNotificationFrames;
+        }
+    }
+
     *pFrameCount = frameCount;
+    *pNotificationFrameCount = notificationFrameCount;
 
     switch (mType) {
 
@@ -2449,7 +2537,7 @@ void AudioFlinger::PlaybackThread::readOutputParameters_l()
     free(mEffectBuffer);
     mEffectBuffer = NULL;
     if (mEffectBufferEnabled) {
-        mEffectBufferFormat = AUDIO_FORMAT_PCM_16_BIT; // Note: Effects support 16b only
+        mEffectBufferFormat = EFFECT_BUFFER_FORMAT;
         mEffectBufferSize = mNormalFrameCount * mChannelCount
                 * audio_bytes_per_sample(mEffectBufferFormat);
         (void)posix_memalign(&mEffectBuffer, 32, mEffectBufferSize);
@@ -2796,8 +2884,7 @@ status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& c
             &halInBuffer);
     if (result != OK) return result;
     halOutBuffer = halInBuffer;
-    int16_t *buffer = reinterpret_cast<int16_t*>(halInBuffer->externalData());
-
+    effect_buffer_t *buffer = reinterpret_cast<effect_buffer_t*>(halInBuffer->externalData());
     ALOGV("addEffectChain_l() %p on thread %p for session %d", chain.get(), this, session);
     if (session > AUDIO_SESSION_OUTPUT_MIX) {
         // Only one effect chain can be present in direct output thread and it uses
@@ -2805,10 +2892,14 @@ status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& c
         if (mType != DIRECT) {
             size_t numSamples = mNormalFrameCount * mChannelCount;
             status_t result = EffectBufferHalInterface::allocate(
-                    numSamples * sizeof(int16_t),
+                    numSamples * sizeof(effect_buffer_t),
                     &halInBuffer);
             if (result != OK) return result;
+#ifdef FLOAT_EFFECT_CHAIN
+            buffer = halInBuffer->audioBuffer()->f32;
+#else
             buffer = halInBuffer->audioBuffer()->s16;
+#endif
             ALOGV("addEffectChain_l() creating new input buffer %p session %d",
                     buffer, session);
         }
@@ -2883,7 +2974,7 @@ size_t AudioFlinger::PlaybackThread::removeEffectChain_l(const sp<EffectChain>& 
             for (size_t i = 0; i < mTracks.size(); ++i) {
                 sp<Track> track = mTracks[i];
                 if (session == track->sessionId()) {
-                    track->setMainBuffer(reinterpret_cast<int16_t*>(mSinkBuffer));
+                    track->setMainBuffer(reinterpret_cast<effect_buffer_t*>(mSinkBuffer));
                     chain->decTrackCnt();
                 }
             }
@@ -3606,7 +3697,7 @@ AudioFlinger::MixerThread::MixerThread(const sp<AudioFlinger>& audioFlinger, Aud
         // mNormalSink below
 {
     ALOGV("MixerThread() id=%d device=%#x type=%d", id, device, type);
-    ALOGV("mSampleRate=%u, mChannelMask=%#x, mChannelCount=%u, mFormat=%d, mFrameSize=%zu, "
+    ALOGV("mSampleRate=%u, mChannelMask=%#x, mChannelCount=%u, mFormat=%#x, mFrameSize=%zu, "
             "mFrameCount=%zu, mNormalFrameCount=%zu",
             mSampleRate, mChannelMask, mChannelCount, mFormat, mFrameSize, mFrameCount,
             mNormalFrameCount);
@@ -3674,7 +3765,7 @@ AudioFlinger::MixerThread::MixerThread(const sp<AudioFlinger>& audioFlinger, Aud
         NBAIO_Format origformat = format;
 #endif
         // adjust format to match that of the Fast Mixer
-        ALOGV("format changed from %d to %d", format.mFormat, fastMixerFormat);
+        ALOGV("format changed from %#x to %#x", format.mFormat, fastMixerFormat);
         format.mFormat = fastMixerFormat;
         format.mFrameSize = audio_bytes_per_sample(format.mFormat) * format.mChannelCount;
 
@@ -4466,7 +4557,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                 mAudioMixer->setParameter(
                         name,
                         AudioMixer::TRACK,
-                        AudioMixer::MIXER_FORMAT, (void *)AUDIO_FORMAT_PCM_16_BIT);
+                        AudioMixer::MIXER_FORMAT, (void *)EFFECT_BUFFER_FORMAT);
                 mAudioMixer->setParameter(
                         name,
                         AudioMixer::TRACK,
@@ -6617,12 +6708,12 @@ void AudioFlinger::RecordThread::inputStandBy()
 // RecordThread::createRecordTrack_l() must be called with AudioFlinger::mLock held
 sp<AudioFlinger::RecordThread::RecordTrack> AudioFlinger::RecordThread::createRecordTrack_l(
         const sp<AudioFlinger::Client>& client,
-        uint32_t sampleRate,
+        uint32_t *pSampleRate,
         audio_format_t format,
         audio_channel_mask_t channelMask,
         size_t *pFrameCount,
         audio_session_t sessionId,
-        size_t *notificationFrames,
+        size_t *pNotificationFrameCount,
         uid_t uid,
         audio_input_flags_t *flags,
         pid_t tid,
@@ -6630,16 +6721,30 @@ sp<AudioFlinger::RecordThread::RecordTrack> AudioFlinger::RecordThread::createRe
         audio_port_handle_t portId)
 {
     size_t frameCount = *pFrameCount;
+    size_t notificationFrameCount = *pNotificationFrameCount;
     sp<RecordTrack> track;
     status_t lStatus;
     audio_input_flags_t inputFlags = mInput->flags;
+    audio_input_flags_t requestedFlags = *flags;
+    uint32_t sampleRate;
+
+    lStatus = initCheck();
+    if (lStatus != NO_ERROR) {
+        ALOGE("createRecordTrack_l() audio driver not initialized");
+        goto Exit;
+    }
+
+    if (*pSampleRate == 0) {
+        *pSampleRate = mSampleRate;
+    }
+    sampleRate = *pSampleRate;
 
     // special case for FAST flag considered OK if fast capture is present
     if (hasFastCapture()) {
         inputFlags = (audio_input_flags_t)(inputFlags | AUDIO_INPUT_FLAG_FAST);
     }
 
-    // Check if requested flags are compatible with output stream flags
+    // Check if requested flags are compatible with input stream flags
     if ((*flags & inputFlags) != *flags) {
         ALOGW("createRecordTrack_l(): mismatch between requested flags (%08x) and"
                 " input flags (%08x)",
@@ -6694,12 +6799,20 @@ sp<AudioFlinger::RecordThread::RecordTrack> AudioFlinger::RecordThread::createRe
       }
     }
 
+    // If FAST or RAW flags were corrected, ask caller to request new input from audio policy
+    if ((*flags & AUDIO_INPUT_FLAG_FAST) !=
+            (requestedFlags & AUDIO_INPUT_FLAG_FAST)) {
+        *flags = (audio_input_flags_t) (*flags & ~(AUDIO_INPUT_FLAG_FAST | AUDIO_INPUT_FLAG_RAW));
+        lStatus = BAD_TYPE;
+        goto Exit;
+    }
+
     // compute track buffer size in frames, and suggest the notification frame count
     if (*flags & AUDIO_INPUT_FLAG_FAST) {
         // fast track: frame count is exactly the pipe depth
         frameCount = mPipeFramesP2;
         // ignore requested notificationFrames, and always notify exactly once every HAL buffer
-        *notificationFrames = mFrameCount;
+        notificationFrameCount = mFrameCount;
     } else {
         // not fast track: max notification period is resampled equivalent of one HAL buffer time
         //                 or 20 ms if there is a fast capture
@@ -6718,17 +6831,12 @@ sp<AudioFlinger::RecordThread::RecordTrack> AudioFlinger::RecordThread::createRe
         const size_t minFrameCount = maxNotificationFrames *
                 max(kMinNotifications, minNotificationsByMs);
         frameCount = max(frameCount, minFrameCount);
-        if (*notificationFrames == 0 || *notificationFrames > maxNotificationFrames) {
-            *notificationFrames = maxNotificationFrames;
+        if (notificationFrameCount == 0 || notificationFrameCount > maxNotificationFrames) {
+            notificationFrameCount = maxNotificationFrames;
         }
     }
     *pFrameCount = frameCount;
-
-    lStatus = initCheck();
-    if (lStatus != NO_ERROR) {
-        ALOGE("createRecordTrack_l() audio driver not initialized");
-        goto Exit;
-    }
+    *pNotificationFrameCount = notificationFrameCount;
 
     { // scope for mLock
         Mutex::Autolock _l(mLock);
@@ -6783,7 +6891,7 @@ status_t AudioFlinger::RecordThread::start(RecordThread::RecordTrack* recordTrac
             recordTrack->clearSyncStartEvent();
         } else {
             // do not wait for the event for more than AudioSystem::kSyncRecordStartTimeOutMs
-            recordTrack->mFramesToDrop = -
+            recordTrack->mFramesToDrop = -(ssize_t)
                     ((AudioSystem::kSyncRecordStartTimeOutMs * recordTrack->mSampleRate) / 1000);
         }
     }

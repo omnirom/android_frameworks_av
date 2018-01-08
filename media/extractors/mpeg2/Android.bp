@@ -20,9 +20,7 @@ cc_library_shared {
         "libcutils",
         "libhidlbase",
         "liblog",
-        "libmedia",  // Needed for IStreamListener
         "libmediaextractor",
-        "libstagefright",  // Needed for AnotherPacketSource and more
         "libstagefright_foundation",
         "libutils",
     ],
@@ -41,6 +39,7 @@ cc_library_shared {
         "-Wall",
         "-fvisibility=hidden",
     ],
+    version_script: "exports.lds",
 
     sanitize: {
         cfi: true,

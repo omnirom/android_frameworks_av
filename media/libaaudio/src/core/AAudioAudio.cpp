@@ -18,6 +18,8 @@
 //#define LOG_NDEBUG 0
 #include <utils/Log.h>
 
+#include <inttypes.h>
+#include <mutex>
 #include <time.h>
 #include <pthread.h>
 
@@ -238,15 +240,26 @@ AAUDIO_API aaudio_result_t  AAudioStreamBuilder_delete(AAudioStreamBuilder* buil
 
 AAUDIO_API aaudio_result_t  AAudioStream_close(AAudioStream* stream)
 {
+    aaudio_result_t result = AAUDIO_ERROR_NULL;
     AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
-    ALOGD("AAudioStream_close(%p)", stream);
+    ALOGD("AAudioStream_close(%p) called ---------------", stream);
     if (audioStream != nullptr) {
-        audioStream->close();
-        audioStream->unregisterPlayerBase();
-        delete audioStream;
-        return AAUDIO_OK;
+        result = audioStream->safeClose();
+        // Close will only fail if called illegally, for example, from a callback.
+        // That would result in deleting an active stream, which would cause a crash.
+        if (result == AAUDIO_OK) {
+            audioStream->unregisterPlayerBase();
+            delete audioStream;
+        } else {
+            ALOGW("%s attempt to close failed. Close it from another thread.", __func__);
+        }
     }
-    return AAUDIO_ERROR_NULL;
+    // We're potentially freeing `stream` above, so its use here makes some
+    // static analysis tools unhappy. Casting to uintptr_t helps assure
+    // said tools that we're not doing anything bad here.
+    ALOGD("AAudioStream_close(%#" PRIxPTR ") returned %d ---------",
+          reinterpret_cast<uintptr_t>(stream), result);
+    return result;
 }
 
 AAUDIO_API aaudio_result_t  AAudioStream_requestStart(AAudioStream* stream)
@@ -269,7 +282,7 @@ AAUDIO_API aaudio_result_t  AAudioStream_requestFlush(AAudioStream* stream)
 {
     AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
     ALOGD("AAudioStream_requestFlush(%p)", stream);
-    return audioStream->requestFlush();
+    return audioStream->safeFlush();
 }
 
 AAUDIO_API aaudio_result_t  AAudioStream_requestStop(AAudioStream* stream)
@@ -324,7 +337,7 @@ AAUDIO_API aaudio_result_t AAudioStream_write(AAudioStream* stream,
     }
 
     // Don't allow writes when playing with a callback.
-    if (audioStream->getDataCallbackProc() != nullptr && audioStream->isActive()) {
+    if (audioStream->isDataCallbackActive()) {
         ALOGE("Cannot write to a callback stream when running.");
         return AAUDIO_ERROR_INVALID_STATE;
     }

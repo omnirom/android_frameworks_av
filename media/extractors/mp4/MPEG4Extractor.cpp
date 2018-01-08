@@ -347,7 +347,7 @@ MPEG4Extractor::MPEG4Extractor(const sp<DataSource> &source, const char *mime)
       mHeaderTimescale(0),
       mIsQT(false),
       mIsHeif(false),
-      mIsHeifSequence(false),
+      mHasMoovBox(false),
       mPreferHeif(mime != NULL && !strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_HEIF)),
       mFirstTrack(NULL),
       mLastTrack(NULL),
@@ -445,65 +445,81 @@ sp<MetaData> MPEG4Extractor::getTrackMetaData(
         return NULL;
     }
 
-    int64_t duration;
-    int32_t samplerate;
-    if (track->has_elst && mHeaderTimescale != 0 &&
-            track->meta->findInt64(kKeyDuration, &duration) &&
-            track->meta->findInt32(kKeySampleRate, &samplerate)) {
+    [=] {
+        int64_t duration;
+        int32_t samplerate;
+        if (track->has_elst && mHeaderTimescale != 0 &&
+                track->meta->findInt64(kKeyDuration, &duration) &&
+                track->meta->findInt32(kKeySampleRate, &samplerate)) {
 
-        track->has_elst = false;
+            track->has_elst = false;
 
-        if (track->elst_segment_duration > INT64_MAX) {
-            goto editlistoverflow;
+            if (track->elst_segment_duration > INT64_MAX) {
+                return;
+            }
+            int64_t segment_duration = track->elst_segment_duration;
+            int64_t media_time = track->elst_media_time;
+            int64_t halfscale = mHeaderTimescale / 2;
+            ALOGV("segment_duration = %" PRId64 ", media_time = %" PRId64
+                  ", halfscale = %" PRId64 ", timescale = %d",
+                  segment_duration,
+                  media_time,
+                  halfscale,
+                  mHeaderTimescale);
+
+            int64_t delay;
+            // delay = ((media_time * samplerate) + halfscale) / mHeaderTimescale;
+            if (__builtin_mul_overflow(media_time, samplerate, &delay) ||
+                    __builtin_add_overflow(delay, halfscale, &delay) ||
+                    (delay /= mHeaderTimescale, false) ||
+                    delay > INT32_MAX ||
+                    delay < INT32_MIN) {
+                return;
+            }
+            ALOGV("delay = %" PRId64, delay);
+            track->meta->setInt32(kKeyEncoderDelay, delay);
+
+            int64_t scaled_duration;
+            // scaled_duration = duration * mHeaderTimescale;
+            if (__builtin_mul_overflow(duration, mHeaderTimescale, &scaled_duration)) {
+                return;
+            }
+            ALOGV("scaled_duration = %" PRId64, scaled_duration);
+
+            int64_t segment_end;
+            int64_t padding;
+            // padding = scaled_duration - ((segment_duration + media_time) * 1000000);
+            if (__builtin_add_overflow(segment_duration, media_time, &segment_end) ||
+                    __builtin_mul_overflow(segment_end, 1000000, &segment_end) ||
+                    __builtin_sub_overflow(scaled_duration, segment_end, &padding)) {
+                return;
+            }
+            ALOGV("segment_end = %" PRId64 ", padding = %" PRId64, segment_end, padding);
+
+            if (padding < 0) {
+                // track duration from media header (which is what kKeyDuration is) might
+                // be slightly shorter than the segment duration, which would make the
+                // padding negative. Clamp to zero.
+                padding = 0;
+            }
+
+            int64_t paddingsamples;
+            int64_t halfscale_e6;
+            int64_t timescale_e6;
+            // paddingsamples = ((padding * samplerate) + (halfscale * 1000000))
+            //                / (mHeaderTimescale * 1000000);
+            if (__builtin_mul_overflow(padding, samplerate, &paddingsamples) ||
+                    __builtin_mul_overflow(halfscale, 1000000, &halfscale_e6) ||
+                    __builtin_mul_overflow(mHeaderTimescale, 1000000, &timescale_e6) ||
+                    __builtin_add_overflow(paddingsamples, halfscale_e6, &paddingsamples) ||
+                    (paddingsamples /= timescale_e6, false) ||
+                    paddingsamples > INT32_MAX) {
+                return;
+            }
+            ALOGV("paddingsamples = %" PRId64, paddingsamples);
+            track->meta->setInt32(kKeyEncoderPadding, paddingsamples);
         }
-        int64_t segment_duration = track->elst_segment_duration;
-        int64_t media_time = track->elst_media_time;
-        int64_t halfscale = mHeaderTimescale / 2;
-
-        int64_t delay;
-        // delay = ((media_time * samplerate) + halfscale) / mHeaderTimescale;
-        if (__builtin_mul_overflow(media_time, samplerate, &delay) ||
-                __builtin_add_overflow(delay, halfscale, &delay) ||
-                (delay /= mHeaderTimescale, false) ||
-                delay > INT32_MAX ||
-                delay < INT32_MIN) {
-            goto editlistoverflow;
-        }
-        track->meta->setInt32(kKeyEncoderDelay, delay);
-
-        int64_t scaled_duration;
-        // scaled_duration = ((duration * mHeaderTimescale) + 500000) / 1000000;
-        if (__builtin_mul_overflow(duration, mHeaderTimescale, &scaled_duration) ||
-                __builtin_add_overflow(scaled_duration, 500000, &scaled_duration)) {
-            goto editlistoverflow;
-        }
-        scaled_duration /= 1000000;
-
-        int64_t segment_end;
-        int64_t padding;
-        if (__builtin_add_overflow(segment_duration, media_time, &segment_end) ||
-                __builtin_sub_overflow(scaled_duration, segment_end, &padding)) {
-            goto editlistoverflow;
-        }
-
-        if (padding < 0) {
-            // track duration from media header (which is what kKeyDuration is) might
-            // be slightly shorter than the segment duration, which would make the
-            // padding negative. Clamp to zero.
-            padding = 0;
-        }
-
-        int64_t paddingsamples;
-        // paddingsamples = ((padding * samplerate) + halfscale) / mHeaderTimescale;
-        if (__builtin_mul_overflow(padding, samplerate, &paddingsamples) ||
-                __builtin_add_overflow(paddingsamples, halfscale, &paddingsamples) ||
-                (paddingsamples /= mHeaderTimescale, false) ||
-                paddingsamples > INT32_MAX) {
-            goto editlistoverflow;
-        }
-        track->meta->setInt32(kKeyEncoderPadding, paddingsamples);
-    }
-    editlistoverflow:
+    }();
 
     if ((flags & kIncludeExtensiveMetaData)
             && !track->includes_expensive_metadata) {
@@ -563,9 +579,9 @@ status_t MPEG4Extractor::readMetaData() {
     status_t err;
     bool sawMoovOrSidx = false;
 
-    while (!((!mIsHeif && sawMoovOrSidx && (mMdatFound || mMoofFound)) ||
-             (mIsHeif && (mPreferHeif || !mIsHeifSequence)
-                     && (mItemTable != NULL) && mItemTable->isValid()))) {
+    while (!((mHasMoovBox && sawMoovOrSidx && (mMdatFound || mMoofFound)) ||
+             (mIsHeif && (mPreferHeif || !mHasMoovBox) &&
+                     (mItemTable != NULL) && mItemTable->isValid()))) {
         off64_t orig_offset = offset;
         err = parseChunk(&offset, 0);
 
@@ -582,34 +598,30 @@ status_t MPEG4Extractor::readMetaData() {
         }
     }
 
-    if (mIsHeif) {
-        uint32_t imageCount = mItemTable->countImages();
-        if (imageCount == 0) {
-            ALOGE("found no image in heif!");
-        } else {
-            for (uint32_t imageIndex = 0; imageIndex < imageCount; imageIndex++) {
-                sp<MetaData> meta = mItemTable->getImageMeta(imageIndex);
-                if (meta == NULL) {
-                    ALOGE("heif image %u has no meta!", imageIndex);
-                    continue;
-                }
-
-                ALOGV("adding HEIF image track %u", imageIndex);
-                Track *track = new Track;
-                track->next = NULL;
-                if (mLastTrack != NULL) {
-                    mLastTrack->next = track;
-                } else {
-                    mFirstTrack = track;
-                }
-                mLastTrack = track;
-
-                track->meta = meta;
-                track->meta->setInt32(kKeyTrackID, imageIndex);
-                track->includes_expensive_metadata = false;
-                track->skipTrack = false;
-                track->timescale = 0;
+    if (mIsHeif && (mItemTable != NULL) && (mItemTable->countImages() > 0)) {
+        for (uint32_t imageIndex = 0;
+                imageIndex < mItemTable->countImages(); imageIndex++) {
+            sp<MetaData> meta = mItemTable->getImageMeta(imageIndex);
+            if (meta == NULL) {
+                ALOGE("heif image %u has no meta!", imageIndex);
+                continue;
             }
+
+            ALOGV("adding HEIF image track %u", imageIndex);
+            Track *track = new Track;
+            track->next = NULL;
+            if (mLastTrack != NULL) {
+                mLastTrack->next = track;
+            } else {
+                mFirstTrack = track;
+            }
+            mLastTrack = track;
+
+            track->meta = meta;
+            track->meta->setInt32(kKeyTrackID, imageIndex);
+            track->includes_expensive_metadata = false;
+            track->skipTrack = false;
+            track->timescale = 0;
         }
     }
 
@@ -2512,13 +2524,18 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             } else {
                 if (brandSet.count(FOURCC('m', 'i', 'f', '1')) > 0
                  && brandSet.count(FOURCC('h', 'e', 'i', 'c')) > 0) {
-                    mIsHeif = true;
                     ALOGV("identified HEIF image");
+
+                    mIsHeif = true;
+                    brandSet.erase(FOURCC('m', 'i', 'f', '1'));
+                    brandSet.erase(FOURCC('h', 'e', 'i', 'c'));
                 }
-                if (brandSet.count(FOURCC('m', 's', 'f', '1')) > 0
-                 && brandSet.count(FOURCC('h', 'e', 'v', 'c')) > 0) {
-                    mIsHeifSequence = true;
-                    ALOGV("identified HEIF image sequence");
+
+                if (!brandSet.empty()) {
+                    // This means that the file should have moov box.
+                    // It could be any iso files (mp4, heifs, etc.)
+                    mHasMoovBox = true;
+                    ALOGV("identified HEIF image with other tracks");
                 }
             }
 

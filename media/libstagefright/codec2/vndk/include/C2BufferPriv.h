@@ -23,29 +23,46 @@
 
 namespace android {
 
-class C2DefaultBlockAllocator : public C2BlockAllocator {
+class C2BasicLinearBlockPool : public C2BlockPool {
 public:
-    explicit C2DefaultBlockAllocator(const std::shared_ptr<C2Allocator> &allocator);
+    explicit C2BasicLinearBlockPool(const std::shared_ptr<C2Allocator> &allocator);
 
-    virtual ~C2DefaultBlockAllocator() = default;
+    virtual ~C2BasicLinearBlockPool() override = default;
 
-    virtual C2Error allocateLinearBlock(
+    virtual C2Allocator::id_t getAllocatorId() const override {
+        return mAllocator->getId();
+    }
+
+    virtual local_id_t getLocalId() const override {
+        return BASIC_LINEAR;
+    }
+
+    virtual c2_status_t fetchLinearBlock(
             uint32_t capacity,
             C2MemoryUsage usage,
             std::shared_ptr<C2LinearBlock> *block /* nonnull */) override;
 
-    // TODO:
+    // TODO: fetchCircularBlock
+
 private:
     const std::shared_ptr<C2Allocator> mAllocator;
 };
 
-class C2DefaultGraphicBlockAllocator : public C2BlockAllocator {
+class C2BasicGraphicBlockPool : public C2BlockPool {
 public:
-    explicit C2DefaultGraphicBlockAllocator(const std::shared_ptr<C2Allocator> &allocator);
+    explicit C2BasicGraphicBlockPool(const std::shared_ptr<C2Allocator> &allocator);
 
-    virtual ~C2DefaultGraphicBlockAllocator() = default;
+    virtual ~C2BasicGraphicBlockPool() override = default;
 
-    virtual C2Error allocateGraphicBlock(
+    virtual C2Allocator::id_t getAllocatorId() const override {
+        return mAllocator->getId();
+    }
+
+    virtual local_id_t getLocalId() const override {
+        return BASIC_GRAPHIC;
+    }
+
+    virtual c2_status_t fetchGraphicBlock(
             uint32_t width,
             uint32_t height,
             uint32_t format,
@@ -55,21 +72,6 @@ public:
 private:
     const std::shared_ptr<C2Allocator> mAllocator;
 };
-
-
-#if 0
-class C2Allocation::Impl {
-public:
-    Impl() : mMapped(false), mBase(nullptr) { }
-    uint8_t* base() { return mMapped ? mBase : nullptr; }
-
-    // TODO: call map...
-
-private:
-    bool mMapped;
-    uint8_t *mBase;
-};
-#endif
 
 } // namespace android
 

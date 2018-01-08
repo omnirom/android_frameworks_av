@@ -44,6 +44,8 @@
 #include "utils/LatencyHistogram.h"
 #include <camera_metadata_hidden.h>
 
+using android::camera3::OutputStreamInfo;
+
 /**
  * Function pointer types with C calling convention to
  * use for HAL callback functions.
@@ -117,11 +119,13 @@ class Camera3Device :
     status_t createStream(sp<Surface> consumer,
             uint32_t width, uint32_t height, int format,
             android_dataspace dataSpace, camera3_stream_rotation_t rotation, int *id,
+            std::vector<int> *surfaceIds = nullptr,
             int streamSetId = camera3::CAMERA3_STREAM_SET_ID_INVALID,
             bool isShared = false, uint64_t consumerUsage = 0) override;
     status_t createStream(const std::vector<sp<Surface>>& consumers,
             bool hasDeferredConsumer, uint32_t width, uint32_t height, int format,
             android_dataspace dataSpace, camera3_stream_rotation_t rotation, int *id,
+            std::vector<int> *surfaceIds = nullptr,
             int streamSetId = camera3::CAMERA3_STREAM_SET_ID_INVALID,
             bool isShared = false, uint64_t consumerUsage = 0) override;
 
@@ -134,7 +138,8 @@ class Camera3Device :
 
     status_t deleteStream(int id) override;
 
-    status_t configureStreams(int operatingMode =
+    status_t configureStreams(const CameraMetadata& sessionParams,
+            int operatingMode =
             static_cast<int>(hardware::camera::device::V3_2::StreamConfigurationMode::NORMAL_MODE))
             override;
     status_t getInputBufferProducer(
@@ -176,7 +181,23 @@ class Camera3Device :
      * Set the deferred consumer surfaces to the output stream and finish the deferred
      * consumer configuration.
      */
-    status_t setConsumerSurfaces(int streamId, const std::vector<sp<Surface>>& consumers) override;
+    status_t setConsumerSurfaces(
+            int streamId, const std::vector<sp<Surface>>& consumers,
+            std::vector<int> *surfaceIds /*out*/) override;
+
+    /**
+     * Update a given stream.
+     */
+    status_t updateStream(int streamId, const std::vector<sp<Surface>> &newSurfaces,
+            const std::vector<OutputStreamInfo> &outputInfo,
+            const std::vector<size_t> &removedSurfaceIds,
+            KeyedVector<sp<Surface>, size_t> *outputMap/*out*/);
+
+    /**
+     * Drop buffers for stream of streamId if dropping is true. If dropping is false, do not
+     * drop buffers for stream of streamId.
+     */
+    status_t dropStreamBuffers(bool dropping, int streamId) override;
 
   private:
 
@@ -216,6 +237,9 @@ class Camera3Device :
 
     // Current stream configuration mode;
     int                        mOperatingMode;
+    // Current session wide parameters
+    hardware::camera2::impl::CameraMetadataNative mSessionParams;
+
     // Constant to use for no set operating mode
     static const int           NO_MODE = -1;
 
@@ -252,7 +276,8 @@ class Camera3Device :
         // Caller takes ownership of requestTemplate
         status_t constructDefaultRequestSettings(camera3_request_template_t templateId,
                 /*out*/ camera_metadata_t **requestTemplate);
-        status_t configureStreams(/*inout*/ camera3_stream_configuration *config);
+        status_t configureStreams(const camera_metadata_t *sessionParams,
+                /*inout*/ camera3_stream_configuration *config);
         status_t processCaptureRequest(camera3_capture_request_t *request);
         status_t processBatchCaptureRequests(
                 std::vector<camera3_capture_request_t*>& requests,
@@ -530,7 +555,8 @@ class Camera3Device :
      * Take the currently-defined set of streams and configure the HAL to use
      * them. This is a long-running operation (may be several hundered ms).
      */
-    status_t           configureStreamsLocked(int operatingMode);
+    status_t           configureStreamsLocked(int operatingMode,
+            const CameraMetadata& sessionParams);
 
     /**
      * Cancel stream configuration that did not finish successfully.
@@ -704,6 +730,12 @@ class Camera3Device :
          * capture request
          */
         bool isStreamPending(sp<camera3::Camera3StreamInterface>& stream);
+
+        /**
+         * Returns true if the surface is a target of any queued or repeating
+         * capture request
+         */
+        bool isOutputSurfacePending(int streamId, size_t surfaceId);
 
         // dump processCaptureRequest latency
         void dumpCaptureRequestLatency(int fd, const char* name) {

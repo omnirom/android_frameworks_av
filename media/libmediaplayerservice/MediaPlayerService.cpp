@@ -1046,18 +1046,18 @@ status_t MediaPlayerService::Client::setBufferingSettings(
     return p->setBufferingSettings(buffering);
 }
 
-status_t MediaPlayerService::Client::getDefaultBufferingSettings(
+status_t MediaPlayerService::Client::getBufferingSettings(
         BufferingSettings* buffering /* nonnull */)
 {
     sp<MediaPlayerBase> p = getPlayer();
     // TODO: create mPlayer on demand.
     if (p == 0) return UNKNOWN_ERROR;
-    status_t ret = p->getDefaultBufferingSettings(buffering);
+    status_t ret = p->getBufferingSettings(buffering);
     if (ret == NO_ERROR) {
-        ALOGV("[%d] getDefaultBufferingSettings{%s}",
+        ALOGV("[%d] getBufferingSettings{%s}",
                 mConnId, buffering->toString().string());
     } else {
-        ALOGV("[%d] getDefaultBufferingSettings returned %d", mConnId, ret);
+        ALOGE("[%d] getBufferingSettings returned %d", mConnId, ret);
     }
     return ret;
 }
@@ -1421,12 +1421,13 @@ status_t MediaPlayerService::Client::getRetransmitEndpoint(
 }
 
 void MediaPlayerService::Client::notify(
-        void* cookie, int msg, int ext1, int ext2, const Parcel *obj)
+        const wp<IMediaPlayer> &listener, int msg, int ext1, int ext2, const Parcel *obj)
 {
-    Client* client = static_cast<Client*>(cookie);
-    if (client == NULL) {
+    sp<IMediaPlayer> spListener = listener.promote();
+    if (spListener == NULL) {
         return;
     }
+    Client* client = static_cast<Client*>(spListener.get());
 
     sp<IMediaPlayerClient> c;
     sp<Client> nextClient;
@@ -1474,7 +1475,7 @@ void MediaPlayerService::Client::notify(
     }
 
     if (c != NULL) {
-        ALOGV("[%d] notify (%p, %d, %d, %d)", client->mConnId, cookie, msg, ext1, ext2);
+        ALOGV("[%d] notify (%p, %d, %d, %d)", client->mConnId, spListener.get(), msg, ext1, ext2);
         c->notify(msg, ext1, ext2, obj);
     }
 }
@@ -1568,7 +1569,7 @@ status_t MediaPlayerService::Client::enableAudioDeviceCallback(bool enabled)
 #if CALLBACK_ANTAGONIZER
 const int Antagonizer::interval = 10000; // 10 msecs
 
-Antagonizer::Antagonizer(notify_callback_f cb, void* client) :
+Antagonizer::Antagonizer(notify_callback_f cb, const wp<IMediaPlayer> &client) :
     mExit(false), mActive(false), mClient(client), mCb(cb)
 {
     createThread(callbackThread, this);
@@ -1622,6 +1623,7 @@ MediaPlayerService::AudioOutput::AudioOutput(audio_session_t sessionId, uid_t ui
       mFlags(AUDIO_OUTPUT_FLAG_NONE),
       mVolumeHandler(new media::VolumeHandler()),
       mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
+      mRoutedDeviceId(AUDIO_PORT_HANDLE_NONE),
       mDeviceCallbackEnabled(false),
       mDeviceCallback(deviceCallback)
 {
@@ -2368,10 +2370,10 @@ status_t MediaPlayerService::AudioOutput::getRoutedDeviceId(audio_port_handle_t*
     ALOGV("getRoutedDeviceId");
     Mutex::Autolock lock(mLock);
     if (mTrack != 0) {
-        *deviceId = mTrack->getRoutedDeviceId();
-        return NO_ERROR;
+        mRoutedDeviceId = mTrack->getRoutedDeviceId();
     }
-    return NO_INIT;
+    *deviceId = mRoutedDeviceId;
+    return NO_ERROR;
 }
 
 status_t MediaPlayerService::AudioOutput::enableAudioDeviceCallback(bool enabled)

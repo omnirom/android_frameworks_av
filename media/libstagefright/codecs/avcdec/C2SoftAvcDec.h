@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 The Android Open Source Project
+ * Copyright 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@
 
 #include <C2Component.h>
 #include <C2Param.h>
+#include <SimpleC2Component.h>
 
 #include "C2AvcConfig.h"
 
@@ -58,9 +59,6 @@ struct ivd_video_decode_op_t;
 
 #define MIN(a, b) ((a) < (b)) ? (a) : (b)
 
-/** Used to remove warnings about unused parameters */
-#define UNUSED(x) ((void)(x))
-
 /** Get time */
 #define GETTIME(a, b) gettimeofday(a, b);
 
@@ -79,36 +77,35 @@ public:
         SupportedValuesWithFields(const C2FieldSupportedValues &supported) : supported(supported) {}
     };
 
-    C2SoftAvcDecIntf(const char *name, node_id id);
-    virtual ~C2SoftAvcDecIntf() = default;
+    C2SoftAvcDecIntf(const char *name, c2_node_id_t id);
+    virtual ~C2SoftAvcDecIntf() override;
 
     // From C2ComponentInterface
     virtual C2String getName() const override;
-    virtual node_id getId() const override;
-    virtual status_t query_nb(
+    virtual c2_node_id_t getId() const override;
+    virtual c2_status_t query_vb(
             const std::vector<C2Param* const> &stackParams,
             const std::vector<C2Param::Index> &heapParamIndices,
+            c2_blocking_t mayBlock,
             std::vector<std::unique_ptr<C2Param>>* const heapParams) const override;
-    virtual status_t config_nb(
+    virtual c2_status_t config_vb(
             const std::vector<C2Param* const> &params,
+            c2_blocking_t mayBlock,
             std::vector<std::unique_ptr<C2SettingResult>>* const failures) override;
-    virtual status_t commit_sm(
-            const std::vector<C2Param* const> &params,
-            std::vector<std::unique_ptr<C2SettingResult>>* const failures) override;
-    virtual status_t createTunnel_sm(node_id targetComponent) override;
-    virtual status_t releaseTunnel_sm(node_id targetComponent) override;
-    virtual std::shared_ptr<C2ParamReflector> getParamReflector() const override;
-    virtual status_t getSupportedParams(
+    virtual c2_status_t createTunnel_sm(c2_node_id_t targetComponent) override;
+    virtual c2_status_t releaseTunnel_sm(c2_node_id_t targetComponent) override;
+    // TODO: move this into some common store class
+    std::shared_ptr<C2ParamReflector> getParamReflector() const;
+    virtual c2_status_t querySupportedParams_nb(
             std::vector<std::shared_ptr<C2ParamDescriptor>> * const params) const override;
-    virtual status_t getSupportedValues(
-            const std::vector<const C2ParamField> &fields,
-            std::vector<C2FieldSupportedValues>* const values) const override;
+    virtual c2_status_t querySupportedValues_vb(
+            std::vector<C2FieldSupportedValuesQuery> &fields, c2_blocking_t mayBlock) const override;
 
 private:
     class ParamReflector;
 
     const C2String mName;
-    const node_id mId;
+    const c2_node_id_t mId;
 
     C2ComponentDomainInfo mDomainInfo;
     // TODO: config desc
@@ -119,6 +116,7 @@ private:
     // TODO: C2StreamMimeConfig mInputStreamMime;
     // TODO: C2StreamMimeConfig mOutputStreamMime;
     C2StreamFormatConfig::input mInputStreamFormat;
+    std::unique_ptr<C2PortBlockPoolsTuning::output> mOutputBlockPools;
     C2StreamFormatConfig::output mOutputStreamFormat;
     C2VideoSizeStreamInfo::output mVideoSize;
     C2MaxVideoSizeHintPortSetting::input mMaxVideoSizeHint;
@@ -139,31 +137,26 @@ private:
     std::vector<std::shared_ptr<C2ParamDescriptor>> mParamDescs;
 
     void updateSupportedValues();
+    friend class C2SoftAvcDec;
 };
 
-class C2SoftAvcDec
-    : public C2Component,
-      public std::enable_shared_from_this<C2SoftAvcDec> {
+class C2SoftAvcDec : public SimpleC2Component {
 public:
-    C2SoftAvcDec(
-            const char *name, node_id id, const std::shared_ptr<C2ComponentListener> &listener);
+    C2SoftAvcDec(const char *name, c2_node_id_t id);
     virtual ~C2SoftAvcDec();
 
-    // From C2Component
-    virtual status_t queue_nb(std::list<std::unique_ptr<C2Work>>* const items) override;
-    virtual status_t announce_nb(const std::vector<C2WorkOutline> &items) override;
-    virtual status_t flush_sm(
-            bool flushThrough, std::list<std::unique_ptr<C2Work>>* const flushedWork) override;
-    virtual status_t drain_nb(bool drainThrough) override;
-    virtual status_t start() override;
-    virtual status_t stop() override;
-    virtual void reset() override;
-    virtual void release() override;
-    virtual std::shared_ptr<C2ComponentInterface> intf() override;
+    // From SimpleC2Component
+    virtual c2_status_t onInit() override;
+    virtual c2_status_t onStop() override;
+    virtual void onReset() override;
+    virtual void onRelease() override;
+    virtual c2_status_t onFlush_sm() override;
+    virtual c2_status_t onDrain_nb() override;
+    virtual bool process(
+            const std::unique_ptr<C2Work> &work,
+            std::shared_ptr<C2BlockPool> pool) override;
 
 private:
-    class QueueProcessThread;
-
     Mutex mColorAspectsLock;
     // color aspects passed from the framework.
     ColorAspects mDefaultColorAspects;
@@ -182,25 +175,6 @@ private:
 
     // This function will update the mFinalColorAspects based on codec preference.
     status_t handleColorAspectsChange();
-
-    // Number of input and output buffers
-    enum {
-        kNumBuffers = 8
-    };
-
-    using IndexType = decltype(C2WorkOrdinalStruct().frame_index);
-
-    const std::shared_ptr<C2SoftAvcDecIntf> mIntf;
-    const std::shared_ptr<C2ComponentListener> mListener;
-
-    std::mutex mQueueLock;
-    std::condition_variable mQueueCond;
-    std::list<std::unique_ptr<C2Work>> mQueue;
-
-    std::mutex mPendingLock;
-    std::unordered_map<IndexType, std::unique_ptr<C2Work>> mPendingWork;
-
-    std::unique_ptr<QueueProcessThread> mThread;
 
     std::shared_ptr<C2GraphicBlock> mAllocatedBlock;
 
@@ -228,13 +202,10 @@ private:
     bool mChangingResolution;
     bool mFlushNeeded;
     bool mSignalledError;
-    int32_t mWidth;
-    int32_t mHeight;
-    int32_t mStride;
+    uint32_t mWidth;
+    uint32_t mHeight;
+    uint32_t mStride;
     size_t mInputOffset;
-
-    void processQueue();
-    void process(std::unique_ptr<C2Work> &work);
 
     status_t initDecoder();
     status_t deInitDecoder();

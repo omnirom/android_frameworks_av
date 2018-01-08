@@ -125,6 +125,7 @@ class MediaAnalyticsService : public BnMediaAnalyticsService
 
     // support for generating output
     int mDumpProto;
+    int mDumpProtoDefault;
     String8 dumpQueue(List<MediaAnalyticsItem*> *);
     String8 dumpQueue(List<MediaAnalyticsItem*> *, nsecs_t, const char *only);
 
@@ -137,7 +138,7 @@ class MediaAnalyticsService : public BnMediaAnalyticsService
         uid_t uid;
         AString pkg;
         AString installer;
-        int32_t versionCode;
+        int64_t versionCode;
         nsecs_t expiration;
     };
 

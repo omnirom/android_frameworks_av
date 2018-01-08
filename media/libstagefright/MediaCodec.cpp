@@ -28,6 +28,7 @@
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
 #include <binder/MemoryDealer.h>
+#include <cutils/properties.h>
 #include <gui/BufferQueue.h>
 #include <gui/Surface.h>
 #include <media/ICrypto.h>
@@ -44,6 +45,7 @@
 #include <media/stagefright/foundation/hexdump.h>
 #include <media/stagefright/ACodec.h>
 #include <media/stagefright/BufferProducerWrapper.h>
+#include <media/stagefright/CCodec.h>
 #include <media/stagefright/MediaCodec.h>
 #include <media/stagefright/MediaCodecList.h>
 #include <media/stagefright/MediaDefs.h>
@@ -549,8 +551,11 @@ void MediaCodec::PostReplyWithError(const sp<AReplyToken> &replyID, int32_t err)
 
 //static
 sp<CodecBase> MediaCodec::GetCodecBase(const AString &name, bool nameIsType) {
-    // at this time only ACodec specifies a mime type.
-    if (nameIsType || name.startsWithIgnoreCase("omx.")) {
+    static bool ccodecEnabled = property_get_bool("debug.stagefright.ccodec", false);
+    if (ccodecEnabled && !nameIsType && name.startsWithIgnoreCase("codec2.")) {
+        return new CCodec;
+    } else if (nameIsType || name.startsWithIgnoreCase("omx.")) {
+        // at this time only ACodec specifies a mime type.
         return new ACodec;
     } else if (name.startsWithIgnoreCase("android.filter.")) {
         return new MediaFilter;
@@ -1440,7 +1445,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                         {
                             if (actionCode == ACTION_CODE_FATAL) {
                                 mAnalyticsItem->setInt32(kCodecError, err);
-                                mAnalyticsItem->setInt32(kCodecErrorState, mState);
+                                mAnalyticsItem->setCString(kCodecErrorState, stateString(mState).c_str());
                                 flushAnalyticsItem();
                                 initAnalyticsItem();
                             }
@@ -1453,7 +1458,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                         {
                             if (actionCode == ACTION_CODE_FATAL) {
                                 mAnalyticsItem->setInt32(kCodecError, err);
-                                mAnalyticsItem->setInt32(kCodecErrorState, mState);
+                                mAnalyticsItem->setCString(kCodecErrorState, stateString(mState).c_str());
                                 flushAnalyticsItem();
                                 initAnalyticsItem();
                             }
@@ -1494,7 +1499,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                         {
                             if (actionCode == ACTION_CODE_FATAL) {
                                 mAnalyticsItem->setInt32(kCodecError, err);
-                                mAnalyticsItem->setInt32(kCodecErrorState, mState);
+                                mAnalyticsItem->setCString(kCodecErrorState, stateString(mState).c_str());
                                 flushAnalyticsItem();
                                 initAnalyticsItem();
 
@@ -1527,7 +1532,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                                 break;
                             default:
                                 mAnalyticsItem->setInt32(kCodecError, err);
-                                mAnalyticsItem->setInt32(kCodecErrorState, mState);
+                                mAnalyticsItem->setCString(kCodecErrorState, stateString(mState).c_str());
                                 flushAnalyticsItem();
                                 initAnalyticsItem();
                                 setState(UNINITIALIZED);
@@ -1849,7 +1854,6 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                                 }
                             }
                         }
-
                         if (mFlags & kFlagIsAsync) {
                             onOutputFormatChanged();
                         } else {
@@ -3222,6 +3226,30 @@ void MediaCodec::updateBatteryStat() {
         BatteryNotifier::getInstance().noteStopVideo(mUid);
         mBatteryStatNotified = false;
     }
+}
+
+std::string MediaCodec::stateString(State state) {
+    const char *rval = NULL;
+    char rawbuffer[16]; // room for "%d"
+
+    switch (state) {
+        case UNINITIALIZED: rval = "UNINITIALIZED"; break;
+        case INITIALIZING: rval = "INITIALIZING"; break;
+        case INITIALIZED: rval = "INITIALIZED"; break;
+        case CONFIGURING: rval = "CONFIGURING"; break;
+        case CONFIGURED: rval = "CONFIGURED"; break;
+        case STARTING: rval = "STARTING"; break;
+        case STARTED: rval = "STARTED"; break;
+        case FLUSHING: rval = "FLUSHING"; break;
+        case FLUSHED: rval = "FLUSHED"; break;
+        case STOPPING: rval = "STOPPING"; break;
+        case RELEASING: rval = "RELEASING"; break;
+        default:
+            snprintf(rawbuffer, sizeof(rawbuffer), "%d", state);
+            rval = rawbuffer;
+            break;
+    }
+    return rval;
 }
 
 }  // namespace android

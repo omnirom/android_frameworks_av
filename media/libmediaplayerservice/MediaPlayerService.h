@@ -51,7 +51,7 @@ class MediaRecorderClient;
 #if CALLBACK_ANTAGONIZER
 class Antagonizer {
 public:
-    Antagonizer(notify_callback_f cb, void* client);
+    Antagonizer(notify_callback_f cb, const wp<IMediaPlayer> &client);
     void start() { mActive = true; }
     void stop() { mActive = false; }
     void kill();
@@ -63,7 +63,7 @@ private:
     Condition           mCondition;
     bool                mExit;
     bool                mActive;
-    void*               mClient;
+    wp<IMediaPlayer>    mClient;
     notify_callback_f   mCb;
 };
 #endif
@@ -176,6 +176,7 @@ class MediaPlayerService : public BnMediaPlayerService
         audio_output_flags_t    mFlags;
         sp<media::VolumeHandler>       mVolumeHandler;
         audio_port_handle_t     mSelectedDeviceId;
+        audio_port_handle_t     mRoutedDeviceId;
         bool                    mDeviceCallbackEnabled;
         wp<AudioSystem::AudioDeviceCallback>        mDeviceCallback;
         mutable Mutex           mLock;
@@ -319,7 +320,7 @@ private:
         virtual status_t        setVideoSurfaceTexture(
                                         const sp<IGraphicBufferProducer>& bufferProducer);
         virtual status_t        setBufferingSettings(const BufferingSettings& buffering) override;
-        virtual status_t        getDefaultBufferingSettings(
+        virtual status_t        getBufferingSettings(
                                         BufferingSettings* buffering /* nonnull */) override;
         virtual status_t        prepareAsync();
         virtual status_t        start();
@@ -376,7 +377,7 @@ private:
         status_t                setDataSource_post(const sp<MediaPlayerBase>& p,
                                                    status_t status);
 
-        static  void            notify(void* cookie, int msg,
+        static  void            notify(const wp<IMediaPlayer> &cookie, int msg,
                                        int ext1, int ext2, const Parcel *obj);
 
                 pid_t           pid() const { return mPid; }

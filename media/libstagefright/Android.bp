@@ -37,6 +37,8 @@ cc_library_shared {
         "AudioPlayer.cpp",
         "AudioSource.cpp",
         "BufferImpl.cpp",
+        "CCodec.cpp",
+        "CCodecBufferChannel.cpp",
         "CodecBase.cpp",
         "CallbackDataSource.cpp",
         "CallbackMediaSource.cpp",
@@ -89,6 +91,7 @@ cc_library_shared {
         "libdl",
         "libdrmframework",
         "libgui",
+        "libion",
         "liblog",
         "libmedia",
         "libmedia_omx",
@@ -100,8 +103,11 @@ cc_library_shared {
         "libui",
         "libutils",
         "libmedia_helper",
-        "libstagefright_omx_utils",
+        "libstagefright_codec2",
         "libstagefright_foundation",
+        "libstagefright_omx",
+        "libstagefright_omx_utils",
+        "libstagefright_xmlparser",
         "libdl",
         "libRScpp",
         "libhidlbase",
@@ -109,6 +115,11 @@ cc_library_shared {
         "android.hidl.allocator@1.0",
         "android.hardware.cas.native@1.0",
         "android.hardware.media.omx@1.0",
+        "android.hardware.graphics.allocator@2.0",
+        "android.hardware.graphics.mapper@2.0",
+
+        // XXX: hack
+        "libstagefright_soft_c2avcdec",
     ],
 
     static_libs: [
@@ -123,11 +134,98 @@ cc_library_shared {
         "libstagefright_esds",
         "libstagefright_id3",
         "libFLAC",
+
+        // XXX: hack
+        "libstagefright_codec2_vndk",
     ],
 
     export_shared_lib_headers: [
         "libmedia",
         "android.hidl.allocator@1.0",
+    ],
+
+    export_include_dirs: [
+        "include",
+    ],
+
+    cflags: [
+        "-Wno-multichar",
+        "-Werror",
+        "-Wno-error=deprecated-declarations",
+        "-Wall",
+    ],
+
+    product_variables: {
+        debuggable: {
+            // enable experiments only in userdebug and eng builds
+            cflags: ["-DENABLE_STAGEFRIGHT_EXPERIMENTS"],
+        },
+    },
+
+    sanitize: {
+        cfi: true,
+        misc_undefined: [
+            "unsigned-integer-overflow",
+            "signed-integer-overflow",
+        ],
+        diag: {
+            cfi: true,
+        },
+    },
+}
+
+cc_library_shared {
+    name: "libstagefright_player2",
+
+    srcs: [
+        "CallbackDataSource.cpp",
+        "CallbackMediaSource.cpp",
+        "DataSourceFactory.cpp",
+        "DataURISource.cpp",
+        "FileSource.cpp",
+        "HTTPBase.cpp",
+        "HevcUtils.cpp",
+        "InterfaceUtils.cpp",
+        "MediaClock.cpp",
+        "MediaExtractorFactory.cpp",
+        "NuCachedSource2.cpp",
+        "RemoteMediaExtractor.cpp",
+        "RemoteMediaSource.cpp",
+        "SurfaceUtils.cpp",
+        "Utils.cpp",
+        "VideoFrameScheduler.cpp",
+        "http/MediaHTTP.cpp",
+    ],
+
+    shared_libs: [
+        "libbinder",
+        "libcutils",
+        "libdrmframework",
+        "libgui",
+        "liblog",
+        "libmedia_omx",
+        "libmedia_player2_util",
+        "libaudioclient",
+        "libmediaextractor",
+        "libmediametrics",
+        "libmediautils",
+        "libnetd_client",
+        "libui",
+        "libutils",
+        "libmedia_helper",
+        "libstagefright_foundation",
+        "libdl",
+    ],
+
+    static_libs: [
+        "libstagefright_esds",
+        "libstagefright_id3",
+        "libstagefright_mpeg2support",
+        "libstagefright_timedtext",
+    ],
+
+    export_shared_lib_headers: [
+        "libmedia_player2_util",
     ],
 
     export_include_dirs: [

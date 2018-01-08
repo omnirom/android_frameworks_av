@@ -21,15 +21,12 @@
 #include "HwModule.h"
 #include "AudioGain.h"
 #include <policy.h>
-#include <cutils/atomic.h>
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
 namespace android {
-
-int32_t volatile AudioPort::mNextUniqueId = 1;
 
 // --- AudioPort class implementation
 void AudioPort::attach(const sp<HwModule>& module)
@@ -40,31 +37,22 @@ void AudioPort::attach(const sp<HwModule>& module)
 // Note that is a different namespace than AudioFlinger unique IDs
 audio_port_handle_t AudioPort::getNextUniqueId()
 {
-    return static_cast<audio_port_handle_t>(android_atomic_inc(&mNextUniqueId));
+    return getNextHandle();
 }
 
 audio_module_handle_t AudioPort::getModuleHandle() const
 {
-    if (mModule == 0) {
-        return AUDIO_MODULE_HANDLE_NONE;
-    }
-    return mModule->mHandle;
+    return mModule != 0 ? mModule->getHandle() : AUDIO_MODULE_HANDLE_NONE;
 }
 
 uint32_t AudioPort::getModuleVersionMajor() const
 {
-    if (mModule == 0) {
-        return 0;
-    }
-    return mModule->getHalVersionMajor();
+    return mModule != 0 ? mModule->getHalVersionMajor() : 0;
 }
 
 const char *AudioPort::getModuleName() const
 {
-    if (mModule == 0) {
-        return "invalid module";
-    }
-    return mModule->getName();
+    return mModule != 0 ? mModule->getName() : "invalid module";
 }
 
 void AudioPort::toAudioPort(struct audio_port *port) const
@@ -74,11 +62,11 @@ void AudioPort::toAudioPort(struct audio_port *port) const
     SortedVector<audio_format_t> flatenedFormats;
     SampleRateVector flatenedRates;
     ChannelsVector flatenedChannels;
-    for (size_t profileIndex = 0; profileIndex < mProfiles.size(); profileIndex++) {
-        if (mProfiles[profileIndex]->isValid()) {
-            audio_format_t formatToExport = mProfiles[profileIndex]->getFormat();
-            const SampleRateVector &ratesToExport = mProfiles[profileIndex]->getSampleRates();
-            const ChannelsVector &channelsToExport = mProfiles[profileIndex]->getChannels();
+    for (const auto& profile : mProfiles) {
+        if (profile->isValid()) {
+            audio_format_t formatToExport = profile->getFormat();
+            const SampleRateVector &ratesToExport = profile->getSampleRates();
+            const ChannelsVector &channelsToExport = profile->getChannels();
 
             if (flatenedFormats.indexOf(formatToExport) < 0) {
                 flatenedFormats.add(formatToExport);
@@ -130,14 +118,12 @@ void AudioPort::toAudioPort(struct audio_port *port) const
 
 void AudioPort::importAudioPort(const sp<AudioPort>& port, bool force __unused)
 {
-    size_t indexToImport;
-    for (indexToImport = 0; indexToImport < port->mProfiles.size(); indexToImport++) {
-        const sp<AudioProfile> &profileToImport = port->mProfiles[indexToImport];
+    for (const auto& profileToImport : port->mProfiles) {
         if (profileToImport->isValid()) {
             // Import only valid port, i.e. valid format, non empty rates and channels masks
             bool hasSameProfile = false;
-            for (size_t profileIndex = 0; profileIndex < mProfiles.size(); profileIndex++) {
-                if (*mProfiles[profileIndex] == *profileToImport) {
+            for (const auto& profile : mProfiles) {
+                if (*profile == *profileToImport) {
                     // never import a profile twice
                     hasSameProfile = true;
                     break;
@@ -479,4 +465,4 @@ void AudioPortConfig::toAudioPortConfig(struct audio_port_config *dstConfig,
     }
 }
 
-}; // namespace android
+} // namespace android

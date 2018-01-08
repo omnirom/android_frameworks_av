@@ -35,17 +35,13 @@ static const char kVendorSeccompPolicyPath[] =
 
 int main(int argc __unused, char** argv)
 {
+    strcpy(argv[0], "media.codec");
     LOG(INFO) << "mediacodecservice starting";
-
-#ifdef USE_VNDBINDER
-    android::ProcessState::initWithDriver("/dev/vndbinder");
-    android::ProcessState::self()->startThreadPool();
-#endif // USE_VNDBINDER
-
     signal(SIGPIPE, SIG_IGN);
     SetUpMinijail(kSystemSeccompPolicyPath, kVendorSeccompPolicyPath);
 
-    strcpy(argv[0], "media.codec");
+    android::ProcessState::initWithDriver("/dev/vndbinder");
+    android::ProcessState::self()->startThreadPool();
 
     ::android::hardware::configureRpcThreadpool(64, false);
 

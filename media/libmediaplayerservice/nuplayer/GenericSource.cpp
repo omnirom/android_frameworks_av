@@ -26,7 +26,6 @@
 #include <media/DataSource.h>
 #include <media/MediaExtractor.h>
 #include <media/MediaSource.h>
-#include <media/IMediaExtractorService.h>
 #include <media/IMediaHTTPService.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -45,9 +44,10 @@
 
 namespace android {
 
-static const int kLowWaterMarkMs          = 2000;  // 2secs
-static const int kHighWaterMarkMs         = 5000;  // 5secs
-static const int kHighWaterMarkRebufferMs = 15000;  // 15secs
+static const int kInitialMarkMs        = 5000;  // 5secs
+
+//static const int kPausePlaybackMarkMs  = 2000;  // 2secs
+static const int kResumePlaybackMarkMs = 15000;  // 15secs
 
 NuPlayer::GenericSource::GenericSource(
         const sp<AMessage> &notify,
@@ -79,7 +79,8 @@ NuPlayer::GenericSource::GenericSource(
     ALOGV("GenericSource");
     CHECK(mediaClock != NULL);
 
-    getDefaultBufferingSettings(&mBufferingSettings);
+    mBufferingSettings.mInitialMarkMs = kInitialMarkMs;
+    mBufferingSettings.mResumePlaybackMarkMs = kResumePlaybackMarkMs;
     resetDataSource();
 }
 
@@ -88,6 +89,7 @@ void NuPlayer::GenericSource::resetDataSource() {
 
     mHTTPService.clear();
     mHttpSource.clear();
+    mDisconnected = false;
     mUri.clear();
     mUriHeaders.clear();
     if (mFd >= 0) {
@@ -158,16 +160,46 @@ sp<MetaData> NuPlayer::GenericSource::getFileFormatMeta() const {
 
 status_t NuPlayer::GenericSource::initFromDataSource() {
     sp<IMediaExtractor> extractor;
-    CHECK(mDataSource != NULL);
+    CHECK(mDataSource != NULL || mFd != -1);
+    sp<DataSource> dataSource = mDataSource;
+    const int fd = mFd;
+    const int64_t offset = mOffset;
+    const int64_t length = mLength;
 
-    extractor = MediaExtractorFactory::Create(mDataSource, NULL);
+    mLock.unlock();
+    // This might take long time if data source is not reliable.
+    if (dataSource != nullptr) {
+        extractor = MediaExtractorFactory::Create(dataSource, NULL /* mime */);
+    } else {
+        extractor = MediaExtractorFactory::CreateFromFd(
+                fd, offset, length, NULL /* mime */, &dataSource);
+    }
 
-    if (extractor == NULL) {
-        ALOGE("initFromDataSource, cannot create extractor!");
+    if (dataSource == nullptr) {
+        ALOGE("initFromDataSource, failed to create data source!");
+        mLock.lock();
         return UNKNOWN_ERROR;
     }
 
-    mFileMeta = extractor->getMetaData();
+    if (extractor == NULL) {
+        ALOGE("initFromDataSource, cannot create extractor!");
+        mLock.lock();
+        return UNKNOWN_ERROR;
+    }
+
+    sp<MetaData> fileMeta = extractor->getMetaData();
+
+    size_t numtracks = extractor->countTracks();
+    if (numtracks == 0) {
+        ALOGE("initFromDataSource, source has no track!");
+        mLock.lock();
+        return UNKNOWN_ERROR;
+    }
+
+    mLock.lock();
+    mFd = -1;
+    mDataSource = dataSource;
+    mFileMeta = fileMeta;
     if (mFileMeta != NULL) {
         int64_t duration;
         if (mFileMeta->findInt64(kKeyDuration, &duration)) {
@@ -176,12 +208,6 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
     }
 
     int32_t totalBitrate = 0;
-
-    size_t numtracks = extractor->countTracks();
-    if (numtracks == 0) {
-        ALOGE("initFromDataSource, source has no track!");
-        return UNKNOWN_ERROR;
-    }
 
     mMimes.clear();
 
@@ -265,37 +291,22 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
     return OK;
 }
 
-status_t NuPlayer::GenericSource::getDefaultBufferingSettings(
+status_t NuPlayer::GenericSource::getBufferingSettings(
         BufferingSettings* buffering /* nonnull */) {
-    buffering->mInitialBufferingMode = BUFFERING_MODE_TIME_ONLY;
-    buffering->mRebufferingMode = BUFFERING_MODE_TIME_ONLY;
-    buffering->mInitialWatermarkMs = kHighWaterMarkMs;
-    buffering->mRebufferingWatermarkLowMs = kLowWaterMarkMs;
-    buffering->mRebufferingWatermarkHighMs = kHighWaterMarkRebufferMs;
+    {
+        Mutex::Autolock _l(mLock);
+        *buffering = mBufferingSettings;
+    }
 
-    ALOGV("getDefaultBufferingSettings{%s}", buffering->toString().string());
+    ALOGV("getBufferingSettings{%s}", buffering->toString().string());
     return OK;
 }
 
 status_t NuPlayer::GenericSource::setBufferingSettings(const BufferingSettings& buffering) {
     ALOGV("setBufferingSettings{%s}", buffering.toString().string());
 
-    if (buffering.IsSizeBasedBufferingMode(buffering.mInitialBufferingMode)
-            || buffering.IsSizeBasedBufferingMode(buffering.mRebufferingMode)
-            || (buffering.IsTimeBasedBufferingMode(buffering.mRebufferingMode)
-                && buffering.mRebufferingWatermarkLowMs > buffering.mRebufferingWatermarkHighMs)) {
-        return BAD_VALUE;
-    }
-
     Mutex::Autolock _l(mLock);
     mBufferingSettings = buffering;
-    if (mBufferingSettings.mInitialBufferingMode == BUFFERING_MODE_NONE) {
-        mBufferingSettings.mInitialWatermarkMs = BufferingSettings::kNoWatermark;
-    }
-    if (mBufferingSettings.mRebufferingMode == BUFFERING_MODE_NONE) {
-        mBufferingSettings.mRebufferingWatermarkLowMs = BufferingSettings::kNoWatermark;
-        mBufferingSettings.mRebufferingWatermarkHighMs = INT32_MAX;
-    }
     return OK;
 }
 
@@ -328,15 +339,6 @@ int64_t NuPlayer::GenericSource::getLastReadPosition() {
     } else {
         return 0;
     }
-}
-
-status_t NuPlayer::GenericSource::setBuffers(
-        bool audio, Vector<MediaBuffer *> &buffers) {
-    Mutex::Autolock _l(mLock);
-    if (mIsSecure && !audio && mVideoTrack.mSource != NULL) {
-        return mVideoTrack.mSource->setBuffers(buffers);
-    }
-    return INVALID_OPERATION;
 }
 
 bool NuPlayer::GenericSource::isStreaming() const {
@@ -391,54 +393,24 @@ void NuPlayer::GenericSource::onPrepareAsync() {
                 }
             }
 
-            mDataSource = DataSourceFactory::CreateFromURI(
+            mLock.unlock();
+            // This might take long time if connection has some issue.
+            sp<DataSource> dataSource = DataSourceFactory::CreateFromURI(
                    mHTTPService, uri, &mUriHeaders, &contentType,
                    static_cast<HTTPBase *>(mHttpSource.get()));
-        } else {
-            if (property_get_bool("media.stagefright.extractremote", true) &&
-                    !FileSource::requiresDrm(mFd, mOffset, mLength, nullptr /* mime */)) {
-                sp<IBinder> binder =
-                        defaultServiceManager()->getService(String16("media.extractor"));
-                if (binder != nullptr) {
-                    ALOGD("FileSource remote");
-                    sp<IMediaExtractorService> mediaExService(
-                            interface_cast<IMediaExtractorService>(binder));
-                    sp<IDataSource> source =
-                            mediaExService->makeIDataSource(mFd, mOffset, mLength);
-                    ALOGV("IDataSource(FileSource): %p %d %lld %lld",
-                            source.get(), mFd, (long long)mOffset, (long long)mLength);
-                    if (source.get() != nullptr) {
-                        mDataSource = CreateDataSourceFromIDataSource(source);
-                        if (mDataSource != nullptr) {
-                            // Close the local file descriptor as it is not needed anymore.
-                            close(mFd);
-                            mFd = -1;
-                        }
-                    } else {
-                        ALOGW("extractor service cannot make data source");
-                    }
-                } else {
-                    ALOGW("extractor service not running");
-                }
+            mLock.lock();
+            if (!mDisconnected) {
+                mDataSource = dataSource;
             }
-            if (mDataSource == nullptr) {
-                ALOGD("FileSource local");
-                mDataSource = new FileSource(mFd, mOffset, mLength);
-            }
-            // TODO: close should always be done on mFd, see the lines following
-            // CreateDataSourceFromIDataSource above,
-            // and the FileSource constructor should dup the mFd argument as needed.
-            mFd = -1;
         }
-
-        if (mDataSource == NULL) {
+        if (mFd == -1 && mDataSource == NULL) {
             ALOGE("Failed to create data source!");
             notifyPreparedAndCleanup(UNKNOWN_ERROR);
             return;
         }
     }
 
-    if (mDataSource->flags() & DataSource::kIsCachingDataSource) {
+    if (mDataSource != nullptr && mDataSource->flags() & DataSource::kIsCachingDataSource) {
         mCachedSource = static_cast<NuCachedSource2 *>(mDataSource.get());
     }
 
@@ -555,6 +527,7 @@ void NuPlayer::GenericSource::disconnect() {
         Mutex::Autolock _l(mLock);
         dataSource = mDataSource;
         httpSource = mHttpSource;
+        mDisconnected = true;
     }
 
     if (dataSource != NULL) {
@@ -673,6 +646,12 @@ void NuPlayer::GenericSource::onMessageReceived(const sp<AMessage> &msg) {
                   NULL, !formatChange);
           ALOGV("timeUs %lld actualTimeUs %lld", (long long)timeUs, (long long)actualTimeUs);
 
+          break;
+      }
+
+      case kWhatSeek:
+      {
+          onSeek(msg);
           break;
       }
 
@@ -853,8 +832,10 @@ status_t NuPlayer::GenericSource::dequeueAccessUnit(
         }
     } else {
         int64_t durationUs = track->mPackets->getBufferedDurationUs(&finalResult);
+        // TODO: maxRebufferingMarkMs could be larger than
+        // mBufferingSettings.mResumePlaybackMarkMs
         int64_t restartBufferingMarkUs =
-             mBufferingSettings.mRebufferingWatermarkHighMs * 1000ll / 2;
+             mBufferingSettings.mResumePlaybackMarkMs * 1000ll / 2;
         if (finalResult == OK) {
             if (durationUs < restartBufferingMarkUs) {
                 postReadBuffer(audio? MEDIA_TRACK_TYPE_AUDIO : MEDIA_TRACK_TYPE_VIDEO);
@@ -1094,8 +1075,39 @@ status_t NuPlayer::GenericSource::selectTrack(size_t trackIndex, bool select, in
 }
 
 status_t NuPlayer::GenericSource::seekTo(int64_t seekTimeUs, MediaPlayerSeekMode mode) {
-    Mutex::Autolock _l(mLock);
     ALOGV("seekTo: %lld, %d", (long long)seekTimeUs, mode);
+    sp<AMessage> msg = new AMessage(kWhatSeek, this);
+    msg->setInt64("seekTimeUs", seekTimeUs);
+    msg->setInt32("mode", mode);
+
+    // Need to call readBuffer on |mLooper| to ensure the calls to
+    // IMediaSource::read* are serialized. Note that IMediaSource::read*
+    // is called without |mLock| acquired and MediaSource is not thread safe.
+    sp<AMessage> response;
+    status_t err = msg->postAndAwaitResponse(&response);
+    if (err == OK && response != NULL) {
+        CHECK(response->findInt32("err", &err));
+    }
+
+    return err;
+}
+
+void NuPlayer::GenericSource::onSeek(const sp<AMessage>& msg) {
+    int64_t seekTimeUs;
+    int32_t mode;
+    CHECK(msg->findInt64("seekTimeUs", &seekTimeUs));
+    CHECK(msg->findInt32("mode", &mode));
+
+    sp<AMessage> response = new AMessage;
+    status_t err = doSeek(seekTimeUs, (MediaPlayerSeekMode)mode);
+    response->setInt32("err", err);
+
+    sp<AReplyToken> replyID;
+    CHECK(msg->senderAwaitsResponse(&replyID));
+    response->postReply(replyID);
+}
+
+status_t NuPlayer::GenericSource::doSeek(int64_t seekTimeUs, MediaPlayerSeekMode mode) {
     if (mVideoTrack.mSource != NULL) {
         ++mVideoDataGeneration;
 
@@ -1318,13 +1330,14 @@ void NuPlayer::GenericSource::readBuffer(
         Vector<MediaBuffer *> mediaBuffers;
         status_t err = NO_ERROR;
 
+        sp<IMediaSource> source = track->mSource;
         mLock.unlock();
         if (couldReadMultiple) {
-            err = track->mSource->readMultiple(
+            err = source->readMultiple(
                     &mediaBuffers, maxBuffers - numBuffers, &options);
         } else {
             MediaBuffer *mbuf = NULL;
-            err = track->mSource->read(&mbuf, &options);
+            err = source->read(&mbuf, &options);
             if (err == OK && mbuf != NULL) {
                 mediaBuffers.push_back(mbuf);
             }
@@ -1408,8 +1421,10 @@ void NuPlayer::GenericSource::readBuffer(
         status_t finalResult;
         int64_t durationUs = track->mPackets->getBufferedDurationUs(&finalResult);
 
-        int64_t markUs = (mPreparing ? mBufferingSettings.mInitialWatermarkMs
-            : mBufferingSettings.mRebufferingWatermarkHighMs) * 1000ll;
+        // TODO: maxRebufferingMarkMs could be larger than
+        // mBufferingSettings.mResumePlaybackMarkMs
+        int64_t markUs = (mPreparing ? mBufferingSettings.mInitialMarkMs
+            : mBufferingSettings.mResumePlaybackMarkMs) * 1000ll;
         if (finalResult == ERROR_END_OF_STREAM || durationUs >= markUs) {
             if (mPreparing || mSentPauseOnBuffering) {
                 Track *counterTrack =

@@ -54,7 +54,7 @@ struct NuPlayer::GenericSource : public NuPlayer::Source,
 
     status_t setDataSource(const sp<DataSource>& dataSource);
 
-    virtual status_t getDefaultBufferingSettings(
+    virtual status_t getBufferingSettings(
             BufferingSettings* buffering /* nonnull */) override;
     virtual status_t setBufferingSettings(const BufferingSettings& buffering) override;
 
@@ -81,8 +81,6 @@ struct NuPlayer::GenericSource : public NuPlayer::Source,
     virtual status_t seekTo(
         int64_t seekTimeUs,
         MediaPlayerSeekMode mode = MediaPlayerSeekMode::SEEK_PREVIOUS_SYNC) override;
-
-    virtual status_t setBuffers(bool audio, Vector<MediaBuffer *> &buffers);
 
     virtual bool isStreaming() const;
 
@@ -112,6 +110,7 @@ private:
         kWhatSendTimedTextData,
         kWhatChangeAVSource,
         kWhatPollBuffering,
+        kWhatSeek,
         kWhatReadBuffer,
         kWhatStart,
         kWhatResume,
@@ -158,6 +157,7 @@ private:
     int64_t mOffset;
     int64_t mLength;
 
+    bool mDisconnected;
     sp<DataSource> mDataSource;
     sp<NuCachedSource2> mCachedSource;
     sp<DataSource> mHttpSource;
@@ -181,6 +181,9 @@ private:
     void onSecureDecodersInstantiated(status_t err);
     void finishPrepareAsync();
     status_t startSources();
+
+    void onSeek(const sp<AMessage>& msg);
+    status_t doSeek(int64_t seekTimeUs, MediaPlayerSeekMode mode);
 
     void onPrepareAsync();
 

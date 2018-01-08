@@ -57,6 +57,12 @@ class Camera3DummyStream :
     virtual status_t detachBuffer(sp<GraphicBuffer>* buffer, int* fenceFd);
 
     /**
+     * Drop buffers for stream of streamId if dropping is true. If dropping is false, do not
+     * drop buffers for stream of streamId.
+     */
+    virtual status_t dropBuffers(bool /*dropping*/) override;
+
+    /**
      * Return if this output stream is for video encoding.
      */
     bool isVideoStream() const;
@@ -70,6 +76,19 @@ class Camera3DummyStream :
      * Set the consumer surfaces to the output stream.
      */
     virtual status_t setConsumers(const std::vector<sp<Surface>>& consumers);
+
+    /**
+     * Query the output surface id.
+     */
+    virtual ssize_t getSurfaceId(const sp<Surface> &/*surface*/) { return 0; }
+
+    /**
+     * Update the stream output surfaces.
+     */
+    virtual status_t updateStream(const std::vector<sp<Surface>> &outputSurfaces,
+            const std::vector<OutputStreamInfo> &outputInfo,
+            const std::vector<size_t> &removedSurfaceIds,
+            KeyedVector<sp<Surface>, size_t> *outputMap/*out*/);
 
   protected:
 

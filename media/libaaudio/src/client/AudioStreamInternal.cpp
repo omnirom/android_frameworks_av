@@ -61,7 +61,6 @@ AudioStreamInternal::AudioStreamInternal(AAudioServiceInterface  &serviceInterfa
         , mClockModel()
         , mAudioEndpoint()
         , mServiceStreamHandle(AAUDIO_HANDLE_INVALID)
-        , mFramesPerBurst(16)
         , mInService(inService)
         , mServiceInterface(serviceInterface)
         , mAtomicTimestamp()
@@ -79,6 +78,7 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
 
     aaudio_result_t result = AAUDIO_OK;
     int32_t capacity;
+    int32_t framesPerBurst;
     AAudioStreamRequest request;
     AAudioStreamConfiguration configurationOutput;
 
@@ -151,16 +151,18 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
         goto error;
     }
 
-    mFramesPerBurst = mEndpointDescriptor.dataQueueDescriptor.framesPerBurst;
-    capacity = mEndpointDescriptor.dataQueueDescriptor.capacityInFrames;
 
     // Validate result from server.
-    if (mFramesPerBurst < 16 || mFramesPerBurst > 16 * 1024) {
-        ALOGE("%s - framesPerBurst out of range = %d", __func__, mFramesPerBurst);
+    framesPerBurst = mEndpointDescriptor.dataQueueDescriptor.framesPerBurst;
+    if (framesPerBurst < MIN_FRAMES_PER_BURST || framesPerBurst > MAX_FRAMES_PER_BURST) {
+        ALOGE("%s - framesPerBurst out of range = %d", __func__, framesPerBurst);
         result = AAUDIO_ERROR_OUT_OF_RANGE;
         goto error;
     }
-    if (capacity < mFramesPerBurst || capacity > 32 * 1024) {
+    mFramesPerBurst = framesPerBurst; // only save good value
+
+    capacity = mEndpointDescriptor.dataQueueDescriptor.capacityInFrames;
+    if (capacity < mFramesPerBurst || capacity > MAX_BUFFER_CAPACITY_IN_FRAMES) {
         ALOGE("%s - bufferCapacity out of range = %d", __func__, capacity);
         result = AAUDIO_ERROR_OUT_OF_RANGE;
         goto error;
@@ -169,7 +171,7 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     mClockModel.setSampleRate(getSampleRate());
     mClockModel.setFramesPerBurst(mFramesPerBurst);
 
-    if (getDataCallbackProc()) {
+    if (isDataCallbackSet()) {
         mCallbackFrames = builder.getFramesPerDataCallback();
         if (mCallbackFrames > getBufferCapacity() / 2) {
             ALOGE("%s - framesPerCallback too big = %d, capacity = %d",
@@ -288,7 +290,7 @@ aaudio_result_t AudioStreamInternal::requestStart()
     mNeedCatchUp.request();  // Ask data processing code to catch up when first timestamp received.
 
     // Start data callback thread.
-    if (result == AAUDIO_OK && getDataCallbackProc() != nullptr) {
+    if (result == AAUDIO_OK && isDataCallbackSet()) {
         // Launch the callback loop thread.
         int64_t periodNanos = mCallbackFrames
                               * AAUDIO_NANOS_PER_SECOND
@@ -490,6 +492,9 @@ aaudio_result_t AudioStreamInternal::onEventFromServer(AAudioServiceMessage *mes
             doSetVolume();
             ALOGD("%s - AAUDIO_SERVICE_EVENT_VOLUME %lf", __func__, message->event.dataDouble);
             break;
+        case AAUDIO_SERVICE_EVENT_XRUN:
+            mXRunCount = static_cast<int32_t>(message->event.dataLong);
+            break;
         default:
             ALOGE("%s - Unrecognized event = %d", __func__, (int) message->event.event);
             break;
@@ -649,14 +654,29 @@ void AudioStreamInternal::processTimestamp(uint64_t position, int64_t time) {
 }
 
 aaudio_result_t AudioStreamInternal::setBufferSize(int32_t requestedFrames) {
+    int32_t adjustedFrames = requestedFrames;
     int32_t actualFrames = 0;
-    // Round to the next highest burst size.
-    if (getFramesPerBurst() > 0) {
-        int32_t numBursts = (requestedFrames + getFramesPerBurst() - 1) / getFramesPerBurst();
-        requestedFrames = numBursts * getFramesPerBurst();
+    int32_t maximumSize = getBufferCapacity();
+
+    // Clip to minimum size so that rounding up will work better.
+    if (adjustedFrames < 1) {
+        adjustedFrames = 1;
     }
 
-    aaudio_result_t result = mAudioEndpoint.setBufferSizeInFrames(requestedFrames, &actualFrames);
+    if (adjustedFrames > maximumSize) {
+        // Clip to maximum size.
+        adjustedFrames = maximumSize;
+    } else {
+        // Round to the next highest burst size.
+        int32_t numBursts = (adjustedFrames + mFramesPerBurst - 1) / mFramesPerBurst;
+        adjustedFrames = numBursts * mFramesPerBurst;
+        // Rounding may have gone above maximum.
+        if (adjustedFrames > maximumSize) {
+            adjustedFrames = maximumSize;
+        }
+    }
+
+    aaudio_result_t result = mAudioEndpoint.setBufferSizeInFrames(adjustedFrames, &actualFrames);
     ALOGD("setBufferSize() req = %d => %d", requestedFrames, actualFrames);
     if (result < 0) {
         return result;
@@ -674,7 +694,7 @@ int32_t AudioStreamInternal::getBufferCapacity() const {
 }
 
 int32_t AudioStreamInternal::getFramesPerBurst() const {
-    return mEndpointDescriptor.dataQueueDescriptor.framesPerBurst;
+    return mFramesPerBurst;
 }
 
 aaudio_result_t AudioStreamInternal::joinThread(void** returnArg) {
