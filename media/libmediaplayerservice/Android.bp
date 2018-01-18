@@ -33,6 +33,7 @@ cc_library_shared {
         "libstagefright",
         "libstagefright_foundation",
         "libstagefright_httplive",
+        "libstagefright_omx",
         "libutils",
     ],
 
@@ -46,11 +47,19 @@ cc_library_shared {
         "libstagefright_timedtext",
     ],
 
+    whole_static_libs: [
+        "libavmediaserviceextensions",
+        "libavextensions",
+    ],
+
     export_shared_lib_headers: ["libmedia"],
 
     include_dirs: [
         "frameworks/av/media/libstagefright/rtsp",
         "frameworks/av/media/libstagefright/webm",
+        "frameworks/av/media/libavextensions",
+        "frameworks/av/media/libmediaextractor",
+        "frameworks/av/media/libstagefright/mpeg2ts",
     ],
 
     local_include_dirs: ["include"],
@@ -63,7 +72,7 @@ cc_library_shared {
 
     name: "libmediaplayerservice",
 
-    compile_multilib: "32",
+    //compile_multilib: "32",
 
     sanitize: {
         cfi: true,

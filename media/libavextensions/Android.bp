@@ -1,0 +1,109 @@
+// AV  media utils extention
+// ########################################################
+
+cc_library_static {
+    name: "libavmediaextentions",
+    srcs: ["media/AVMediaUtils.cpp"],
+    shared_libs: [
+        "libhidlbase",
+        "liblog",
+        "libcutils",
+        "libutils",
+    ],
+    include_dirs: [
+        "frameworks/av/include/media",
+        "frameworks/av/media/libavextensions",
+        "frameworks/native/include/media/hardware",
+        "frameworks/native/include/media/openmax",
+        "external/flac/include",
+        "hardware/qcom/media/mm-core/inc",
+        "system/core/base/include/",
+    ],
+    cflags: [
+        "-Wno-multichar",
+        "-Werror",
+    ],
+}
+
+cc_library_static {
+    name: "libavextensions",
+    srcs: [
+         "stagefright/ExtendedMediaDefs.cpp",
+         "stagefright/AVUtils.cpp",
+         "stagefright/AVFactory.cpp",
+    ],
+    shared_libs: [
+         "libhidlbase",
+         "liblog",
+         "libui",
+         "libgui",
+         "libcutils",
+         "libutils",
+         "libmediadrm",
+         "libnativewindow",
+         //"libstagefright",
+         "libcrypto",
+         "android.hardware.media.omx@1.0",
+         "libhidlbase",
+         "libhidlmemory",
+         "libaudioclient",
+         "android.hidl.allocator@1.0",
+         "android.hidl.memory@1.0",
+    ],
+    include_dirs: [
+        "frameworks/av/include/media",
+        "frameworks/av/media/libstagefright",
+        "frameworks/av/media/libmediaextractor",
+        "frameworks/av/media/libstagefright/mpeg2ts",
+        "frameworks/av/media/libavextensions",
+        "frameworks/native/include/media/hardware",
+        "frameworks/native/include/media/openmax",
+        "external/flac/include",
+        "system/core/base/include",
+        "hardware/qcom/media/mm-core/inc",
+        "frameworks/av/media/libstagefright/include",
+        "frameworks/av/media/libstagefright/omx/include/media/stagefright",
+    ],
+    cflags: [
+        "-Wno-multichar",
+        "-Werror",
+    ],
+}
+
+cc_library_static {
+    name: "libavmediaserviceextensions",
+    srcs: [
+         "mediaplayerservice/AVMediaServiceFactory.cpp",
+         "mediaplayerservice/AVMediaServiceUtils.cpp",
+         "mediaplayerservice/AVNuFactory.cpp",
+         "mediaplayerservice/AVNuUtils.cpp",
+    ],
+    shared_libs: [
+        "libhidlbase",
+        "liblog",
+        "libui",
+        "libgui",
+        "libcutils",
+        "libutils",
+        "libmediadrm",
+        "libnativewindow",
+        "libstagefright",
+        "android.hardware.media.omx@1.0",
+    ],
+    include_dirs: [
+        "frameworks/av/include/media",
+        "frameworks/av/media/libstagefright/rtsp",
+        "frameworks/av/media/libmediaplayerservice",
+        "frameworks/av/media/libstagefright/include",
+        "frameworks/av/media/libavextensions",
+        "frameworks/native/include/media/hardware",
+        "frameworks/native/include/media/openmax",
+        "external/flac/include",
+        "system/core/base/include",
+        "hardware/qcom/media/mm-core/inc",
+    ],
+    cflags: [
+        "-Wno-multichar",
+        "-Werror",
+    ],
+}

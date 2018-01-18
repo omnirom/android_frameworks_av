@@ -90,7 +90,6 @@ protected:
     virtual ~PlaylistFetcher();
     virtual void onMessageReceived(const sp<AMessage> &msg);
 
-private:
     enum {
         kMaxNumRetries         = 5,
     };

@@ -214,7 +214,7 @@ public:
                     const char *url,
                     const KeyedVector<String8, String8> *headers);
 
-            status_t        setDataSource(int fd, int64_t offset, int64_t length);
+    virtual status_t        setDataSource(int fd, int64_t offset, int64_t length);
             status_t        setDataSource(const sp<IDataSource> &source);
             status_t        setVideoSurfaceTexture(
                                     const sp<IGraphicBufferProducer>& bufferProducer);
@@ -225,7 +225,7 @@ public:
             status_t        prepareAsync();
             status_t        start();
             status_t        stop();
-            status_t        pause();
+    virtual status_t        pause();
             bool            isPlaying();
             status_t        setPlaybackSettings(const AudioPlaybackRate& rate);
             status_t        getPlaybackSettings(AudioPlaybackRate* rate /* nonnull */);
@@ -247,7 +247,7 @@ public:
             status_t        setLooping(int loop);
             bool            isLooping();
             status_t        setVolume(float leftVolume, float rightVolume);
-            void            notify(int msg, int ext1, int ext2, const Parcel *obj = NULL);
+    virtual void            notify(int msg, int ext1, int ext2, const Parcel *obj = NULL);
             status_t        invoke(const Parcel& request, Parcel *reply);
             status_t        setMetadataFilter(const Parcel& filter);
             status_t        getMetadata(bool update_only, bool apply_filter, Parcel *metadata);

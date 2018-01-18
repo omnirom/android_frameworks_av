@@ -40,6 +40,7 @@ class MetaData;
 struct AudioSource;
 class MediaProfiles;
 struct ALooper;
+struct AMessage;
 
 struct StagefrightRecorder : public MediaRecorderBase {
     explicit StagefrightRecorder(const String16 &opPackageName);
@@ -77,7 +78,7 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual void setAudioDeviceCallback(const sp<AudioSystem::AudioDeviceCallback>& callback);
     virtual status_t enableAudioDeviceCallback(bool enabled);
 
-private:
+protected:
     mutable Mutex mLock;
     sp<hardware::ICamera> mCamera;
     sp<ICameraRecordingProxy> mCameraProxy;
@@ -154,7 +155,7 @@ private:
 
     static const int kMaxHighSpeedFps = 1000;
 
-    status_t prepareInternal();
+    virtual status_t prepareInternal();
     status_t setupMPEG4orWEBMRecording();
     void setupMPEG4orWEBMMetaData(sp<MetaData> *meta);
     status_t setupAMRRecording();
@@ -172,6 +173,8 @@ private:
     status_t setupCameraSource(sp<CameraSource> *cameraSource);
     status_t setupAudioEncoder(const sp<MediaWriter>& writer);
     status_t setupVideoEncoder(const sp<MediaSource>& cameraSource, sp<MediaCodecSource> *source);
+    virtual void setupCustomVideoEncoderParams(sp<MediaSource> /*cameraSource*/,
+            sp<AMessage> &/*format*/) {}
 
     // Encoding parameter handling utilities
     status_t setParameter(const String8 &key, const String8 &value);

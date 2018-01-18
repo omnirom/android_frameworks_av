@@ -111,7 +111,6 @@ protected:
 
     virtual void onMessageReceived(const sp<AMessage> &msg);
 
-private:
     enum {
         kWhatDrainAudioQueue     = 'draA',
         kWhatDrainVideoQueue     = 'draV',
@@ -267,7 +266,7 @@ private:
     int32_t getDrainGeneration(bool audio);
     bool getSyncQueues();
     void onAudioTearDown(AudioTearDownReason reason);
-    status_t onOpenAudioSink(
+    virtual status_t onOpenAudioSink(
             const sp<AMessage> &format,
             bool offloadOnly,
             bool hasVideo,

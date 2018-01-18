@@ -92,6 +92,7 @@ private:
     sp<MetaData> mStartMeta;
     status_t mInitCheck;
     bool mIsRealTimeRecording;
+protected:
     bool mUse4ByteNalLength;
     bool mUse32BitOffset;
     bool mIsFileSizeLimitExplicitlyRequested;
@@ -253,7 +254,8 @@ private:
 
     // Acquire lock before calling these methods
     off64_t addSample_l(MediaBuffer *buffer, bool usePrefix, size_t *bytesWritten);
-    void addLengthPrefixedSample_l(MediaBuffer *buffer);
+    static void StripStartcode(MediaBuffer *buffer);
+    virtual void addLengthPrefixedSample_l(MediaBuffer *buffer);
     void addMultipleLengthPrefixedSamples_l(MediaBuffer *buffer);
     uint16_t addProperty_l(const ItemProperty &);
     uint16_t addItem_l(const ItemInfo &);

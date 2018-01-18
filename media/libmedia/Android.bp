@@ -212,6 +212,10 @@ cc_library_shared {
         "libmedia_midiiowrapper",
     ],
 
+    whole_static_libs: [
+        "libavmediaextentions",
+    ],
+
     export_include_dirs: [
         "include",
     ],
@@ -336,6 +340,7 @@ cc_library_shared {
         "libpowermanager",
         "libstagefright_httplive",
         "libstagefright_player2",
+        "libmediaplayerservice"
     ],
 
     export_shared_lib_headers: [
@@ -354,6 +359,7 @@ cc_library_shared {
         "libstagefright_nuplayer2",
         "libstagefright_rtsp",
         "libstagefright_timedtext",
+        "libavmediaserviceextensions",
     ],
 
     export_include_dirs: [
