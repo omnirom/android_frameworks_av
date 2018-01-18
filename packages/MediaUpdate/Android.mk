@@ -25,4 +25,10 @@ LOCAL_PRIVILEGED_MODULE := true
 # TODO: create a separate key for this package.
 LOCAL_CERTIFICATE := platform
 
+# TODO: Use System SDK once public APIs are approved
+# LOCAL_SDK_VERSION := system_current
+
+LOCAL_SRC_FILES := $(call all-java-files-under, src)
+LOCAL_PROGUARD_FLAG_FILES := proguard.cfg
+
 include $(BUILD_PACKAGE)

@@ -354,6 +354,9 @@ NuPlayer2::GenericSource::~GenericSource() {
         mLooper->unregisterHandler(id());
         mLooper->stop();
     }
+    if (mDataSource != NULL) {
+        mDataSource->close();
+    }
     resetDataSource();
 }
 
@@ -364,7 +367,9 @@ void NuPlayer2::GenericSource::prepareAsync() {
     if (mLooper == NULL) {
         mLooper = new ALooper;
         mLooper->setName("generic");
-        mLooper->start();
+        mLooper->start(false, /* runOnCallingThread */
+                       true,  /* canCallJava */
+                       PRIORITY_DEFAULT);
 
         mLooper->registerHandler(this);
     }

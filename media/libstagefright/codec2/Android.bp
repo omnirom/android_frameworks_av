@@ -42,25 +42,20 @@ cc_library_shared {
         "optional",
     ],
 
-    srcs: ["SimpleC2Component.cpp"],
+    srcs: [
+        "SimpleC2Component.cpp",
+        "SimpleC2Interface.cpp",
+    ],
 
     include_dirs: [
-        "frameworks/av/media/libstagefright/codec2/include",
     ],
 
     shared_libs: [
-        "android.hardware.graphics.allocator@2.0",
-        "android.hardware.graphics.mapper@2.0",
-        "libhidlbase",
-        "libion",
         "liblog",
         "libstagefright_codec2",
+        "libstagefright_codec2_vndk",
         "libstagefright_foundation",
 	"libutils",
-    ],
-
-    static_libs: [
-        "libstagefright_codec2_vndk",
     ],
 
     sanitize: {

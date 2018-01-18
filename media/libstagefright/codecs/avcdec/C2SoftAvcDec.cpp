@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftAvcDec"
 #include <utils/Log.h>
 
@@ -29,6 +29,7 @@
 #include "C2SoftAvcDec.h"
 
 #include <C2PlatformSupport.h>
+#include <SimpleC2Interface.h>
 
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/MediaDefs.h>
@@ -68,15 +69,10 @@ struct ivd_video_decode_op_t : public ::ivd_video_decode_op_t {};
 
 #define IVDEXT_CMD_CTL_SET_NUM_CORES    \
         (IVD_CONTROL_API_COMMAND_TYPE_T)IH264D_CMD_CTL_SET_NUM_CORES
-
 namespace {
 
+#if 0
 using SupportedValuesWithFields = C2SoftAvcDecIntf::SupportedValuesWithFields;
-
-uint32_t restoreIndex(const C2Param *param) {
-    return (param->forStream() ? (0x02000000 | ((param->stream() << 17) & 0x01FE0000)) : 0)
-            | param->type();
-}
 
 struct ValidateParam {
     explicit ValidateParam(
@@ -156,9 +152,9 @@ struct ValidateSimpleParam : public ValidateParam {
 
     std::unique_ptr<C2SettingResult> operator() (C2Param *c2param) {
         T* param = (T*)c2param;
-        C2ParamField field(param, &T::mValue);
+        C2ParamField field(param, &T::value);
         const C2FieldSupportedValues &supportedValues = mSupportedValues.at(field).supported;
-        if (!validateField(supportedValues, param->mValue)) {
+        if (!validateField(supportedValues, param->value)) {
             return std::unique_ptr<C2SettingResult>(
                     new C2SettingResult {C2SettingResult::BAD_VALUE, {field, nullptr}, {}});
         }
@@ -174,15 +170,15 @@ struct ValidateVideoSize : public ValidateParam {
 
     std::unique_ptr<C2SettingResult> operator() (C2Param *c2param) {
         T* param = (T*)c2param;
-        C2ParamField field(param, &T::mWidth);
+        C2ParamField field(param, &T::width);
         const C2FieldSupportedValues &supportedWidth = mSupportedValues.at(field).supported;
-        if (!validateField(supportedWidth, param->mWidth)) {
+        if (!validateField(supportedWidth, param->width)) {
             return std::unique_ptr<C2SettingResult>(
                     new C2SettingResult {C2SettingResult::BAD_VALUE, {field, nullptr}, {}});
         }
-        field = C2ParamField(param, &T::mHeight);
+        field = C2ParamField(param, &T::height);
         const C2FieldSupportedValues &supportedHeight = mSupportedValues.at(field).supported;
-        if (!validateField(supportedHeight, param->mHeight)) {
+        if (!validateField(supportedHeight, param->height)) {
             return std::unique_ptr<C2SettingResult>(
                     new C2SettingResult {C2SettingResult::BAD_VALUE, {field, nullptr}, {}});
         }
@@ -196,7 +192,7 @@ struct ValidateCString {
 
     std::unique_ptr<C2SettingResult> operator() (C2Param *c2param) {
         T* param = (T*)c2param;
-        if (strncmp(param->m.mValue, mExpected, param->flexCount()) != 0) {
+        if (strncmp(param->m.value, mExpected, param->flexCount()) != 0) {
             return std::unique_ptr<C2SettingResult>(
                     new C2SettingResult {C2SettingResult::BAD_VALUE, {C2ParamField(param, &T::m), nullptr}, {}});
         }
@@ -206,23 +202,31 @@ struct ValidateCString {
 private:
     const char *mExpected;
 };
+#endif
 
-class GraphicBuffer : public C2Buffer {
-public:
-    explicit GraphicBuffer(const std::shared_ptr<C2GraphicBlock> &block)
-        : C2Buffer({ block->share(C2Rect(block->width(), block->height()), ::android::C2Fence()) }) {}
-};
+void fillEmptyWork(const std::unique_ptr<C2Work> &work) {
+    uint32_t flags = 0;
+    if ((work->input.flags & C2BufferPack::FLAG_END_OF_STREAM)) {
+        flags |= C2BufferPack::FLAG_END_OF_STREAM;
+    }
+    work->worklets.front()->output.flags = (C2BufferPack::flags_t)flags;
+    work->worklets.front()->output.buffers.clear();
+    work->worklets.front()->output.buffers.emplace_back(nullptr);
+    work->worklets.front()->output.ordinal = work->input.ordinal;
+    work->worklets_processed = 1u;
+}
 
 }  // namespace
 
+#if 0
 #define CASE(member) \
-    case decltype(component->member)::coreIndex: \
+    case decltype(component->member)::CORE_INDEX: \
         return std::unique_ptr<C2StructDescriptor>(new C2StructDescriptor( \
                 static_cast<decltype(component->member) *>(nullptr)))
 
 class C2SoftAvcDecIntf::ParamReflector : public C2ParamReflector {
 public:
-    virtual std::unique_ptr<C2StructDescriptor> describe(C2Param::BaseIndex coreIndex) override {
+    virtual std::unique_ptr<C2StructDescriptor> describe(C2Param::CoreIndex coreIndex) override {
         constexpr C2SoftAvcDecIntf *component = nullptr;
         switch (coreIndex.coreIndex()) {
         CASE(mDomainInfo);
@@ -233,7 +237,7 @@ public:
         CASE(mMaxVideoSizeHint);
 
         // port mime configs are stored as unique_ptr.
-        case C2PortMimeConfig::coreIndex:
+        case C2PortMimeConfig::CORE_INDEX:
             return std::unique_ptr<C2StructDescriptor>(new C2StructDescriptor(
                     static_cast<C2PortMimeConfig *>(nullptr)));
         }
@@ -264,104 +268,104 @@ C2SoftAvcDecIntf::C2SoftAvcDecIntf(const char *name, c2_node_id_t id)
       mParamReflector(new ParamReflector) {
     ALOGV("in %s", __func__);
     mInputPortMime = C2PortMimeConfig::input::alloc_unique(strlen(CODEC_MIME_TYPE) + 1);
-    strcpy(mInputPortMime->m.mValue, CODEC_MIME_TYPE);
+    strcpy(mInputPortMime->m.value, CODEC_MIME_TYPE);
     mOutputPortMime = C2PortMimeConfig::output::alloc_unique(strlen(MEDIA_MIMETYPE_VIDEO_RAW) + 1);
-    strcpy(mOutputPortMime->m.mValue, MEDIA_MIMETYPE_VIDEO_RAW);
+    strcpy(mOutputPortMime->m.value, MEDIA_MIMETYPE_VIDEO_RAW);
 
-    mVideoSize.mWidth = 320;
-    mVideoSize.mHeight = 240;
-    mBlockSize.mWidth = 16;
-    mBlockSize.mHeight = 16;
-    mAlignment.mWidth = 2;
-    mAlignment.mHeight = 2;
+    mVideoSize.width = 320;
+    mVideoSize.height = 240;
+    mBlockSize.width = 16;
+    mBlockSize.height = 16;
+    mAlignment.width = 2;
+    mAlignment.height = 2;
 
-    mMaxVideoSizeHint.mWidth = H264_MAX_FRAME_WIDTH;
-    mMaxVideoSizeHint.mHeight = H264_MAX_FRAME_HEIGHT;
+    mMaxVideoSizeHint.width = H264_MAX_FRAME_WIDTH;
+    mMaxVideoSizeHint.height = H264_MAX_FRAME_HEIGHT;
 
     mOutputBlockPools = C2PortBlockPoolsTuning::output::alloc_unique({});
 
     auto insertParam = [&params = mParams] (C2Param *param) {
-        params[restoreIndex(param)] = param;
+        params[param->index()] = param;
     };
 
     auto markReadOnly = [&supported = mSupportedValues] (auto *param) {
         supported.emplace(
-                C2ParamField(param, &std::remove_pointer<decltype(param)>::type::mValue),
+                C2ParamField(param, &std::remove_pointer<decltype(param)>::type::value),
                 C2FieldSupportedValues(false /* flags */, {}));
     };
 
     auto markReadOnlyVideoSize = [&supported = mSupportedValues] (auto *param) {
         supported.emplace(
-                C2ParamField(param, &std::remove_pointer<decltype(param)>::type::mWidth),
+                C2ParamField(param, &std::remove_pointer<decltype(param)>::type::width),
                 C2FieldSupportedValues(false /* flags */, {}));
         supported.emplace(
-                C2ParamField(param, &std::remove_pointer<decltype(param)>::type::mHeight),
+                C2ParamField(param, &std::remove_pointer<decltype(param)>::type::height),
                 C2FieldSupportedValues(false /* flags */, {}));
     };
 
     insertParam(&mDomainInfo);
     markReadOnly(&mDomainInfo);
-    mFieldVerifiers[restoreIndex(&mDomainInfo)] =
+    mFieldVerifiers[mDomainInfo.index()] =
             ValidateSimpleParam<decltype(mDomainInfo)>(mSupportedValues);
 
     insertParam(mInputPortMime.get());
-    mFieldVerifiers[restoreIndex(mInputPortMime.get())] =
+    mFieldVerifiers[mInputPortMime->index()] =
             ValidateCString<std::remove_reference<decltype(*mInputPortMime)>::type>(CODEC_MIME_TYPE);
 
     insertParam(&mInputStreamCount);
     markReadOnly(&mInputStreamCount);
-    mFieldVerifiers[restoreIndex(&mInputStreamCount)] =
+    mFieldVerifiers[mInputStreamCount.index()] =
             ValidateSimpleParam<decltype(mInputStreamCount)>(mSupportedValues);
 
     insertParam(mOutputPortMime.get());
-    mFieldVerifiers[restoreIndex(mOutputPortMime.get())] =
+    mFieldVerifiers[mOutputPortMime->index()] =
             ValidateCString<std::remove_reference<decltype(*mOutputPortMime)>::type>(MEDIA_MIMETYPE_VIDEO_RAW);
 
     insertParam(&mOutputStreamCount);
     markReadOnly(&mOutputStreamCount);
-    mFieldVerifiers[restoreIndex(&mOutputStreamCount)] =
+    mFieldVerifiers[mOutputStreamCount.index()] =
             ValidateSimpleParam<decltype(mOutputStreamCount)>(mSupportedValues);
 
     insertParam(&mInputStreamFormat);
     markReadOnly(&mInputStreamFormat);
-    mFieldVerifiers[restoreIndex(&mInputStreamFormat)] =
+    mFieldVerifiers[mInputStreamFormat.index()] =
             ValidateSimpleParam<decltype(mInputStreamFormat)>(mSupportedValues);
 
     insertParam(&mOutputStreamFormat);
     markReadOnly(&mOutputStreamFormat);
-    mFieldVerifiers[restoreIndex(&mOutputStreamFormat)] =
+    mFieldVerifiers[mOutputStreamFormat.index()] =
             ValidateSimpleParam<decltype(mOutputStreamFormat)>(mSupportedValues);
 
     insertParam(&mVideoSize);
     markReadOnlyVideoSize(&mVideoSize);
-    mFieldVerifiers[restoreIndex(&mVideoSize)] =
+    mFieldVerifiers[mVideoSize.index()] =
             ValidateVideoSize<decltype(mVideoSize)>(mSupportedValues);
 
     insertParam(&mMaxVideoSizeHint);
     mSupportedValues.emplace(
-            C2ParamField(&mMaxVideoSizeHint, &C2MaxVideoSizeHintPortSetting::mWidth),
-            C2FieldSupportedValues(H264_MIN_FRAME_WIDTH, H264_MAX_FRAME_WIDTH, mAlignment.mWidth));
+            C2ParamField(&mMaxVideoSizeHint, &C2MaxVideoSizeHintPortSetting::width),
+            C2FieldSupportedValues(H264_MIN_FRAME_WIDTH, H264_MAX_FRAME_WIDTH, mAlignment.width));
     mSupportedValues.emplace(
-            C2ParamField(&mMaxVideoSizeHint, &C2MaxVideoSizeHintPortSetting::mHeight),
-            C2FieldSupportedValues(H264_MIN_FRAME_HEIGHT, H264_MAX_FRAME_HEIGHT, mAlignment.mHeight));
-    mFieldVerifiers[restoreIndex(&mMaxVideoSizeHint)] =
+            C2ParamField(&mMaxVideoSizeHint, &C2MaxVideoSizeHintPortSetting::height),
+            C2FieldSupportedValues(H264_MIN_FRAME_HEIGHT, H264_MAX_FRAME_HEIGHT, mAlignment.height));
+    mFieldVerifiers[mMaxVideoSizeHint.index()] =
             ValidateVideoSize<decltype(mMaxVideoSizeHint)>(mSupportedValues);
 
     insertParam(&mProfile);
     mSupportedValues.emplace(
-            C2ParamField(&mProfile, &C2AvcProfileInfo::mValue),
+            C2ParamField(&mProfile, &C2AvcProfileInfo::value),
             C2FieldSupportedValues(false /* flags */, {
                 kAvcProfileUnknown,
                 kAvcProfileBaseline,
                 kAvcProfileMain,
                 kAvcProfileHigh,
             }));
-    mFieldVerifiers[restoreIndex(&mProfile)] =
+    mFieldVerifiers[mProfile.index()] =
             ValidateSimpleParam<decltype(mProfile)>(mSupportedValues);
 
     insertParam(&mLevel);
     mSupportedValues.emplace(
-            C2ParamField(&mLevel, &C2AvcLevelInfo::mValue),
+            C2ParamField(&mLevel, &C2AvcLevelInfo::value),
             C2FieldSupportedValues(false /* flags */, {
                 kAvcLevelUnknown,
                 kAvcLevel10,
@@ -382,31 +386,31 @@ C2SoftAvcDecIntf::C2SoftAvcDecIntf(const char *name, c2_node_id_t id)
                 kAvcLevel51,
                 kAvcLevel52,
             }));
-    mFieldVerifiers[restoreIndex(&mLevel)] =
+    mFieldVerifiers[mLevel.index()] =
             ValidateSimpleParam<decltype(mLevel)>(mSupportedValues);
 
     insertParam(&mBlockSize);
     markReadOnlyVideoSize(&mBlockSize);
-    mFieldVerifiers[restoreIndex(&mBlockSize)] =
+    mFieldVerifiers[mBlockSize.index()] =
             ValidateVideoSize<decltype(mBlockSize)>(mSupportedValues);
 
     insertParam(&mAlignment);
     markReadOnlyVideoSize(&mAlignment);
-    mFieldVerifiers[restoreIndex(&mAlignment)] =
+    mFieldVerifiers[mAlignment.index()] =
             ValidateVideoSize<decltype(mAlignment)>(mSupportedValues);
 
     insertParam(&mFrameRate);
     mSupportedValues.emplace(
-            C2ParamField(&mFrameRate, &C2FrameRateInfo::mValue),
+            C2ParamField(&mFrameRate, &C2FrameRateInfo::value),
             C2FieldSupportedValues(0, 240));
-    mFieldVerifiers[restoreIndex(&mFrameRate)] =
+    mFieldVerifiers[mFrameRate.index()] =
             ValidateSimpleParam<decltype(mFrameRate)>(mSupportedValues);
 
     insertParam(&mBlocksPerSecond);
     mSupportedValues.emplace(
-            C2ParamField(&mFrameRate, &C2BlocksPerSecondInfo::mValue),
+            C2ParamField(&mFrameRate, &C2BlocksPerSecondInfo::value),
             C2FieldSupportedValues(0, 244800));
-    mFieldVerifiers[restoreIndex(&mBlocksPerSecond)] =
+    mFieldVerifiers[mBlocksPerSecond.index()] =
             ValidateSimpleParam<decltype(mBlocksPerSecond)>(mSupportedValues);
 
     mParamDescs.push_back(std::make_shared<C2ParamDescriptor>(
@@ -454,7 +458,7 @@ c2_status_t C2SoftAvcDecIntf::query_vb(
             continue;
         }
 
-        uint32_t index = restoreIndex(param);
+        uint32_t index = param->index();
         if (!mParams.count(index)) {
             // TODO: add support for output-block-pools (this will be done when we move all
             // config to shared ptr)
@@ -487,7 +491,7 @@ c2_status_t C2SoftAvcDecIntf::config_vb(
     (void)mayBlock;
     c2_status_t err = C2_OK;
     for (C2Param *param : params) {
-        uint32_t index = restoreIndex(param);
+        uint32_t index = param->index();
         if (param->index() == mOutputBlockPools.get()->index()) {
             // setting output block pools
             mOutputBlockPools.reset(
@@ -557,7 +561,7 @@ void C2SoftAvcDecIntf::updateSupportedValues() {
     // cf: Rec. ITU-T H.264 A.3
     int maxFrameRate = 172;
     std::vector<C2ParamField> fields;
-    if (mLevel.mValue != kAvcLevelUnknown) {
+    if (mLevel.value != kAvcLevelUnknown) {
         // cf: Rec. ITU-T H.264 Table A-1
         constexpr int MaxFS[] = {
         //  0       1       2       3       4       5       6       7       8       9
@@ -579,38 +583,43 @@ void C2SoftAvcDecIntf::updateSupportedValues() {
         };
 
         // cf: Rec. ITU-T H.264 A.3.1
-        maxWidth = std::min(maxWidth, floor32(std::sqrt(MaxFS[mLevel.mValue] * 8)) * MB_SIZE);
-        maxHeight = std::min(maxHeight, floor32(std::sqrt(MaxFS[mLevel.mValue] * 8)) * MB_SIZE);
-        int32_t MBs = ((mVideoSize.mWidth + 15) / 16) * ((mVideoSize.mHeight + 15) / 16);
-        maxFrameRate = std::min(maxFrameRate, MaxMBPS[mLevel.mValue] / MBs);
-        fields.push_back(C2ParamField(&mLevel, &C2AvcLevelInfo::mValue));
+        maxWidth = std::min(maxWidth, floor32(std::sqrt(MaxFS[mLevel.value] * 8)) * MB_SIZE);
+        maxHeight = std::min(maxHeight, floor32(std::sqrt(MaxFS[mLevel.value] * 8)) * MB_SIZE);
+        int32_t MBs = ((mVideoSize.width + 15) / 16) * ((mVideoSize.height + 15) / 16);
+        maxFrameRate = std::min(maxFrameRate, MaxMBPS[mLevel.value] / MBs);
+        fields.push_back(C2ParamField(&mLevel, &C2AvcLevelInfo::value));
     }
 
     SupportedValuesWithFields &maxWidthVals = mSupportedValues.at(
-            C2ParamField(&mMaxVideoSizeHint, &C2MaxVideoSizeHintPortSetting::mWidth));
+            C2ParamField(&mMaxVideoSizeHint, &C2MaxVideoSizeHintPortSetting::width));
     maxWidthVals.supported.range.max = maxWidth;
     maxWidthVals.restrictingFields.clear();
     maxWidthVals.restrictingFields.insert(fields.begin(), fields.end());
 
     SupportedValuesWithFields &maxHeightVals = mSupportedValues.at(
-            C2ParamField(&mMaxVideoSizeHint, &C2MaxVideoSizeHintPortSetting::mHeight));
+            C2ParamField(&mMaxVideoSizeHint, &C2MaxVideoSizeHintPortSetting::height));
     maxHeightVals.supported.range.max = maxHeight;
     maxHeightVals.restrictingFields.clear();
     maxHeightVals.restrictingFields.insert(fields.begin(), fields.end());
 
     SupportedValuesWithFields &frameRate = mSupportedValues.at(
-            C2ParamField(&mFrameRate, &C2FrameRateInfo::mValue));
+            C2ParamField(&mFrameRate, &C2FrameRateInfo::value));
     frameRate.supported.range.max = maxFrameRate;
     frameRate.restrictingFields.clear();
     frameRate.restrictingFields.insert(fields.begin(), fields.end());
 }
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
 C2SoftAvcDec::C2SoftAvcDec(
         const char *name,
         c2_node_id_t id)
-    : SimpleC2Component(std::make_shared<C2SoftAvcDecIntf>(name, id)),
+    : SimpleC2Component(
+          SimpleC2Interface::Builder(name, id)
+          .inputFormat(C2FormatCompressed)
+          .outputFormat(C2FormatVideo)
+          .build()),
       mCodecCtx(NULL),
       mFlushOutBuffer(NULL),
       mIvColorFormat(IV_YUV_420P),
@@ -686,11 +695,6 @@ c2_status_t C2SoftAvcDec::onFlush_sm() {
         free(mFlushOutBuffer);
         mFlushOutBuffer = NULL;
     }
-    return C2_OK;
-}
-
-c2_status_t C2SoftAvcDec::onDrain_nb() {
-    // TODO
     return C2_OK;
 }
 
@@ -880,7 +884,6 @@ status_t C2SoftAvcDec::initDecoder() {
             ALOGE("Error in create: 0x%x",
                     s_create_op.s_ivd_create_op_t.u4_error_code);
             deInitDecoder();
-            mCodecCtx = NULL;
             return UNKNOWN_ERROR;
         }
     }
@@ -919,6 +922,7 @@ status_t C2SoftAvcDec::deInitDecoder() {
                     s_delete_op.s_ivd_delete_op_t.u4_error_code);
             return UNKNOWN_ERROR;
         }
+        mCodecCtx = NULL;
     }
 
     mChangingResolution = false;
@@ -1023,78 +1027,89 @@ bool C2SoftAvcDec::setDecodeArgs(
     return true;
 }
 
-bool C2SoftAvcDec::process(const std::unique_ptr<C2Work> &work, std::shared_ptr<C2BlockPool> pool) {
-    bool isInFlush = false;
-    bool eos = false;
+c2_status_t C2SoftAvcDec::ensureDecoderState(const std::shared_ptr<C2BlockPool> &pool) {
+    if (NULL == mCodecCtx) {
+        if (OK != initDecoder()) {
+            ALOGE("Failed to initialize decoder");
+            // TODO: notify(OMX_EventError, OMX_ErrorUnsupportedSetting, 0, NULL);
+            mSignalledError = true;
+            return C2_CORRUPTED;
+        }
+    }
+    if (mWidth != mStride) {
+        /* Set the run-time (dynamic) parameters */
+        mStride = mWidth;
+        setParams(mStride);
+    }
 
-    bool done = false;
-    work->result = C2_OK;
+    if (!mAllocatedBlock) {
+        // TODO: error handling
+        // TODO: format & usage
+        uint32_t format = HAL_PIXEL_FORMAT_YV12;
+        C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
+        ALOGV("using allocator %u", pool->getAllocatorId());
 
-    const C2ConstLinearBlock &buffer =
-            work->input.buffers[0]->data().linearBlocks().front();
-    auto fillEmptyWork = [](const std::unique_ptr<C2Work> &work) {
+        (void)pool->fetchGraphicBlock(
+                mWidth, mHeight, format, usage, &mAllocatedBlock);
+        ALOGV("provided (%dx%d) required (%dx%d)",
+                mAllocatedBlock->width(), mAllocatedBlock->height(), mWidth, mHeight);
+    }
+    return C2_OK;
+}
+
+void C2SoftAvcDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work) {
+    std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(std::move(mAllocatedBlock));
+    auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
         uint32_t flags = 0;
-        if ((work->input.flags & C2BufferPack::FLAG_END_OF_STREAM)) {
+        if (work->input.flags & C2BufferPack::FLAG_END_OF_STREAM) {
             flags |= C2BufferPack::FLAG_END_OF_STREAM;
+            ALOGV("EOS");
         }
         work->worklets.front()->output.flags = (C2BufferPack::flags_t)flags;
         work->worklets.front()->output.buffers.clear();
-        work->worklets.front()->output.buffers.emplace_back(nullptr);
+        work->worklets.front()->output.buffers.push_back(buffer);
         work->worklets.front()->output.ordinal = work->input.ordinal;
+        work->worklets_processed = 1u;
     };
-    if (buffer.capacity() == 0) {
-        ALOGV("empty input: %" PRIu64, work->input.ordinal.frame_index);
+    if (work && index == work->input.ordinal.frame_index) {
+        fillWork(work);
+    } else {
+        finish(index, fillWork);
+    }
+}
 
+void C2SoftAvcDec::process(
+        const std::unique_ptr<C2Work> &work,
+        const std::shared_ptr<C2BlockPool> &pool) {
+    bool eos = false;
+
+    work->result = C2_OK;
+    work->worklets_processed = 0u;
+
+    const C2ConstLinearBlock &buffer =
+        work->input.buffers[0]->data().linearBlocks().front();
+    if (buffer.capacity() == 0) {
+        ALOGV("empty input: %llu", (long long)work->input.ordinal.frame_index);
         // TODO: result?
         fillEmptyWork(work);
         if ((work->input.flags & C2BufferPack::FLAG_END_OF_STREAM)) {
             eos = true;
         }
-        done = true;
+        return;
     } else if (work->input.flags & C2BufferPack::FLAG_END_OF_STREAM) {
-        ALOGV("input EOS: %" PRIu64, work->input.ordinal.frame_index);
+        ALOGV("input EOS: %llu", (long long)work->input.ordinal.frame_index);
         eos = true;
     }
 
-    std::unique_ptr<C2ReadView> deferred;
-    std::unique_ptr<C2ReadView> input(new C2ReadView(
-            work->input.buffers[0]->data().linearBlocks().front().map().get()));
+    C2ReadView input = work->input.buffers[0]->data().linearBlocks().front().map().get();
     uint32_t workIndex = work->input.ordinal.frame_index & 0xFFFFFFFF;
     size_t inOffset = 0u;
 
-    while (input || isInFlush) {
+    while (inOffset < input.capacity()) {
         if (mSignalledError) {
-            return done;
+            break;
         }
-        if (NULL == mCodecCtx) {
-            if (OK != initDecoder()) {
-                ALOGE("Failed to initialize decoder");
-                // TODO: notify(OMX_EventError, OMX_ErrorUnsupportedSetting, 0, NULL);
-                mSignalledError = true;
-                return done;
-            }
-        }
-        if (mWidth != mStride) {
-            /* Set the run-time (dynamic) parameters */
-            mStride = mWidth;
-            setParams(mStride);
-        }
-
-        if (isInFlush) {
-            ALOGV("flushing");
-        }
-
-        if (!mAllocatedBlock) {
-            // TODO: error handling
-            // TODO: format & usage
-            uint32_t format = HAL_PIXEL_FORMAT_YV12;
-            C2MemoryUsage usage = { C2MemoryUsage::kSoftwareRead, C2MemoryUsage::kSoftwareWrite };
-            ALOGV("using allocator %u", pool->getAllocatorId());
-
-            (void)pool->fetchGraphicBlock(
-                    mWidth, mHeight, format, usage, &mAllocatedBlock);
-            ALOGV("provided (%dx%d) required (%dx%d)", mAllocatedBlock->width(), mAllocatedBlock->height(), mWidth, mHeight);
-        }
+        (void)ensureDecoderState(pool);
         C2GraphicView output = mAllocatedBlock->map().get();
         if (output.error() != OK) {
             ALOGE("mapped err = %d", output.error());
@@ -1105,11 +1120,11 @@ bool C2SoftAvcDec::process(const std::unique_ptr<C2Work> &work, std::shared_ptr<
         WORD32 timeDelay, timeTaken;
         //size_t sizeY, sizeUV;
 
-        if (!setDecodeArgs(&s_dec_ip, &s_dec_op, input.get(), &output, workIndex, inOffset)) {
+        if (!setDecodeArgs(&s_dec_ip, &s_dec_op, &input, &output, workIndex, inOffset)) {
             ALOGE("Decoder arg setup failed");
             // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
             mSignalledError = true;
-            return done;
+            break;
         }
         ALOGV("Decoder arg setup succeeded");
         // If input dump is enabled, then write to file
@@ -1122,6 +1137,7 @@ bool C2SoftAvcDec::process(const std::unique_ptr<C2Work> &work, std::shared_ptr<
 
         IV_API_CALL_STATUS_T status;
         status = ivdec_api_function(mCodecCtx, (void *)&s_dec_ip, (void *)&s_dec_op);
+        ALOGV("status = %d, error_code = %d", status, (s_dec_op.u4_error_code & 0xFF));
 
         bool unsupportedResolution =
             (IVD_STREAM_WIDTH_HEIGHT_NOT_SUPPORTED == (s_dec_op.u4_error_code & 0xFF));
@@ -1131,7 +1147,7 @@ bool C2SoftAvcDec::process(const std::unique_ptr<C2Work> &work, std::shared_ptr<
             ALOGE("Unsupported resolution : %dx%d", mWidth, mHeight);
             // TODO: notify(OMX_EventError, OMX_ErrorUnsupportedSetting, 0, NULL);
             mSignalledError = true;
-            return done;
+            break;
         }
 
         bool allocationFailed = (IVD_MEM_ALLOC_FAILED == (s_dec_op.u4_error_code & 0xFF));
@@ -1139,7 +1155,7 @@ bool C2SoftAvcDec::process(const std::unique_ptr<C2Work> &work, std::shared_ptr<
             ALOGE("Allocation failure in decoder");
             // TODO: notify(OMX_EventError, OMX_ErrorUnsupportedSetting, 0, NULL);
             mSignalledError = true;
-            return done;
+            break;
         }
 
         bool resChanged = (IVD_RES_CHANGED == (s_dec_op.u4_error_code & 0xFF));
@@ -1152,26 +1168,23 @@ bool C2SoftAvcDec::process(const std::unique_ptr<C2Work> &work, std::shared_ptr<
 
         PRINT_TIME("timeTaken=%6d delay=%6d numBytes=%6d", timeTaken, timeDelay,
                s_dec_op.u4_num_bytes_consumed);
-        if (input) {
-            ALOGV("bytes total=%u", input->capacity());
-        }
+        ALOGV("bytes total=%u", input.capacity());
         if (s_dec_op.u4_frame_decoded_flag && !mFlushNeeded) {
             mFlushNeeded = true;
         }
 
-        if (1 != s_dec_op.u4_frame_decoded_flag && input) {
+        if (1 != s_dec_op.u4_frame_decoded_flag) {
             /* If the input did not contain picture data, return work without
              * buffer */
             ALOGV("no picture data: %u", workIndex);
             fillEmptyWork(work);
-            done = true;
         }
 
-        // If the decoder is in the changing resolution mode and there is no output present,
-        // that means the switching is done and it's ready to reset the decoder and the plugin.
-        if (mChangingResolution && !s_dec_op.u4_output_present) {
-            ALOGV("changing resolution");
-            mChangingResolution = false;
+        if (resChanged) {
+            ALOGV("res changed");
+            if (mFlushNeeded) {
+                drainInternal(DRAIN_COMPONENT_NO_EOS, pool, work);
+            }
             resetDecoder();
             resetPlugin();
             mStride = mWidth;
@@ -1179,19 +1192,6 @@ bool C2SoftAvcDec::process(const std::unique_ptr<C2Work> &work, std::shared_ptr<
             continue;
         }
 
-        if (resChanged) {
-            ALOGV("res changed");
-            mChangingResolution = true;
-            if (mFlushNeeded) {
-                setFlushMode();
-                isInFlush = true;
-                deferred = std::move(input);
-            }
-            continue;
-        }
-
-        // Combine the resolution change and coloraspects change in one PortSettingChange event
-        // if necessary.
         if ((0 < s_dec_op.u4_pic_wd) && (0 < s_dec_op.u4_pic_ht)) {
             uint32_t width = s_dec_op.u4_pic_wd;
             uint32_t height = s_dec_op.u4_pic_ht;
@@ -1201,73 +1201,76 @@ bool C2SoftAvcDec::process(const std::unique_ptr<C2Work> &work, std::shared_ptr<
                 mWidth = width;
                 mHeight = height;
             }
-        } else if (mUpdateColorAspects) {
+            // TODO: continue?
+        }
+
+        if (mUpdateColorAspects) {
             //notify(OMX_EventPortSettingsChanged, kOutputPortIndex,
             //    kDescribeColorAspectsIndex, NULL);
             ALOGV("update color aspect");
             mUpdateColorAspects = false;
-            continue;
         }
 
         if (s_dec_op.u4_output_present) {
             ALOGV("output_present: %d", s_dec_op.u4_ts);
-            auto fillWork = [this](const std::unique_ptr<C2Work> &work) {
-                uint32_t flags = 0;
-                if (work->input.flags & C2BufferPack::FLAG_END_OF_STREAM) {
-                    flags |= C2BufferPack::FLAG_END_OF_STREAM;
-                    ALOGV("EOS");
-                }
-                work->worklets.front()->output.flags = (C2BufferPack::flags_t)flags;
-                work->worklets.front()->output.buffers.clear();
-                work->worklets.front()->output.buffers.emplace_back(
-                        std::make_shared<GraphicBuffer>(std::move(mAllocatedBlock)));
-                work->worklets.front()->output.ordinal = work->input.ordinal;
-            };
-            if (s_dec_op.u4_ts != workIndex) {
-                finish(s_dec_op.u4_ts, fillWork);
-            } else {
-                fillWork(work);
-                done = true;
-            }
-        } else if (isInFlush) {
-            ALOGV("flush complete");
-            /* If in flush mode and no output is returned by the codec,
-             * then come out of flush mode */
-            isInFlush = false;
-
-            /* If EOS was recieved on input port and there is no output
-             * from the codec, then signal EOS on output port */
-            if (eos) {
-                // TODO: It's an error if not done.
-
-                resetPlugin();
-                return done;
-            }
-
-            input = std::move(deferred);
+            finishWork(s_dec_op.u4_ts, work);
         }
 
-        if (input) {
-            inOffset += s_dec_op.u4_num_bytes_consumed;
-            if (inOffset >= input->capacity()) {
-                /* If input EOS is seen and decoder is not in flush mode,
-                 * set the decoder in flush mode.
-                 * There can be a case where EOS is sent along with last picture data
-                 * In that case, only after decoding that input data, decoder has to be
-                 * put in flush. This case is handled here  */
-                if (eos && !isInFlush) {
-                    setFlushMode();
-                    isInFlush = true;
-                }
-                if (isInFlush) {
-                    input.reset();
-                } else {
-                    break;
-                }
-            }
+        inOffset += s_dec_op.u4_num_bytes_consumed;
+    }
+    if (inOffset >= input.capacity()) {
+        /* If input EOS is seen, drain the decoder.
+         * There can be a case where EOS is sent along with last picture data
+         * In that case, only after decoding that input data, decoder has to be
+         * put in flush. This case is handled here  */
+        if (eos) {
+            drainInternal(DRAIN_COMPONENT_WITH_EOS, pool, work);
         }
     }
-    return done;
+}
+
+c2_status_t C2SoftAvcDec::drainInternal(
+        uint32_t drainMode,
+        const std::shared_ptr<C2BlockPool> &pool,
+        const std::unique_ptr<C2Work> &work) {
+    if (drainMode == NO_DRAIN) {
+        ALOGW("drain with NO_DRAIN: no-op");
+        return C2_OK;
+    }
+    if (drainMode == DRAIN_CHAIN) {
+        ALOGW("DRAIN_CHAIN not supported");
+        return C2_OMITTED;
+    }
+    setFlushMode();
+
+    while (true) {
+        (void)ensureDecoderState(pool);
+        C2GraphicView output = mAllocatedBlock->map().get();
+        if (output.error() != OK) {
+            ALOGE("mapped err = %d", output.error());
+        }
+
+        ivd_video_decode_ip_t s_dec_ip;
+        ivd_video_decode_op_t s_dec_op;
+
+        setDecodeArgs(&s_dec_ip, &s_dec_op, NULL, &output, 0, 0u);
+
+        (void)ivdec_api_function(mCodecCtx, (void *)&s_dec_ip, (void *)&s_dec_op);
+
+        if (s_dec_op.u4_output_present) {
+            ALOGV("output_present: %d", s_dec_op.u4_ts);
+            finishWork(s_dec_op.u4_ts, work);
+        } else {
+            break;
+        }
+    }
+
+    if (drainMode == DRAIN_COMPONENT_WITH_EOS
+            && work && work->worklets_processed == 0u) {
+        fillEmptyWork(work);
+    }
+
+    return C2_OK;
 }
 
 bool C2SoftAvcDec::colorAspectsDiffer(
@@ -1279,6 +1282,12 @@ bool C2SoftAvcDec::colorAspectsDiffer(
         return true;
     }
     return false;
+}
+
+c2_status_t C2SoftAvcDec::drain(
+        uint32_t drainMode,
+        const std::shared_ptr<C2BlockPool> &pool) {
+    return drainInternal(drainMode, pool, nullptr);
 }
 
 void C2SoftAvcDec::updateFinalColorAspects(
@@ -1329,7 +1338,11 @@ public:
             c2_node_id_t id, std::shared_ptr<C2ComponentInterface>* const interface,
             std::function<void(::android::C2ComponentInterface*)> deleter) override {
         *interface =
-            std::shared_ptr<C2ComponentInterface>(new C2SoftAvcDecIntf("avc", id), deleter);
+              SimpleC2Interface::Builder("avc", id, deleter)
+              .inputFormat(C2FormatCompressed)
+              .outputFormat(C2FormatVideo)
+              .build();
+//            std::shared_ptr<C2ComponentInterface>(new C2SoftAvcDecIntf("avc", id), deleter);
         return C2_OK;
     }
 
