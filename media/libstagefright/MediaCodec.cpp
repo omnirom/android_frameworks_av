@@ -59,6 +59,7 @@
 #include <private/android_filesystem_config.h>
 #include <utils/Log.h>
 #include <utils/Singleton.h>
+#include <stagefright/AVExtensions.h>
 
 namespace android {
 
@@ -556,7 +557,7 @@ sp<CodecBase> MediaCodec::GetCodecBase(const AString &name, bool nameIsType) {
         return new CCodec;
     } else if (nameIsType || name.startsWithIgnoreCase("omx.")) {
         // at this time only ACodec specifies a mime type.
-        return new ACodec;
+        return AVFactory::get()->createACodec();
     } else if (name.startsWithIgnoreCase("android.filter.")) {
         return new MediaFilter;
     } else {

@@ -60,7 +60,6 @@ protected:
 
     virtual void onMessageReceived(const sp<AMessage> &msg);
 
-private:
     enum Flags {
         // Don't log any URLs.
         kFlagIncognito = 1,

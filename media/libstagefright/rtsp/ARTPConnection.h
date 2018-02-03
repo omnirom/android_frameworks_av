@@ -53,6 +53,7 @@ struct ARTPConnection : public AHandler {
 protected:
     virtual ~ARTPConnection();
     virtual void onMessageReceived(const sp<AMessage> &msg);
+    virtual void onAddStream(const sp<AMessage> &msg);
 
 private:
     enum {
@@ -72,7 +73,6 @@ private:
     bool mPollEventPending;
     int64_t mLastReceiverReportTimeUs;
 
-    void onAddStream(const sp<AMessage> &msg);
     void onRemoveStream(const sp<AMessage> &msg);
     void onPollStreams();
     void onInjectPacket(const sp<AMessage> &msg);

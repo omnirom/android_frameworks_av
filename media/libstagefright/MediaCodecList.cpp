@@ -42,6 +42,8 @@
 
 #include <algorithm>
 
+#include <stagefright/AVExtensions.h>
+
 namespace android {
 
 namespace {

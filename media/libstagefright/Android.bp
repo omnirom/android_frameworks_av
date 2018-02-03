@@ -88,6 +88,7 @@ cc_library_shared {
         "libbinder",
         "libcamera_client",
         "libcutils",
+        "libcrypto",
         "libdl",
         "libdrmframework",
         "libgui",
@@ -133,6 +134,8 @@ cc_library_shared {
         "libFLAC",
 
         "libstagefright_codec2_vndk",
+
+        "libavextensions"
     ],
 
     export_shared_lib_headers: [
@@ -142,6 +145,13 @@ cc_library_shared {
 
     export_include_dirs: [
         "include",
+
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libavextensions",
+        "frameworks/av/media/libmediaextractor",
+        "frameworks/av/media/libstagefright/mpeg2ts",
     ],
 
     cflags: [
@@ -211,6 +221,9 @@ cc_library_shared {
         "libmedia_helper",
         "libstagefright_foundation",
         "libdl",
+        "libhidlmemory",
+        "libcrypto",
+        "libstagefright_omx",
     ],
 
     static_libs: [
@@ -218,6 +231,7 @@ cc_library_shared {
         "libstagefright_id3",
         "libstagefright_mpeg2support",
         "libstagefright_timedtext",
+        "libavextensions",
     ],
 
     export_shared_lib_headers: [
@@ -226,6 +240,12 @@ cc_library_shared {
 
     export_include_dirs: [
         "include",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libavextensions",
+        "frameworks/av/media/libmediaextractor",
+        "frameworks/av/media/libstagefright/mpeg2ts",
     ],
 
     cflags: [

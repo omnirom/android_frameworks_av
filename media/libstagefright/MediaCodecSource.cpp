@@ -36,6 +36,7 @@
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
+#include <stagefright/AVExtensions.h>
 
 namespace android {
 
@@ -506,6 +507,9 @@ status_t MediaCodecSource::initEncoder() {
             outputMIME.c_str(), true /* encoder */,
             ((mFlags & FLAG_PREFER_SOFTWARE_CODEC) ? MediaCodecList::kPreferSoftwareCodecs : 0),
             &matchingCodecs);
+    if (matchingCodecs.size() == 0) {
+        AVUtils::get()->useQCHWEncoder(mOutputFormat, &matchingCodecs);
+    }
 
     status_t err = NO_INIT;
     for (size_t ix = 0; ix < matchingCodecs.size(); ++ix) {
@@ -699,6 +703,9 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
             // push decoding time for video, or drift time for audio
             if (mIsVideo) {
                 mDecodingTimeQueue.push_back(timeUs);
+                if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
+                    AVUtils::get()->addDecodingTimesFromBatch(mbuf, mDecodingTimeQueue);
+                }
             } else {
 #if DEBUG_DRIFT_TIME
                 if (mFirstSampleTimeUs < 0ll) {
@@ -896,6 +903,8 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             MediaBuffer *mbuf = new MediaBuffer(outbuf->size());
+            sp<MetaData> meta = mbuf->meta_data();
+            AVUtils::get()->setDeferRelease(meta);
             mbuf->setObserver(this);
             mbuf->add_ref();
 
