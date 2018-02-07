@@ -23,11 +23,13 @@
 #include <media/AudioIoDescriptor.h>
 #include <media/IAudioFlingerClient.h>
 #include <media/IAudioPolicyServiceClient.h>
+#include <media/MicrophoneInfo.h>
 #include <system/audio.h>
 #include <system/audio_effect.h>
 #include <system/audio_policy.h>
 #include <utils/Errors.h>
 #include <utils/Mutex.h>
+#include <vector>
 
 namespace android {
 
@@ -216,6 +218,7 @@ public:
                                      audio_io_handle_t *output,
                                      audio_session_t session,
                                      audio_stream_type_t *stream,
+                                     pid_t pid,
                                      uid_t uid,
                                      const audio_config_t *config,
                                      audio_output_flags_t flags,
@@ -244,7 +247,10 @@ public:
                                     audio_port_handle_t *portId);
 
     static status_t startInput(audio_io_handle_t input,
-                               audio_session_t session);
+                               audio_session_t session,
+                               audio_devices_t device,
+                               uid_t uid,
+                               bool *silenced);
     static status_t stopInput(audio_io_handle_t input,
                               audio_session_t session);
     static void releaseInput(audio_io_handle_t input,
@@ -281,7 +287,7 @@ public:
     static uint32_t getPrimaryOutputSamplingRate();
     static size_t getPrimaryOutputFrameCount();
 
-    static status_t setLowRamDevice(bool isLowRamDevice);
+    static status_t setLowRamDevice(bool isLowRamDevice, int64_t totalMemory);
 
     // Check if hw offload is possible for given format, stream type, sample rate,
     // bit rate, duration, video and streaming or offload property is enabled
@@ -335,6 +341,8 @@ public:
 
     static float    getStreamVolumeDB(
             audio_stream_type_t stream, int index, audio_devices_t device);
+
+    static status_t getMicrophones(std::vector<media::MicrophoneInfo> *microphones);
 
     // ----------------------------------------------------------------------------
 

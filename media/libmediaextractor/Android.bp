@@ -1,4 +1,4 @@
-cc_library_shared {
+cc_library {
     name: "libmediaextractor",
 
     include_dirs: [
@@ -15,6 +15,7 @@ cc_library_shared {
     ],
 
     shared_libs: [
+        "libbinder",
         "libstagefright_foundation",
         "libutils",
         "libcutils",
@@ -23,6 +24,9 @@ cc_library_shared {
 
     srcs: [
         "DataSource.cpp",
+        "MediaBuffer.cpp",
+        "MediaBufferGroup.cpp",
+        "MediaSourceBase.cpp",
         "MediaSource.cpp",
         "MediaExtractor.cpp",
     ],

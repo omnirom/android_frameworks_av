@@ -28,9 +28,6 @@
 
 #include <media/IMediaAnalyticsService.h>
 
-#include "MetricsSummarizer.h"
-
-
 namespace android {
 
 class MediaAnalyticsService : public BnMediaAnalyticsService
@@ -89,36 +86,6 @@ class MediaAnalyticsService : public BnMediaAnalyticsService
     MediaAnalyticsItem *findItem(List<MediaAnalyticsItem *> *,
                                      MediaAnalyticsItem *, bool removeit);
 
-    // summarizers
-    void summarize(MediaAnalyticsItem *item);
-    class SummarizerSet {
-        nsecs_t mStarted;
-        List<MetricsSummarizer *> *mSummarizers;
-
-      public:
-        void appendSummarizer(MetricsSummarizer *s) {
-            if (s) {
-                mSummarizers->push_back(s);
-            }
-        };
-        nsecs_t getStarted() { return mStarted;}
-        void setStarted(nsecs_t started) {mStarted = started;}
-        List<MetricsSummarizer *> *getSummarizers() { return mSummarizers;}
-
-        SummarizerSet();
-        ~SummarizerSet();
-    };
-    void newSummarizerSet();
-    List<SummarizerSet *> *mSummarizerSets;
-    SummarizerSet *mCurrentSet;
-    List<MetricsSummarizer *> *getFirstSet() {
-        List<SummarizerSet *>::iterator first = mSummarizerSets->begin();
-        if (first != mSummarizerSets->end()) {
-            return (*first)->getSummarizers();
-        }
-        return NULL;
-    }
-
     void saveItem(MediaAnalyticsItem);
     void saveItem(List<MediaAnalyticsItem *> *, MediaAnalyticsItem *, int);
     void deleteItem(List<MediaAnalyticsItem *> *, MediaAnalyticsItem *);
@@ -136,8 +103,8 @@ class MediaAnalyticsService : public BnMediaAnalyticsService
     // mapping uids to package names
     struct UidToPkgMap {
         uid_t uid;
-        AString pkg;
-        AString installer;
+        std::string pkg;
+        std::string installer;
         int64_t versionCode;
         nsecs_t expiration;
     };

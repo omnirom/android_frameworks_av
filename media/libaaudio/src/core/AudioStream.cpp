@@ -93,7 +93,7 @@ aaudio_result_t AudioStream::open(const AudioStreamBuilder& builder)
     }
     mInputPreset = builder.getInputPreset();
     if (mInputPreset == AAUDIO_UNSPECIFIED) {
-        mInputPreset = AAUDIO_INPUT_PRESET_GENERIC;
+        mInputPreset = AAUDIO_INPUT_PRESET_VOICE_RECOGNITION;
     }
 
     // callbacks
@@ -108,10 +108,14 @@ aaudio_result_t AudioStream::open(const AudioStreamBuilder& builder)
           mSampleRate, mSamplesPerFrame, mFormat,
           AudioStream_convertSharingModeToShortText(mSharingMode),
           (getDirection() == AAUDIO_DIRECTION_OUTPUT) ? "OUTPUT" : "INPUT");
-    ALOGI("open() device = %d, perfMode = %d, callback: %s with frames = %d",
-          mDeviceId, mPerformanceMode,
+    ALOGI("open() device = %d, sessionId = %d, perfMode = %d, callback: %s with frames = %d",
+          mDeviceId,
+          mSessionId,
+          mPerformanceMode,
           (isDataCallbackSet() ? "ON" : "OFF"),
           mFramesPerDataCallback);
+    ALOGI("open() usage = %d, contentType = %d, inputPreset = %d",
+          mUsage, mContentType, mInputPreset);
 
     return AAUDIO_OK;
 }
@@ -126,29 +130,106 @@ aaudio_result_t AudioStream::safeStart() {
 }
 
 aaudio_result_t AudioStream::safePause() {
+    if (!isPauseSupported()) {
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
+
     std::lock_guard<std::mutex> lock(mStreamLock);
     if (collidesWithCallback()) {
         ALOGE("%s cannot be called from a callback!", __func__);
         return AAUDIO_ERROR_INVALID_STATE;
     }
+
+    switch (getState()) {
+        // Proceed with pausing.
+        case AAUDIO_STREAM_STATE_STARTING:
+        case AAUDIO_STREAM_STATE_STARTED:
+        case AAUDIO_STREAM_STATE_DISCONNECTED:
+            break;
+
+            // Transition from one inactive state to another.
+        case AAUDIO_STREAM_STATE_OPEN:
+        case AAUDIO_STREAM_STATE_STOPPED:
+        case AAUDIO_STREAM_STATE_FLUSHED:
+            setState(AAUDIO_STREAM_STATE_PAUSED);
+            return AAUDIO_OK;
+
+            // Redundant?
+        case AAUDIO_STREAM_STATE_PAUSING:
+        case AAUDIO_STREAM_STATE_PAUSED:
+            return AAUDIO_OK;
+
+            // Don't interfere with transitional states or when closed.
+        case AAUDIO_STREAM_STATE_STOPPING:
+        case AAUDIO_STREAM_STATE_FLUSHING:
+        case AAUDIO_STREAM_STATE_CLOSING:
+        case AAUDIO_STREAM_STATE_CLOSED:
+        default:
+            ALOGW("safePause() stream not running, state = %s",
+                  AAudio_convertStreamStateToText(getState()));
+            return AAUDIO_ERROR_INVALID_STATE;
+    }
+
     return requestPause();
 }
 
 aaudio_result_t AudioStream::safeFlush() {
+    if (!isFlushSupported()) {
+        ALOGE("flush not supported for this stream");
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
+
     std::lock_guard<std::mutex> lock(mStreamLock);
     if (collidesWithCallback()) {
-        ALOGE("%s cannot be called from a callback!", __func__);
+        ALOGE("stream cannot be flushed from a callback!");
         return AAUDIO_ERROR_INVALID_STATE;
     }
+
+    aaudio_result_t result = AAudio_isFlushAllowed(getState());
+    if (result != AAUDIO_OK) {
+        return result;
+    }
+
     return requestFlush();
 }
 
 aaudio_result_t AudioStream::safeStop() {
     std::lock_guard<std::mutex> lock(mStreamLock);
     if (collidesWithCallback()) {
-        ALOGE("%s cannot be called from a callback!", __func__);
+        ALOGE("stream cannot be stopped from a callback!");
         return AAUDIO_ERROR_INVALID_STATE;
     }
+
+    switch (getState()) {
+        // Proceed with stopping.
+        case AAUDIO_STREAM_STATE_STARTING:
+        case AAUDIO_STREAM_STATE_STARTED:
+        case AAUDIO_STREAM_STATE_DISCONNECTED:
+            break;
+
+        // Transition from one inactive state to another.
+        case AAUDIO_STREAM_STATE_OPEN:
+        case AAUDIO_STREAM_STATE_PAUSED:
+        case AAUDIO_STREAM_STATE_FLUSHED:
+            setState(AAUDIO_STREAM_STATE_STOPPED);
+            return AAUDIO_OK;
+
+        // Redundant?
+        case AAUDIO_STREAM_STATE_STOPPING:
+        case AAUDIO_STREAM_STATE_STOPPED:
+            return AAUDIO_OK;
+
+        // Don't interfere with transitional states or when closed.
+        case AAUDIO_STREAM_STATE_PAUSING:
+        case AAUDIO_STREAM_STATE_FLUSHING:
+        case AAUDIO_STREAM_STATE_CLOSING:
+        case AAUDIO_STREAM_STATE_CLOSED:
+        default:
+            ALOGW("requestStop() stream not running, state = %s",
+                  AAudio_convertStreamStateToText(getState()));
+            return AAUDIO_ERROR_INVALID_STATE;
+    }
+
     return requestStop();
 }
 
@@ -234,6 +315,18 @@ aaudio_result_t AudioStream::createThread(int64_t periodNanoseconds,
     if (err != 0) {
         return AAudioConvert_androidToAAudioResult(-errno);
     } else {
+        // TODO Use AAudioThread or maybe AndroidThread
+        // Name the thread with an increasing index, "AAudio_#", for debugging.
+        static std::atomic<uint32_t> nextThreadIndex{1};
+        char name[16]; // max length for a pthread_name
+        uint32_t index = nextThreadIndex++;
+        // Wrap the index so that we do not hit the 16 char limit
+        // and to avoid hard-to-read large numbers.
+        index = index % 100000;  // arbitrary
+        snprintf(name, sizeof(name), "AAudio_%u", index);
+        err = pthread_setname_np(mThread, name);
+        ALOGW_IF((err != 0), "Could not set name of AAudio thread. err = %d", err);
+
         mHasThread = true;
         return AAUDIO_OK;
     }

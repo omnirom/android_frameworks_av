@@ -48,6 +48,7 @@ enum {
     SET_MODE,
     SET_MIC_MUTE,
     GET_MIC_MUTE,
+    SET_RECORD_SILENCED,
     SET_PARAMETERS,
     GET_PARAMETERS,
     REGISTER_CLIENT,
@@ -84,6 +85,7 @@ enum {
     GET_AUDIO_HW_SYNC_FOR_SESSION,
     SYSTEM_READY,
     FRAME_COUNT_HAL,
+    LIST_MICROPHONES,
 };
 
 #define MAX_ITEMS_PER_LIST 1024
@@ -304,6 +306,15 @@ public:
         data.writeInterfaceToken(IAudioFlinger::getInterfaceDescriptor());
         remote()->transact(GET_MIC_MUTE, data, &reply);
         return reply.readInt32();
+    }
+
+    virtual void setRecordSilenced(uid_t uid, bool silenced)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioFlinger::getInterfaceDescriptor());
+        data.writeInt32(uid);
+        data.writeInt32(silenced ? 1 : 0);
+        remote()->transact(SET_RECORD_SILENCED, data, &reply);
     }
 
     virtual status_t setParameters(audio_io_handle_t ioHandle, const String8& keyValuePairs)
@@ -697,14 +708,18 @@ public:
         return reply.readInt64();
     }
 
-    virtual status_t setLowRamDevice(bool isLowRamDevice)
+    virtual status_t setLowRamDevice(bool isLowRamDevice, int64_t totalMemory) override
     {
         Parcel data, reply;
-        data.writeInterfaceToken(IAudioFlinger::getInterfaceDescriptor());
-        data.writeInt32((int) isLowRamDevice);
-        remote()->transact(SET_LOW_RAM_DEVICE, data, &reply);
-        return reply.readInt32();
+
+        static_assert(NO_ERROR == 0, "NO_ERROR must be 0");
+        return data.writeInterfaceToken(IAudioFlinger::getInterfaceDescriptor())
+                ?: data.writeInt32((int) isLowRamDevice)
+                ?: data.writeInt64(totalMemory)
+                ?: remote()->transact(SET_LOW_RAM_DEVICE, data, &reply)
+                ?: reply.readInt32();
     }
+
     virtual status_t listAudioPorts(unsigned int *num_ports,
                                     struct audio_port *ports)
     {
@@ -828,6 +843,18 @@ public:
         }
         return reply.readInt64();
     }
+    virtual status_t getMicrophones(std::vector<media::MicrophoneInfo> *microphones)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioFlinger::getInterfaceDescriptor());
+        status_t status = remote()->transact(LIST_MICROPHONES, data, &reply);
+        if (status != NO_ERROR ||
+                (status = (status_t)reply.readInt32()) != NO_ERROR) {
+            return status;
+        }
+        status = reply.readParcelableVector(microphones);
+        return status;
+    }
 };
 
 IMPLEMENT_META_INTERFACE(AudioFlinger, "android.media.IAudioFlinger");
@@ -859,6 +886,7 @@ status_t BnAudioFlinger::onTransact(
         case RELEASE_AUDIO_PATCH:
         case LIST_AUDIO_PATCHES:
         case SET_AUDIO_PORT_CONFIG:
+        case SET_RECORD_SILENCED:
             ALOGW("%s: transaction %d received from PID %d",
                   __func__, code, IPCThreadState::self()->getCallingPid());
             return INVALID_OPERATION;
@@ -1022,6 +1050,15 @@ status_t BnAudioFlinger::onTransact(
         case GET_MIC_MUTE: {
             CHECK_INTERFACE(IAudioFlinger, data, reply);
             reply->writeInt32( getMicMute() );
+            return NO_ERROR;
+        } break;
+        case SET_RECORD_SILENCED: {
+            CHECK_INTERFACE(IAudioFlinger, data, reply);
+            uid_t uid = data.readInt32();
+            audio_source_t source;
+            data.read(&source, sizeof(audio_source_t));
+            bool silenced = data.readInt32() == 1;
+            setRecordSilenced(uid, silenced);
             return NO_ERROR;
         } break;
         case SET_PARAMETERS: {
@@ -1261,8 +1298,13 @@ status_t BnAudioFlinger::onTransact(
         } break;
         case SET_LOW_RAM_DEVICE: {
             CHECK_INTERFACE(IAudioFlinger, data, reply);
-            bool isLowRamDevice = data.readInt32() != 0;
-            reply->writeInt32(setLowRamDevice(isLowRamDevice));
+            int32_t isLowRamDevice;
+            int64_t totalMemory;
+            const status_t status =
+                    data.readInt32(&isLowRamDevice) ?:
+                    data.readInt64(&totalMemory) ?:
+                    setLowRamDevice(isLowRamDevice != 0, totalMemory);
+            (void)reply->writeInt32(status);
             return NO_ERROR;
         } break;
         case LIST_AUDIO_PORTS: {
@@ -1378,6 +1420,16 @@ status_t BnAudioFlinger::onTransact(
             reply->writeInt64( frameCountHAL((audio_io_handle_t) data.readInt32()) );
             return NO_ERROR;
         } break;
+        case LIST_MICROPHONES: {
+            CHECK_INTERFACE(IAudioFlinger, data, reply);
+            std::vector<media::MicrophoneInfo> microphones;
+            status_t status = getMicrophones(&microphones);
+            reply->writeInt32(status);
+            if (status == NO_ERROR) {
+                reply->writeParcelableVector(microphones);
+            }
+            return NO_ERROR;
+        }
         default:
             return BBinder::onTransact(code, data, reply, flags);
     }

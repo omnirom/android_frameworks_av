@@ -22,24 +22,37 @@
 #include <vector>
 
 #include <utils/Errors.h>
+#include <utils/Log.h>
 #include <utils/RefBase.h>
 
 namespace android {
 
 class DataSource;
-class IMediaSource;
-class MediaExtractorFactory;
 class MetaData;
-class Parcel;
 class String8;
 struct AMessage;
-struct MediaSource;
+struct MediaSourceBase;
 typedef std::vector<uint8_t> HInterfaceToken;
 
-class MediaExtractor : public RefBase {
+
+class ExtractorAllocTracker {
 public:
+    ExtractorAllocTracker() {
+        ALOGD("extractor allocated: %p", this);
+    }
+    virtual ~ExtractorAllocTracker() {
+        ALOGD("extractor freed: %p", this);
+    }
+};
+
+
+class MediaExtractor
+// : public ExtractorAllocTracker
+{
+public:
+    virtual ~MediaExtractor();
     virtual size_t countTracks() = 0;
-    virtual sp<MediaSource> getTrack(size_t index) = 0;
+    virtual MediaSourceBase *getTrack(size_t index) = 0;
 
     enum GetTrackMetaDataFlags {
         kIncludeExtensiveMetaData = 1
@@ -115,7 +128,6 @@ public:
 
 protected:
     MediaExtractor();
-    virtual ~MediaExtractor();
 
 private:
     MediaExtractor(const MediaExtractor &);

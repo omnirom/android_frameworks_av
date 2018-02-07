@@ -106,6 +106,7 @@ cc_library_shared {
         "libmedia_helper",
         "libstagefright_codec2",
         "libstagefright_foundation",
+        "libstagefright_gbs",
         "libstagefright_omx",
         "libstagefright_omx_utils",
         "libstagefright_xmlparser",
@@ -113,6 +114,7 @@ cc_library_shared {
         "libRScpp",
         "libhidlbase",
         "libhidlmemory",
+        "libziparchive",
         "android.hidl.allocator@1.0",
         "android.hardware.cas.native@1.0",
         "android.hardware.media.omx@1.0",
@@ -128,7 +130,6 @@ cc_library_shared {
         "libstagefright_timedtext",
         "libvpx",
         "libwebm",
-        "libstagefright_mpeg2support",
         "libstagefright_esds",
         "libstagefright_id3",
         "libFLAC",
@@ -161,6 +162,8 @@ cc_library_shared {
         "-Wall",
     ],
 
+    version_script: "exports.lds",
+
     product_variables: {
         debuggable: {
             // enable experiments only in userdebug and eng builds
@@ -180,7 +183,7 @@ cc_library_shared {
     },
 }
 
-cc_library_shared {
+cc_library {
     name: "libstagefright_player2",
 
     srcs: [
@@ -197,7 +200,6 @@ cc_library_shared {
         "NuCachedSource2.cpp",
         "RemoteMediaExtractor.cpp",
         "RemoteMediaSource.cpp",
-        "SurfaceUtils.cpp",
         "Utils.cpp",
         "VideoFrameScheduler.cpp",
         "http/MediaHTTP.cpp",
@@ -209,7 +211,6 @@ cc_library_shared {
         "libdrmframework",
         "libgui",
         "liblog",
-        "libmedia_omx",
         "libmedia_player2_util",
         "libaudioclient",
         "libmediaextractor",
@@ -224,6 +225,7 @@ cc_library_shared {
         "libhidlmemory",
         "libcrypto",
         "libstagefright_omx",
+        "libziparchive",
     ],
 
     static_libs: [
@@ -232,6 +234,10 @@ cc_library_shared {
         "libstagefright_mpeg2support",
         "libstagefright_timedtext",
         "libavextensions",
+    ],
+
+    header_libs:[
+        "media_plugin_headers",
     ],
 
     export_shared_lib_headers: [

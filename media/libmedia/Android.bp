@@ -139,10 +139,18 @@ cc_library_static {
     },
 }
 
-cc_library_shared {
+filegroup {
+    name: "mediaupdateservice_aidl",
+    srcs: [
+        "aidl/android/media/IMediaExtractorUpdateService.aidl",
+    ],
+}
+
+cc_library {
     name: "libmedia",
 
     srcs: [
+        ":mediaupdateservice_aidl",
         "IDataSource.cpp",
         "BufferingSettings.cpp",
         "mediaplayer.cpp",
@@ -178,6 +186,11 @@ cc_library_shared {
         "Visualizer.cpp",
         "StringArray.cpp",
     ],
+
+    aidl: {
+        local_include_dirs: ["aidl"],
+        export_aidl_headers: true,
+    },
 
     shared_libs: [
         "liblog",
@@ -226,6 +239,8 @@ cc_library_shared {
         "-Wall",
     ],
 
+    version_script: "exports.lds",
+
     sanitize: {
         misc_undefined: [
             "unsigned-integer-overflow",
@@ -238,7 +253,7 @@ cc_library_shared {
     },
 }
 
-cc_library_shared {
+cc_library {
     name: "libmedia_player2_util",
 
     srcs: [
@@ -248,6 +263,7 @@ cc_library_shared {
         "IMediaExtractorService.cpp",
         "IMediaSource.cpp",
         "IStreamSource.cpp",
+        "MediaCodecBuffer.cpp",
         "MediaUtils.cpp",
         "Metadata.cpp",
         "NdkWrapper.cpp",
@@ -256,7 +272,6 @@ cc_library_shared {
     shared_libs: [
         "libbinder",
         "libcutils",
-        "libgui",
         "liblog",
         "libmediaextractor",
         "libmediandk",
@@ -276,9 +291,6 @@ cc_library_shared {
     ],
 
     static_libs: [
-        "libc_malloc_debug_backtrace",  // for memory heap analysis
-
-        "libstagefright_nuplayer2",
         "libstagefright_rtsp",
         "libstagefright_timedtext",
     ],
@@ -305,19 +317,19 @@ cc_library_shared {
     },
 }
 
-cc_library_shared {
+cc_library {
     name: "libmedia_player2",
 
     srcs: [
-        "AudioParameter.cpp",
+        "JAudioTrack.cpp",
         "MediaPlayer2Factory.cpp",
         "MediaPlayer2Manager.cpp",
         "TestPlayerStub.cpp",
-        "TypeConverter.cpp",
         "mediaplayer2.cpp",
     ],
 
     shared_libs: [
+        "libandroid_runtime",
         "libaudioclient",
         "libbinder",
         "libcutils",
@@ -354,8 +366,7 @@ cc_library_shared {
     ],
 
     static_libs: [
-        "libc_malloc_debug_backtrace",  // for memory heap analysis
-
+        "libmedia_helper",
         "libstagefright_nuplayer2",
         "libstagefright_rtsp",
         "libstagefright_timedtext",

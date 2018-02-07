@@ -238,6 +238,7 @@ protected:
     int mNativeWindowUsageBits;
     android_native_rect_t mLastNativeWindowCrop;
     int32_t mLastNativeWindowDataSpace;
+    HDRStaticInfo mLastHDRStaticInfo;
     sp<AMessage> mConfigFormat;
     sp<AMessage> mInputFormat;
     sp<AMessage> mOutputFormat;
@@ -497,7 +498,7 @@ protected:
     status_t verifySupportForProfileAndLevel(int32_t profile, int32_t level);
 
     status_t configureBitrate(
-            int32_t bitrate, OMX_VIDEO_CONTROLRATETYPE bitrateMode);
+            OMX_VIDEO_CONTROLRATETYPE bitrateMode, int32_t bitrate, int32_t quality = 0);
     void configureEncoderLatency(const sp<AMessage> &msg);
 
     virtual status_t setupErrorCorrectionParameters();

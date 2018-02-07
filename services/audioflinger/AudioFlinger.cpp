@@ -155,6 +155,8 @@ AudioFlinger::AudioFlinger()
       mBtNrecIsOff(false),
       mIsLowRamDevice(true),
       mIsDeviceTypeKnown(false),
+      mTotalMemory(0),
+      mClientSharedHeapSize(kMinimumClientSharedHeapSizeBytes),
       mGlobalEffectEnableTime(0),
       mSystemReady(false)
 {
@@ -262,6 +264,7 @@ status_t MmapStreamInterface::openMmapStream(MmapStreamInterface::stream_directi
                                              audio_config_base_t *config,
                                              const AudioClient& client,
                                              audio_port_handle_t *deviceId,
+                                             audio_session_t *sessionId,
                                              const sp<MmapStreamCallback>& callback,
                                              sp<MmapStreamInterface>& interface,
                                              audio_port_handle_t *handle)
@@ -274,7 +277,8 @@ status_t MmapStreamInterface::openMmapStream(MmapStreamInterface::stream_directi
     status_t ret = NO_INIT;
     if (af != 0) {
         ret = af->openMmapStream(
-                direction, attr, config, client, deviceId, callback, interface, handle);
+                direction, attr, config, client, deviceId,
+                sessionId, callback, interface, handle);
     }
     return ret;
 }
@@ -284,6 +288,7 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
                                       audio_config_base_t *config,
                                       const AudioClient& client,
                                       audio_port_handle_t *deviceId,
+                                      audio_session_t *sessionId,
                                       const sp<MmapStreamCallback>& callback,
                                       sp<MmapStreamInterface>& interface,
                                       audio_port_handle_t *handle)
@@ -292,8 +297,10 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
     if (ret != NO_ERROR) {
         return ret;
     }
-
-    audio_session_t sessionId = (audio_session_t) newAudioUniqueId(AUDIO_UNIQUE_ID_USE_SESSION);
+    audio_session_t actualSessionId = *sessionId;
+    if (actualSessionId == AUDIO_SESSION_ALLOCATE) {
+        actualSessionId = (audio_session_t) newAudioUniqueId(AUDIO_UNIQUE_ID_USE_SESSION);
+    }
     audio_stream_type_t streamType = AUDIO_STREAM_DEFAULT;
     audio_io_handle_t io = AUDIO_IO_HANDLE_NONE;
     audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE;
@@ -303,15 +310,15 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
         fullConfig.channel_mask = config->channel_mask;
         fullConfig.format = config->format;
         ret = AudioSystem::getOutputForAttr(attr, &io,
-                                            sessionId,
-                                            &streamType, client.clientUid,
+                                            actualSessionId,
+                                            &streamType, client.clientPid, client.clientUid,
                                             &fullConfig,
                                             (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_MMAP_NOIRQ |
                                                     AUDIO_OUTPUT_FLAG_DIRECT),
                                             deviceId, &portId);
     } else {
         ret = AudioSystem::getInputForAttr(attr, &io,
-                                              sessionId,
+                                              actualSessionId,
                                               client.clientPid,
                                               client.clientUid,
                                               config,
@@ -326,13 +333,14 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
     sp<MmapThread> thread = mMmapThreads.valueFor(io);
     if (thread != 0) {
         interface = new MmapThreadHandle(thread);
-        thread->configure(attr, streamType, sessionId, callback, *deviceId, portId);
+        thread->configure(attr, streamType, actualSessionId, callback, *deviceId, portId);
         *handle = portId;
+        *sessionId = actualSessionId;
     } else {
         if (direction == MmapStreamInterface::DIRECTION_OUTPUT) {
-            AudioSystem::releaseOutput(io, streamType, sessionId);
+            AudioSystem::releaseOutput(io, streamType, actualSessionId);
         } else {
-            AudioSystem::releaseInput(io, sessionId);
+            AudioSystem::releaseInput(io, actualSessionId);
         }
         ret = NO_INIT;
     }
@@ -684,7 +692,7 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
     output.selectedDeviceId = input.selectedDeviceId;
 
     lStatus = AudioSystem::getOutputForAttr(&input.attr, &output.outputId, sessionId, &streamType,
-                                            clientUid, &input.config, input.flags,
+                                            clientPid, clientUid, &input.config, input.flags,
                                             &output.selectedDeviceId, &portId);
 
     if (lStatus != NO_ERROR || output.outputId == AUDIO_IO_HANDLE_NONE) {
@@ -985,6 +993,21 @@ bool AudioFlinger::getMicMute() const
     mHardwareStatus = AUDIO_HW_IDLE;
 
     return mute;
+}
+
+void AudioFlinger::setRecordSilenced(uid_t uid, bool silenced)
+{
+    ALOGV("AudioFlinger::setRecordSilenced(uid:%d, silenced:%d)", uid, silenced);
+
+    // TODO: Notify MmapThreads
+
+    AutoMutex lock(mLock);
+    for (size_t i = 0; i < mRecordThreads.size(); i++) {
+        sp<RecordThread> thread = mRecordThreads.valueAt(i);
+        if (thread != 0) {
+            thread->setRecordSilenced(uid, silenced);
+        }
+    }
 }
 
 status_t AudioFlinger::setMasterMute(bool muted)
@@ -1491,17 +1514,9 @@ AudioFlinger::Client::Client(const sp<AudioFlinger>& audioFlinger, pid_t pid)
         mAudioFlinger(audioFlinger),
         mPid(pid)
 {
-    size_t heapSize = property_get_int32("ro.af.client_heap_size_kbyte", 0);
-    heapSize *= 1024;
-    if (!heapSize) {
-        heapSize = kClientSharedHeapSizeBytes;
-        // Increase heap size on non low ram devices to limit risk of reconnection failure for
-        // invalidated tracks
-        if (!audioFlinger->isLowRamDevice()) {
-            heapSize *= kClientSharedHeapSizeMultiplier;
-        }
-    }
-    mMemoryDealer = new MemoryDealer(heapSize, "AudioFlinger::Client");
+    mMemoryDealer = new MemoryDealer(
+            audioFlinger->getClientSharedHeapSize(),
+            (std::string("AudioFlinger::Client(") + std::to_string(pid) + ")").c_str());
 }
 
 // Client destructor must be called with AudioFlinger::mClientLock held
@@ -1839,7 +1854,7 @@ size_t AudioFlinger::getPrimaryOutputFrameCount()
 
 // ----------------------------------------------------------------------------
 
-status_t AudioFlinger::setLowRamDevice(bool isLowRamDevice)
+status_t AudioFlinger::setLowRamDevice(bool isLowRamDevice, int64_t totalMemory)
 {
     uid_t uid = IPCThreadState::self()->getCallingUid();
     if (uid != AID_SYSTEM) {
@@ -1850,8 +1865,41 @@ status_t AudioFlinger::setLowRamDevice(bool isLowRamDevice)
         return INVALID_OPERATION;
     }
     mIsLowRamDevice = isLowRamDevice;
+    mTotalMemory = totalMemory;
+    // mIsLowRamDevice and mTotalMemory are obtained through ActivityManager;
+    // see ActivityManager.isLowRamDevice() and ActivityManager.getMemoryInfo().
+    // mIsLowRamDevice generally represent devices with less than 1GB of memory,
+    // though actual setting is determined through device configuration.
+    constexpr int64_t GB = 1024 * 1024 * 1024;
+    mClientSharedHeapSize =
+            isLowRamDevice ? kMinimumClientSharedHeapSizeBytes
+                    : mTotalMemory < 2 * GB ? 4 * kMinimumClientSharedHeapSizeBytes
+                    : mTotalMemory < 3 * GB ? 8 * kMinimumClientSharedHeapSizeBytes
+                    : mTotalMemory < 4 * GB ? 16 * kMinimumClientSharedHeapSizeBytes
+                    : 32 * kMinimumClientSharedHeapSizeBytes;
     mIsDeviceTypeKnown = true;
+
+    // TODO: Cache the client shared heap size in a persistent property.
+    // It's possible that a native process or Java service or app accesses audioserver
+    // after it is registered by system server, but before AudioService updates
+    // the memory info.  This would occur immediately after boot or an audioserver
+    // crash and restore. Before update from AudioService, the client would get the
+    // minimum heap size.
+
+    ALOGD("isLowRamDevice:%s totalMemory:%lld mClientSharedHeapSize:%zu",
+            (isLowRamDevice ? "true" : "false"),
+            (long long)mTotalMemory,
+            mClientSharedHeapSize.load());
     return NO_ERROR;
+}
+
+size_t AudioFlinger::getClientSharedHeapSize() const
+{
+    size_t heapSizeInBytes = property_get_int32("ro.af.client_heap_size_kbyte", 0) * 1024;
+    if (heapSizeInBytes != 0) { // read-only property overrides all.
+        return heapSizeInBytes;
+    }
+    return mClientSharedHeapSize;
 }
 
 audio_hw_sync_t AudioFlinger::getAudioHwSyncForSession(audio_session_t sessionId)
@@ -1924,6 +1972,43 @@ status_t AudioFlinger::systemReady()
     for (size_t i = 0; i < mRecordThreads.size(); i++) {
         ThreadBase *thread = (ThreadBase *)mRecordThreads.valueAt(i).get();
         thread->systemReady();
+    }
+    return NO_ERROR;
+}
+
+status_t AudioFlinger::getMicrophones(std::vector<media::MicrophoneInfo> *microphones)
+{
+    // Fake data
+    size_t fakeNum = 2;
+    audio_devices_t fakeTypes[] = { AUDIO_DEVICE_IN_BUILTIN_MIC, AUDIO_DEVICE_IN_BACK_MIC };
+    for (size_t i = 0; i < fakeNum; i++) {
+        struct audio_microphone_characteristic_t characteristics;
+        sprintf(characteristics.device_id, "microphone:%zu", i);
+        characteristics.type = fakeTypes[i];
+        sprintf(characteristics.address, "");
+        characteristics.location = AUDIO_MICROPHONE_LOCATION_MAINBODY;
+        characteristics.group = 0;
+        characteristics.index_in_the_group = i;
+        characteristics.sensitivity = 1.0f;
+        characteristics.max_spl = 100.0f;
+        characteristics.min_spl = 0.0f;
+        characteristics.directionality = AUDIO_MICROPHONE_DIRECTIONALITY_OMNI;
+        characteristics.num_frequency_responses = 5 - i;
+        for (size_t j = 0; j < characteristics.num_frequency_responses; j++) {
+            characteristics.frequency_responses[0][j] = 100.0f - j;
+            characteristics.frequency_responses[1][j] = 100.0f + j;
+        }
+        for (size_t j = 0; j < AUDIO_CHANNEL_COUNT_MAX; j++) {
+            characteristics.channel_mapping[j] = AUDIO_MICROPHONE_CHANNEL_MAPPING_UNUSED;
+        }
+        characteristics.geometric_location.x = 0.1f;
+        characteristics.geometric_location.y = 0.2f;
+        characteristics.geometric_location.z = 0.3f;
+        characteristics.orientation.x = 0.0f;
+        characteristics.orientation.y = 1.0f;
+        characteristics.orientation.z = 0.0f;
+        media::MicrophoneInfo microphoneInfo = media::MicrophoneInfo(characteristics);
+        microphones->push_back(microphoneInfo);
     }
     return NO_ERROR;
 }

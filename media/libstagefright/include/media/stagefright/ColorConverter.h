@@ -33,6 +33,8 @@ struct ColorConverter {
 
     bool isValid() const;
 
+    bool isDstRGB() const;
+
     status_t convert(
             const void *srcBits,
             size_t srcWidth, size_t srcHeight,
@@ -71,6 +73,9 @@ private:
             const BitmapParams &src, const BitmapParams &dst);
 
     status_t convertYUV420Planar(
+            const BitmapParams &src, const BitmapParams &dst);
+
+    status_t convertYUV420Planar16(
             const BitmapParams &src, const BitmapParams &dst);
 
     status_t convertYUV420PlanarUseLibYUV(

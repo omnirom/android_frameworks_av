@@ -39,8 +39,7 @@ sp<IAudioFlinger> AudioSystem::gAudioFlinger;
 sp<AudioSystem::AudioFlingerClient> AudioSystem::gAudioFlingerClient;
 audio_error_callback AudioSystem::gAudioErrorCallback = NULL;
 dynamic_policy_callback AudioSystem::gDynPolicyCallback = NULL;
-record_config_callback  AudioSystem::gRecordConfigCallback = NULL;
-
+record_config_callback AudioSystem::gRecordConfigCallback = NULL;
 
 // establish binder interface to AudioFlinger service
 const sp<IAudioFlinger> AudioSystem::get_audio_flinger()
@@ -859,6 +858,7 @@ status_t AudioSystem::getOutputForAttr(const audio_attributes_t *attr,
                                         audio_io_handle_t *output,
                                         audio_session_t session,
                                         audio_stream_type_t *stream,
+                                        pid_t pid,
                                         uid_t uid,
                                         const audio_config_t *config,
                                         audio_output_flags_t flags,
@@ -867,7 +867,7 @@ status_t AudioSystem::getOutputForAttr(const audio_attributes_t *attr,
 {
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
     if (aps == 0) return NO_INIT;
-    return aps->getOutputForAttr(attr, output, session, stream, uid,
+    return aps->getOutputForAttr(attr, output, session, stream, pid, uid,
                                  config,
                                  flags, selectedDeviceId, portId);
 }
@@ -917,11 +917,14 @@ status_t AudioSystem::getInputForAttr(const audio_attributes_t *attr,
 }
 
 status_t AudioSystem::startInput(audio_io_handle_t input,
-                                 audio_session_t session)
+                                 audio_session_t session,
+                                 audio_devices_t device,
+                                 uid_t uid,
+                                 bool *silenced)
 {
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
     if (aps == 0) return PERMISSION_DENIED;
-    return aps->startInput(input, session);
+    return aps->startInput(input, session, device, uid, silenced);
 }
 
 status_t AudioSystem::stopInput(audio_io_handle_t input,
@@ -1056,11 +1059,11 @@ size_t AudioSystem::getPrimaryOutputFrameCount()
     return af->getPrimaryOutputFrameCount();
 }
 
-status_t AudioSystem::setLowRamDevice(bool isLowRamDevice)
+status_t AudioSystem::setLowRamDevice(bool isLowRamDevice, int64_t totalMemory)
 {
     const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
     if (af == 0) return PERMISSION_DENIED;
-    return af->setLowRamDevice(isLowRamDevice);
+    return af->setLowRamDevice(isLowRamDevice, totalMemory);
 }
 
 void AudioSystem::clearAudioConfigCache()
@@ -1273,6 +1276,13 @@ float AudioSystem::getStreamVolumeDB(audio_stream_type_t stream, int index, audi
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
     if (aps == 0) return NAN;
     return aps->getStreamVolumeDB(stream, index, device);
+}
+
+status_t AudioSystem::getMicrophones(std::vector<media::MicrophoneInfo> *microphones)
+{
+    const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
+    if (af == 0) return PERMISSION_DENIED;
+    return af->getMicrophones(microphones);
 }
 
 // ---------------------------------------------------------------------------

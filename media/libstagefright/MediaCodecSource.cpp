@@ -23,6 +23,7 @@
 #include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
 #include <media/ICrypto.h>
+#include <media/MediaBufferHolder.h>
 #include <media/MediaCodecBuffer.h>
 #include <media/MediaSource.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -458,13 +459,6 @@ MediaCodecSource::MediaCodecSource(
       mGeneration(0) {
     CHECK(mLooper != NULL);
 
-    AString mime;
-    CHECK(mOutputFormat->findString("mime", &mime));
-
-    if (!strncasecmp("video/", mime.c_str(), 6)) {
-        mIsVideo = true;
-    }
-
     if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
         mPuller = new Puller(source);
     }
@@ -488,6 +482,7 @@ status_t MediaCodecSource::init() {
 }
 
 status_t MediaCodecSource::initEncoder() {
+
     mReflector = new AHandlerReflector<MediaCodecSource>(this);
     mLooper->registerHandler(mReflector);
 
@@ -501,26 +496,13 @@ status_t MediaCodecSource::initEncoder() {
 
     AString outputMIME;
     CHECK(mOutputFormat->findString("mime", &outputMIME));
+    mIsVideo = outputMIME.startsWithIgnoreCase("video/");
 
-    Vector<AString> matchingCodecs;
-    MediaCodecList::findMatchingCodecs(
-            outputMIME.c_str(), true /* encoder */,
-            ((mFlags & FLAG_PREFER_SOFTWARE_CODEC) ? MediaCodecList::kPreferSoftwareCodecs : 0),
-            &matchingCodecs);
-    if (matchingCodecs.size() == 0) {
-        AVUtils::get()->useQCHWEncoder(mOutputFormat, &matchingCodecs);
-    }
 
+    AString name;
     status_t err = NO_INIT;
-    for (size_t ix = 0; ix < matchingCodecs.size(); ++ix) {
-        mEncoder = MediaCodec::CreateByComponentName(
-                mCodecLooper, matchingCodecs[ix]);
-
-        if (mEncoder == NULL) {
-            continue;
-        }
-
-        ALOGV("output format is '%s'", mOutputFormat->debugString(0).c_str());
+    if (mOutputFormat->findString("testing-name", &name)) {
+        mEncoder = MediaCodec::CreateByComponentName(mCodecLooper, name);
 
         mEncoderActivityNotify = new AMessage(kWhatEncoderActivity, mReflector);
         mEncoder->setCallback(mEncoderActivityNotify);
@@ -530,12 +512,40 @@ status_t MediaCodecSource::initEncoder() {
                     NULL /* nativeWindow */,
                     NULL /* crypto */,
                     MediaCodec::CONFIGURE_FLAG_ENCODE);
-
-        if (err == OK) {
-            break;
+    } else {
+        Vector<AString> matchingCodecs;
+        MediaCodecList::findMatchingCodecs(
+                outputMIME.c_str(), true /* encoder */,
+                ((mFlags & FLAG_PREFER_SOFTWARE_CODEC) ? MediaCodecList::kPreferSoftwareCodecs : 0),
+                &matchingCodecs);
+        if (matchingCodecs.size() == 0) {
+           AVUtils::get()->useQCHWEncoder(mOutputFormat, &matchingCodecs);
         }
-        mEncoder->release();
-        mEncoder = NULL;
+        for (size_t ix = 0; ix < matchingCodecs.size(); ++ix) {
+            mEncoder = MediaCodec::CreateByComponentName(
+                    mCodecLooper, matchingCodecs[ix]);
+
+            if (mEncoder == NULL) {
+                continue;
+            }
+
+            ALOGV("output format is '%s'", mOutputFormat->debugString(0).c_str());
+
+            mEncoderActivityNotify = new AMessage(kWhatEncoderActivity, mReflector);
+            mEncoder->setCallback(mEncoderActivityNotify);
+
+            err = mEncoder->configure(
+                        mOutputFormat,
+                        NULL /* nativeWindow */,
+                        NULL /* crypto */,
+                        MediaCodec::CONFIGURE_FLAG_ENCODE);
+
+            if (err == OK) {
+                break;
+            }
+            mEncoder->release();
+            mEncoder = NULL;
+        }
     }
 
     if (err != OK) {
@@ -737,7 +747,8 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
             if (mIsVideo) {
                 // video encoder will release MediaBuffer when done
                 // with underlying data.
-                inbuf->setMediaBufferBase(mbuf);
+                inbuf->meta()->setObject("mediaBufferHolder", new MediaBufferHolder(mbuf));
+                mbuf->release();
             } else {
                 mbuf->release();
             }

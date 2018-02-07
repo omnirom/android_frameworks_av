@@ -741,7 +741,7 @@ status_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t *attr,
                                               audio_stream_type_t *stream,
                                               uid_t uid,
                                               const audio_config_t *config,
-                                              audio_output_flags_t flags,
+                                              audio_output_flags_t *flags,
                                               audio_port_handle_t *selectedDeviceId,
                                               audio_port_handle_t *portId)
 {
@@ -801,12 +801,12 @@ status_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t *attr,
     audio_devices_t device = getDeviceForStrategy(strategy, false /*fromCache*/);
 
     if ((attributes.flags & AUDIO_FLAG_HW_AV_SYNC) != 0) {
-        flags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_HW_AV_SYNC);
+        *flags = (audio_output_flags_t)(*flags | AUDIO_OUTPUT_FLAG_HW_AV_SYNC);
     }
 
     ALOGV("getOutputForAttr() device 0x%x, sampling rate %d, format %#x, channel mask %#x, "
           "flags %#x",
-          device, config->sample_rate, config->format, config->channel_mask, flags);
+          device, config->sample_rate, config->format, config->channel_mask, *flags);
 
     *output = getOutputForDevice(device, session, *stream, config, flags);
     if (*output == AUDIO_IO_HANDLE_NONE) {
@@ -828,7 +828,7 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         audio_session_t session,
         audio_stream_type_t stream,
         const audio_config_t *config,
-        audio_output_flags_t flags)
+        audio_output_flags_t *flags)
 {
     audio_io_handle_t output = AUDIO_IO_HANDLE_NONE;
     status_t status;
@@ -837,35 +837,41 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
     //force direct flag if offload flag is set: offloading implies a direct output stream
     // and all common behaviors are driven by checking only the direct flag
     // this should normally be set appropriately in the policy configuration file
-    if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
-        flags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_DIRECT);
+    if ((*flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
+        *flags = (audio_output_flags_t)(*flags | AUDIO_OUTPUT_FLAG_DIRECT);
     }
-    if ((flags & AUDIO_OUTPUT_FLAG_HW_AV_SYNC) != 0) {
-        flags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_DIRECT);
+    if ((*flags & AUDIO_OUTPUT_FLAG_HW_AV_SYNC) != 0) {
+        *flags = (audio_output_flags_t)(*flags | AUDIO_OUTPUT_FLAG_DIRECT);
     }
     // only allow deep buffering for music stream type
     if (stream != AUDIO_STREAM_MUSIC) {
-        flags = (audio_output_flags_t)(flags &~AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
+        *flags = (audio_output_flags_t)(*flags &~AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
     } else if (/* stream == AUDIO_STREAM_MUSIC && */
-            flags == AUDIO_OUTPUT_FLAG_NONE &&
+            *flags == AUDIO_OUTPUT_FLAG_NONE &&
             property_get_bool("audio.deep_buffer.media", false /* default_value */)) {
         // use DEEP_BUFFER as default output for music stream type
-        flags = (audio_output_flags_t)AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
+        *flags = (audio_output_flags_t)AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
     }
     if (stream == AUDIO_STREAM_TTS) {
-        flags = AUDIO_OUTPUT_FLAG_TTS;
+        *flags = AUDIO_OUTPUT_FLAG_TTS;
     } else if (stream == AUDIO_STREAM_VOICE_CALL &&
                audio_is_linear_pcm(config->format)) {
-        flags = (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_VOIP_RX |
+        *flags = (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_VOIP_RX |
                                        AUDIO_OUTPUT_FLAG_DIRECT);
         ALOGV("Set VoIP and Direct output flags for PCM format");
+    } else if (device == AUDIO_DEVICE_OUT_TELEPHONY_TX &&
+        stream == AUDIO_STREAM_MUSIC &&
+        audio_is_linear_pcm(config->format) &&
+        isInCall()) {
+        *flags = (audio_output_flags_t)AUDIO_OUTPUT_FLAG_INCALL_MUSIC;
     }
+
 
     sp<IOProfile> profile;
 
     // skip direct output selection if the request can obviously be attached to a mixed output
     // and not explicitly requested
-    if (((flags & AUDIO_OUTPUT_FLAG_DIRECT) == 0) &&
+    if (((*flags & AUDIO_OUTPUT_FLAG_DIRECT) == 0) &&
             audio_is_linear_pcm(config->format) && config->sample_rate <= SAMPLE_RATE_HZ_MAX &&
             audio_channel_count_from_out_mask(config->channel_mask) <= 2) {
         goto non_direct_output;
@@ -878,13 +884,13 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
     // This may prevent offloading in rare situations where effects are left active by apps
     // in the background.
 
-    if (((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) ||
+    if (((*flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) ||
             !(mEffects.isNonOffloadableEffectEnabled() || mMasterMono)) {
         profile = getProfileForDirectOutput(device,
                                            config->sample_rate,
                                            config->format,
                                            config->channel_mask,
-                                           (audio_output_flags_t)flags);
+                                           (audio_output_flags_t)*flags);
     }
 
     if (profile != 0) {
@@ -916,7 +922,7 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevice(
         String8 address = outputDevices.size() > 0 ? outputDevices.itemAt(0)->mAddress
                 : String8("");
 
-        status = outputDesc->open(config, device, address, stream, flags, &output);
+        status = outputDesc->open(config, device, address, stream, *flags, &output);
 
         // only accept an output with the requested parameters
         if (status != NO_ERROR ||
@@ -954,7 +960,7 @@ non_direct_output:
 
     // A request for HW A/V sync cannot fallback to a mixed output because time
     // stamps are embedded in audio data
-    if ((flags & AUDIO_OUTPUT_FLAG_HW_AV_SYNC) != 0) {
+    if ((*flags & AUDIO_OUTPUT_FLAG_HW_AV_SYNC) != 0) {
         return AUDIO_IO_HANDLE_NONE;
     }
 
@@ -969,12 +975,12 @@ non_direct_output:
         SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device, mOutputs);
 
         // at this stage we should ignore the DIRECT flag as no direct output could be found earlier
-        flags = (audio_output_flags_t)(flags & ~AUDIO_OUTPUT_FLAG_DIRECT);
-        output = selectOutput(outputs, flags, config->format);
+        *flags = (audio_output_flags_t)(*flags & ~AUDIO_OUTPUT_FLAG_DIRECT);
+        output = selectOutput(outputs, *flags, config->format);
     }
     ALOGW_IF((output == 0), "getOutputForDevice() could not find output for stream %d, "
             "sampling rate %d, format %#x, channels %#x, flags %#x",
-            stream, config->sample_rate, config->format, config->channel_mask, flags);
+            stream, config->sample_rate, config->format, config->channel_mask, *flags);
 
     return output;
 }
@@ -1801,10 +1807,15 @@ bool AudioPolicyManager::soundTriggerSupportsConcurrentCapture() {
 
 status_t AudioPolicyManager::startInput(audio_io_handle_t input,
                                         audio_session_t session,
+                                        bool silenced,
                                         concurrency_type__mask_t *concurrency)
 {
-    ALOGV("startInput() input %d", input);
+
+    ALOGV("AudioPolicyManager::startInput(input:%d, session:%d, silenced:%d, concurrency:%d)",
+            input, session, silenced, *concurrency);
+
     *concurrency = API_INPUT_CONCURRENCY_NONE;
+
     ssize_t index = mInputs.indexOfKey(input);
     if (index < 0) {
         ALOGW("startInput() unknown input %d", input);
@@ -1839,12 +1850,33 @@ status_t AudioPolicyManager::startInput(audio_io_handle_t input,
             return INVALID_OPERATION;
         }
 
-        Vector< sp<AudioInputDescriptor> > activeInputs = mInputs.getActiveInputs();
-        for (const auto& activeDesc : activeInputs) {
-            if (is_virtual_input_device(activeDesc->mDevice)) {
-                continue;
-            }
+        Vector<sp<AudioInputDescriptor>> activeInputs = mInputs.getActiveInputs();
 
+        // If a UID is idle and records silence and another not silenced recording starts
+        // from another UID (idle or active) we stop the current idle UID recording in
+        // favor of the new one - "There can be only one" TM
+        if (!silenced) {
+            for (const auto& activeDesc : activeInputs) {
+                if ((audioSession->flags() & AUDIO_INPUT_FLAG_MMAP_NOIRQ) != 0 &&
+                        activeDesc->getId() == inputDesc->getId()) {
+                     continue;
+                }
+
+                AudioSessionCollection activeSessions = activeDesc->getAudioSessions(
+                        true /*activeOnly*/);
+                sp<AudioSession> activeSession = activeSessions.valueAt(0);
+                if (activeSession->isSilenced()) {
+                    audio_io_handle_t activeInput = activeDesc->mIoHandle;
+                    audio_session_t activeSessionId = activeSession->session();
+                    stopInput(activeInput, activeSessionId);
+                    releaseInput(activeInput, activeSessionId);
+                    ALOGV("startInput(%d) stopping silenced input %d", input, activeInput);
+                    activeInputs = mInputs.getActiveInputs();
+                }
+            }
+        }
+
+        for (const auto& activeDesc : activeInputs) {
             if ((audioSession->flags() & AUDIO_INPUT_FLAG_MMAP_NOIRQ) != 0 &&
                     activeDesc->getId() == inputDesc->getId()) {
                 continue;
@@ -1881,10 +1913,6 @@ status_t AudioPolicyManager::startInput(audio_io_handle_t input,
 
         // if capture is allowed, preempt currently active HOTWORD captures
         for (const auto& activeDesc : activeInputs) {
-            if (is_virtual_input_device(activeDesc->mDevice)) {
-                continue;
-            }
-
             if (allowConcurrentWithSoundTrigger && activeDesc->isSoundTrigger()) {
                 continue;
             }
@@ -1906,6 +1934,9 @@ status_t AudioPolicyManager::startInput(audio_io_handle_t input,
         }
     }
 #endif
+
+    // Make sure we start with the correct silence state
+    audioSession->setSilenced(silenced);
 
     // increment activity count before calling getNewInputDevice() below as only active sessions
     // are considered for device selection
@@ -2039,7 +2070,6 @@ status_t AudioPolicyManager::stopInput(audio_io_handle_t input,
 void AudioPolicyManager::releaseInput(audio_io_handle_t input,
                                       audio_session_t session)
 {
-
     ALOGV("releaseInput() %d", input);
     ssize_t index = mInputs.indexOfKey(input);
     if (index < 0) {
@@ -2123,7 +2153,10 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
                                                   audio_devices_t device)
 {
 
-    if ((index < mVolumeCurves->getVolumeIndexMin(stream)) ||
+    // VOICE_CALL stream has minVolumeIndex > 0  but can be muted directly by an
+    // app that has MODIFY_PHONE_STATE permission.
+    if (((index < mVolumeCurves->getVolumeIndexMin(stream)) &&
+            !(stream == AUDIO_STREAM_VOICE_CALL && index == 0)) ||
             (index > mVolumeCurves->getVolumeIndexMax(stream))) {
         return BAD_VALUE;
     }
@@ -2906,7 +2939,7 @@ status_t AudioPolicyManager::createAudioPatch(const struct audio_patch *patch,
                 sinkDeviceDesc->toAudioPortConfig(&newPatch.sinks[i], &patch->sinks[i]);
 
                 // create a software bridge in PatchPanel if:
-                // - source and sink devices are on differnt HW modules OR
+                // - source and sink devices are on different HW modules OR
                 // - audio HAL version is < 3.0
                 if (!srcDeviceDesc->hasSameHwModuleAs(sinkDeviceDesc) ||
                         (srcDeviceDesc->mModule->getHalVersionMajor() < 3)) {
@@ -3389,6 +3422,23 @@ float AudioPolicyManager::getStreamVolumeDB(
         audio_stream_type_t stream, int index, audio_devices_t device)
 {
     return computeVolume(stream, index, device);
+}
+
+void AudioPolicyManager::setRecordSilenced(uid_t uid, bool silenced)
+{
+    ALOGV("AudioPolicyManager:setRecordSilenced(uid:%d, silenced:%d)", uid, silenced);
+
+    Vector<sp<AudioInputDescriptor> > activeInputs = mInputs.getActiveInputs();
+    for (size_t i = 0; i < activeInputs.size(); i++) {
+        sp<AudioInputDescriptor> activeDesc = activeInputs[i];
+        AudioSessionCollection activeSessions = activeDesc->getAudioSessions(true);
+        for (size_t j = 0; j < activeSessions.size(); j++) {
+            sp<AudioSession> activeSession = activeSessions.valueAt(j);
+            if (activeSession->uid() == uid) {
+                activeSession->setSilenced(silenced);
+            }
+        }
+    }
 }
 
 status_t AudioPolicyManager::disconnectAudioSource(const sp<AudioSourceDescriptor>& sourceDesc)

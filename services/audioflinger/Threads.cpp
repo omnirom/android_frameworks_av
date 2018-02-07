@@ -56,6 +56,8 @@
 
 #include <powermanager/PowerManager.h>
 
+#include <media/audiohal/EffectsFactoryHalInterface.h>
+
 #include "AudioFlinger.h"
 #include "FastMixer.h"
 #include "FastCapture.h"
@@ -1176,6 +1178,7 @@ status_t AudioFlinger::PlaybackThread::checkEffectCompatibility_l(
 
     switch (mType) {
     case MIXER: {
+#ifndef MULTICHANNEL_EFFECT_CHAIN
         // Reject any effect on mixer multichannel sinks.
         // TODO: fix both format and multichannel issues with effects.
         if (mChannelCount != FCC_2) {
@@ -1183,6 +1186,7 @@ status_t AudioFlinger::PlaybackThread::checkEffectCompatibility_l(
                     " thread %s", desc->name, mChannelCount, mThreadName);
             return BAD_VALUE;
         }
+#endif
         audio_output_flags_t flags = mOutput->flags;
         if (hasFastMixer() || (flags & AUDIO_OUTPUT_FLAG_FAST)) {
             if (sessionId == AUDIO_SESSION_OUTPUT_MIX) {
@@ -1229,6 +1233,7 @@ status_t AudioFlinger::PlaybackThread::checkEffectCompatibility_l(
                 desc->name, mThreadName);
         return BAD_VALUE;
     case DUPLICATING:
+#ifndef MULTICHANNEL_EFFECT_CHAIN
         // Reject any effect on mixer multichannel sinks.
         // TODO: fix both format and multichannel issues with effects.
         if (mChannelCount != FCC_2) {
@@ -1236,6 +1241,7 @@ status_t AudioFlinger::PlaybackThread::checkEffectCompatibility_l(
                     " on DUPLICATING thread %s", desc->name, mChannelCount, mThreadName);
             return BAD_VALUE;
         }
+#endif
         if ((sessionId == AUDIO_SESSION_OUTPUT_STAGE) || (sessionId == AUDIO_SESSION_OUTPUT_MIX)) {
             ALOGW("checkEffectCompatibility_l(): global effect %s on DUPLICATING"
                     " thread %s", desc->name, mThreadName);
@@ -2878,7 +2884,7 @@ status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& c
 {
     audio_session_t session = chain->sessionId();
     sp<EffectBufferHalInterface> halInBuffer, halOutBuffer;
-    status_t result = EffectBufferHalInterface::mirror(
+    status_t result = mAudioFlinger->mEffectsFactoryHal->mirrorBuffer(
             mEffectBufferEnabled ? mEffectBuffer : mSinkBuffer,
             mEffectBufferEnabled ? mEffectBufferSize : mSinkBufferSize,
             &halInBuffer);
@@ -2891,7 +2897,7 @@ status_t AudioFlinger::PlaybackThread::addEffectChain_l(const sp<EffectChain>& c
         // the sink buffer as input
         if (mType != DIRECT) {
             size_t numSamples = mNormalFrameCount * mChannelCount;
-            status_t result = EffectBufferHalInterface::allocate(
+            status_t result = mAudioFlinger->mEffectsFactoryHal->allocateBuffer(
                     numSamples * sizeof(effect_buffer_t),
                     &halInBuffer);
             if (result != OK) return result;
@@ -4868,7 +4874,7 @@ void AudioFlinger::MixerThread::dumpInternals(int fd, const Vector<String16>& ar
 {
     PlaybackThread::dumpInternals(fd, args);
     dprintf(fd, "  Thread throttle time (msecs): %u\n", mThreadThrottleTimeMs);
-    dprintf(fd, "  AudioMixer tracks: 0x%08x\n", mAudioMixer->trackNames());
+    dprintf(fd, "  AudioMixer tracks: %s\n", mAudioMixer->trackNames().c_str());
     dprintf(fd, "  Master mono: %s\n", mMasterMono ? "on" : "off");
 
     if (hasFastMixer()) {
@@ -6528,6 +6534,7 @@ reacquire_wakelock:
         rear = mRsmpInRear += framesRead;
 
         size = activeTracks.size();
+
         // loop over each active track
         for (size_t i = 0; i < size; i++) {
             activeTrack = activeTracks[i];
@@ -6584,6 +6591,11 @@ reacquire_wakelock:
                 if (activeTrack->mFramesToDrop == 0) {
                     if (framesOut > 0) {
                         activeTrack->mSink.frameCount = framesOut;
+                        // Sanitize before releasing if the track has no access to the source data
+                        // An idle UID receives silence from non virtual devices until active
+                        if (activeTrack->isSilenced()) {
+                            memset(activeTrack->mSink.raw, 0, framesOut * mFrameSize);
+                        }
                         activeTrack->releaseBuffer(&activeTrack->mSink);
                     }
                 } else {
@@ -6923,7 +6935,9 @@ status_t AudioFlinger::RecordThread::start(RecordThread::RecordTrack* recordTrac
         status_t status = NO_ERROR;
         if (recordTrack->isExternalTrack()) {
             mLock.unlock();
-            status = AudioSystem::startInput(mId, recordTrack->sessionId());
+            bool silenced;
+            status = AudioSystem::startInput(mId, recordTrack->sessionId(),
+                    mInDevice, recordTrack->uid(), &silenced);
             mLock.lock();
             // FIXME should verify that recordTrack is still in mActiveTracks
             if (status != NO_ERROR) {
@@ -6932,6 +6946,7 @@ status_t AudioFlinger::RecordThread::start(RecordThread::RecordTrack* recordTrac
                 ALOGV("RecordThread::start error %d", status);
                 return status;
             }
+            recordTrack->setSilenced(silenced);
         }
         // Catch up with current buffer indices if thread is already running.
         // This is what makes a new client discard all buffered data.  If the track's mRsmpInFront
@@ -7135,6 +7150,16 @@ void AudioFlinger::RecordThread::dumpTracks(int fd, const Vector<String16>& args
     write(fd, result.string(), result.size());
 }
 
+void AudioFlinger::RecordThread::setRecordSilenced(uid_t uid, bool silenced)
+{
+    Mutex::Autolock _l(mLock);
+    for (size_t i = 0; i < mTracks.size() ; i++) {
+        sp<RecordTrack> track = mTracks[i];
+        if (track != 0 && track->uid() == uid) {
+            track->setSilenced(silenced);
+        }
+    }
+}
 
 void AudioFlinger::RecordThread::ResamplerBufferProvider::reset()
 {
@@ -7796,6 +7821,7 @@ status_t AudioFlinger::MmapThread::start(const AudioClient& client,
         ret = AudioSystem::getOutputForAttr(&mAttr, &io,
                                             mSessionId,
                                             &stream,
+                                            client.clientPid,
                                             client.clientUid,
                                             &config,
                                             flags,
@@ -7827,7 +7853,9 @@ status_t AudioFlinger::MmapThread::start(const AudioClient& client,
     if (isOutput()) {
         ret = AudioSystem::startOutput(mId, streamType(), mSessionId);
     } else {
-        ret = AudioSystem::startInput(mId, mSessionId);
+        // TODO: Block recording for idle UIDs (b/72134552)
+        bool silenced;
+        ret = AudioSystem::startInput(mId, mSessionId, mInDevice, client.clientUid, &silenced);
     }
 
     // abort if start is rejected by audio policy manager

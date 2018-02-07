@@ -19,7 +19,6 @@
 #include <media/stagefright/CallbackMediaSource.h>
 #include <media/stagefright/InterfaceUtils.h>
 #include <media/stagefright/RemoteDataSource.h>
-#include <media/stagefright/RemoteMediaExtractor.h>
 #include <media/stagefright/RemoteMediaSource.h>
 
 namespace android {
@@ -38,11 +37,12 @@ sp<IDataSource> CreateIDataSourceFromDataSource(const sp<DataSource> &source) {
     return RemoteDataSource::wrap(source);
 }
 
-sp<IMediaExtractor> CreateIMediaExtractorFromMediaExtractor(const sp<MediaExtractor> &extractor) {
+sp<IMediaExtractor> CreateIMediaExtractorFromMediaExtractor(
+        MediaExtractor *extractor, const sp<RefBase> &plugin) {
     if (extractor == nullptr) {
         return nullptr;
     }
-    return RemoteMediaExtractor::wrap(extractor);
+    return RemoteMediaExtractor::wrap(extractor, plugin);
 }
 
 sp<MediaSource> CreateMediaSourceFromIMediaSource(const sp<IMediaSource> &source) {
@@ -52,11 +52,13 @@ sp<MediaSource> CreateMediaSourceFromIMediaSource(const sp<IMediaSource> &source
     return new CallbackMediaSource(source);
 }
 
-sp<IMediaSource> CreateIMediaSourceFromMediaSource(const sp<MediaSource> &source) {
+sp<IMediaSource> CreateIMediaSourceFromMediaSourceBase(
+        const sp<RemoteMediaExtractor> &extractor,
+        MediaSourceBase *source, const sp<RefBase> &plugin) {
     if (source == nullptr) {
         return nullptr;
     }
-    return RemoteMediaSource::wrap(source);
+    return RemoteMediaSource::wrap(extractor, source, plugin);
 }
 
 }  // namespace android

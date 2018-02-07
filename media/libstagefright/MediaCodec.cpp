@@ -51,7 +51,6 @@
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MediaFilter.h>
-#include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXClient.h>
 #include <media/stagefright/PersistentSurface.h>
 #include <media/stagefright/SurfaceUtils.h>
@@ -1832,6 +1831,12 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                                 int err = native_window_set_buffers_data_space(
                                         mSurface.get(), (android_dataspace)dataSpace);
                                 ALOGW_IF(err != 0, "failed to set dataspace on surface (%d)", err);
+                            }
+                            if (mOutputFormat->contains("hdr-static-info")) {
+                                HDRStaticInfo info;
+                                if (ColorUtils::getHDRStaticInfoFromFormat(mOutputFormat, &info)) {
+                                    setNativeWindowHdrMetadata(mSurface.get(), &info);
+                                }
                             }
 
                             if (mime.startsWithIgnoreCase("video/")) {
