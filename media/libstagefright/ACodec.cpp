@@ -828,6 +828,11 @@ status_t ACodec::setPortMode(int32_t portIndex, IOMX::PortMode mode) {
 }
 
 status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
+    if (portIndex == kPortIndexInputExtradata ||
+            portIndex == kPortIndexOutputExtradata) {
+        return OK;
+    }
+
     CHECK(portIndex == kPortIndexInput || portIndex == kPortIndexOutput);
 
     CHECK(mAllocator[portIndex] == NULL);
@@ -1537,6 +1542,11 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
 }
 
 status_t ACodec::freeBuffersOnPort(OMX_U32 portIndex) {
+    if (portIndex == kPortIndexInputExtradata ||
+            portIndex == kPortIndexOutputExtradata) {
+        return OK;
+    }
+
     if (portIndex == kPortIndexInput) {
         mBufferChannel->setInputBufferArray({});
     } else {
@@ -6004,7 +6014,14 @@ bool ACodec::BaseState::onOMXFillBufferDone(
                 }
                 mCodec->sendFormatChange();
             }
-            buffer->setFormat(mCodec->mOutputFormat);
+
+            sp<AMessage> updatedFormat = mCodec->mOutputFormat;
+            if (mCodec->mIsVideo && (flags & OMX_BUFFERFLAG_EXTRADATA)) {
+                updatedFormat = AVUtils::get()->fillExtradata(
+                        mCodec->mBuffers[kPortIndexOutputExtradata].editItemAt(index).mCodecData,
+                        mCodec->mOutputFormat);
+            }
+            buffer->setFormat(updatedFormat);
 
             if (mCodec->usingSecureBufferOnEncoderOutput()) {
                 native_handle_t *handle = NULL;
@@ -6776,6 +6793,12 @@ void ACodec::LoadedToIdleState::stateEntered() {
         if (mCodec->allYourBuffersAreBelongToUs(kPortIndexOutput)) {
             mCodec->freeBuffersOnPort(kPortIndexOutput);
         }
+        if (mCodec->allYourBuffersAreBelongToUs(kPortIndexInputExtradata)) {
+            mCodec->freeBuffersOnPort(kPortIndexInputExtradata);
+        }
+        if (mCodec->allYourBuffersAreBelongToUs(kPortIndexOutputExtradata)) {
+            mCodec->freeBuffersOnPort(kPortIndexOutputExtradata);
+        }
 
         mCodec->changeState(mCodec->mLoadedState);
     }
@@ -6790,6 +6813,11 @@ status_t ACodec::LoadedToIdleState::allocateBuffers() {
     err = mCodec->allocateBuffersOnPort(kPortIndexOutput);
     if (err != OK) {
         return err;
+    }
+    err = mCodec->allocateBuffersOnPort(kPortIndexInputExtradata);
+    err = mCodec->allocateBuffersOnPort(kPortIndexOutputExtradata);
+    if (err != OK) {
+        err = OK; // Ignore Extradata buffer allocation failure
     }
 
     mCodec->mCallback->onStartCompleted();
@@ -7960,6 +7988,15 @@ void ACodec::ExecutingToIdleState::changeStateIfWeOwnAllBuffers() {
             if (err == OK) {
                 err = err2;
             }
+            status_t err3 = mCodec->freeBuffersOnPort(kPortIndexInputExtradata);
+            if (err == OK) {
+                err = err3;
+            }
+            status_t err4 = mCodec->freeBuffersOnPort(kPortIndexOutputExtradata);
+            if (err == OK) {
+                err = err4;
+            }
+
         }
 
         if ((mCodec->mFlags & kFlagPushBlankBuffersToNativeWindowOnShutdown)
