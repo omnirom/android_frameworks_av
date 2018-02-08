@@ -653,10 +653,10 @@ void MediaCodecSource::signalEOS(status_t err) {
             output->mErrorCode = err;
             if (err != ERROR_END_OF_STREAM) {
                 output->mErrorCode = ERROR_IO;
-                if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
-                    mStopping = true;
-                    mPuller->stop();
-                }
+            }
+            if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
+                mStopping = true;
+                mPuller->stop();
             }
             output->mCond.signal();
 
