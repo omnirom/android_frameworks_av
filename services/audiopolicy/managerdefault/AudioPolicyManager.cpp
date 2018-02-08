@@ -5034,7 +5034,23 @@ sp<IOProfile> AudioPolicyManager::getInputProfile(audio_devices_t device,
                                              &format /*updatedFormat*/,
                                              channelMask,
                                              &channelMask /*updatedChannelMask*/,
-                                             (audio_output_flags_t) flags)) {
+                                             (audio_output_flags_t) flags,
+                                             true)) {
+
+                return profile;
+            }
+        }
+
+        for (const auto& profile : hwModule->getInputProfiles()) {
+            // profile->log();
+            if (profile->isCompatibleProfile(device, address, samplingRate,
+                                             &samplingRate /*updatedSamplingRate*/,
+                                             format,
+                                             &format /*updatedFormat*/,
+                                             channelMask,
+                                             &channelMask /*updatedChannelMask*/,
+                                             (audio_output_flags_t) flags,
+                                              false)) {
 
                 return profile;
             }
