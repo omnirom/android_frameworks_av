@@ -498,7 +498,6 @@ status_t MediaCodecSource::initEncoder() {
     CHECK(mOutputFormat->findString("mime", &outputMIME));
     mIsVideo = outputMIME.startsWithIgnoreCase("video/");
 
-
     AString name;
     status_t err = NO_INIT;
     if (mOutputFormat->findString("testing-name", &name)) {

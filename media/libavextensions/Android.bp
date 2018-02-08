@@ -41,7 +41,7 @@ cc_library_static {
          "libutils",
          "libmediadrm",
          "libnativewindow",
-         //"libstagefright",
+         "libstagefright_omx",
          "libcrypto",
          "android.hardware.media.omx@1.0",
          "libhidlbase",
