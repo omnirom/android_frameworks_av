@@ -16,21 +16,27 @@
 
 package com.android.media;
 
+import static android.media.MediaSession2.COMMAND_CODE_CUSTOM;
 import static android.media.SessionToken2.TYPE_LIBRARY_SERVICE;
 import static android.media.SessionToken2.TYPE_SESSION;
 import static android.media.SessionToken2.TYPE_SESSION_SERVICE;
 
+import android.Manifest.permission;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.Manifest.permission;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
+import android.media.MediaController2;
+import android.media.MediaController2.PlaybackInfo;
 import android.media.MediaItem2;
 import android.media.MediaLibraryService2;
+import android.media.MediaMetadata2;
 import android.media.MediaPlayerInterface;
 import android.media.MediaPlayerInterface.PlaybackListener;
 import android.media.MediaSession2;
@@ -40,19 +46,23 @@ import android.media.MediaSession2.CommandButton;
 import android.media.MediaSession2.CommandGroup;
 import android.media.MediaSession2.ControllerInfo;
 import android.media.MediaSession2.PlaylistParams;
+import android.media.MediaSession2.PlaylistParams.RepeatMode;
+import android.media.MediaSession2.PlaylistParams.ShuffleMode;
 import android.media.MediaSession2.SessionCallback;
 import android.media.MediaSessionService2;
 import android.media.PlaybackState2;
 import android.media.SessionToken2;
-import android.media.VolumeProvider;
+import android.media.VolumeProvider2;
 import android.media.session.MediaSessionManager;
 import android.media.update.MediaSession2Provider;
 import android.os.Bundle;
-import android.os.Process;
 import android.os.IBinder;
+import android.os.Parcelable;
+import android.os.Process;
 import android.os.ResultReceiver;
 import android.support.annotation.GuardedBy;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.Log;
 
 import java.lang.ref.WeakReference;
@@ -73,10 +83,17 @@ public class MediaSession2Impl implements MediaSession2Provider {
     private final SessionCallback mCallback;
     private final MediaSession2Stub mSessionStub;
     private final SessionToken2 mSessionToken;
+    private final AudioManager mAudioManager;
     private final List<PlaybackListenerHolder> mListeners = new ArrayList<>();
+    private final int mRatingType;
+    private final PendingIntent mSessionActivity;
 
     @GuardedBy("mLock")
     private MediaPlayerInterface mPlayer;
+    @GuardedBy("mLock")
+    private VolumeProvider2 mVolumeProvider;
+    @GuardedBy("mLock")
+    private PlaybackInfo mPlaybackInfo;
     @GuardedBy("mLock")
     private MyPlaybackListener mListener;
     @GuardedBy("mLock")
@@ -87,7 +104,6 @@ public class MediaSession2Impl implements MediaSession2Provider {
     /**
      * Can be only called by the {@link Builder#build()}.
      *
-     * @param instance
      * @param context
      * @param player
      * @param id
@@ -96,11 +112,11 @@ public class MediaSession2Impl implements MediaSession2Provider {
      * @param ratingType
      * @param sessionActivity
      */
-    public MediaSession2Impl(Context context, MediaSession2 instance, MediaPlayerInterface player,
-            String id, VolumeProvider volumeProvider, int ratingType, PendingIntent sessionActivity,
+    public MediaSession2Impl(Context context, MediaPlayerInterface player, String id,
+            VolumeProvider2 volumeProvider, int ratingType, PendingIntent sessionActivity,
             Executor callbackExecutor, SessionCallback callback) {
-        mInstance = instance;
         // TODO(jaewan): Keep other params.
+        mInstance = createInstance();
 
         // Argument checks are done by builder already.
         // Initialize finals first.
@@ -108,7 +124,10 @@ public class MediaSession2Impl implements MediaSession2Provider {
         mId = id;
         mCallback = callback;
         mCallbackExecutor = callbackExecutor;
+        mRatingType = ratingType;
+        mSessionActivity = sessionActivity;
         mSessionStub = new MediaSession2Stub(this);
+        mAudioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
 
         // Infer type from the id and package name.
         String libraryService = getServiceName(context, MediaLibraryService2.SERVICE_INTERFACE, id);
@@ -127,8 +146,25 @@ public class MediaSession2Impl implements MediaSession2Provider {
                     mContext.getPackageName(), null, id, mSessionStub).getInstance();
         }
 
-        // Only remember player. Actual settings will be done in the initialize().
-        mPlayer = player;
+        setPlayerLocked(player);
+        mVolumeProvider = volumeProvider;
+        mPlaybackInfo = createPlaybackInfo(volumeProvider, player.getAudioAttributes());
+
+        // Ask server for the sanity check, and starts
+        // Sanity check for making session ID unique 'per package' cannot be done in here.
+        // Server can only know if the package has another process and has another session with the
+        // same id. Note that 'ID is unique per package' is important for controller to distinguish
+        // a session in another package.
+        MediaSessionManager manager =
+                (MediaSessionManager) mContext.getSystemService(Context.MEDIA_SESSION_SERVICE);
+        if (!manager.onSessionCreated(mSessionToken)) {
+            throw new IllegalStateException("Session with the same id is already used by"
+                    + " another process. Use MediaController2 instead.");
+        }
+    }
+
+    MediaSession2 createInstance() {
+        return new MediaSession2(this);
     }
 
     private static String getServiceName(Context context, String serviceAction, String id) {
@@ -157,39 +193,38 @@ public class MediaSession2Impl implements MediaSession2Provider {
     }
 
     @Override
-    public void initialize() {
+    public void setPlayer_impl(MediaPlayerInterface player) {
+        ensureCallingThread();
+        if (player == null) {
+            throw new IllegalArgumentException("player shouldn't be null");
+        }
+        PlaybackInfo info =
+                createPlaybackInfo(null /* VolumeProvider */, player.getAudioAttributes());
         synchronized (mLock) {
-            setPlayerLocked(mPlayer);
+            setPlayerLocked(player);
+            mVolumeProvider = null;
+            mPlaybackInfo = info;
         }
-        // Ask server for the sanity check, and starts
-        // Sanity check for making session ID unique 'per package' cannot be done in here.
-        // Server can only know if the package has another process and has another session with the
-        // same id. Note that 'ID is unique per package' is important for controller to distinguish
-        // a session in another package.
-        MediaSessionManager manager =
-                (MediaSessionManager) mContext.getSystemService(Context.MEDIA_SESSION_SERVICE);
-        if (!manager.onSessionCreated(mSessionToken)) {
-            throw new IllegalStateException("Session with the same id is already used by"
-                    + " another process. Use MediaController2 instead.");
-        }
+        mSessionStub.notifyPlaybackInfoChanged(info);
     }
 
-    // TODO(jaewan): Add explicit release() and do not remove session object with the
-    //               setPlayer(null). Token can be available when player is null, and
-    //               controller can also attach to session.
     @Override
-    public void setPlayer_impl(MediaPlayerInterface player, VolumeProvider volumeProvider)
+    public void setPlayer_impl(MediaPlayerInterface player, VolumeProvider2 volumeProvider)
             throws IllegalArgumentException {
         ensureCallingThread();
         if (player == null) {
             throw new IllegalArgumentException("player shouldn't be null");
         }
-        if (player == mPlayer) {
-            return;
+        if (volumeProvider == null) {
+            throw new IllegalArgumentException("volumeProvider shouldn't be null");
         }
+        PlaybackInfo info = createPlaybackInfo(volumeProvider, player.getAudioAttributes());
         synchronized (mLock) {
             setPlayerLocked(player);
+            mVolumeProvider = volumeProvider;
+            mPlaybackInfo = info;
         }
+        mSessionStub.notifyPlaybackInfoChanged(info);
     }
 
     private void setPlayerLocked(MediaPlayerInterface player) {
@@ -200,6 +235,42 @@ public class MediaSession2Impl implements MediaSession2Provider {
         mPlayer = player;
         mListener = new MyPlaybackListener(this, player);
         player.addPlaybackListener(mCallbackExecutor, mListener);
+    }
+
+    private PlaybackInfo createPlaybackInfo(VolumeProvider2 volumeProvider, AudioAttributes attrs) {
+        PlaybackInfo info;
+        if (volumeProvider == null) {
+            int stream;
+            if (attrs == null) {
+                stream = AudioManager.STREAM_MUSIC;
+            } else {
+                stream = attrs.getVolumeControlStream();
+                if (stream == AudioManager.USE_DEFAULT_STREAM_TYPE) {
+                    // It may happen if the AudioAttributes doesn't have usage.
+                    // Change it to the STREAM_MUSIC because it's not supported by audio manager
+                    // for querying volume level.
+                    stream = AudioManager.STREAM_MUSIC;
+                }
+            }
+            info = PlaybackInfoImpl.createPlaybackInfo(
+                    mContext,
+                    PlaybackInfo.PLAYBACK_TYPE_LOCAL,
+                    attrs,
+                    mAudioManager.isVolumeFixed()
+                            ? VolumeProvider2.VOLUME_CONTROL_FIXED
+                            : VolumeProvider2.VOLUME_CONTROL_ABSOLUTE,
+                    mAudioManager.getStreamMaxVolume(stream),
+                    mAudioManager.getStreamVolume(stream));
+        } else {
+            info = PlaybackInfoImpl.createPlaybackInfo(
+                    mContext,
+                    PlaybackInfo.PLAYBACK_TYPE_REMOTE /* ControlType */,
+                    attrs,
+                    volumeProvider.getControlType(),
+                    volumeProvider.getMaxVolume(),
+                    volumeProvider.getCurrentVolume());
+        }
+        return info;
     }
 
     @Override
@@ -316,10 +387,6 @@ public class MediaSession2Impl implements MediaSession2Provider {
     //////////////////////////////////////////////////////////////////////////////////////
     // TODO(jaewan): Implement follows
     //////////////////////////////////////////////////////////////////////////////////////
-    @Override
-    public void setPlayer_impl(MediaPlayerInterface player) {
-        // TODO(jaewan): Implement
-    }
 
     @Override
     public void setAllowedCommands_impl(ControllerInfo controller, CommandGroup commands) {
@@ -501,6 +568,24 @@ public class MediaSession2Impl implements MediaSession2Provider {
         return mCallback;
     }
 
+    VolumeProvider2 getVolumeProvider() {
+        return mVolumeProvider;
+    }
+
+    PlaybackInfo getPlaybackInfo() {
+        synchronized (mLock) {
+            return mPlaybackInfo;
+        }
+    }
+
+    int getRatingType() {
+        return mRatingType;
+    }
+
+    PendingIntent getSessionActivity() {
+        return mSessionActivity;
+    }
+
     private static class MyPlaybackListener implements MediaPlayerInterface.PlaybackListener {
         private final WeakReference<MediaSession2Impl> mSession;
         private final MediaPlayerInterface mPlayer;
@@ -548,7 +633,7 @@ public class MediaSession2Impl implements MediaSession2Provider {
                 throw new IllegalArgumentException("action shouldn't be null");
             }
             mInstance = instance;
-            mCommandCode = MediaSession2.COMMAND_CODE_CUSTOM;
+            mCommandCode = COMMAND_CODE_CUSTOM;
             mCustomCommand = action;
             mExtra = extra;
         }
@@ -581,7 +666,7 @@ public class MediaSession2Impl implements MediaSession2Provider {
          */
         public static Command fromBundle_impl(Context context, Bundle command) {
             int code = command.getInt(KEY_COMMAND_CODE);
-            if (code != MediaSession2.COMMAND_CODE_CUSTOM) {
+            if (code != COMMAND_CODE_CUSTOM) {
                 return new Command(context, code);
             } else {
                 String customCommand = command.getString(KEY_COMMAND_CUSTOM_COMMAND);
@@ -609,6 +694,103 @@ public class MediaSession2Impl implements MediaSession2Provider {
             final int prime = 31;
             return ((mCustomCommand != null)
                     ? mCustomCommand.hashCode() : 0) * prime + mCommandCode;
+        }
+    }
+
+    /**
+     * Represent set of {@link Command}.
+     */
+    public static class CommandGroupImpl implements CommandGroupProvider {
+        private static final String KEY_COMMANDS =
+                "android.media.mediasession2.commandgroup.commands";
+        private ArraySet<Command> mCommands = new ArraySet<>();
+        private final Context mContext;
+        private final CommandGroup mInstance;
+
+        public CommandGroupImpl(Context context, CommandGroup instance, Object other) {
+            mContext = context;
+            mInstance = instance;
+            if (other != null && other instanceof CommandGroupImpl) {
+                mCommands.addAll(((CommandGroupImpl) other).mCommands);
+            }
+        }
+
+        @Override
+        public void addCommand_impl(Command command) {
+            mCommands.add(command);
+        }
+
+        @Override
+        public void addAllPredefinedCommands_impl() {
+            final int COMMAND_CODE_MAX = 22;
+            for (int i = 1; i <= COMMAND_CODE_MAX; i++) {
+                mCommands.add(new Command(mContext, i));
+            }
+        }
+
+        @Override
+        public void removeCommand_impl(Command command) {
+            mCommands.remove(command);
+        }
+
+        @Override
+        public boolean hasCommand_impl(Command command) {
+            return mCommands.contains(command);
+        }
+
+        @Override
+        public boolean hasCommand_impl(int code) {
+            if (code == COMMAND_CODE_CUSTOM) {
+                throw new IllegalArgumentException("Use hasCommand(Command) for custom command");
+            }
+            for (int i = 0; i < mCommands.size(); i++) {
+                if (mCommands.valueAt(i).getCommandCode() == code) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * @return new bundle from the CommandGroup
+         * @hide
+         */
+        @Override
+        public Bundle toBundle_impl() {
+            ArrayList<Bundle> list = new ArrayList<>();
+            for (int i = 0; i < mCommands.size(); i++) {
+                list.add(mCommands.valueAt(i).toBundle());
+            }
+            Bundle bundle = new Bundle();
+            bundle.putParcelableArrayList(KEY_COMMANDS, list);
+            return bundle;
+        }
+
+        /**
+         * @return new instance of CommandGroup from the bundle
+         * @hide
+         */
+        public static @Nullable CommandGroup fromBundle_impl(Context context, Bundle commands) {
+            if (commands == null) {
+                return null;
+            }
+            List<Parcelable> list = commands.getParcelableArrayList(KEY_COMMANDS);
+            if (list == null) {
+                return null;
+            }
+            CommandGroup commandGroup = new CommandGroup(context);
+            for (int i = 0; i < list.size(); i++) {
+                Parcelable parcelable = list.get(i);
+                if (!(parcelable instanceof Bundle)) {
+                    continue;
+                }
+                Bundle commandBundle = (Bundle) parcelable;
+                Command command = Command.fromBundle(context, commandBundle);
+                if (command != null) {
+                    commandGroup.addCommand(command);
+                }
+            }
+            return commandGroup;
         }
     }
 
@@ -704,6 +886,308 @@ public class MediaSession2Impl implements MediaSession2Provider {
 
         public static ControllerInfoImpl from(ControllerInfo controller) {
             return (ControllerInfoImpl) controller.getProvider();
+        }
+    }
+
+    public static class PlaylistParamsImpl implements PlaylistParamsProvider {
+        /**
+         * Keys used for converting a PlaylistParams object to a bundle object and vice versa.
+         */
+        private static final String KEY_REPEAT_MODE =
+                "android.media.session2.playlistparams2.repeat_mode";
+        private static final String KEY_SHUFFLE_MODE =
+                "android.media.session2.playlistparams2.shuffle_mode";
+        private static final String KEY_MEDIA_METADATA2_BUNDLE =
+                "android.media.session2.playlistparams2.metadata2_bundle";
+
+        private Context mContext;
+        private PlaylistParams mInstance;
+        private @RepeatMode int mRepeatMode;
+        private @ShuffleMode int mShuffleMode;
+        private MediaMetadata2 mPlaylistMetadata;
+
+        public PlaylistParamsImpl(Context context, PlaylistParams instance,
+                @RepeatMode int repeatMode, @ShuffleMode int shuffleMode,
+                MediaMetadata2 playlistMetadata) {
+            // TODO(jaewan): Sanity check
+            mContext = context;
+            mInstance = instance;
+            mRepeatMode = repeatMode;
+            mShuffleMode = shuffleMode;
+            mPlaylistMetadata = playlistMetadata;
+        }
+
+        public @RepeatMode int getRepeatMode_impl() {
+            return mRepeatMode;
+        }
+
+        public @ShuffleMode int getShuffleMode_impl() {
+            return mShuffleMode;
+        }
+
+        public MediaMetadata2 getPlaylistMetadata_impl() {
+            return mPlaylistMetadata;
+        }
+
+        @Override
+        public Bundle toBundle_impl() {
+            Bundle bundle = new Bundle();
+            bundle.putInt(KEY_REPEAT_MODE, mRepeatMode);
+            bundle.putInt(KEY_SHUFFLE_MODE, mShuffleMode);
+            if (mPlaylistMetadata != null) {
+                bundle.putBundle(KEY_MEDIA_METADATA2_BUNDLE, mPlaylistMetadata.toBundle());
+            }
+            return bundle;
+        }
+
+        public static PlaylistParams fromBundle(Context context, Bundle bundle) {
+            if (bundle == null) {
+                return null;
+            }
+            if (!bundle.containsKey(KEY_REPEAT_MODE) || !bundle.containsKey(KEY_SHUFFLE_MODE)) {
+                return null;
+            }
+
+            Bundle metadataBundle = bundle.getBundle(KEY_MEDIA_METADATA2_BUNDLE);
+            MediaMetadata2 metadata = metadataBundle == null
+                    ? null : MediaMetadata2.fromBundle(context, metadataBundle);
+
+            return new PlaylistParams(context,
+                    bundle.getInt(KEY_REPEAT_MODE),
+                    bundle.getInt(KEY_SHUFFLE_MODE),
+                    metadata);
+        }
+    }
+
+    public static class CommandButtonImpl implements CommandButtonProvider {
+        private static final String KEY_COMMAND
+                = "android.media.media_session2.command_button.command";
+        private static final String KEY_ICON_RES_ID
+                = "android.media.media_session2.command_button.icon_res_id";
+        private static final String KEY_DISPLAY_NAME
+                = "android.media.media_session2.command_button.display_name";
+        private static final String KEY_EXTRA
+                = "android.media.media_session2.command_button.extra";
+        private static final String KEY_ENABLED
+                = "android.media.media_session2.command_button.enabled";
+
+        private final CommandButton mInstance;
+        private Command mCommand;
+        private int mIconResId;
+        private String mDisplayName;
+        private Bundle mExtra;
+        private boolean mEnabled;
+
+        public CommandButtonImpl(Context context, @Nullable Command command, int iconResId,
+                @Nullable String displayName, Bundle extra, boolean enabled) {
+            mCommand = command;
+            mIconResId = iconResId;
+            mDisplayName = displayName;
+            mExtra = extra;
+            mEnabled = enabled;
+            mInstance = new CommandButton(this);
+        }
+
+        @Override
+        public @Nullable Command getCommand_impl() {
+            return mCommand;
+        }
+
+        @Override
+        public int getIconResId_impl() {
+            return mIconResId;
+        }
+
+        @Override
+        public @Nullable String getDisplayName_impl() {
+            return mDisplayName;
+        }
+
+        @Override
+        public @Nullable Bundle getExtra_impl() {
+            return mExtra;
+        }
+
+        @Override
+        public boolean isEnabled_impl() {
+            return mEnabled;
+        }
+
+        public @NonNull Bundle toBundle() {
+            Bundle bundle = new Bundle();
+            bundle.putBundle(KEY_COMMAND, mCommand.toBundle());
+            bundle.putInt(KEY_ICON_RES_ID, mIconResId);
+            bundle.putString(KEY_DISPLAY_NAME, mDisplayName);
+            bundle.putBundle(KEY_EXTRA, mExtra);
+            bundle.putBoolean(KEY_ENABLED, mEnabled);
+            return bundle;
+        }
+
+        public static @Nullable CommandButton fromBundle(Context context, Bundle bundle) {
+            if (bundle == null) {
+                return null;
+            }
+            CommandButton.Builder builder = new CommandButton.Builder(context);
+            builder.setCommand(Command.fromBundle(context, bundle.getBundle(KEY_COMMAND)));
+            builder.setIconResId(bundle.getInt(KEY_ICON_RES_ID, 0));
+            builder.setDisplayName(bundle.getString(KEY_DISPLAY_NAME));
+            builder.setExtra(bundle.getBundle(KEY_EXTRA));
+            builder.setEnabled(bundle.getBoolean(KEY_ENABLED));
+            try {
+                return builder.build();
+            } catch (IllegalStateException e) {
+                // Malformed or version mismatch. Return null for now.
+                return null;
+            }
+        }
+
+        /**
+         * Builder for {@link CommandButton}.
+         */
+        public static class BuilderImpl implements CommandButtonProvider.BuilderProvider {
+            private final Context mContext;
+            private final CommandButton.Builder mInstance;
+            private Command mCommand;
+            private int mIconResId;
+            private String mDisplayName;
+            private Bundle mExtra;
+            private boolean mEnabled;
+
+            public BuilderImpl(Context context, CommandButton.Builder instance) {
+                mContext = context;
+                mInstance = instance;
+                mEnabled = true;
+            }
+
+            @Override
+            public CommandButton.Builder setCommand_impl(Command command) {
+                mCommand = command;
+                return mInstance;
+            }
+
+            @Override
+            public CommandButton.Builder setIconResId_impl(int resId) {
+                mIconResId = resId;
+                return mInstance;
+            }
+
+            @Override
+            public CommandButton.Builder setDisplayName_impl(String displayName) {
+                mDisplayName = displayName;
+                return mInstance;
+            }
+
+            @Override
+            public CommandButton.Builder setEnabled_impl(boolean enabled) {
+                mEnabled = enabled;
+                return mInstance;
+            }
+
+            @Override
+            public CommandButton.Builder setExtra_impl(Bundle extra) {
+                mExtra = extra;
+                return mInstance;
+            }
+
+            @Override
+            public CommandButton build_impl() {
+                if (mEnabled && mCommand == null) {
+                    throw new IllegalStateException("Enabled button needs Command"
+                            + " for controller to invoke the command");
+                }
+                if (mCommand != null && mCommand.getCommandCode() == COMMAND_CODE_CUSTOM
+                        && (mIconResId == 0 || TextUtils.isEmpty(mDisplayName))) {
+                    throw new IllegalStateException("Custom commands needs icon and"
+                            + " and name to display");
+                }
+                return new CommandButtonImpl(
+                        mContext, mCommand, mIconResId, mDisplayName, mExtra, mEnabled).mInstance;
+            }
+        }
+    }
+
+    public static abstract class BuilderBaseImpl<T extends MediaSession2, C extends SessionCallback>
+            implements BuilderBaseProvider<T, C> {
+        final Context mContext;
+        final MediaPlayerInterface mPlayer;
+        String mId;
+        Executor mCallbackExecutor;
+        C mCallback;
+        VolumeProvider2 mVolumeProvider;
+        int mRatingType;
+        PendingIntent mSessionActivity;
+
+        /**
+         * Constructor.
+         *
+         * @param context a context
+         * @param player a player to handle incoming command from any controller.
+         * @throws IllegalArgumentException if any parameter is null, or the player is a
+         *      {@link MediaSession2} or {@link MediaController2}.
+         */
+        // TODO(jaewan): Also need executor
+        public BuilderBaseImpl(Context context, MediaPlayerInterface player) {
+            if (context == null) {
+                throw new IllegalArgumentException("context shouldn't be null");
+            }
+            if (player == null) {
+                throw new IllegalArgumentException("player shouldn't be null");
+            }
+            mContext = context;
+            mPlayer = player;
+            // Ensure non-null
+            mId = "";
+        }
+
+        public void setVolumeProvider_impl(VolumeProvider2 volumeProvider) {
+            mVolumeProvider = volumeProvider;
+        }
+
+        public void setRatingType_impl(int type) {
+            mRatingType = type;
+        }
+
+        public void setSessionActivity_impl(PendingIntent pi) {
+            mSessionActivity = pi;
+        }
+
+        public void setId_impl(String id) {
+            if (id == null) {
+                throw new IllegalArgumentException("id shouldn't be null");
+            }
+            mId = id;
+        }
+
+        public void setSessionCallback_impl(Executor executor, C callback) {
+            if (executor == null) {
+                throw new IllegalArgumentException("executor shouldn't be null");
+            }
+            if (callback == null) {
+                throw new IllegalArgumentException("callback shouldn't be null");
+            }
+            mCallbackExecutor = executor;
+            mCallback = callback;
+        }
+
+        public abstract T build_impl();
+    }
+
+    public static class BuilderImpl extends BuilderBaseImpl<MediaSession2, SessionCallback> {
+        public BuilderImpl(Context context, Builder instance, MediaPlayerInterface player) {
+            super(context, player);
+        }
+
+        @Override
+        public MediaSession2 build_impl() {
+            if (mCallbackExecutor == null) {
+                mCallbackExecutor = mContext.getMainExecutor();
+            }
+            if (mCallback == null) {
+                mCallback = new SessionCallback(mContext);
+            }
+
+            return new MediaSession2Impl(mContext, mPlayer, mId, mVolumeProvider, mRatingType,
+                    mSessionActivity, mCallbackExecutor, mCallback).getInstance();
         }
     }
 }

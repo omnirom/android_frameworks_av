@@ -18,6 +18,7 @@ package com.android.support.mediarouter.app;
 
 import android.annotation.NonNull;
 import android.app.Activity;
+import android.app.FragmentManager;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.res.ColorStateList;
@@ -27,8 +28,6 @@ import android.graphics.Canvas;
 import android.graphics.drawable.AnimationDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
-import android.support.v4.app.FragmentActivity;
-import android.support.v4.app.FragmentManager;
 import android.support.v4.graphics.drawable.DrawableCompat;
 import android.support.v7.widget.TooltipCompat;
 import android.util.AttributeSet;
@@ -90,6 +89,7 @@ public class MediaRouteButton extends View {
     private final MediaRouterCallback mCallback;
 
     private MediaRouteSelector mSelector = MediaRouteSelector.EMPTY;
+    private int mRouteCallbackFlags;
     private MediaRouteDialogFactory mDialogFactory = MediaRouteDialogFactory.getDefault();
 
     private boolean mAttachedToWindow;
@@ -174,23 +174,38 @@ public class MediaRouteButton extends View {
      * Sets the media route selector for filtering the routes that the user can
      * select using the media route chooser dialog.
      *
-     * @param selector The selector, must not be null.
+     * @param selector The selector.
      */
     public void setRouteSelector(MediaRouteSelector selector) {
-        if (selector == null) {
-            throw new IllegalArgumentException("selector must not be null");
+        setRouteSelector(selector, 0);
+    }
+
+    /**
+     * Sets the media route selector for filtering the routes that the user can
+     * select using the media route chooser dialog.
+     *
+     * @param selector The selector.
+     * @param flags Flags to control the behavior of the callback. May be zero or a combination of
+     *              {@link #MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN} and
+     *              {@link #MediaRouter.CALLBACK_FLAG_UNFILTERED_EVENTS}.
+     */
+    public void setRouteSelector(MediaRouteSelector selector, int flags) {
+        if (mSelector.equals(selector) && mRouteCallbackFlags == flags) {
+            return;
+        }
+        if (!mSelector.isEmpty()) {
+            mRouter.removeCallback(mCallback);
+        }
+        if (selector == null || selector.isEmpty()) {
+            mSelector = MediaRouteSelector.EMPTY;
+            return;
         }
 
-        if (!mSelector.equals(selector)) {
-            if (mAttachedToWindow) {
-                if (!mSelector.isEmpty()) {
-                    mRouter.removeCallback(mCallback);
-                }
-                if (!selector.isEmpty()) {
-                    mRouter.addCallback(selector, mCallback);
-                }
-            }
-            mSelector = selector;
+        mSelector = selector;
+        mRouteCallbackFlags = flags;
+
+        if (mAttachedToWindow) {
+            mRouter.addCallback(selector, mCallback, flags);
             refreshRoute();
         }
     }
@@ -243,7 +258,7 @@ public class MediaRouteButton extends View {
             return false;
         }
 
-        final FragmentManager fm = getFragmentManager();
+        final FragmentManager fm = getActivity().getFragmentManager();
         if (fm == null) {
             throw new IllegalStateException("The activity must be a subclass of FragmentActivity");
         }
@@ -270,13 +285,6 @@ public class MediaRouteButton extends View {
         return true;
     }
 
-    private FragmentManager getFragmentManager() {
-        Activity activity = getActivity();
-        if (activity instanceof FragmentActivity) {
-            return ((FragmentActivity)activity).getSupportFragmentManager();
-        }
-        return null;
-    }
 
     private Activity getActivity() {
         // Gross way of unwrapping the Activity so we can get the FragmentManager
@@ -411,7 +419,7 @@ public class MediaRouteButton extends View {
 
         mAttachedToWindow = true;
         if (!mSelector.isEmpty()) {
-            mRouter.addCallback(mSelector, mCallback);
+            mRouter.addCallback(mSelector, mCallback, mRouteCallbackFlags);
         }
         refreshRoute();
     }

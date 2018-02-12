@@ -19,16 +19,20 @@ package com.android.media;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.media.MediaLibraryService2;
+import android.media.MediaLibraryService2.LibraryRoot;
 import android.media.MediaLibraryService2.MediaLibrarySession;
+import android.media.MediaLibraryService2.MediaLibrarySessionBuilder;
 import android.media.MediaLibraryService2.MediaLibrarySessionCallback;
 import android.media.MediaPlayerInterface;
 import android.media.MediaSession2;
 import android.media.MediaSession2.ControllerInfo;
 import android.media.MediaSessionService2;
 import android.media.SessionToken2;
-import android.media.VolumeProvider;
+import android.media.VolumeProvider2;
 import android.media.update.MediaLibraryService2Provider;
 import android.os.Bundle;
+
+import com.android.media.MediaSession2Impl.BuilderBaseImpl;
 
 import java.util.concurrent.Executor;
 
@@ -61,17 +65,25 @@ public class MediaLibraryService2Impl extends MediaSessionService2Impl implement
 
     public static class MediaLibrarySessionImpl extends MediaSession2Impl
             implements MediaLibrarySessionProvider {
-        private final MediaLibrarySession mInstance;
         private final MediaLibrarySessionCallback mCallback;
 
-        public MediaLibrarySessionImpl(Context context, MediaLibrarySession instance,
-                MediaPlayerInterface player, String id, VolumeProvider volumeProvider,
+        public MediaLibrarySessionImpl(Context context,
+                MediaPlayerInterface player, String id, VolumeProvider2 volumeProvider,
                 int ratingType, PendingIntent sessionActivity, Executor callbackExecutor,
-                MediaLibrarySessionCallback callback)  {
-            super(context, instance, player, id, volumeProvider, ratingType, sessionActivity,
+                MediaLibrarySessionCallback callback) {
+            super(context, player, id, volumeProvider, ratingType, sessionActivity,
                     callbackExecutor, callback);
-            mInstance = instance;
             mCallback = callback;
+        }
+
+        @Override
+        MediaLibrarySession createInstance() {
+            return new MediaLibrarySession(this);
+        }
+
+        @Override
+        MediaLibrarySession getInstance() {
+            return (MediaLibrarySession) super.getInstance();
         }
 
         @Override
@@ -83,6 +95,49 @@ public class MediaLibraryService2Impl extends MediaSessionService2Impl implement
         @Override
         public void notifyChildrenChanged_impl(String parentId, Bundle options) {
             // TODO(jaewan): Implements
+        }
+    }
+
+    public static class BuilderImpl
+            extends BuilderBaseImpl<MediaLibrarySession, MediaLibrarySessionCallback> {
+        public BuilderImpl(Context context, MediaLibrarySessionBuilder instance,
+                MediaPlayerInterface player, Executor callbackExecutor,
+                MediaLibrarySessionCallback callback) {
+            super(context, player);
+            setSessionCallback_impl(callbackExecutor, callback);
+        }
+
+        @Override
+        public MediaLibrarySession build_impl() {
+            return new MediaLibrarySessionImpl(mContext, mPlayer, mId, mVolumeProvider, mRatingType,
+                    mSessionActivity, mCallbackExecutor, mCallback).getInstance();
+        }
+    }
+
+    public static final class LibraryRootImpl implements LibraryRootProvider {
+        private final LibraryRoot mInstance;
+        private final String mRootId;
+        private final Bundle mExtras;
+
+        public LibraryRootImpl(Context context, LibraryRoot instance, String rootId,
+                Bundle extras) {
+            if (rootId == null) {
+                throw new IllegalArgumentException("The root id in BrowserRoot cannot be null. " +
+                        "Use null for BrowserRoot instead.");
+            }
+            mInstance = instance;
+            mRootId = rootId;
+            mExtras = extras;
+        }
+
+        @Override
+        public String getRootId_impl() {
+            return mRootId;
+        }
+
+        @Override
+        public Bundle getExtras_impl() {
+            return mExtras;
         }
     }
 }

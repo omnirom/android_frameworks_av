@@ -23,6 +23,7 @@
 
 #include <C2AllocatorGralloc.h>
 #include <C2PlatformSupport.h>
+#include <C2BlockInternal.h>
 
 #include <android/hardware/cas/native/1.0/IDescrambler.h>
 #include <binder/MemoryDealer.h>
@@ -249,7 +250,7 @@ ssize_t findBufferSlot(
     return std::distance(buffers->begin(), it);
 }
 
-sp<Codec2Buffer> allocateLinearBuffer(
+sp<LinearBlockBuffer> allocateLinearBuffer(
         const std::shared_ptr<C2BlockPool> &pool,
         const sp<AMessage> &format,
         size_t size,
@@ -264,7 +265,7 @@ sp<Codec2Buffer> allocateLinearBuffer(
         return nullptr;
     }
 
-    return Codec2Buffer::allocate(format, block);
+    return LinearBlockBuffer::allocate(format, block);
 }
 
 class Buffer1D : public C2Buffer {
@@ -283,7 +284,7 @@ public:
 
     void add(
             size_t index,
-            const sp<Codec2Buffer> &clientBuffer,
+            const sp<LinearBlockBuffer> &clientBuffer,
             bool available) {
         if (mBufferArray.size() <= index) {
             // TODO: make this more efficient
@@ -312,6 +313,7 @@ public:
                 mBufferArray[i].available = false;
                 *index = i;
                 *buffer = mBufferArray[i].clientBuffer;
+                (*buffer)->meta()->clear();
                 (*buffer)->setRange(0, (*buffer)->capacity());
                 return true;
             }
@@ -339,7 +341,7 @@ public:
 
 private:
     struct Entry {
-        sp<Codec2Buffer> clientBuffer;
+        sp<LinearBlockBuffer> clientBuffer;
         std::weak_ptr<C2Buffer> compBuffer;
         bool available;
     };
@@ -353,7 +355,7 @@ public:
 
     bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
         *buffer = nullptr;
-        ssize_t ret = findBufferSlot<wp<Codec2Buffer>>(
+        ssize_t ret = findBufferSlot<wp<LinearBlockBuffer>>(
                 &mBuffers, kMinBufferArraySize,
                 [] (const auto &elem) { return elem.promote() == nullptr; });
         if (ret < 0) {
@@ -362,7 +364,7 @@ public:
         // TODO: proper max input size and usage
         // TODO: read usage from intf
         C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
-        sp<Codec2Buffer> newBuffer = allocateLinearBuffer(mPool, mFormat, kLinearBufferSize, usage);
+        sp<LinearBlockBuffer> newBuffer = allocateLinearBuffer(mPool, mFormat, kLinearBufferSize, usage);
         if (newBuffer == nullptr) {
             return false;
         }
@@ -377,7 +379,7 @@ public:
         if (it == mBuffers.end()) {
             return nullptr;
         }
-        sp<Codec2Buffer> codecBuffer = it->promote();
+        sp<LinearBlockBuffer> codecBuffer = it->promote();
         // We got sp<> reference from the caller so this should never happen..
         CHECK(codecBuffer != nullptr);
         return std::make_shared<Buffer1D>(codecBuffer->share());
@@ -393,7 +395,7 @@ public:
         const size_t size = std::max(kMinBufferArraySize, mBuffers.size());
         mBuffers.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            sp<Codec2Buffer> clientBuffer = mBuffers[i].promote();
+            sp<LinearBlockBuffer> clientBuffer = mBuffers[i].promote();
             bool available = false;
             if (clientBuffer == nullptr) {
                 // TODO: proper max input size
@@ -413,7 +415,7 @@ public:
 private:
     // Buffers we passed to the client. The index of a buffer matches what
     // was passed in BufferCallback::onInputBufferAvailable().
-    std::vector<wp<Codec2Buffer>> mBuffers;
+    std::vector<wp<LinearBlockBuffer>> mBuffers;
 };
 
 class GraphicInputBuffers : public CCodecBufferChannel::InputBuffers {
@@ -487,6 +489,7 @@ public:
                 *index = i;
                 *codecBuffer = mBufferArray[i].clientBuffer;
                 (*codecBuffer)->setFormat(mFormat);
+                (*codecBuffer)->meta()->clear();
                 mBufferArray[i].compBuffer = buffer;
                 mBufferArray[i].available = false;
                 return true;
@@ -512,6 +515,7 @@ public:
                 *index = i;
                 *codecBuffer = mBufferArray[i].clientBuffer;
                 (*codecBuffer)->setFormat(mFormat);
+                (*codecBuffer)->meta()->clear();
                 mBufferArray[i].available = false;
                 return true;
             }
@@ -614,9 +618,7 @@ public:
         if (ret < 0) {
             return false;
         }
-        sp<MediaCodecBuffer> newBuffer = new MediaCodecBuffer(
-                mFormat,
-                convert(buffer));
+        sp<MediaCodecBuffer> newBuffer = convert(buffer);
         mBuffers[ret] = { newBuffer, buffer };
         *index = ret;
         *codecBuffer = newBuffer;
@@ -666,7 +668,7 @@ public:
         // track of the flushed work.
     }
 
-    virtual sp<ABuffer> convert(const std::shared_ptr<C2Buffer> &buffer) = 0;
+    virtual sp<MediaCodecBuffer> convert(const std::shared_ptr<C2Buffer> &buffer) = 0;
 
 protected:
     struct BufferInfo {
@@ -684,9 +686,9 @@ class LinearOutputBuffers : public FlexOutputBuffers {
 public:
     using FlexOutputBuffers::FlexOutputBuffers;
 
-    virtual sp<ABuffer> convert(const std::shared_ptr<C2Buffer> &buffer) override {
+    virtual sp<MediaCodecBuffer> convert(const std::shared_ptr<C2Buffer> &buffer) override {
         if (buffer == nullptr) {
-            return new ABuffer(nullptr, 0);
+            return new MediaCodecBuffer(mFormat, new ABuffer(nullptr, 0));
         }
         if (buffer->data().type() != C2BufferData::LINEAR) {
             // We expect linear output buffers from the component.
@@ -696,16 +698,7 @@ public:
             // We expect one and only one linear block from the component.
             return nullptr;
         }
-        C2ReadView view = buffer->data().linearBlocks().front().map().get();
-        if (view.error() != C2_OK) {
-            // Mapping the linear block failed
-            return nullptr;
-        }
-        return new ABuffer(
-                // XXX: the data is supposed to be read-only. We don't have
-                // const equivalent of ABuffer however...
-                const_cast<uint8_t *>(view.data()),
-                view.capacity());
+        return ConstLinearBlockBuffer::allocate(mFormat, buffer->data().linearBlocks().front());
     }
 
     std::unique_ptr<CCodecBufferChannel::OutputBuffers> toArrayMode() override {
@@ -734,8 +727,9 @@ class GraphicOutputBuffers : public FlexOutputBuffers {
 public:
     using FlexOutputBuffers::FlexOutputBuffers;
 
-    sp<ABuffer> convert(const std::shared_ptr<C2Buffer> &buffer) override {
-        return buffer ? new ABuffer(nullptr, 1) : new ABuffer(nullptr, 0);
+    sp<MediaCodecBuffer> convert(const std::shared_ptr<C2Buffer> &buffer) override {
+        return new MediaCodecBuffer(
+                mFormat, buffer ? new ABuffer(nullptr, 1) : new ABuffer(nullptr, 0));
     }
 
     std::unique_ptr<CCodecBufferChannel::OutputBuffers> toArrayMode() override {
@@ -826,7 +820,7 @@ public:
         std::shared_ptr<C2Allocator> allocator = mAllocator.lock();
         if (!allocator) {
             c2_status_t err = GetCodec2PlatformAllocatorStore()->fetchAllocator(
-                    C2AllocatorStore::PLATFORM_START + 1,  // GRALLOC
+                    C2PlatformAllocatorStore::GRALLOC,
                     &allocator);
             if (err != OK) {
                 return UNKNOWN_ERROR;
@@ -842,7 +836,8 @@ public:
         if (err != OK) {
             return UNKNOWN_ERROR;
         }
-        std::shared_ptr<C2GraphicBlock> block(new GraphicBlock(alloc));
+
+        std::shared_ptr<C2GraphicBlock> block = _C2BlockFactory::CreateGraphicBlock(alloc);
 
         std::unique_ptr<C2Work> work(new C2Work);
         work->input.flags = (C2FrameData::flags_t)0;

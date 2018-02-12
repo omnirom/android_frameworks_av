@@ -16,9 +16,12 @@
 
 package com.android.media;
 
+import android.app.PendingIntent;
 import android.content.Context;
+import android.media.MediaController2;
+import android.media.MediaController2.PlaybackInfo;
 import android.media.MediaItem2;
-import android.media.MediaLibraryService2.BrowserRoot;
+import android.media.MediaLibraryService2.LibraryRoot;
 import android.media.MediaLibraryService2.MediaLibrarySessionCallback;
 import android.media.MediaSession2;
 import android.media.MediaSession2.Command;
@@ -27,6 +30,9 @@ import android.media.MediaSession2.CommandGroup;
 import android.media.MediaSession2.ControllerInfo;
 import android.media.MediaSession2.PlaylistParams;
 import android.media.PlaybackState2;
+import android.media.VolumeProvider2;
+import android.media.update.MediaSession2Provider.CommandButtonProvider;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -36,6 +42,7 @@ import android.support.annotation.GuardedBy;
 import android.util.ArrayMap;
 import android.util.Log;
 
+import com.android.media.MediaSession2Impl.CommandButtonImpl;
 import com.android.media.MediaSession2Impl.ControllerInfoImpl;
 
 import java.lang.ref.WeakReference;
@@ -74,7 +81,7 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
                     ((ControllerInfoImpl) list.get(i).getProvider()).getControllerBinder();
             try {
                 // Should be used without a lock hold to prevent potential deadlock.
-                callbackBinder.onConnectionChanged(null, null);
+                callbackBinder.onDisconnected();
             } catch (RemoteException e) {
                 // Controller is gone. Should be fine because we're destroying.
             }
@@ -107,7 +114,11 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
             // media keys to.
             boolean accept = allowedCommands != null || request.isTrusted();
             ControllerInfoImpl impl = ControllerInfoImpl.from(request);
-            if (accept) {
+            if (accept && allowedCommands != null) {
+                if (DEBUG) {
+                    Log.d(TAG, "Accepting connection, request=" + request
+                            + " allowedCommands=" + allowedCommands);
+                }
                 synchronized (mLock) {
                     mControllers.put(impl.getId(), request);
                 }
@@ -115,19 +126,6 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
                     // For trusted apps, send non-null allowed commands to keep connection.
                     allowedCommands = new CommandGroup(context);
                 }
-            }
-            if (DEBUG) {
-                Log.d(TAG, "onConnectResult, request=" + request
-                        + " accept=" + accept);
-            }
-            try {
-                callback.onConnectionChanged(
-                        accept ? MediaSession2Stub.this : null,
-                        allowedCommands == null ? null : allowedCommands.toBundle());
-            } catch (RemoteException e) {
-                // Controller may be died prematurely.
-            }
-            if (accept) {
                 // If connection is accepted, notify the current state to the controller.
                 // It's needed because we cannot call synchronous calls between session/controller.
                 // Note: We're doing this after the onConnectionChanged(), but there's no guarantee
@@ -136,12 +134,50 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
                 //       use thread poll for incoming calls.
                 // TODO(jaewan): Should we protect getting playback state?
                 final PlaybackState2 state = session.getInstance().getPlaybackState();
-                final Bundle bundle = state != null ? state.toBundle() : null;
+                final Bundle playbackStateBundle = (state != null) ? state.toBundle() : null;
+                final Bundle playbackInfoBundle =
+                        ((PlaybackInfoImpl) session.getPlaybackInfo().getProvider()).toBundle();
+                final PlaylistParams params = session.getInstance().getPlaylistParams();
+                final Bundle paramsBundle = (params != null) ? params.toBundle() : null;
+                final int ratingType = session.getRatingType();
+                final PendingIntent sessionActivity = session.getSessionActivity();
+                final List<MediaItem2> playlist = session.getInstance().getPlaylist();
+                final List<Bundle> playlistBundle = new ArrayList<>();
+                if (playlist != null) {
+                    // TODO(jaewan): Find a way to avoid concurrent modification exception.
+                    for (int i = 0; i < playlist.size(); i++) {
+                        final MediaItem2 item = playlist.get(i);
+                        if (item != null) {
+                            final Bundle itemBundle = item.toBundle();
+                            if (itemBundle != null) {
+                                playlistBundle.add(itemBundle);
+                            }
+                        }
+                    }
+                }
+
+                // Double check if session is still there, because close() can be called in another
+                // thread.
+                if (mSession.get() == null) {
+                    return;
+                }
                 try {
-                    callback.onPlaybackStateChanged(bundle);
+                    callback.onConnected(MediaSession2Stub.this,
+                            allowedCommands.toBundle(), playbackStateBundle, playbackInfoBundle,
+                            paramsBundle, playlistBundle, ratingType, sessionActivity);
                 } catch (RemoteException e) {
-                    // TODO(jaewan): Handle this.
                     // Controller may be died prematurely.
+                    // TODO(jaewan): Handle here.
+                }
+            } else {
+                if (DEBUG) {
+                    Log.d(TAG, "Rejecting connection, request=" + request);
+                }
+                try {
+                    callback.onDisconnected();
+                } catch (RemoteException e) {
+                    // Controller may be died prematurely.
+                    // Not an issue because we'll ignore it anyway.
                 }
             }
         });
@@ -155,6 +191,82 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
                 Log.d(TAG, "releasing " + controllerInfo);
             }
         }
+    }
+
+    @Override
+    public void setVolumeTo(IMediaSession2Callback caller, int value, int flags)
+            throws RuntimeException {
+        final MediaSession2Impl sessionImpl = getSession();
+        final ControllerInfo controller = getController(caller);
+        if (controller == null) {
+            if (DEBUG) {
+                Log.d(TAG, "Command from a controller that hasn't connected. Ignore");
+            }
+            return;
+        }
+        sessionImpl.getCallbackExecutor().execute(() -> {
+            final MediaSession2Impl session = mSession.get();
+            if (session == null) {
+                return;
+            }
+            // TODO(jaewan): Sanity check.
+            Command command = new Command(
+                    session.getContext(), MediaSession2.COMMAND_CODE_SET_VOLUME);
+            boolean accepted = session.getCallback().onCommandRequest(controller, command);
+            if (!accepted) {
+                // Don't run rejected command.
+                if (DEBUG) {
+                    Log.d(TAG, "Command " + MediaSession2.COMMAND_CODE_SET_VOLUME + " from "
+                            + controller + " was rejected by " + session);
+                }
+                return;
+            }
+
+            VolumeProvider2 volumeProvider = session.getVolumeProvider();
+            if (volumeProvider == null) {
+                // TODO(jaewan): Set local stream volume
+            } else {
+                volumeProvider.onSetVolumeTo(value);
+            }
+        });
+    }
+
+    @Override
+    public void adjustVolume(IMediaSession2Callback caller, int direction, int flags)
+            throws RuntimeException {
+        final MediaSession2Impl sessionImpl = getSession();
+        final ControllerInfo controller = getController(caller);
+        if (controller == null) {
+            if (DEBUG) {
+                Log.d(TAG, "Command from a controller that hasn't connected. Ignore");
+            }
+            return;
+        }
+        sessionImpl.getCallbackExecutor().execute(() -> {
+            final MediaSession2Impl session = mSession.get();
+            if (session == null) {
+                return;
+            }
+            // TODO(jaewan): Sanity check.
+            Command command = new Command(
+                    session.getContext(), MediaSession2.COMMAND_CODE_SET_VOLUME);
+            boolean accepted = session.getCallback().onCommandRequest(controller, command);
+            if (!accepted) {
+                // Don't run rejected command.
+                if (DEBUG) {
+                    Log.d(TAG, "Command " + MediaSession2.COMMAND_CODE_SET_VOLUME + " from "
+                            + controller + " was rejected by " + session);
+                }
+                return;
+            }
+
+            VolumeProvider2 volumeProvider = session.getVolumeProvider();
+            if (volumeProvider == null) {
+                // TODO(jaewan): Adjust local stream volume
+            } else {
+                volumeProvider.onAdjustVolume(direction);
+            }
+        });
     }
 
     @Override
@@ -192,7 +304,7 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
             }
 
             switch (commandCode) {
-                case MediaSession2.COMMAND_CODE_PLAYBACK_START:
+                case MediaSession2.COMMAND_CODE_PLAYBACK_PLAY:
                     session.getInstance().play();
                     break;
                 case MediaSession2.COMMAND_CODE_PLAYBACK_PAUSE:
@@ -225,7 +337,7 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
                     break;
                 case MediaSession2.COMMAND_CODE_PLAYBACK_SET_PLAYLIST_PARAMS:
                     session.getInstance().setPlaylistParams(
-                            PlaylistParams.fromBundle(
+                            PlaylistParams.fromBundle(session.getContext(),
                                     args.getBundle(ARGUMENT_KEY_PLAYLIST_PARAMS)));
                     break;
                 default:
@@ -256,12 +368,132 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
     }
 
     @Override
+    public void prepareFromUri(final IMediaSession2Callback caller, final Uri uri,
+            final Bundle extra) {
+        final MediaSession2Impl sessionImpl = getSession();
+        final ControllerInfo controller = getController(caller);
+        if (controller == null) {
+            if (DEBUG) {
+                Log.d(TAG, "Command from a controller that hasn't connected. Ignore");
+            }
+            return;
+        }
+        sessionImpl.getCallbackExecutor().execute(() -> {
+            final MediaSession2Impl session = mSession.get();
+            if (session == null) {
+                return;
+            }
+            session.getCallback().onPrepareFromUri(controller, uri, extra);
+        });
+    }
+
+    @Override
+    public void prepareFromSearch(final IMediaSession2Callback caller, final String query,
+            final Bundle extra) {
+        final MediaSession2Impl sessionImpl = getSession();
+        final ControllerInfo controller = getController(caller);
+        if (controller == null) {
+            if (DEBUG) {
+                Log.d(TAG, "Command from a controller that hasn't connected. Ignore");
+            }
+            return;
+        }
+        sessionImpl.getCallbackExecutor().execute(() -> {
+            final MediaSession2Impl session = mSession.get();
+            if (session == null) {
+                return;
+            }
+            session.getCallback().onPrepareFromSearch(controller, query, extra);
+        });
+    }
+
+    @Override
+    public void prepareFromMediaId(final IMediaSession2Callback caller, final String mediaId,
+            final Bundle extra) {
+        final MediaSession2Impl sessionImpl = getSession();
+        final ControllerInfo controller = getController(caller);
+        if (controller == null) {
+            if (DEBUG) {
+                Log.d(TAG, "Command from a controller that hasn't connected. Ignore");
+            }
+            return;
+        }
+        sessionImpl.getCallbackExecutor().execute(() -> {
+            final MediaSession2Impl session = mSession.get();
+            if (session == null) {
+                return;
+            }
+            session.getCallback().onPrepareFromMediaId(controller, mediaId, extra);
+        });
+    }
+
+    @Override
+    public void playFromUri(final IMediaSession2Callback caller, final Uri uri,
+            final Bundle extra) {
+        final MediaSession2Impl sessionImpl = getSession();
+        final ControllerInfo controller = getController(caller);
+        if (controller == null) {
+            if (DEBUG) {
+                Log.d(TAG, "Command from a controller that hasn't connected. Ignore");
+            }
+            return;
+        }
+        sessionImpl.getCallbackExecutor().execute(() -> {
+            final MediaSession2Impl session = mSession.get();
+            if (session == null) {
+                return;
+            }
+            session.getCallback().onPlayFromUri(controller, uri, extra);
+        });
+    }
+
+    @Override
+    public void playFromSearch(final IMediaSession2Callback caller, final String query,
+            final Bundle extra) {
+        final MediaSession2Impl sessionImpl = getSession();
+        final ControllerInfo controller = getController(caller);
+        if (controller == null) {
+            if (DEBUG) {
+                Log.d(TAG, "Command from a controller that hasn't connected. Ignore");
+            }
+            return;
+        }
+        sessionImpl.getCallbackExecutor().execute(() -> {
+            final MediaSession2Impl session = mSession.get();
+            if (session == null) {
+                return;
+            }
+            session.getCallback().onPlayFromSearch(controller, query, extra);
+        });
+    }
+
+    @Override
+    public void playFromMediaId(final IMediaSession2Callback caller, final String mediaId,
+            final Bundle extra) {
+        final MediaSession2Impl sessionImpl = getSession();
+        final ControllerInfo controller = getController(caller);
+        if (controller == null) {
+            if (DEBUG) {
+                Log.d(TAG, "Command from a controller that hasn't connected. Ignore");
+            }
+            return;
+        }
+        sessionImpl.getCallbackExecutor().execute(() -> {
+            final MediaSession2Impl session = mSession.get();
+            if (session == null) {
+                return;
+            }
+            session.getCallback().onPlayFromMediaId(controller, mediaId, extra);
+        });
+    }
+
+    @Override
     public void getBrowserRoot(IMediaSession2Callback caller, Bundle rootHints)
             throws RuntimeException {
         final MediaSession2Impl sessionImpl = getSession();
         if (!(sessionImpl.getCallback() instanceof MediaLibrarySessionCallback)) {
             if (DEBUG) {
-                Log.d(TAG, "Session cannot hand getBrowserRoot()");
+                Log.d(TAG, "Session cannot hand getLibraryRoot()");
             }
             return;
         }
@@ -280,7 +512,7 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
             final MediaLibrarySessionCallback libraryCallback =
                     (MediaLibrarySessionCallback) session.getCallback();
             final ControllerInfoImpl controllerImpl = ControllerInfoImpl.from(controller);
-            BrowserRoot root = libraryCallback.onGetRoot(controller, rootHints);
+            LibraryRoot root = libraryCallback.onGetRoot(controller, rootHints);
             try {
                 controllerImpl.getControllerBinder().onGetRootResult(rootHints,
                         root == null ? null : root.getRootId(),
@@ -336,7 +568,7 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
         try {
             List<Bundle> layoutBundles = new ArrayList<>();
             for (int i = 0; i < layout.size(); i++) {
-                Bundle bundle = layout.get(i).toBundle();
+                Bundle bundle = ((CommandButtonImpl) layout.get(i).getProvider()).toBundle();
                 if (bundle != null) {
                     layoutBundles.add(bundle);
                 }
@@ -381,6 +613,21 @@ public class MediaSession2Stub extends IMediaSession2.Stub {
                     ControllerInfoImpl.from(list.get(i)).getControllerBinder();
             try {
                 callbackBinder.onPlaylistParamsChanged(params.toBundle());
+            } catch (RemoteException e) {
+                Log.w(TAG, "Controller is gone", e);
+                // TODO(jaewan): What to do when the controller is gone?
+            }
+        }
+    }
+
+    public void notifyPlaybackInfoChanged(MediaController2.PlaybackInfo playbackInfo) {
+        final List<ControllerInfo> list = getControllers();
+        for (int i = 0; i < list.size(); i++) {
+            IMediaSession2Callback callbackBinder =
+                    ControllerInfoImpl.from(list.get(i)).getControllerBinder();
+            try {
+                callbackBinder.onPlaybackInfoChanged(
+                        ((PlaybackInfoImpl) playbackInfo.getProvider()).toBundle());
             } catch (RemoteException e) {
                 Log.w(TAG, "Controller is gone", e);
                 // TODO(jaewan): What to do when the controller is gone?

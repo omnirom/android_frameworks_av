@@ -41,21 +41,12 @@ struct sockaddr_in;
 namespace android {
 
 class DataSource;
+struct DataSourceDesc;
 struct MediaHTTPService;
 class Parcel;
 struct ANativeWindowWrapper;
 
 template<typename T> class SortedVector;
-
-enum player2_type {
-    PLAYER2_STAGEFRIGHT_PLAYER = 3,
-    PLAYER2_NU_PLAYER2 = 4,
-    // Test players are available only in the 'test' and 'eng' builds.
-    // The shared library with the test player is passed passed as an
-    // argument to the 'test:' url in the setDataSource call.
-    PLAYER2_TEST_PLAYER = 5,
-};
-
 
 #define DEFAULT_AUDIOSINK_BUFFERCOUNT 4
 #define DEFAULT_AUDIOSINK_BUFFERSIZE 1200
@@ -68,7 +59,7 @@ enum player2_type {
 #define AUDIO_SINK_MIN_DEEP_BUFFER_DURATION_US 5000000
 
 // abstract base class - use MediaPlayer2Interface
-class MediaPlayer2Base : public AHandler
+class MediaPlayer2Interface : public AHandler
 {
 public:
     // callback mechanism for passing messages to MediaPlayer2 object
@@ -147,38 +138,23 @@ public:
         virtual status_t    setParameters(const String8& /* keyValuePairs */) { return NO_ERROR; }
         virtual String8     getParameters(const String8& /* keys */) { return String8::empty(); }
 
-        virtual media::VolumeShaper::Status applyVolumeShaper(
-                                    const sp<media::VolumeShaper::Configuration>& configuration,
-                                    const sp<media::VolumeShaper::Operation>& operation);
-        virtual sp<media::VolumeShaper::State> getVolumeShaperState(int id);
-
         // AudioRouting
         virtual status_t    setOutputDevice(audio_port_handle_t deviceId);
         virtual status_t    getRoutedDeviceId(audio_port_handle_t* deviceId);
         virtual status_t    enableAudioDeviceCallback(bool enabled);
     };
 
-                        MediaPlayer2Base() : mClient(0), mNotify(0) {}
-    virtual             ~MediaPlayer2Base() {}
+                        MediaPlayer2Interface() : mClient(0), mNotify(0) { }
+    virtual             ~MediaPlayer2Interface() { }
     virtual status_t    initCheck() = 0;
-    virtual bool        hardwareOutput() = 0;
 
     virtual status_t    setUID(uid_t /* uid */) {
         return INVALID_OPERATION;
     }
 
-    virtual status_t    setDataSource(
-            const sp<MediaHTTPService> &httpService,
-            const char *url,
-            const KeyedVector<String8, String8> *headers = NULL) = 0;
+    virtual void        setAudioSink(const sp<AudioSink>& audioSink) { mAudioSink = audioSink; }
 
-    virtual status_t    setDataSource(int fd, int64_t offset, int64_t length) = 0;
-
-    virtual status_t    setDataSource(const sp<IStreamSource>& /* source */) {
-        return INVALID_OPERATION;
-    }
-
-    virtual status_t    setDataSource(const sp<DataSource>& /* source */) {
+    virtual status_t    setDataSource(const sp<DataSourceDesc>& /* dsd */) {
         return INVALID_OPERATION;
     }
 
@@ -234,18 +210,10 @@ public:
         return INVALID_OPERATION;
     }
     virtual status_t    setLooping(int loop) = 0;
-    virtual player2_type playerType() = 0;
     virtual status_t    setParameter(int key, const Parcel &request) = 0;
     virtual status_t    getParameter(int key, Parcel *reply) = 0;
 
-    // default no-op implementation of optional extensions
-    virtual status_t setRetransmitEndpoint(const struct sockaddr_in* /* endpoint */) {
-        return INVALID_OPERATION;
-    }
-    virtual status_t getRetransmitEndpoint(struct sockaddr_in* /* endpoint */) {
-        return INVALID_OPERATION;
-    }
-    virtual status_t setNextPlayer(const sp<MediaPlayer2Base>& /* next */) {
+    virtual status_t setNextPlayer(const sp<MediaPlayer2Interface>& /* next */) {
         return OK;
     }
 
@@ -303,33 +271,15 @@ public:
         return INVALID_OPERATION;
     }
 
+protected:
+    sp<AudioSink>       mAudioSink;
+
 private:
     friend class MediaPlayer2Manager;
 
     Mutex                  mNotifyLock;
     wp<MediaPlayer2Engine> mClient;
     NotifyCallback         mNotify;
-};
-
-// Implement this class for media players that use the AudioFlinger software mixer
-class MediaPlayer2Interface : public MediaPlayer2Base
-{
-public:
-    virtual             ~MediaPlayer2Interface() { }
-    virtual bool        hardwareOutput() { return false; }
-    virtual void        setAudioSink(const sp<AudioSink>& audioSink) { mAudioSink = audioSink; }
-protected:
-    sp<AudioSink>       mAudioSink;
-};
-
-// Implement this class for media players that output audio directly to hardware
-class MediaPlayer2HWInterface : public MediaPlayer2Base
-{
-public:
-    virtual             ~MediaPlayer2HWInterface() {}
-    virtual bool        hardwareOutput() { return true; }
-    virtual status_t    setVolume(float leftVolume, float rightVolume) = 0;
-    virtual status_t    setAudioStreamType(audio_stream_type_t streamType) = 0;
 };
 
 }; // namespace android
