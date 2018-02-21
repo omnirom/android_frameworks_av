@@ -163,6 +163,9 @@ cc_library_shared {
         "libstagefright_esds",
         "libstagefright_id3",
         "libFLAC",
+    ],
+
+    whole_static_libs: [
         "libavextensions"
     ],
 

@@ -1320,6 +1320,8 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                         FLUSH_CMD_SHUTDOWN /* video */));
 
             mDeferredActions.push_back(
+                    new SimpleAction(&NuPlayer::closeAudioSink));
+            mDeferredActions.push_back(
                     new SimpleAction(&NuPlayer::performReset));
 
             processDeferredActions();
@@ -1887,6 +1889,7 @@ status_t NuPlayer::instantiateDecoder(
             *decoder = AVNuFactory::get()->createPassThruDecoder(notify, mSource, mRenderer);
             ALOGV("instantiateDecoder audio DecoderPassThrough hasVideo: %d", hasVideo);
         } else {
+            AVNuUtils::get()->setCodecOutputFormat(format);
             mSource->setOffloadAudio(false /* offload */);
 
             *decoder = AVNuFactory::get()->createDecoder(notify, mSource, mPID, mUID, mRenderer);

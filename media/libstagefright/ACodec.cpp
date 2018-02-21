@@ -2183,7 +2183,12 @@ status_t ACodec::configureCodec(
             }
             err = setupG711Codec(encoder, sampleRate, numChannels);
         }
+#ifdef QTI_FLAC_DECODER
+//setup qti flac component only if it is enabled and it is not encoder
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC) && encoder) {
+#else
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC)) {
+#endif
         int32_t numChannels = 0, sampleRate = 0, compressionLevel = -1;
         if (encoder &&
                 (!msg->findInt32("channel-count", &numChannels)
@@ -3038,6 +3043,10 @@ status_t ACodec::setupRawAudioFormat(
         case kAudioEncodingPcm16bit:
             pcmParams.eNumData = OMX_NumericalDataSigned;
             pcmParams.nBitPerSample = 16;
+            break;
+        case kAudioEncodingPcm24bitPacked:
+            pcmParams.eNumData = OMX_NumericalDataSigned;
+            pcmParams.nBitPerSample = 24;
             break;
         default:
             return BAD_VALUE;
@@ -5009,6 +5018,9 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                     } else if (params.eNumData == OMX_NumericalDataFloat
                             && params.nBitPerSample == 32u) {
                         encoding = kAudioEncodingPcmFloat;
+                    } else if (params.eNumData == OMX_NumericalDataSigned
+                            && params.nBitPerSample == 24u) {
+                        encoding = kAudioEncodingPcm24bitPacked;
                     } else if (params.nBitPerSample != 16u
                             || params.eNumData != OMX_NumericalDataSigned) {
                         ALOGE("unsupported PCM port: %s(%d), %s(%d) mode ",
@@ -5299,7 +5311,7 @@ void ACodec::onOutputFormatChanged(sp<const AMessage> expectedFormat) {
         AudioEncoding pcmEncoding = kAudioEncodingPcm16bit;
         (void)mConfigFormat->findInt32("pcm-encoding", (int32_t*)&pcmEncoding);
         AudioEncoding codecPcmEncoding = kAudioEncodingPcm16bit;
-        (void)mOutputFormat->findInt32("pcm-encoding", (int32_t*)&pcmEncoding);
+        (void)mOutputFormat->findInt32("pcm-encoding", (int32_t*)&codecPcmEncoding);
 
         mConverter[kPortIndexOutput] = AudioConverter::Create(codecPcmEncoding, pcmEncoding);
         if (mConverter[kPortIndexOutput] != NULL) {
@@ -6390,32 +6402,42 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
     AString componentName;
     int32_t encoder = false;
     if (msg->findString("componentName", &componentName)) {
-        sp<IMediaCodecList> list = MediaCodecList::getInstance();
-        if (list == nullptr) {
-            ALOGE("Unable to obtain MediaCodecList while "
-                    "attempting to create codec \"%s\"",
-                    componentName.c_str());
-            mCodec->signalError(OMX_ErrorUndefined, NO_INIT);
-            return false;
+        //make sure if the component name contains qcom/qti, we add it to matchingCodecs
+        //as these components are not present in media_codecs.xml and MediaCodecList won't find
+        //these component by findCodecByName
+        if (matchingCodecs.size() == 0 && (componentName.find("qcom", 0) > 0 ||
+            componentName.find("qti", 0) > 0)) {
+            matchingCodecs.add(componentName);
+            owners.add("default");
+        } else {
+            sp<IMediaCodecList> list = MediaCodecList::getInstance();
+            if (list == nullptr) {
+                ALOGE("Unable to obtain MediaCodecList while "
+                        "attempting to create codec \"%s\"",
+                        componentName.c_str());
+                mCodec->signalError(OMX_ErrorUndefined, NO_INIT);
+                return false;
+            }
+            ssize_t index = list->findCodecByName(componentName.c_str());
+            if (index < 0) {
+                ALOGE("Unable to find codec \"%s\"",
+                        componentName.c_str());
+                mCodec->signalError(OMX_ErrorInvalidComponent, NAME_NOT_FOUND);
+                return false;
+            }
+            sp<MediaCodecInfo> info = list->getCodecInfo(index);
+            if (info == nullptr) {
+                ALOGE("Unexpected error (index out-of-bound) while "
+                        "retrieving information for codec \"%s\"",
+                        componentName.c_str());
+                mCodec->signalError(OMX_ErrorUndefined, UNKNOWN_ERROR);
+                return false;
+            }
+
+            matchingCodecs.add(info->getCodecName());
+            owners.add(info->getOwnerName() == nullptr ?
+                    "default" : info->getOwnerName());
         }
-        ssize_t index = list->findCodecByName(componentName.c_str());
-        if (index < 0) {
-            ALOGE("Unable to find codec \"%s\"",
-                    componentName.c_str());
-            mCodec->signalError(OMX_ErrorInvalidComponent, NAME_NOT_FOUND);
-            return false;
-        }
-        sp<MediaCodecInfo> info = list->getCodecInfo(index);
-        if (info == nullptr) {
-            ALOGE("Unexpected error (index out-of-bound) while "
-                    "retrieving information for codec \"%s\"",
-                    componentName.c_str());
-            mCodec->signalError(OMX_ErrorUndefined, UNKNOWN_ERROR);
-            return false;
-        }
-        matchingCodecs.add(info->getCodecName());
-        owners.add(info->getOwnerName() == nullptr ?
-                "default" : info->getOwnerName());
     } else {
         CHECK(msg->findString("mime", &mime));
 
