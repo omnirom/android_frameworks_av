@@ -2894,8 +2894,10 @@ status_t MPEG4Writer::Track::threadEntry() {
         MediaBuffer *copy = NULL;
         // Check if the upstream source hints it is OK to hold on to the
         // buffer without releasing immediately and avoid cloning the buffer
-        if (AVUtils::get()->canDeferRelease(buffer->meta_data())) {
-            copy = buffer;
+        if (false /*AVUtils::get()->canDeferRelease(buffer->meta_data())*/) {
+            // copy = buffer;
+            // TODO : need to check a good way to convert buffer (Base) to
+            //     MediaBUffer while still holding on to the reference
             meta_data = new MetaData(*buffer->meta_data().get());
         } else {
             // Make a deep copy of the MediaBuffer and Metadata and release
