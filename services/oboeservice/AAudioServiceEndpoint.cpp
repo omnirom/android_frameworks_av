@@ -55,11 +55,16 @@ std::string AAudioServiceEndpoint::dump() const {
 
     result << "    Direction:            " << ((getDirection() == AAUDIO_DIRECTION_OUTPUT)
                                    ? "OUTPUT" : "INPUT") << "\n";
-    result << "    Sample Rate:          " << getSampleRate() << "\n";
-    result << "    Frames Per Burst:     " << mFramesPerBurst << "\n";
-    result << "    Reference Count:      " << mOpenCount << "\n";
     result << "    Requested Device Id:  " << mRequestedDeviceId << "\n";
     result << "    Device Id:            " << getDeviceId() << "\n";
+    result << "    Sample Rate:          " << getSampleRate() << "\n";
+    result << "    Channel Count:        " << getSamplesPerFrame() << "\n";
+    result << "    Frames Per Burst:     " << mFramesPerBurst << "\n";
+    result << "    Usage:                " << getUsage() << "\n";
+    result << "    ContentType:          " << getContentType() << "\n";
+    result << "    InputPreset:          " << getInputPreset() << "\n";
+    result << "    Reference Count:      " << mOpenCount << "\n";
+    result << "    Session Id:           " << getSessionId() << "\n";
     result << "    Connected:            " << mConnected.load() << "\n";
     result << "    Registered Streams:" << "\n";
     result << AAudioServiceStreamShared::dumpHeader() << "\n";
@@ -107,6 +112,10 @@ bool AAudioServiceEndpoint::matches(const AAudioStreamConfiguration& configurati
     }
     if (configuration.getDeviceId() != AAUDIO_UNSPECIFIED &&
         configuration.getDeviceId() != getDeviceId()) {
+        return false;
+    }
+    if (configuration.getSessionId() != AAUDIO_SESSION_ID_ALLOCATE &&
+        configuration.getSessionId() != getSessionId()) {
         return false;
     }
     if (configuration.getSampleRate() != AAUDIO_UNSPECIFIED &&

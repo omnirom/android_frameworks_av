@@ -65,15 +65,15 @@ public:
         API_INPUT_TELEPHONY_RX, // used for capture from telephony RX path
     } input_type_t;
 
-   enum {
+    enum {
         API_INPUT_CONCURRENCY_NONE = 0,
         API_INPUT_CONCURRENCY_CALL = (1 << 0),      // Concurrency with a call
         API_INPUT_CONCURRENCY_CAPTURE = (1 << 1),   // Concurrency with another capture
 
         API_INPUT_CONCURRENCY_ALL = (API_INPUT_CONCURRENCY_CALL | API_INPUT_CONCURRENCY_CAPTURE),
-   };
+    };
 
-   typedef uint32_t concurrency_type__mask_t;
+    typedef uint32_t concurrency_type__mask_t;
 
 public:
     virtual ~AudioPolicyInterface() {}
@@ -116,7 +116,7 @@ public:
                                         audio_stream_type_t *stream,
                                         uid_t uid,
                                         const audio_config_t *config,
-                                        audio_output_flags_t flags,
+                                        audio_output_flags_t *flags,
                                         audio_port_handle_t *selectedDeviceId,
                                         audio_port_handle_t *portId) = 0;
     // indicates to the audio policy manager that the output starts being used by corresponding stream.
@@ -145,6 +145,7 @@ public:
     // indicates to the audio policy manager that the input starts being used.
     virtual status_t startInput(audio_io_handle_t input,
                                 audio_session_t session,
+                                bool silenced,
                                 concurrency_type__mask_t *concurrency) = 0;
     // indicates to the audio policy manager that the input stops being used.
     virtual status_t stopInput(audio_io_handle_t input,
@@ -239,6 +240,8 @@ public:
 
     virtual float    getStreamVolumeDB(
                 audio_stream_type_t stream, int index, audio_devices_t device) = 0;
+
+    virtual void     setRecordSilenced(uid_t uid, bool silenced);
 };
 
 

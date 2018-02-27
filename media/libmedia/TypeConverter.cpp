@@ -115,6 +115,9 @@ const OutputFlagConverter::Table OutputFlagConverter::mTable[] = {
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_DIRECT_PCM),
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_MMAP_NOIRQ),
     MAKE_STRING_FROM_ENUM(AUDIO_OUTPUT_FLAG_VOIP_RX),
+    // FIXME: this cast will be removed when the flag will be
+    // declared in types.hal for audio HAL V4.0 and auto imported to audio-base.h
+    {"AUDIO_OUTPUT_FLAG_INCALL_MUSIC", static_cast<audio_output_flags_t>(AUDIO_OUTPUT_FLAG_INCALL_MUSIC)},
     TERMINATOR
 };
 

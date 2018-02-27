@@ -73,6 +73,24 @@ protected:
      */
     virtual aaudio_result_t requestStart() = 0;
 
+    /**
+     * Check the state to see if Pause if currently legal.
+     *
+     * @param result pointer to return code
+     * @return true if OK to continue, if false then return result
+     */
+    bool checkPauseStateTransition(aaudio_result_t *result);
+
+    virtual bool isFlushSupported() const {
+        // Only implement FLUSH for OUTPUT streams.
+        return false;
+    }
+
+    virtual bool isPauseSupported() const {
+        // Only implement PAUSE for OUTPUT streams.
+        return false;
+    }
+
     virtual aaudio_result_t requestPause()
     {
         // Only implement this for OUTPUT streams.
@@ -216,6 +234,10 @@ public:
         return mInputPreset;
     }
 
+    int32_t getSessionId() const {
+        return mSessionId;
+    }
+
     /**
      * This is only valid after setSamplesPerFrame() and setFormat() have been called.
      */
@@ -337,11 +359,13 @@ public:
         return mPlayerBase->getResult();
     }
 
+    // Pass pause request through PlayerBase for tracking.
     aaudio_result_t systemPause() {
         mPlayerBase->pause();
         return mPlayerBase->getResult();
     }
 
+    // Pass stop request through PlayerBase for tracking.
     aaudio_result_t systemStop() {
         mPlayerBase->stop();
         return mPlayerBase->getResult();
@@ -420,6 +444,7 @@ protected:
 
     /**
      * This should not be called after the open() call.
+     * TODO for multiple setters: assert(mState == AAUDIO_STREAM_STATE_UNINITIALIZED)
      */
     void setSampleRate(int32_t sampleRate) {
         mSampleRate = sampleRate;
@@ -447,16 +472,28 @@ protected:
     }
 
     void setState(aaudio_stream_state_t state) {
-        mState = state;
+        if (mState == AAUDIO_STREAM_STATE_CLOSED) {
+            ; // CLOSED is a final state
+        } else if (mState == AAUDIO_STREAM_STATE_DISCONNECTED
+                && state != AAUDIO_STREAM_STATE_CLOSED) {
+            ; // Once DISCONNECTED, we can only move to CLOSED state.
+        } else {
+            mState = state;
+        }
     }
 
     void setDeviceId(int32_t deviceId) {
         mDeviceId = deviceId;
     }
 
+    void setSessionId(int32_t sessionId) {
+        mSessionId = sessionId;
+    }
+
     std::atomic<bool>    mCallbackEnabled{false};
 
     float                mDuckAndMuteVolume = 1.0f;
+
 
 protected:
 
@@ -466,6 +503,27 @@ protected:
 
     int64_t getPeriodNanoseconds() {
         return mPeriodNanoseconds.load(std::memory_order_acquire);
+    }
+
+    /**
+     * This should not be called after the open() call.
+     */
+    void setUsage(aaudio_usage_t usage) {
+        mUsage = usage;
+    }
+
+    /**
+     * This should not be called after the open() call.
+     */
+    void setContentType(aaudio_content_type_t contentType) {
+        mContentType = contentType;
+    }
+
+    /**
+     * This should not be called after the open() call.
+     */
+    void setInputPreset(aaudio_input_preset_t inputPreset) {
+        mInputPreset = inputPreset;
     }
 
 private:
@@ -483,9 +541,12 @@ private:
     aaudio_format_t             mFormat = AAUDIO_FORMAT_UNSPECIFIED;
     aaudio_stream_state_t       mState = AAUDIO_STREAM_STATE_UNINITIALIZED;
     aaudio_performance_mode_t   mPerformanceMode = AAUDIO_PERFORMANCE_MODE_NONE;
-    aaudio_usage_t              mUsage           = AAUDIO_USAGE_MEDIA;
-    aaudio_content_type_t       mContentType     = AAUDIO_CONTENT_TYPE_MUSIC;
-    aaudio_input_preset_t       mInputPreset     = AAUDIO_INPUT_PRESET_GENERIC;
+
+    aaudio_usage_t              mUsage           = AAUDIO_UNSPECIFIED;
+    aaudio_content_type_t       mContentType     = AAUDIO_UNSPECIFIED;
+    aaudio_input_preset_t       mInputPreset     = AAUDIO_UNSPECIFIED;
+
+    int32_t                     mSessionId = AAUDIO_UNSPECIFIED;
 
     // callback ----------------------------------
 

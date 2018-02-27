@@ -19,6 +19,7 @@
 
 #include <media/IMediaExtractor.h>
 #include <media/MediaExtractor.h>
+#include <media/stagefright/foundation/ABase.h>
 
 namespace android {
 
@@ -27,7 +28,7 @@ class MediaAnalyticsItem;
 // IMediaExtractor wrapper to the MediaExtractor.
 class RemoteMediaExtractor : public BnMediaExtractor {
 public:
-    static sp<IMediaExtractor> wrap(const sp<MediaExtractor> &extractor);
+    static sp<IMediaExtractor> wrap(MediaExtractor *extractor, const sp<RefBase> &plugin);
 
     virtual ~RemoteMediaExtractor();
     virtual size_t countTracks();
@@ -43,11 +44,12 @@ public:
     virtual void release();
 
 private:
-    sp<MediaExtractor> mExtractor;
+    MediaExtractor *mExtractor;
+    sp<RefBase> mExtractorPlugin;
 
     MediaAnalyticsItem *mAnalyticsItem;
 
-    explicit RemoteMediaExtractor(const sp<MediaExtractor> &extractor);
+    explicit RemoteMediaExtractor(MediaExtractor *extractor, const sp<RefBase> &plugin);
 
     DISALLOW_EVIL_CONSTRUCTORS(RemoteMediaExtractor);
 };

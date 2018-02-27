@@ -250,6 +250,13 @@ aaudio_result_t AAudioConvert_androidToAAudioResult(status_t status) {
     return result;
 }
 
+audio_session_t AAudioConvert_aaudioToAndroidSessionId(aaudio_session_id_t sessionId) {
+    // If not a valid sessionId then convert to a safe value of AUDIO_SESSION_ALLOCATE.
+    return (sessionId < AAUDIO_SESSION_ID_MIN)
+           ? AUDIO_SESSION_ALLOCATE
+           : (audio_session_t) sessionId;
+}
+
 audio_format_t AAudioConvert_aaudioToAndroidDataFormat(aaudio_format_t aaudioFormat) {
     audio_format_t androidFormat;
     switch (aaudioFormat) {
@@ -334,7 +341,7 @@ audio_source_t AAudioConvert_inputPresetToAudioSource(aaudio_input_preset_t pres
     STATIC_ASSERT(AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION == AUDIO_SOURCE_VOICE_COMMUNICATION);
     STATIC_ASSERT(AAUDIO_INPUT_PRESET_UNPROCESSED == AUDIO_SOURCE_UNPROCESSED);
     if (preset == AAUDIO_UNSPECIFIED) {
-        preset = AAUDIO_INPUT_PRESET_GENERIC;
+        preset = AAUDIO_INPUT_PRESET_VOICE_RECOGNITION;
     }
     return (audio_source_t) preset; // same value
 }
@@ -433,4 +440,32 @@ int32_t AAudioProperty_getHardwareBurstMinMicros() {
         prop = defaultMicros;
     }
     return prop;
+}
+
+aaudio_result_t AAudio_isFlushAllowed(aaudio_stream_state_t state) {
+    aaudio_result_t result = AAUDIO_OK;
+    switch (state) {
+// Proceed with flushing.
+        case AAUDIO_STREAM_STATE_OPEN:
+        case AAUDIO_STREAM_STATE_PAUSED:
+        case AAUDIO_STREAM_STATE_STOPPED:
+        case AAUDIO_STREAM_STATE_FLUSHED:
+            break;
+
+// Transition from one inactive state to another.
+        case AAUDIO_STREAM_STATE_STARTING:
+        case AAUDIO_STREAM_STATE_STARTED:
+        case AAUDIO_STREAM_STATE_STOPPING:
+        case AAUDIO_STREAM_STATE_PAUSING:
+        case AAUDIO_STREAM_STATE_FLUSHING:
+        case AAUDIO_STREAM_STATE_CLOSING:
+        case AAUDIO_STREAM_STATE_CLOSED:
+        case AAUDIO_STREAM_STATE_DISCONNECTED:
+        default:
+            ALOGE("can only flush stream when PAUSED, OPEN or STOPPED, state = %s",
+                  AAudio_convertStreamStateToText(state));
+            result =  AAUDIO_ERROR_INVALID_STATE;
+            break;
+    }
+    return result;
 }

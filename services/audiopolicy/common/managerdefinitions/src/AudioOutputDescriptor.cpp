@@ -333,6 +333,10 @@ bool SwAudioOutputDescriptor::isFixedVolume(audio_devices_t device)
             return true;
         }
     }
+    if (device == AUDIO_DEVICE_OUT_TELEPHONY_TX) {
+        ALOGV("max gain when output device is telephony tx");
+        return true;
+    }
     return false;
 }
 
@@ -569,6 +573,19 @@ bool SwAudioOutputCollection::isStreamActive(audio_stream_type_t stream, uint32_
     for (size_t i = 0; i < this->size(); i++) {
         const sp<SwAudioOutputDescriptor> outputDesc = this->valueAt(i);
         if (outputDesc->isStreamActive(stream, inPastMs, sysTime)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SwAudioOutputCollection::isStreamActiveLocally(audio_stream_type_t stream, uint32_t inPastMs) const
+{
+    nsecs_t sysTime = systemTime();
+    for (size_t i = 0; i < this->size(); i++) {
+        const sp<SwAudioOutputDescriptor> outputDesc = this->valueAt(i);
+        if (outputDesc->isStreamActive(stream, inPastMs, sysTime)
+                && ((outputDesc->device() & APM_AUDIO_OUT_DEVICE_REMOTE_ALL) == 0)) {
             return true;
         }
     }

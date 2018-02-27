@@ -18,6 +18,7 @@
 #include <media/stagefright/foundation/ABase.h>
 #include <media/drm/DrmAPI.h>
 #include <media/IDrmClient.h>
+#include <media/MediaAnalyticsItem.h>
 
 #ifndef ANDROID_IDRM_H_
 
@@ -73,10 +74,22 @@ struct IDrm : public IInterface {
                                               Vector<uint8_t> &wrappedKey) = 0;
 
     virtual status_t getSecureStops(List<Vector<uint8_t> > &secureStops) = 0;
+    virtual status_t getSecureStopIds(List<Vector<uint8_t> > &secureStopIds) = 0;
     virtual status_t getSecureStop(Vector<uint8_t> const &ssid, Vector<uint8_t> &secureStop) = 0;
 
     virtual status_t releaseSecureStops(Vector<uint8_t> const &ssRelease) = 0;
-    virtual status_t releaseAllSecureStops() = 0;
+    virtual status_t removeSecureStop(Vector<uint8_t> const &ssid) = 0;
+    virtual status_t removeAllSecureStops() = 0;
+
+    virtual status_t getHdcpLevels(DrmPlugin::HdcpLevel *connectedLevel,
+            DrmPlugin::HdcpLevel *maxLevel)
+            const = 0;
+    virtual status_t getNumberOfSessions(uint32_t *currentSessions,
+            uint32_t *maxSessions) const = 0;
+    virtual status_t getSecurityLevel(Vector<uint8_t> const &sessionId,
+            DrmPlugin::SecurityLevel *level) const = 0;
+    virtual status_t setSecurityLevel(Vector<uint8_t> const &sessionId,
+            const DrmPlugin::SecurityLevel& level) = 0;
 
     virtual status_t getPropertyString(String8 const &name, String8 &value) const = 0;
     virtual status_t getPropertyByteArray(String8 const &name,
@@ -85,6 +98,8 @@ struct IDrm : public IInterface {
                                        String8 const &value ) const = 0;
     virtual status_t setPropertyByteArray(String8 const &name,
                                           Vector<uint8_t> const &value) const = 0;
+
+    virtual status_t getMetrics(MediaAnalyticsItem *item) = 0;
 
     virtual status_t setCipherAlgorithm(Vector<uint8_t> const &sessionId,
                                         String8 const &algorithm) = 0;

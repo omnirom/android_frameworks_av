@@ -22,13 +22,14 @@ cc_library_static {
     ],
 
     include_dirs: [
-        "frameworks/av/media/libmedia/include",
         "frameworks/av/media/libstagefright",
         "frameworks/av/media/libstagefright/httplive",
         "frameworks/av/media/libstagefright/include",
         "frameworks/av/media/libstagefright/mpeg2ts",
         "frameworks/av/media/libstagefright/rtsp",
         "frameworks/av/media/libstagefright/timedtext",
+        "frameworks/av/media/libavextensions",
+        "frameworks/av/media/libmediaplayerservice",
     ],
 
     cflags: [
@@ -52,6 +53,10 @@ cc_library_static {
         "libmediadrm",
         "libmediandk",
         "libpowermanager",
+    ],
+
+    static_libs: [
+        "libmedia_helper",
     ],
 
     name: "libstagefright_nuplayer2",

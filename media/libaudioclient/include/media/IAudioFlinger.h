@@ -35,6 +35,8 @@
 #include <media/IEffect.h>
 #include <media/IEffectClient.h>
 #include <utils/String8.h>
+#include <media/MicrophoneInfo.h>
+#include <vector>
 
 #include "android/media/IAudioRecord.h"
 
@@ -368,6 +370,7 @@ public:
     // mic mute/state
     virtual     status_t    setMicMute(bool state) = 0;
     virtual     bool        getMicMute() const = 0;
+    virtual     void        setRecordSilenced(uid_t uid, bool silenced) = 0;
 
     virtual     status_t    setParameters(audio_io_handle_t ioHandle,
                                     const String8& keyValuePairs) = 0;
@@ -453,8 +456,9 @@ public:
 
     // Intended for AudioService to inform AudioFlinger of device's low RAM attribute,
     // and should be called at most once.  For a definition of what "low RAM" means, see
-    // android.app.ActivityManager.isLowRamDevice().
-    virtual status_t setLowRamDevice(bool isLowRamDevice) = 0;
+    // android.app.ActivityManager.isLowRamDevice().  The totalMemory parameter
+    // is obtained from android.app.ActivityManager.MemoryInfo.totalMem.
+    virtual status_t setLowRamDevice(bool isLowRamDevice, int64_t totalMemory) = 0;
 
     /* List available audio ports and their attributes */
     virtual status_t listAudioPorts(unsigned int *num_ports,
@@ -484,6 +488,9 @@ public:
 
     // Returns the number of frames per audio HAL buffer.
     virtual size_t frameCountHAL(audio_io_handle_t ioHandle) const = 0;
+
+    /* List available microphones and their characteristics */
+    virtual status_t getMicrophones(std::vector<media::MicrophoneInfo> *microphones) = 0;
 };
 
 

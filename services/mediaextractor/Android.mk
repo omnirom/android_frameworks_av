@@ -2,8 +2,11 @@ LOCAL_PATH := $(call my-dir)
 
 # service library
 include $(CLEAR_VARS)
-LOCAL_SRC_FILES := MediaExtractorService.cpp
 LOCAL_CFLAGS := -Wall -Werror
+LOCAL_SRC_FILES := \
+    MediaExtractorService.cpp \
+    MediaExtractorUpdateService.cpp \
+
 LOCAL_SHARED_LIBRARIES := libmedia libstagefright libbinder libutils liblog
 LOCAL_MODULE:= libmediaextractorservice
 include $(BUILD_SHARED_LIBRARY)
@@ -28,6 +31,7 @@ LOCAL_REQUIRED_MODULES := \
     libmpeg2extractor \
     liboggextractor \
     libwavextractor \
+    MediaComponents \
 
 LOCAL_SRC_FILES := main_extractorservice.cpp
 LOCAL_SHARED_LIBRARIES := libmedia libmediaextractorservice libbinder libutils \

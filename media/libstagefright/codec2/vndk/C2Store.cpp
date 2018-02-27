@@ -167,7 +167,7 @@ public:
     virtual c2_status_t querySupportedParams_nb(
             std::vector<std::shared_ptr<C2ParamDescriptor>> *const params) const override;
     virtual c2_status_t query_sm(
-            const std::vector<C2Param *const> &stackParams,
+            const std::vector<C2Param*> &stackParams,
             const std::vector<C2Param::Index> &heapParamIndices,
             std::vector<std::unique_ptr<C2Param>> *const heapParams) const override;
     virtual c2_status_t createInterface(
@@ -177,7 +177,7 @@ public:
     virtual c2_status_t copyBuffer(
             std::shared_ptr<C2GraphicBuffer> src, std::shared_ptr<C2GraphicBuffer> dst) override;
     virtual c2_status_t config_sm(
-            const std::vector<C2Param *const> &params,
+            const std::vector<C2Param*> &params,
             std::vector<std::unique_ptr<C2SettingResult>> *const failures) override;
     C2PlatformComponentStore();
 
@@ -404,7 +404,9 @@ std::shared_ptr<const C2Component::Traits> C2PlatformComponentStore::ComponentMo
 C2PlatformComponentStore::C2PlatformComponentStore() {
     // TODO: move this also into a .so so it can be updated
     mComponents.emplace("c2.google.avc.decoder", "libstagefright_soft_c2avcdec.so");
+    mComponents.emplace("c2.google.avc.encoder", "libstagefright_soft_c2avcenc.so");
     mComponents.emplace("c2.google.aac.decoder", "libstagefright_soft_c2aacdec.so");
+    mComponents.emplace("c2.google.aac.encoder", "libstagefright_soft_c2aacenc.so");
 }
 
 c2_status_t C2PlatformComponentStore::copyBuffer(
@@ -415,7 +417,7 @@ c2_status_t C2PlatformComponentStore::copyBuffer(
 }
 
 c2_status_t C2PlatformComponentStore::query_sm(
-        const std::vector<C2Param *const> &stackParams,
+        const std::vector<C2Param*> &stackParams,
         const std::vector<C2Param::Index> &heapParamIndices,
         std::vector<std::unique_ptr<C2Param>> *const heapParams) const {
     // there are no supported configs
@@ -424,7 +426,7 @@ c2_status_t C2PlatformComponentStore::query_sm(
 }
 
 c2_status_t C2PlatformComponentStore::config_sm(
-        const std::vector<C2Param *const> &params,
+        const std::vector<C2Param*> &params,
         std::vector<std::unique_ptr<C2SettingResult>> *const failures) {
     // there are no supported configs
     (void)failures;

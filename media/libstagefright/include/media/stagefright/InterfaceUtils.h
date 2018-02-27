@@ -17,12 +17,21 @@
 #ifndef INTERFACE_UTILS_H_
 #define INTERFACE_UTILS_H_
 
+#include <utils/RefBase.h>
 #include <media/MediaExtractor.h>
+#include <media/stagefright/RemoteMediaExtractor.h>
 #include <media/MediaSource.h>
 #include <media/IMediaExtractor.h>
 #include <media/IMediaSource.h>
 
 namespace android {
+
+class DataSource;
+class MediaExtractor;
+struct MediaSource;
+class IDataSource;
+class IMediaExtractor;
+class IMediaSource;
 
 // Creates a DataSource which wraps the given IDataSource object.
 sp<DataSource> CreateDataSourceFromIDataSource(const sp<IDataSource> &source);
@@ -31,13 +40,16 @@ sp<DataSource> CreateDataSourceFromIDataSource(const sp<IDataSource> &source);
 sp<IDataSource> CreateIDataSourceFromDataSource(const sp<DataSource> &source);
 
 // Creates an IMediaExtractor wrapper to the given MediaExtractor.
-sp<IMediaExtractor> CreateIMediaExtractorFromMediaExtractor(const sp<MediaExtractor> &extractor);
+sp<IMediaExtractor> CreateIMediaExtractorFromMediaExtractor(
+        MediaExtractor *extractor, const sp<RefBase> &plugin);
 
 // Creates a MediaSource which wraps the given IMediaSource object.
 sp<MediaSource> CreateMediaSourceFromIMediaSource(const sp<IMediaSource> &source);
 
 // Creates an IMediaSource wrapper to the given MediaSource.
-sp<IMediaSource> CreateIMediaSourceFromMediaSource(const sp<MediaSource> &source);
+sp<IMediaSource> CreateIMediaSourceFromMediaSourceBase(
+        const sp<RemoteMediaExtractor> &extractor,
+        MediaSourceBase *source, const sp<RefBase> &plugin);
 
 }  // namespace android
 

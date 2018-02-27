@@ -192,9 +192,16 @@ void AudioTrack::MediaMetrics::gather(const AudioTrack *track)
     static constexpr char kAudioTrackUnderrunFrames[] = "android.media.audiotrack.underrunframes";
     static constexpr char kAudioTrackStartupGlitch[] = "android.media.audiotrack.glitch.startup";
 
+    // only if we're in a good state...
+    // XXX: shall we gather alternative info if failing?
+    const status_t lstatus = track->initCheck();
+    if (lstatus != NO_ERROR) {
+        ALOGD("no metrics gathered, track status=%d", (int) lstatus);
+        return;
+    }
+
     // constructor guarantees mAnalyticsItem is valid
 
-    // must gather underrun info before cleaning mProxy information.
     const int32_t underrunFrames = track->getUnderrunFrames();
     if (underrunFrames != 0) {
         mAnalyticsItem->setInt32(kAudioTrackUnderrunFrames, underrunFrames);
@@ -217,6 +224,17 @@ void AudioTrack::MediaMetrics::gather(const AudioTrack *track)
     mAnalyticsItem->setInt64(kAudioTrackChannelMask, track->mChannelMask);
 }
 
+// hand the user a snapshot of the metrics.
+status_t AudioTrack::getMetrics(MediaAnalyticsItem * &item)
+{
+    mMediaMetrics.gather(this);
+    MediaAnalyticsItem *tmp = mMediaMetrics.dup();
+    if (tmp == nullptr) {
+        return BAD_VALUE;
+    }
+    item = tmp;
+    return NO_ERROR;
+}
 
 AudioTrack::AudioTrack()
     : mStatus(NO_INIT),

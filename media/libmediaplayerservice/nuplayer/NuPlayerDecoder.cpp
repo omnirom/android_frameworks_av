@@ -29,6 +29,7 @@
 
 #include <cutils/properties.h>
 #include <media/ICrypto.h>
+#include <media/MediaBufferHolder.h>
 #include <media/MediaCodecBuffer.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -38,6 +39,8 @@
 #include <media/stagefright/MediaCodec.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
+#include <stagefright/AVExtensions.h>
+#include "mediaplayerservice/AVNuExtensions.h"
 #include <media/stagefright/SurfaceUtils.h>
 #include <gui/Surface.h>
 
@@ -293,8 +296,11 @@ void NuPlayer::Decoder::onConfigure(const sp<AMessage> &format) {
     mComponentName.append(" decoder");
     ALOGV("[%s] onConfigure (surface=%p)", mComponentName.c_str(), mSurface.get());
 
+    mCodec = AVUtils::get()->createCustomComponentByName(mCodecLooper, mime.c_str(), false /* encoder */, format);
+    if (mCodec == NULL) {
     mCodec = MediaCodec::CreateByType(
             mCodecLooper, mime.c_str(), false /* encoder */, NULL /* err */, mPid, mUid);
+    }
     int32_t secure = 0;
     if (format->findInt32("secure", &secure) && secure != 0) {
         if (mCodec != NULL) {
@@ -770,6 +776,12 @@ bool NuPlayer::Decoder::handleAnOutputBuffer(
         }
 
         mSkipRenderingUntilMediaTimeUs = -1;
+    } else if ((flags & MediaCodec::BUFFER_FLAG_DATACORRUPT) &&
+            AVNuUtils::get()->dropCorruptFrame()) {
+        ALOGV("[%s] dropping corrupt buffer at time %lld as requested.",
+                     mComponentName.c_str(), (long long)timeUs);
+        reply->post();
+        return true;
     }
 
     // wait until 1st frame comes out to signal resume complete
@@ -1061,16 +1073,17 @@ bool NuPlayer::Decoder::onInputBufferFetched(const sp<AMessage> &msg) {
                 memcpy(codecBuffer->data(), buffer->data(), buffer->size());
             } else { // No buffer->data()
                 //Modular DRM
-                mediaBuf = (MediaBuffer*)buffer->getMediaBufferBase();
+                sp<RefBase> holder;
+                if (buffer->meta()->findObject("mediaBufferHolder", &holder)) {
+                    mediaBuf = (holder != nullptr) ?
+                        static_cast<MediaBufferHolder*>(holder.get())->mediaBuffer() : nullptr;
+                }
                 if (mediaBuf != NULL) {
                     codecBuffer->setRange(0, mediaBuf->size());
                     memcpy(codecBuffer->data(), mediaBuf->data(), mediaBuf->size());
 
                     sp<MetaData> meta_data = mediaBuf->meta_data();
                     cryptInfo = NuPlayerDrm::getSampleCryptoInfo(meta_data);
-
-                    // since getMediaBuffer() has incremented the refCount
-                    mediaBuf->release();
                 } else { // No mediaBuf
                     ALOGE("onInputBufferFetched: buffer->data()/mediaBuf are NULL for %p",
                             buffer.get());

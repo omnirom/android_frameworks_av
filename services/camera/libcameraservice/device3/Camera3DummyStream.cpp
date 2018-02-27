@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
+ * Copyright (C) 2014-2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,9 +26,12 @@ namespace android {
 
 namespace camera3 {
 
+const String8 Camera3DummyStream::DUMMY_ID;
+
 Camera3DummyStream::Camera3DummyStream(int id) :
         Camera3IOStreamBase(id, CAMERA3_STREAM_OUTPUT, DUMMY_WIDTH, DUMMY_HEIGHT,
-                /*maxSize*/0, DUMMY_FORMAT, DUMMY_DATASPACE, DUMMY_ROTATION) {
+                /*maxSize*/0, DUMMY_FORMAT, DUMMY_DATASPACE, DUMMY_ROTATION,
+                DUMMY_ID) {
 
 }
 
@@ -110,6 +113,10 @@ bool Camera3DummyStream::isConsumerConfigurationDeferred(size_t /*surface_id*/) 
 
 status_t Camera3DummyStream::dropBuffers(bool /*dropping*/) {
     return OK;
+}
+
+const String8& Camera3DummyStream::getPhysicalCameraId() const {
+    return DUMMY_ID;
 }
 
 status_t Camera3DummyStream::setConsumers(const std::vector<sp<Surface>>& /*consumers*/) {
