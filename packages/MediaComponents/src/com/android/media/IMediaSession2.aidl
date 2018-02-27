@@ -63,4 +63,10 @@ oneway interface IMediaSession2 {
     // Get library service specific
     //////////////////////////////////////////////////////////////////////////////////////////////
     void getBrowserRoot(IMediaSession2Callback callback, in Bundle rootHints);
+    void getItem(IMediaSession2Callback callback, String mediaId);
+    void getChildren(IMediaSession2Callback callback, String parentId, int page, int pageSize,
+            in Bundle extras);
+    void search(IMediaSession2Callback callback, String query, in Bundle extras);
+    void getSearchResult(IMediaSession2Callback callback, String query, int page, int pageSize,
+            in Bundle extras);
 }

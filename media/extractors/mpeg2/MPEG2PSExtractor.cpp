@@ -49,7 +49,7 @@ struct MPEG2PSExtractor::Track : public MediaSourceBase, public RefBase {
     virtual sp<MetaData> getFormat();
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options);
+            MediaBufferBase **buffer, const ReadOptions *options);
 
 protected:
     virtual ~Track();
@@ -80,7 +80,7 @@ struct MPEG2PSExtractor::WrappedTrack : public MediaSourceBase {
     virtual sp<MetaData> getFormat();
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options);
+            MediaBufferBase **buffer, const ReadOptions *options);
 
 protected:
     virtual ~WrappedTrack();
@@ -659,7 +659,7 @@ sp<MetaData> MPEG2PSExtractor::Track::getFormat() {
 }
 
 status_t MPEG2PSExtractor::Track::read(
-        MediaBuffer **buffer, const ReadOptions *options) {
+        MediaBufferBase **buffer, const ReadOptions *options) {
     if (mSource == NULL) {
         return NO_INIT;
     }
@@ -744,15 +744,14 @@ sp<MetaData> MPEG2PSExtractor::WrappedTrack::getFormat() {
 }
 
 status_t MPEG2PSExtractor::WrappedTrack::read(
-        MediaBuffer **buffer, const ReadOptions *options) {
+        MediaBufferBase **buffer, const ReadOptions *options) {
     return mTrack->read(buffer, options);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 bool SniffMPEG2PS(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *) {
+        DataSourceBase *source, float *confidence) {
     uint8_t header[5];
     if (source->readAt(0, header, sizeof(header)) < (ssize_t)sizeof(header)) {
         return false;
@@ -763,8 +762,6 @@ bool SniffMPEG2PS(
     }
 
     *confidence = 0.25f;  // Slightly larger than .mp3 extractor's confidence
-
-    mimeType->setTo(MEDIA_MIMETYPE_CONTAINER_MPEG2PS);
 
     return true;
 }

@@ -28,6 +28,8 @@
 #include "common/CameraDeviceBase.h"
 #include "api2/CameraDeviceClient.h"
 
+#include <camera_metadata_hidden.h>
+
 // Convenience methods for constructing binder::Status objects for error returns
 
 #define STATUS_ERROR(errorCode, errorString) \
@@ -47,6 +49,7 @@ CameraDeviceClientBase::CameraDeviceClientBase(
         const sp<hardware::camera2::ICameraDeviceCallbacks>& remoteCallback,
         const String16& clientPackageName,
         const String8& cameraId,
+        int api1CameraId,
         int cameraFacing,
         int clientPid,
         uid_t clientUid,
@@ -60,6 +63,8 @@ CameraDeviceClientBase::CameraDeviceClientBase(
             clientUid,
             servicePid),
     mRemoteCallback(remoteCallback) {
+    // We don't need it for API2 clients, but Camera2ClientBase requires it.
+    (void) api1CameraId;
 }
 
 // Interface used by CameraService
@@ -73,7 +78,8 @@ CameraDeviceClient::CameraDeviceClient(const sp<CameraService>& cameraService,
         uid_t clientUid,
         int servicePid) :
     Camera2ClientBase(cameraService, remoteCallback, clientPackageName,
-                cameraId, cameraFacing, clientPid, clientUid, servicePid),
+                cameraId, /*API1 camera ID*/ -1,
+                cameraFacing, clientPid, clientUid, servicePid),
     mInputStream(),
     mStreamingRequestId(REQUEST_ID_NONE),
     mRequestIdCounter(0) {
@@ -105,6 +111,15 @@ status_t CameraDeviceClient::initializeImpl(TProviderPtr providerPtr) {
                                       FRAME_PROCESSOR_LISTENER_MAX_ID,
                                       /*listener*/this,
                                       /*sendPartials*/true);
+
+    auto deviceInfo = mDevice->info();
+    camera_metadata_entry_t physicalKeysEntry = deviceInfo.find(
+            ANDROID_REQUEST_AVAILABLE_PHYSICAL_CAMERA_REQUEST_KEYS);
+    if (physicalKeysEntry.count > 0) {
+        mSupportedPhysicalRequestKeys.insert(mSupportedPhysicalRequestKeys.begin(),
+                physicalKeysEntry.data.i32,
+                physicalKeysEntry.data.i32 + physicalKeysEntry.count);
+    }
 
     return OK;
 }
@@ -291,6 +306,13 @@ binder::Status CameraDeviceClient::submitRequestList(
 
         CameraDeviceBase::PhysicalCameraSettingsList physicalSettingsList;
         for (const auto& it : request.mPhysicalCameraSettings) {
+            if (it.settings.isEmpty()) {
+                ALOGE("%s: Camera %s: Sent empty metadata packet. Rejecting request.",
+                        __FUNCTION__, mCameraIdStr.string());
+                return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT,
+                        "Request settings are empty");
+            }
+
             String8 physicalId(it.id.c_str());
             if (physicalId != mDevice->getId()) {
                 auto found = std::find(requestedPhysicalIds.begin(), requestedPhysicalIds.end(),
@@ -301,24 +323,27 @@ binder::Status CameraDeviceClient::submitRequestList(
                     return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT,
                             "Invalid physical camera id");
                 }
+
+                if (!mSupportedPhysicalRequestKeys.empty()) {
+                    // Filter out any unsupported physical request keys.
+                    CameraMetadata filteredParams(mSupportedPhysicalRequestKeys.size());
+                    camera_metadata_t *meta = const_cast<camera_metadata_t *>(
+                            filteredParams.getAndLock());
+                    set_camera_metadata_vendor_id(meta, mDevice->getVendorTagId());
+                    filteredParams.unlock(meta);
+
+                    for (const auto& keyIt : mSupportedPhysicalRequestKeys) {
+                        camera_metadata_ro_entry entry = it.settings.find(keyIt);
+                        if (entry.count > 0) {
+                            filteredParams.update(entry);
+                        }
+                    }
+
+                    physicalSettingsList.push_back({it.id, filteredParams});
+                }
+            } else {
+                physicalSettingsList.push_back({it.id, it.settings});
             }
-
-            CameraMetadata metadata(it.settings);
-            if (metadata.isEmpty()) {
-                ALOGE("%s: Camera %s: Sent empty metadata packet. Rejecting request.",
-                        __FUNCTION__, mCameraIdStr.string());
-                return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT,
-                        "Request settings are empty");
-            }
-
-            physicalSettingsList.push_back({it.id, metadata});
-        }
-
-        if (streaming && (physicalSettingsList.size() > 1)) {
-            ALOGE("%s: Camera %s: Individual physical camera settings are not supported in "
-                    "streaming requests. Rejecting request.", __FUNCTION__, mCameraIdStr.string());
-            return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT,
-                    "Streaming request contains individual physical requests");
         }
 
         if (!enforceRequestPermissions(physicalSettingsList.begin()->metadata)) {
@@ -633,14 +658,6 @@ binder::Status CameraDeviceClient::createStream(
             return res;
 
         if (!isStreamInfoValid) {
-            // Streaming sharing is only supported for IMPLEMENTATION_DEFINED
-            // formats.
-            if (isShared && streamInfo.format != HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
-                String8 msg = String8::format("Camera %s: Stream sharing is only supported for "
-                        "IMPLEMENTATION_DEFINED format", mCameraIdStr.string());
-                ALOGW("%s: %s", __FUNCTION__, msg.string());
-                return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT, msg.string());
-            }
             isStreamInfoValid = true;
         }
 
@@ -920,14 +937,6 @@ binder::Status CameraDeviceClient::updateOutputConfiguration(int streamId,
         if (!res.isOk())
             return res;
 
-        // Stream sharing is only supported for IMPLEMENTATION_DEFINED
-        // formats.
-        if (outInfo.format != HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
-            String8 msg = String8::format("Camera %s: Stream sharing is only supported for "
-                    "IMPLEMENTATION_DEFINED format", mCameraIdStr.string());
-            ALOGW("%s: %s", __FUNCTION__, msg.string());
-            return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT, msg.string());
-        }
         streamInfos.push_back(outInfo);
         newOutputs.push_back(surface);
     }

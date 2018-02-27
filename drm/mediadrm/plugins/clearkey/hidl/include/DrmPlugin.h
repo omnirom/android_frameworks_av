@@ -31,7 +31,6 @@ namespace clearkey {
 
 using ::android::hardware::drm::V1_0::EventType;
 using ::android::hardware::drm::V1_0::IDrmPluginListener;
-using ::android::hardware::drm::V1_0::KeyRequestType;
 using ::android::hardware::drm::V1_0::KeyStatus;
 using ::android::hardware::drm::V1_0::KeyType;
 using ::android::hardware::drm::V1_0::KeyValue;
@@ -39,6 +38,8 @@ using ::android::hardware::drm::V1_0::SecureStop;
 using ::android::hardware::drm::V1_0::SecureStopId;
 using ::android::hardware::drm::V1_0::Status;
 using ::android::hardware::drm::V1_1::DrmMetricGroup;
+using ::android::hardware::drm::V1_1::IDrmPlugin;
+using ::android::hardware::drm::V1_1::KeyRequestType;
 
 using ::android::hardware::hidl_string;
 using ::android::hardware::hidl_vec;
@@ -46,13 +47,14 @@ using ::android::hardware::Return;
 using ::android::hardware::Void;
 using ::android::sp;
 
-
 struct DrmPlugin : public IDrmPlugin {
     explicit DrmPlugin(SessionLibrary* sessionLibrary);
 
     virtual ~DrmPlugin() {}
 
     Return<void> openSession(openSession_cb _hidl_cb) override;
+    Return<void> openSession_1_1(SecurityLevel securityLevel,
+            openSession_cb _hidl_cb) override;
 
     Return<Status> closeSession(const hidl_vec<uint8_t>& sessionId) override;
 
@@ -161,9 +163,6 @@ struct DrmPlugin : public IDrmPlugin {
 
     Return<void> getSecurityLevel(const hidl_vec<uint8_t>& sessionId,
             getSecurityLevel_cb _hidl_cb) override;
-
-    Return<Status> setSecurityLevel(const hidl_vec<uint8_t>& sessionId,
-            SecurityLevel level) override;
 
     Return<void> getMetrics(getMetrics_cb _hidl_cb) override;
 
@@ -332,6 +331,18 @@ struct DrmPlugin : public IDrmPlugin {
 private:
     void initProperties();
     void setPlayPolicy();
+
+    Return<Status> setSecurityLevel(const hidl_vec<uint8_t>& sessionId,
+            SecurityLevel level);
+
+    Status getKeyRequestCommon(const hidl_vec<uint8_t>& scope,
+            const hidl_vec<uint8_t>& initData,
+            const hidl_string& mimeType,
+            KeyType keyType,
+            const hidl_vec<KeyValue>& optionalParameters,
+            std::vector<uint8_t> *request,
+            KeyRequestType *getKeyRequestType,
+            std::string *defaultUrl);
 
     std::vector<KeyValue> mPlayPolicy;
     std::map<std::string, std::string> mStringProperties;

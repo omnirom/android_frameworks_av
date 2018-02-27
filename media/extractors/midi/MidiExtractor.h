@@ -19,7 +19,7 @@
 
 #include <media/DataSourceBase.h>
 #include <media/MediaExtractor.h>
-#include <media/stagefright/MediaBuffer.h>
+#include <media/stagefright/MediaBufferBase.h>
 #include <media/stagefright/MediaBufferGroup.h>
 #include <media/MidiIoWrapper.h>
 #include <utils/String8.h>
@@ -39,7 +39,7 @@ public:
     status_t allocateBuffers();
     status_t releaseBuffers();
     status_t seekTo(int64_t positionUs);
-    MediaBuffer* readBuffer();
+    MediaBufferBase* readBuffer();
 private:
     sp<MidiIoWrapper> mIoWrapper;
     MediaBufferGroup *mGroup;
@@ -87,8 +87,7 @@ private:
 
 };
 
-bool SniffMidi(DataSourceBase *source, String8 *mimeType,
-        float *confidence, sp<AMessage> *);
+bool SniffMidi(DataSourceBase *source, float *confidence);
 
 }  // namespace android
 

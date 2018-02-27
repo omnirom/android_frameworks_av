@@ -149,8 +149,6 @@ enum {
     // To store the timed text format data
     kKeyTextFormatData    = 'text',  // raw data
 
-    kKeyRequiresSecureBuffers = 'secu',  // bool (int32_t)
-
     kKeyIsADTS            = 'adts',  // bool (int32_t)
     kKeyAACAOT            = 'aaot',  // int32_t
 
@@ -258,16 +256,16 @@ public:
             int32_t left, int32_t top,
             int32_t right, int32_t bottom);
 
-    bool findCString(uint32_t key, const char **value);
-    bool findInt32(uint32_t key, int32_t *value);
-    bool findInt64(uint32_t key, int64_t *value);
-    bool findFloat(uint32_t key, float *value);
-    bool findPointer(uint32_t key, void **value);
+    bool findCString(uint32_t key, const char **value) const;
+    bool findInt32(uint32_t key, int32_t *value) const;
+    bool findInt64(uint32_t key, int64_t *value) const;
+    bool findFloat(uint32_t key, float *value) const;
+    bool findPointer(uint32_t key, void **value) const;
 
     bool findRect(
             uint32_t key,
             int32_t *left, int32_t *top,
-            int32_t *right, int32_t *bottom);
+            int32_t *right, int32_t *bottom) const;
 
     bool setData(uint32_t key, uint32_t type, const void *data, size_t size);
 

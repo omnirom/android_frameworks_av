@@ -67,7 +67,9 @@ status_t AudioPolicyManager::setDeviceConnectionState(audio_devices_t device,
                                                       const char *device_address,
                                                       const char *device_name)
 {
-    return setDeviceConnectionStateInt(device, state, device_address, device_name);
+    status_t status = setDeviceConnectionStateInt(device, state, device_address, device_name);
+    nextAudioPortGeneration();
+    return status;
 }
 
 void AudioPolicyManager::broadcastDeviceConnectionState(audio_devices_t device,
@@ -3959,19 +3961,12 @@ status_t AudioPolicyManager::checkOutputsForDevice(const sp<DeviceDescriptor>& d
                         //TODO: configure audio effect output stage here
 
                         // open a duplicating output thread for the new output and the primary output
-                        duplicatedOutput =
-                                mpClientInterface->openDuplicateOutput(output,
-                                                                       mPrimaryOutput->mIoHandle);
-                        if (duplicatedOutput != AUDIO_IO_HANDLE_NONE) {
+                        sp<SwAudioOutputDescriptor> dupOutputDesc =
+                                new SwAudioOutputDescriptor(NULL, mpClientInterface);
+                        status_t status = dupOutputDesc->openDuplicating(mPrimaryOutput, desc,
+                                                                         &duplicatedOutput);
+                        if (status == NO_ERROR) {
                             // add duplicated output descriptor
-                            sp<SwAudioOutputDescriptor> dupOutputDesc =
-                                    new SwAudioOutputDescriptor(NULL, mpClientInterface);
-                            dupOutputDesc->mOutput1 = mPrimaryOutput;
-                            dupOutputDesc->mOutput2 = desc;
-                            dupOutputDesc->mSamplingRate = desc->mSamplingRate;
-                            dupOutputDesc->mFormat = desc->mFormat;
-                            dupOutputDesc->mChannelMask = desc->mChannelMask;
-                            dupOutputDesc->mLatency = desc->mLatency;
                             addOutput(duplicatedOutput, dupOutputDesc);
                             applyStreamVolumes(dupOutputDesc, device, 0, true);
                         } else {

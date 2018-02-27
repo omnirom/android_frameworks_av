@@ -45,7 +45,7 @@ public:
     virtual sp<MetaData> getFormat();
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
 
 protected:
     virtual ~AMRSource();
@@ -122,7 +122,7 @@ AMRExtractor::AMRExtractor(DataSourceBase *source)
       mOffsetTableLength(0) {
     String8 mimeType;
     float confidence;
-    if (!SniffAMR(mDataSource, &mimeType, &confidence, NULL)) {
+    if (!SniffAMR(mDataSource, &mimeType, &confidence)) {
         return;
     }
 
@@ -233,7 +233,7 @@ status_t AMRSource::start(MetaData * /* params */) {
     mOffset = mIsWide ? 9 : 6;
     mCurrentTimeUs = 0;
     mGroup = new MediaBufferGroup;
-    mGroup->add_buffer(new MediaBuffer(128));
+    mGroup->add_buffer(MediaBufferBase::Create(128));
     mStarted = true;
 
     return OK;
@@ -254,7 +254,7 @@ sp<MetaData> AMRSource::getFormat() {
 }
 
 status_t AMRSource::read(
-        MediaBuffer **out, const ReadOptions *options) {
+        MediaBufferBase **out, const ReadOptions *options) {
     *out = NULL;
 
     int64_t seekTimeUs;
@@ -303,7 +303,7 @@ status_t AMRSource::read(
         return ERROR_MALFORMED;
     }
 
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     status_t err = mGroup->acquire_buffer(&buffer);
     if (err != OK) {
         return err;
@@ -339,8 +339,7 @@ status_t AMRSource::read(
 ////////////////////////////////////////////////////////////////////////////////
 
 bool SniffAMR(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *) {
+        DataSourceBase *source, String8 *mimeType, float *confidence) {
     char header[9];
 
     if (source->readAt(0, header, sizeof(header)) != sizeof(header)) {
@@ -348,12 +347,16 @@ bool SniffAMR(
     }
 
     if (!memcmp(header, "#!AMR\n", 6)) {
-        *mimeType = MEDIA_MIMETYPE_AUDIO_AMR_NB;
+        if (mimeType != nullptr) {
+            *mimeType = MEDIA_MIMETYPE_AUDIO_AMR_NB;
+        }
         *confidence = 0.5;
 
         return true;
     } else if (!memcmp(header, "#!AMR-WB\n", 9)) {
-        *mimeType = MEDIA_MIMETYPE_AUDIO_AMR_WB;
+        if (mimeType != nullptr) {
+            *mimeType = MEDIA_MIMETYPE_AUDIO_AMR_WB;
+        }
         *confidence = 0.5;
 
         return true;
@@ -373,13 +376,13 @@ MediaExtractor::ExtractorDef GETEXTRACTORDEF() {
         "AMR Extractor",
         [](
                 DataSourceBase *source,
-                String8 *mimeType,
                 float *confidence,
-                sp<AMessage> *meta __unused) -> MediaExtractor::CreatorFunc {
-            if (SniffAMR(source, mimeType, confidence, meta)) {
+                void **,
+                MediaExtractor::FreeMetaFunc *) -> MediaExtractor::CreatorFunc {
+            if (SniffAMR(source, nullptr, confidence)) {
                 return [](
                         DataSourceBase *source,
-                        const sp<AMessage>& meta __unused) -> MediaExtractor* {
+                        void *) -> MediaExtractor* {
                     return new AMRExtractor(source);};
             }
             return NULL;

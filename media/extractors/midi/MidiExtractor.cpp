@@ -30,7 +30,7 @@
 
 namespace android {
 
-// how many Sonivox output buffers to aggregate into one MediaBuffer
+// how many Sonivox output buffers to aggregate into one MediaBufferBase
 static const int NUM_COMBINE_BUFFERS = 4;
 
 class MidiSource : public MediaSourceBase {
@@ -45,7 +45,7 @@ public:
     virtual sp<MetaData> getFormat();
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
 
 protected:
     virtual ~MidiSource();
@@ -114,10 +114,10 @@ sp<MetaData> MidiSource::getFormat()
 }
 
 status_t MidiSource::read(
-        MediaBuffer **outBuffer, const ReadOptions *options)
+        MediaBufferBase **outBuffer, const ReadOptions *options)
 {
     ALOGV("MidiSource::read");
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     // process an optional seek request
     int64_t seekTimeUs;
     ReadOptions::SeekMode mode;
@@ -207,7 +207,7 @@ status_t MidiEngine::allocateBuffers() {
     int bufsize = sizeof(EAS_PCM)
             * mEasConfig->mixBufferSize * mEasConfig->numChannels * NUM_COMBINE_BUFFERS;
     ALOGV("using %d byte buffer", bufsize);
-    mGroup->add_buffer(new MediaBuffer(bufsize));
+    mGroup->add_buffer(MediaBufferBase::Create(bufsize));
     return OK;
 }
 
@@ -223,13 +223,13 @@ status_t MidiEngine::seekTo(int64_t positionUs) {
     return result == EAS_SUCCESS ? OK : UNKNOWN_ERROR;
 }
 
-MediaBuffer* MidiEngine::readBuffer() {
+MediaBufferBase* MidiEngine::readBuffer() {
     EAS_STATE state;
     EAS_State(mEasData, mEasHandle, &state);
     if ((state == EAS_STATE_STOPPED) || (state == EAS_STATE_ERROR)) {
         return NULL;
     }
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     status_t err = mGroup->acquire_buffer(&buffer);
     if (err != OK) {
         ALOGE("readBuffer: no buffer");
@@ -307,13 +307,10 @@ sp<MetaData> MidiExtractor::getMetaData()
 
 // Sniffer
 
-bool SniffMidi(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *)
+bool SniffMidi(DataSourceBase *source, float *confidence)
 {
     sp<MidiEngine> p = new MidiEngine(source, NULL, NULL);
     if (p->initCheck() == OK) {
-        *mimeType = MEDIA_MIMETYPE_AUDIO_MIDI;
         *confidence = 0.8;
         ALOGV("SniffMidi: yes");
         return true;
@@ -334,13 +331,13 @@ MediaExtractor::ExtractorDef GETEXTRACTORDEF() {
         "MIDI Extractor",
         [](
                 DataSourceBase *source,
-                String8 *mimeType,
                 float *confidence,
-                sp<AMessage> *meta __unused) -> MediaExtractor::CreatorFunc {
-            if (SniffMidi(source, mimeType, confidence, meta)) {
+                void **,
+                MediaExtractor::FreeMetaFunc *) -> MediaExtractor::CreatorFunc {
+            if (SniffMidi(source, confidence)) {
                 return [](
                         DataSourceBase *source,
-                        const sp<AMessage>& meta __unused) -> MediaExtractor* {
+                        void *) -> MediaExtractor* {
                     return new MidiExtractor(source);};
             }
             return NULL;

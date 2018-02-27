@@ -1,5 +1,6 @@
 cc_library_shared {
     name: "libstagefright_codec2",
+    vendor_available: true,
 
     tags: [
         "optional",
@@ -21,6 +22,16 @@ cc_library_shared {
         "include",
     ],
 
+    header_libs: [
+        "libhardware_headers",
+        "libutils_headers",
+    ],
+
+    export_header_lib_headers: [
+        "libhardware_headers",
+        "libutils_headers",
+    ],
+
     sanitize: {
         misc_undefined: [
             "unsigned-integer-overflow",
@@ -37,6 +48,7 @@ cc_library_shared {
 
 cc_library_shared {
     name: "libstagefright_simple_c2component",
+    vendor_available: true,
 
     tags: [
         "optional",

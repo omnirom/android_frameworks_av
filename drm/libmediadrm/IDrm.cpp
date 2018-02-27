@@ -60,7 +60,6 @@ enum {
     GET_HDCP_LEVELS,
     GET_NUMBER_OF_SESSIONS,
     GET_SECURITY_LEVEL,
-    SET_SECURITY_LEVEL,
     REMOVE_SECURE_STOP,
     GET_SECURE_STOP_IDS
 };
@@ -121,9 +120,11 @@ struct BpDrm : public BpInterface<IDrm> {
         return reply.readInt32();
     }
 
-    virtual status_t openSession(Vector<uint8_t> &sessionId) {
+    virtual status_t openSession(DrmPlugin::SecurityLevel securityLevel,
+            Vector<uint8_t> &sessionId) {
         Parcel data, reply;
         data.writeInterfaceToken(IDrm::getInterfaceDescriptor());
+        data.writeInt32(securityLevel);
 
         status_t status = remote()->transact(OPEN_SESSION, data, &reply);
         if (status != OK) {
@@ -448,23 +449,6 @@ struct BpDrm : public BpInterface<IDrm> {
         return reply.readInt32();
     }
 
-    virtual status_t setSecurityLevel(Vector<uint8_t> const &sessionId,
-            const DrmPlugin::SecurityLevel& level) {
-        Parcel data, reply;
-
-        data.writeInterfaceToken(IDrm::getInterfaceDescriptor());
-
-        writeVector(data, sessionId);
-        data.writeInt32(static_cast<uint32_t>(level));
-
-        status_t status = remote()->transact(SET_SECURITY_LEVEL, data, &reply);
-        if (status != OK) {
-            return status;
-        }
-
-        return reply.readInt32();
-    }
-
     virtual status_t getPropertyByteArray(String8 const &name, Vector<uint8_t> &value) const {
         Parcel data, reply;
         data.writeInterfaceToken(IDrm::getInterfaceDescriptor());
@@ -508,7 +492,10 @@ struct BpDrm : public BpInterface<IDrm> {
         return reply.readInt32();
     }
 
-    virtual status_t getMetrics(MediaAnalyticsItem *item) {
+    virtual status_t getMetrics(os::PersistableBundle *metrics) {
+        if (metrics == NULL) {
+            return BAD_VALUE;
+        }
         Parcel data, reply;
         data.writeInterfaceToken(IDrm::getInterfaceDescriptor());
 
@@ -516,9 +503,23 @@ struct BpDrm : public BpInterface<IDrm> {
         if (status != OK) {
             return status;
         }
+        // The reply data is ordered as
+        // 1) 32 bit integer reply followed by
+        // 2) Serialized PersistableBundle containing metrics.
+        status_t reply_status;
+        if (reply.readInt32(&reply_status) != OK
+           || reply_status != OK) {
+          ALOGE("Failed to read getMetrics response code from parcel. %d",
+                reply_status);
+          return reply_status;
+        }
 
-        item->readFromParcel(reply);
-        return reply.readInt32();
+        status = metrics->readFromParcel(&reply);
+        if (status != OK) {
+            ALOGE("Failed to read metrics from parcel. %d", status);
+            return status;
+        }
+        return reply_status;
     }
 
     virtual status_t setCipherAlgorithm(Vector<uint8_t> const &sessionId,
@@ -742,8 +743,10 @@ status_t BnDrm::onTransact(
         case OPEN_SESSION:
         {
             CHECK_INTERFACE(IDrm, data, reply);
+            DrmPlugin::SecurityLevel level =
+                    static_cast<DrmPlugin::SecurityLevel>(data.readInt32());
             Vector<uint8_t> sessionId;
-            status_t result = openSession(sessionId);
+            status_t result = openSession(level, sessionId);
             writeVector(reply, sessionId);
             reply->writeInt32(result);
             return OK;
@@ -977,18 +980,6 @@ status_t BnDrm::onTransact(
             return OK;
         }
 
-        case SET_SECURITY_LEVEL:
-        {
-            CHECK_INTERFACE(IDrm, data, reply);
-            Vector<uint8_t> sessionId;
-            readVector(data, sessionId);
-            DrmPlugin::SecurityLevel level =
-                    static_cast<DrmPlugin::SecurityLevel>(data.readInt32());
-            status_t result = setSecurityLevel(sessionId, level);
-            reply->writeInt32(result);
-            return OK;
-        }
-
         case GET_PROPERTY_STRING:
         {
             CHECK_INTERFACE(IDrm, data, reply);
@@ -1034,11 +1025,18 @@ status_t BnDrm::onTransact(
         {
             CHECK_INTERFACE(IDrm, data, reply);
 
-            MediaAnalyticsItem item;
-            status_t result = getMetrics(&item);
-            item.writeToParcel(reply);
-            reply->writeInt32(result);
-            return OK;
+            os::PersistableBundle metrics;
+            status_t result = getMetrics(&metrics);
+            // The reply data is ordered as
+            // 1) 32 bit integer reply followed by
+            // 2) Serialized PersistableBundle containing metrics.
+            // Only write the metrics if the getMetrics result was
+            // OK and we successfully added the status to reply.
+            status_t parcel_result = reply->writeInt32(result);
+            if (result == OK && parcel_result == OK) {
+                parcel_result = metrics.writeToParcel(reply);
+            }
+            return parcel_result;
         }
 
         case SET_CIPHER_ALGORITHM:

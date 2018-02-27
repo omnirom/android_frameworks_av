@@ -46,7 +46,7 @@ public:
     virtual sp<MetaData> getFormat();
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
 
 protected:
     virtual ~AACSource();
@@ -259,7 +259,7 @@ status_t AACSource::start(MetaData * /* params */) {
 
     mCurrentTimeUs = 0;
     mGroup = new MediaBufferGroup;
-    mGroup->add_buffer(new MediaBuffer(kMaxFrameSize));
+    mGroup->add_buffer(MediaBufferBase::Create(kMaxFrameSize));
     mStarted = true;
 
     return OK;
@@ -280,7 +280,7 @@ sp<MetaData> AACSource::getFormat() {
 }
 
 status_t AACSource::read(
-        MediaBuffer **out, const ReadOptions *options) {
+        MediaBufferBase **out, const ReadOptions *options) {
     *out = NULL;
 
     int64_t seekTimeUs;
@@ -303,7 +303,7 @@ status_t AACSource::read(
         return ERROR_END_OF_STREAM;
     }
 
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     status_t err = mGroup->acquire_buffer(&buffer);
     if (err != OK) {
         return err;
@@ -333,13 +333,20 @@ status_t AACSource::read(
 
 static MediaExtractor* CreateExtractor(
         DataSourceBase *source,
-        const sp<AMessage>& meta) {
-    return new AACExtractor(source, meta);
+        void *meta) {
+    sp<AMessage> metaData = static_cast<AMessage *>(meta);
+    return new AACExtractor(source, metaData);
+}
+
+static void FreeMeta(void *meta) {
+    if (meta != nullptr) {
+        static_cast<AMessage *>(meta)->decStrong(nullptr);
+    }
 }
 
 static MediaExtractor::CreatorFunc Sniff(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *meta) {
+        DataSourceBase *source, float *confidence, void **meta,
+        MediaExtractor::FreeMetaFunc *freeMeta) {
     off64_t pos = 0;
 
     for (;;) {
@@ -377,11 +384,14 @@ static MediaExtractor::CreatorFunc Sniff(
 
     // ADTS syncword
     if ((header[0] == 0xff) && ((header[1] & 0xf6) == 0xf0)) {
-        *mimeType = MEDIA_MIMETYPE_AUDIO_AAC_ADTS;
         *confidence = 0.2;
 
-        *meta = new AMessage;
-        (*meta)->setInt64("offset", pos);
+        AMessage *msg = new AMessage;
+        msg->setInt64("offset", pos);
+        *meta = msg;
+        *freeMeta = &FreeMeta;
+        // ref count will be decreased in FreeMeta.
+        msg->incStrong(nullptr);
 
         return CreateExtractor;
     }

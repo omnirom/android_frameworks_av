@@ -18,13 +18,15 @@
 
 #define MEDIA_BUFFER_GROUP_H_
 
-#include <media/stagefright/MediaBuffer.h>
+#include <list>
+
+#include <media/stagefright/MediaBufferBase.h>
 #include <utils/Errors.h>
 #include <utils/threads.h>
 
 namespace android {
 
-class MediaBuffer;
+class MediaBufferBase;
 
 class MediaBufferGroup : public MediaBufferObserver {
 public:
@@ -35,7 +37,7 @@ public:
 
     ~MediaBufferGroup();
 
-    void add_buffer(MediaBuffer *buffer);
+    void add_buffer(MediaBufferBase *buffer);
 
     bool has_buffers();
 
@@ -48,20 +50,16 @@ public:
     // If requestedSize is > 0, the returned MediaBuffer should have buffer
     // size of at least requstedSize.
     status_t acquire_buffer(
-            MediaBuffer **buffer, bool nonBlocking = false, size_t requestedSize = 0);
+            MediaBufferBase **buffer, bool nonBlocking = false, size_t requestedSize = 0);
 
-    size_t buffers() const { return mBuffers.size(); }
+    size_t buffers() const;
 
     // If buffer is nullptr, have acquire_buffer() check for remote release.
-    virtual void signalBufferReturned(MediaBuffer *buffer);
+    virtual void signalBufferReturned(MediaBufferBase *buffer);
 
 private:
-    friend class MediaBuffer;
-
-    Mutex mLock;
-    Condition mCondition;
-    size_t mGrowthLimit;  // Do not automatically grow group larger than this.
-    std::list<MediaBuffer *> mBuffers;
+    struct InternalData;
+    InternalData *mInternal;
 
     MediaBufferGroup(const MediaBufferGroup &);
     MediaBufferGroup &operator=(const MediaBufferGroup &);

@@ -61,7 +61,7 @@ struct MPEG2TSSource : public MediaSourceBase {
     virtual sp<MetaData> getFormat();
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
 
 private:
     MPEG2TSExtractor *mExtractor;
@@ -99,7 +99,7 @@ sp<MetaData> MPEG2TSSource::getFormat() {
 }
 
 status_t MPEG2TSSource::read(
-        MediaBuffer **out, const ReadOptions *options) {
+        MediaBufferBase **out, const ReadOptions *options) {
     *out = NULL;
 
     int64_t seekTimeUs;
@@ -645,9 +645,7 @@ status_t MPEG2TSExtractor::feedUntilBufferAvailable(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool SniffMPEG2TS(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *) {
+bool SniffMPEG2TS(DataSourceBase *source, float *confidence) {
     for (int i = 0; i < 5; ++i) {
         char header;
         if (source->readAt(kTSPacketSize * i, &header, 1) != 1
@@ -657,7 +655,6 @@ bool SniffMPEG2TS(
     }
 
     *confidence = 0.1f;
-    mimeType->setTo(MEDIA_MIMETYPE_CONTAINER_MPEG2TS);
 
     return true;
 }

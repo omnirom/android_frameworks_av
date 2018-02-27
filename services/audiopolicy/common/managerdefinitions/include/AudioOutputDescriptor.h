@@ -134,6 +134,9 @@ public:
             // Note: called after changeRefCount(-1);
             void stop();
             void close();
+            status_t openDuplicating(const sp<SwAudioOutputDescriptor>& output1,
+                                     const sp<SwAudioOutputDescriptor>& output2,
+                                     audio_io_handle_t *ioHandle);
 
     const sp<IOProfile> mProfile;          // I/O profile this output derives from
     uint32_t mLatency;                  //

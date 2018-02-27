@@ -45,6 +45,7 @@ protected:
             const sp<hardware::camera2::ICameraDeviceCallbacks>& remoteCallback,
             const String16& clientPackageName,
             const String8& cameraId,
+            int api1CameraId,
             int cameraFacing,
             int clientPid,
             uid_t clientUid,
@@ -220,6 +221,8 @@ private:
     sp<camera2::FrameProcessorBase> mFrameProcessor;
     static const int32_t FRAME_PROCESSOR_LISTENER_MIN_ID = 0;
     static const int32_t FRAME_PROCESSOR_LISTENER_MAX_ID = 0x7fffffffL;
+
+    std::vector<int32_t> mSupportedPhysicalRequestKeys;
 
     template<typename TProviderPtr>
     status_t      initializeImpl(TProviderPtr providerPtr);
