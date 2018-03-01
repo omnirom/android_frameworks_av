@@ -19,16 +19,16 @@ package android.media;
 import android.media.MediaSession2.PlaylistParams;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.util.ArrayMap;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 
 /**
- * A mock implementation of {@link MediaPlayerInterface} for testing.
+ * A mock implementation of {@link MediaPlayerBase} for testing.
  */
-public class MockPlayer implements MediaPlayerInterface {
+public class MockPlayer extends MediaPlayerBase {
     public final CountDownLatch mCountDownLatch;
 
     public boolean mPlayCalled;
@@ -42,11 +42,11 @@ public class MockPlayer implements MediaPlayerInterface {
     public boolean mSeekToCalled;
     public long mSeekPosition;
     public boolean mSetCurrentPlaylistItemCalled;
-    public int mItemIndex;
+    public MediaItem2 mCurrentItem;
     public boolean mSetPlaylistCalled;
     public boolean mSetPlaylistParamsCalled;
 
-    public List<PlaybackListenerHolder> mListeners = new ArrayList<>();
+    public ArrayMap<EventCallback, Executor> mCallbacks = new ArrayMap<>();
     public List<MediaItem2> mPlaylist;
     public PlaylistParams mPlaylistParams;
 
@@ -55,6 +55,11 @@ public class MockPlayer implements MediaPlayerInterface {
 
     public MockPlayer(int count) {
         mCountDownLatch = (count > 0) ? new CountDownLatch(count) : null;
+    }
+
+    @Override
+    public void close() {
+        // no-op
     }
 
     @Override
@@ -131,9 +136,9 @@ public class MockPlayer implements MediaPlayerInterface {
     }
 
     @Override
-    public void setCurrentPlaylistItem(int index) {
+    public void setCurrentPlaylistItem(MediaItem2 item) {
         mSetCurrentPlaylistItemCalled = true;
-        mItemIndex = index;
+        mCurrentItem = item;
         if (mCountDownLatch != null) {
             mCountDownLatch.countDown();
         }
@@ -146,23 +151,35 @@ public class MockPlayer implements MediaPlayerInterface {
     }
 
     @Override
-    public void addPlaybackListener(@NonNull Executor executor,
-            @NonNull PlaybackListener listener) {
-        mListeners.add(new PlaybackListenerHolder(executor, listener));
+    public int getPlayerState() {
+        return mLastPlaybackState.getState();
     }
 
     @Override
-    public void removePlaybackListener(@NonNull PlaybackListener listener) {
-        int index = PlaybackListenerHolder.indexOf(mListeners, listener);
-        if (index >= 0) {
-            mListeners.remove(index);
-        }
+    public void registerEventCallback(@NonNull Executor executor,
+            @NonNull EventCallback callback) {
+        mCallbacks.put(callback, executor);
+    }
+
+    @Override
+    public void unregisterEventCallback(@NonNull EventCallback callback) {
+        mCallbacks.remove(callback);
     }
 
     public void notifyPlaybackState(final PlaybackState2 state) {
         mLastPlaybackState = state;
-        for (int i = 0; i < mListeners.size(); i++) {
-            mListeners.get(i).postPlaybackChange(state);
+        for (int i = 0; i < mCallbacks.size(); i++) {
+            final EventCallback callback = mCallbacks.keyAt(i);
+            final Executor executor = mCallbacks.valueAt(i);
+            executor.execute(() -> callback.onPlaybackStateChanged(state));
+        }
+    }
+
+    public void notifyError(int what) {
+        for (int i = 0; i < mCallbacks.size(); i++) {
+            final EventCallback callback = mCallbacks.keyAt(i);
+            final Executor executor = mCallbacks.valueAt(i);
+            executor.execute(() -> callback.onError(null, what, 0));
         }
     }
 

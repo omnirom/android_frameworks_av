@@ -6397,9 +6397,8 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
     Vector<AString> matchingCodecs;
     Vector<AString> owners;
 
-    AString mime;
-
     AString componentName;
+/*<<<<<<< HEAD
     int32_t encoder = false;
     if (msg->findString("componentName", &componentName)) {
         //make sure if the component name contains qcom/qti, we add it to matchingCodecs
@@ -6451,46 +6450,55 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
                 0,       // flags
                 &matchingCodecs,
                 &owners);
+=======*/
+    CHECK(msg->findString("componentName", &componentName));
+
+    sp<IMediaCodecList> list = MediaCodecList::getInstance();
+    if (list == nullptr) {
+        ALOGE("Unable to obtain MediaCodecList while "
+                "attempting to create codec \"%s\"",
+                componentName.c_str());
+        mCodec->signalError(OMX_ErrorUndefined, NO_INIT);
+        return false;
     }
+    ssize_t index = list->findCodecByName(componentName.c_str());
+    if (index < 0) {
+        ALOGE("Unable to find codec \"%s\"",
+                componentName.c_str());
+        mCodec->signalError(OMX_ErrorInvalidComponent, NAME_NOT_FOUND);
+        return false;
+//>>>>>>> cadae43697eea195948ed570fe7b6a0eb5a577e6
+    }
+    sp<MediaCodecInfo> info = list->getCodecInfo(index);
+    if (info == nullptr) {
+        ALOGE("Unexpected error (index out-of-bound) while "
+                "retrieving information for codec \"%s\"",
+                componentName.c_str());
+        mCodec->signalError(OMX_ErrorUndefined, UNKNOWN_ERROR);
+        return false;
+    }
+    AString owner = (info->getOwnerName() == nullptr) ? "default" : info->getOwnerName();
 
     sp<CodecObserver> observer = new CodecObserver;
     sp<IOMX> omx;
     sp<IOMXNode> omxNode;
 
     status_t err = NAME_NOT_FOUND;
-    for (size_t matchIndex = 0; matchIndex < matchingCodecs.size();
-            ++matchIndex) {
-        componentName = matchingCodecs[matchIndex];
-
-        OMXClient client;
-        if (client.connect(owners[matchIndex].c_str()) != OK) {
-            mCodec->signalError(OMX_ErrorUndefined, NO_INIT);
-            return false;
-        }
-        omx = client.interface();
-
-        pid_t tid = gettid();
-        int prevPriority = androidGetThreadPriority(tid);
-        androidSetThreadPriority(tid, ANDROID_PRIORITY_FOREGROUND);
-        err = omx->allocateNode(componentName.c_str(), observer, &omxNode);
-        androidSetThreadPriority(tid, prevPriority);
-
-        if (err == OK) {
-            break;
-        } else {
-            ALOGW("Allocating component '%s' failed, try next one.", componentName.c_str());
-        }
-
-        omxNode = NULL;
+    OMXClient client;
+    if (client.connect(owner.c_str()) != OK) {
+        mCodec->signalError(OMX_ErrorUndefined, NO_INIT);
+        return false;
     }
+    omx = client.interface();
 
-    if (omxNode == NULL) {
-        if (!mime.empty()) {
-            ALOGE("Unable to instantiate a %scoder for type '%s' with err %#x.",
-                    encoder ? "en" : "de", mime.c_str(), err);
-        } else {
-            ALOGE("Unable to instantiate codec '%s' with err %#x.", componentName.c_str(), err);
-        }
+    pid_t tid = gettid();
+    int prevPriority = androidGetThreadPriority(tid);
+    androidSetThreadPriority(tid, ANDROID_PRIORITY_FOREGROUND);
+    err = omx->allocateNode(componentName.c_str(), observer, &omxNode);
+    androidSetThreadPriority(tid, prevPriority);
+
+    if (err != OK) {
+        ALOGE("Unable to instantiate codec '%s' with err %#x.", componentName.c_str(), err);
 
         mCodec->signalError((OMX_ERRORTYPE)err, makeNoSideEffectStatus(err));
         return false;
@@ -7358,12 +7366,16 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
         }
     }
 
-    float rate;
-    if (params->findFloat("operating-rate", &rate) && rate > 0) {
-        status_t err = setOperatingRate(rate, mIsVideo);
+    int32_t rateInt = -1;
+    float rateFloat = -1;
+    if (!params->findFloat("operating-rate", &rateFloat)) {
+        params->findInt32("operating-rate", &rateInt);
+        rateFloat = (float) rateInt; // 16MHz (FLINTMAX) is OK for upper bound.
+    }
+    if (rateFloat > 0) {
+        status_t err = setOperatingRate(rateFloat, mIsVideo);
         if (err != OK) {
-            ALOGE("Failed to set parameter 'operating-rate' (err %d)", err);
-            return err;
+            ALOGI("Failed to set parameter 'operating-rate' (err %d)", err);
         }
     }
 
@@ -7388,10 +7400,8 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
         }
     }
 
-    status_t err = configureTemporalLayers(params, false /* inConfigure */, mOutputFormat);
-    if (err != OK) {
-        err = OK; // ignore failure
-    }
+    // Ignore errors as failure is expected for codecs that aren't video encoders.
+    (void)configureTemporalLayers(params, false /* inConfigure */, mOutputFormat);
 
     return setVendorParameters(params);
 }

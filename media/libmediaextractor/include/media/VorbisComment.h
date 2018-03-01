@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,17 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_MEDIAPLAYER2ENGINECLIENT_H
-#define ANDROID_MEDIAPLAYER2ENGINECLIENT_H
 
-#include <utils/RefBase.h>
-#include <binder/Parcel.h>
+#ifndef VORBIS_COMMENT_H_
+#define VORBIS_COMMENT_H_
 
 namespace android {
 
-class MediaPlayer2EngineClient: public RefBase
-{
-public:
-    virtual void notify(int64_t srcId, int msg, int ext1, int ext2, const Parcel *obj) = 0;
-};
+class MetaDataBase;
 
-}; // namespace android
+void parseVorbisComment(
+        MetaDataBase *fileMeta, const char *comment, size_t commentLength);
 
-#endif // ANDROID_MEDIAPLAYER2ENGINECLIENT_H
+}  // namespace android
+
+#endif // VORBIS_COMMENT_H_

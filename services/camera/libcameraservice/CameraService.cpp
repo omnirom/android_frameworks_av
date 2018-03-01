@@ -67,6 +67,7 @@
 #include "api1/Camera2Client.h"
 #include "api2/CameraDeviceClient.h"
 #include "utils/CameraTraces.h"
+#include "utils/TagMonitor.h"
 
 namespace {
     const char* kPermissionServiceName = "permission";
@@ -1364,7 +1365,7 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
         LOG_ALWAYS_FATAL_IF(client.get() == nullptr, "%s: CameraService in invalid state",
                 __FUNCTION__);
 
-        err = client->initialize(mCameraProviderManager);
+        err = client->initialize(mCameraProviderManager, mMonitorTags);
         if (err != OK) {
             ALOGE("%s: Could not initialize client from HAL.", __FUNCTION__);
             // Errors could be from the HAL module open call or from AppOpsManager
@@ -1733,8 +1734,6 @@ void CameraService::removeByClient(const BasicClient* client) {
 }
 
 bool CameraService::evictClientIdByRemote(const wp<IBinder>& remote) {
-    const int callingPid = getCallingPid();
-    const int servicePid = getpid();
     bool ret = false;
     {
         // Acquire mServiceLock and prevent other clients from connecting
@@ -1750,8 +1749,7 @@ bool CameraService::evictClientIdByRemote(const wp<IBinder>& remote) {
                 mActiveClientManager.remove(i);
                 continue;
             }
-            if (remote == clientSp->getRemote() && (callingPid == servicePid ||
-                    callingPid == clientSp->getClientPid())) {
+            if (remote == clientSp->getRemote()) {
                 mActiveClientManager.remove(i);
                 evicted.push_back(clientSp);
 
@@ -2643,6 +2641,16 @@ status_t CameraService::dump(int fd, const Vector<String16>& args) {
         dprintf(fd, "CameraStates in use, may be deadlocked\n");
     }
 
+    int argSize = args.size();
+    for (int i = 0; i < argSize; i++) {
+        if (args[i] == TagMonitor::kMonitorOption) {
+            if (i + 1 < argSize) {
+                mMonitorTags = String8(args[i + 1]);
+            }
+            break;
+        }
+    }
+
     for (auto& state : mCameraStates) {
         String8 cameraId = state.first;
 
@@ -2770,7 +2778,7 @@ void CameraService::handleTorchClientBinderDied(const wp<IBinder> &who) {
       * While tempting to promote the wp<IBinder> into a sp, it's actually not supported by the
       * binder driver
       */
-
+    // PID here is approximate and can be wrong.
     logClientDied(getCallingPid(), String8("Binder died unexpectedly"));
 
     // check torch client

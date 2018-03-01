@@ -75,8 +75,6 @@ public class MediaController2Impl implements MediaController2Provider {
     @GuardedBy("mLock")
     private PlaybackInfo mPlaybackInfo;
     @GuardedBy("mLock")
-    private int mRatingType;
-    @GuardedBy("mLock")
     private PendingIntent mSessionActivity;
     @GuardedBy("mLock")
     private CommandGroup mCommandGroup;
@@ -120,16 +118,15 @@ public class MediaController2Impl implements MediaController2Provider {
 
     @Override
     public void initialize() {
-        SessionToken2Impl impl = SessionToken2Impl.from(mToken);
         // TODO(jaewan): More sanity checks.
-        if (impl.getSessionBinder() == null) {
+        if (mToken.getType() == SessionToken2.TYPE_SESSION) {
+            // Session
+            mServiceConnection = null;
+            connectToSession(SessionToken2Impl.from(mToken).getSessionBinder());
+        } else {
             // Session service
             mServiceConnection = new SessionServiceConnection();
             connectToService();
-        } else {
-            // Session
-            mServiceConnection = null;
-            connectToSession(impl.getSessionBinder());
         }
     }
 
@@ -164,7 +161,7 @@ public class MediaController2Impl implements MediaController2Provider {
 
     private void connectToSession(IMediaSession2 sessionBinder) {
         try {
-            sessionBinder.connect(mContext.getPackageName(), mSessionCallbackStub);
+            sessionBinder.connect(mSessionCallbackStub, mContext.getPackageName());
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to call connection request. Framework will retry"
                     + " automatically");
@@ -286,11 +283,6 @@ public class MediaController2Impl implements MediaController2Provider {
     }
 
     @Override
-    public int getRatingType_impl() {
-        return mRatingType;
-    }
-
-    @Override
     public void setVolumeTo_impl(int value, int flags) {
         // TODO(hdmoon): sanity check
         final IMediaSession2 binder = mSessionBinder;
@@ -403,9 +395,26 @@ public class MediaController2Impl implements MediaController2Provider {
             // TODO(jaewan): Handle.
         }
     }
+
     @Override
-    public void setRating_impl(Rating2 rating) {
-        // TODO(jaewan): Implement
+    public void setRating_impl(String mediaId, Rating2 rating) {
+        if (mediaId == null) {
+            throw new IllegalArgumentException("mediaId shouldn't be null");
+        }
+        if (rating == null) {
+            throw new IllegalArgumentException("rating shouldn't be null");
+        }
+
+        final IMediaSession2 binder = mSessionBinder;
+        if (binder != null) {
+            try {
+                binder.setRating(mSessionCallbackStub, mediaId, rating.toBundle());
+            } catch (RemoteException e) {
+                Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+            }
+        } else {
+            // TODO(jaewan): Handle.
+        }
     }
 
     @Override
@@ -456,11 +465,14 @@ public class MediaController2Impl implements MediaController2Provider {
     }
 
     @Override
-    public void setCurrentPlaylistItem_impl(int index) {
+    public void skipToPlaylistItem_impl(MediaItem2 item) {
+        // TODO(jaewan): Implement this
+        /*
         Bundle args = new Bundle();
-        args.putInt(MediaSession2Stub.ARGUMENT_KEY_ITEM_INDEX, index);
+        args.putInt(MediaSession2Stub.ARGUMENT_KEY_ITEM_INDEX, item);
         sendTransportControlCommand(
                 MediaSession2.COMMAND_CODE_PLAYBACK_SET_CURRENT_PLAYLIST_ITEM, args);
+        */
     }
 
     @Override
@@ -477,7 +489,7 @@ public class MediaController2Impl implements MediaController2Provider {
 
     @Override
     public void addPlaylistItem_impl(int index, MediaItem2 item) {
-    // TODO(jaewan): Implement
+        // TODO(jaewan): Implement
     }
 
     @Override
@@ -502,6 +514,36 @@ public class MediaController2Impl implements MediaController2Provider {
         Bundle args = new Bundle();
         args.putBundle(MediaSession2Stub.ARGUMENT_KEY_PLAYLIST_PARAMS, params.toBundle());
         sendTransportControlCommand(MediaSession2.COMMAND_CODE_PLAYBACK_SET_PLAYLIST_PARAMS, args);
+    }
+
+    @Override
+    public int getPlayerState_impl() {
+        // TODO(jaewan): Implement
+        return 0;
+    }
+
+    @Override
+    public long getPosition_impl() {
+        // TODO(jaewan): Implement
+        return 0;
+    }
+
+    @Override
+    public float getPlaybackSpeed_impl() {
+        // TODO(jaewan): Implement
+        return 0;
+    }
+
+    @Override
+    public long getBufferedPosition_impl() {
+        // TODO(jaewan): Implement
+        return 0;
+    }
+
+    @Override
+    public MediaItem2 getCurrentPlaylistItem_impl() {
+        // TODO(jaewan): Implement
+        return null;
     }
 
     void pushPlaybackStateChanges(final PlaybackState2 state) {
@@ -563,7 +605,7 @@ public class MediaController2Impl implements MediaController2Provider {
     // Should be used without a lock to prevent potential deadlock.
     void onConnectedNotLocked(IMediaSession2 sessionBinder,
             final CommandGroup commandGroup, final PlaybackState2 state, final PlaybackInfo info,
-            final PlaylistParams params, final List<MediaItem2> playlist, final int ratingType,
+            final PlaylistParams params, final List<MediaItem2> playlist,
             final PendingIntent sessionActivity) {
         if (DEBUG) {
             Log.d(TAG, "onConnectedNotLocked sessionBinder=" + sessionBinder
@@ -591,7 +633,6 @@ public class MediaController2Impl implements MediaController2Provider {
                 mPlaybackInfo = info;
                 mPlaylistParams = params;
                 mPlaylist = playlist;
-                mRatingType = ratingType;
                 mSessionActivity = sessionActivity;
                 mSessionBinder = sessionBinder;
                 try {

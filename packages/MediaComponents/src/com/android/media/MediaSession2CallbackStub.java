@@ -125,7 +125,7 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     @Override
     public void onConnected(IMediaSession2 sessionBinder, Bundle commandGroup,
             Bundle playbackState, Bundle playbackInfo, Bundle playlistParams, List<Bundle>
-            playlist, int ratingType, PendingIntent sessionActivity) {
+            playlist, PendingIntent sessionActivity) {
         final MediaController2Impl controller = mController.get();
         if (controller == null) {
             if (DEBUG) {
@@ -146,7 +146,7 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
                 PlaybackState2.fromBundle(context, playbackState),
                 PlaybackInfoImpl.fromBundle(context, playbackInfo),
                 PlaylistParams.fromBundle(context, playlistParams),
-                list, ratingType, sessionActivity);
+                list, sessionActivity);
     }
 
     @Override
@@ -209,7 +209,7 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     // MediaBrowser specific
     ////////////////////////////////////////////////////////////////////////////////////////////
     @Override
-    public void onGetRootResult(Bundle rootHints, String rootMediaId, Bundle rootExtra)
+    public void onGetLibraryRootDone(Bundle rootHints, String rootMediaId, Bundle rootExtra)
             throws RuntimeException {
         final MediaBrowser2Impl browser;
         try {
@@ -222,12 +222,12 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
             // TODO(jaewan): Revisit here. Could be a bug
             return;
         }
-        browser.onGetRootResult(rootHints, rootMediaId, rootExtra);
+        browser.onGetLibraryRootDone(rootHints, rootMediaId, rootExtra);
     }
 
 
     @Override
-    public void onItemLoaded(String mediaId, Bundle itemBundle) throws RuntimeException {
+    public void onGetItemDone(String mediaId, Bundle itemBundle) throws RuntimeException {
         final MediaBrowser2Impl browser;
         try {
             browser = getBrowser();
@@ -239,13 +239,13 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
             // TODO(jaewan): Revisit here. Could be a bug
             return;
         }
-        browser.onItemLoaded(mediaId,
+        browser.onGetItemDone(mediaId,
                 MediaItem2Impl.fromBundle(browser.getContext(), itemBundle));
     }
 
     @Override
-    public void onChildrenLoaded(String parentId, int page, int pageSize, Bundle extras,
-            List<Bundle> itemBundleList) throws RuntimeException {
+    public void onGetChildrenDone(String parentId, int page, int pageSize,
+            List<Bundle> itemBundleList, Bundle extras) throws RuntimeException {
         final MediaBrowser2Impl browser;
         try {
             browser = getBrowser();
@@ -265,12 +265,29 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
                 result.add(MediaItem2.fromBundle(browser.getContext(), bundle));
             }
         }
-        browser.onChildrenLoaded(parentId, page, pageSize, extras, result);
+        browser.onGetChildrenDone(parentId, page, pageSize, result, extras);
     }
 
     @Override
-    public void onSearchResultLoaded(String query, int page, int pageSize, Bundle extras,
-            List<Bundle> itemBundleList) throws RuntimeException {
+    public void onSearchResultChanged(String query, int itemCount, Bundle extras)
+            throws RuntimeException {
+        final MediaBrowser2Impl browser;
+        try {
+            browser = getBrowser();
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "Don't fail silently here. Highly likely a bug");
+            return;
+        }
+        if (browser == null) {
+            // TODO(jaewan): Revisit here. Could be a bug
+            return;
+        }
+        browser.onSearchResultChanged(query, itemCount, extras);
+    }
+
+    @Override
+    public void onGetSearchResultDone(String query, int page, int pageSize,
+            List<Bundle> itemBundleList, Bundle extras) throws RuntimeException {
         final MediaBrowser2Impl browser;
         try {
             browser = getBrowser();
@@ -290,6 +307,22 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
                 result.add(MediaItem2.fromBundle(browser.getContext(), bundle));
             }
         }
-        browser.onSearchResultLoaded(query, page, pageSize, extras, result);
+        browser.onGetSearchResultDone(query, page, pageSize, result, extras);
+    }
+
+    @Override
+    public void onChildrenChanged(String parentId, int itemCount, Bundle extras) {
+        final MediaBrowser2Impl browser;
+        try {
+            browser = getBrowser();
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "Don't fail silently here. Highly likely a bug");
+            return;
+        }
+        if (browser == null) {
+            // TODO(jaewan): Revisit here. Could be a bug
+            return;
+        }
+        browser.onChildrenChanged(parentId, itemCount, extras);
     }
 }

@@ -2838,7 +2838,7 @@ status_t MPEG4Writer::Track::threadEntry() {
         ++count;
 
         int32_t isCodecConfig;
-        if (buffer->meta_data()->findInt32(kKeyIsCodecConfig, &isCodecConfig)
+        if (buffer->meta_data().findInt32(kKeyIsCodecConfig, &isCodecConfig)
                 && isCodecConfig) {
             // if config format (at track addition) already had CSD, keep that
             // UNLESS we have not received any frames yet.
@@ -2891,14 +2891,15 @@ status_t MPEG4Writer::Track::threadEntry() {
 
         ++nActualFrames;
 
-        MediaBuffer *copy = NULL;
+//<<<<<<< HEAD
+//        MediaBuffer *copy = NULL;
         // Check if the upstream source hints it is OK to hold on to the
         // buffer without releasing immediately and avoid cloning the buffer
-        if (false /*AVUtils::get()->canDeferRelease(buffer->meta_data())*/) {
+//        if (false /*AVUtils::get()->canDeferRelease(buffer->meta_data())*/) {
             // copy = buffer;
             // TODO : need to check a good way to convert buffer (Base) to
             //     MediaBUffer while still holding on to the reference
-            meta_data = new MetaData(*buffer->meta_data().get());
+/*            meta_data = new MetaData(*buffer->meta_data().get());
         } else {
             // Make a deep copy of the MediaBuffer and Metadata and release
             // the original as soon as we can
@@ -2910,6 +2911,17 @@ status_t MPEG4Writer::Track::threadEntry() {
             buffer->release();
             buffer = NULL;
         }
+=======*/
+        // Make a deep copy of the MediaBuffer and Metadata and release
+        // the original as soon as we can
+        MediaBuffer *copy = new MediaBuffer(buffer->range_length());
+        memcpy(copy->data(), (uint8_t *)buffer->data() + buffer->range_offset(),
+                buffer->range_length());
+        copy->set_range(0, buffer->range_length());
+        meta_data = new MetaData(buffer->meta_data());
+        buffer->release();
+        buffer = NULL;
+//>>>>>>> cadae43697eea195948ed570fe7b6a0eb5a577e6
 
         if (usePrefix()) StripStartcode(copy);
 

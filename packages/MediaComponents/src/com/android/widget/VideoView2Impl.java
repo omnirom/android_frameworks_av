@@ -17,18 +17,17 @@
 package com.android.widget;
 
 import android.annotation.NonNull;
-import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.res.Resources;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.MediaPlayer;
-import android.media.MediaPlayerInterface;
+import android.media.MediaPlayerBase;
 import android.media.Cea708CaptionRenderer;
 import android.media.ClosedCaptionRenderer;
+import android.media.MediaMetadata2;
 import android.media.Metadata;
 import android.media.PlaybackParams;
 import android.media.SRTRenderer;
@@ -48,6 +47,7 @@ import android.os.ResultReceiver;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.util.Pair;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
@@ -92,13 +92,9 @@ public class VideoView2Impl extends BaseLayout
     private AudioAttributes mAudioAttributes;
     private int mAudioFocusType = AudioManager.AUDIOFOCUS_GAIN; // legacy focus gain
 
-    private VideoView2.OnCustomActionListener mOnCustomActionListener;
-    private VideoView2.OnPreparedListener mOnPreparedListener;
-    private VideoView2.OnCompletionListener mOnCompletionListener;
-    private VideoView2.OnErrorListener mOnErrorListener;
-    private VideoView2.OnInfoListener mOnInfoListener;
-    private VideoView2.OnViewTypeChangedListener mOnViewTypeChangedListener;
-    private VideoView2.OnFullScreenRequestListener mOnFullScreenRequestListener;
+    private Pair<Executor, VideoView2.OnCustomActionListener> mCustomActionListenerRecord;
+    private VideoView2.OnViewTypeChangedListener mViewTypeChangedListener;
+    private VideoView2.OnFullScreenRequestListener mFullScreenRequestListener;
 
     private VideoViewInterface mCurrentView;
     private VideoTextureView mTextureView;
@@ -112,6 +108,9 @@ public class VideoView2Impl extends BaseLayout
     private MediaRouter mMediaRouter;
     private MediaRouteSelector mRouteSelector;
     private Metadata mMetadata;
+    private MediaMetadata2 mMediaMetadata;
+    private boolean mNeedUpdateMediaType;
+    private Bundle mMediaTypeData;
     private String mTitle;
 
     private PlaybackState.Builder mStateBuilder;
@@ -240,6 +239,32 @@ public class VideoView2Impl extends BaseLayout
     }
 
     @Override
+    public MediaMetadata2 getMediaMetadata_impl() {
+        return mMediaMetadata;
+    }
+
+    @Override
+    public void setMediaMetadata_impl(MediaMetadata2 metadata) {
+        // TODO: integrate this with MediaSession2#MediaItem2
+        mMediaMetadata = metadata;
+
+        // TODO: add support for handling website link
+        mMediaTypeData = new Bundle();
+        boolean isAd = metadata == null ?
+                false : metadata.getLong(MediaMetadata2.METADATA_KEY_ADVERTISEMENT) != 0;
+        mMediaTypeData.putBoolean(
+                MediaControlView2Impl.KEY_STATE_IS_ADVERTISEMENT, isAd);
+
+        if (mMediaSession != null) {
+            mMediaSession.sendSessionEvent(
+                    MediaControlView2Impl.EVENT_UPDATE_MEDIA_TYPE_STATUS, mMediaTypeData);
+        } else {
+            // Update later inside OnPreparedListener after MediaSession is initialized.
+            mNeedUpdateMediaType = true;
+        }
+    }
+
+    @Override
     public void setSubtitleEnabled_impl(boolean enable) {
         if (enable != mSubtitleEnabled) {
             selectOrDeselectSubtitle(enable);
@@ -287,7 +312,7 @@ public class VideoView2Impl extends BaseLayout
     }
 
     @Override
-    public void setRouteAttributes_impl(List<String> routeCategories, MediaPlayerInterface player) {
+    public void setRouteAttributes_impl(List<String> routeCategories, MediaPlayerBase player) {
         // TODO: implement this.
     }
 
@@ -351,13 +376,12 @@ public class VideoView2Impl extends BaseLayout
         return mCurrentView.getViewType();
     }
 
-    // TODO: Handle executor properly for all the set listener methods.
     @Override
     public void setCustomActions_impl(
             List<PlaybackState.CustomAction> actionList,
             Executor executor, VideoView2.OnCustomActionListener listener) {
         mCustomActionList = actionList;
-        mOnCustomActionListener = listener;
+        mCustomActionListenerRecord = new Pair<>(executor, listener);
 
         // Create a new playback builder in order to clear existing the custom actions.
         mStateBuilder = null;
@@ -365,35 +389,13 @@ public class VideoView2Impl extends BaseLayout
     }
 
     @Override
-    public void setOnPreparedListener_impl(Executor executor, VideoView2.OnPreparedListener l) {
-        mOnPreparedListener = l;
+    public void setOnViewTypeChangedListener_impl(VideoView2.OnViewTypeChangedListener l) {
+        mViewTypeChangedListener = l;
     }
 
     @Override
-    public void setOnCompletionListener_impl(Executor executor, VideoView2.OnCompletionListener l) {
-        mOnCompletionListener = l;
-    }
-
-    @Override
-    public void setOnErrorListener_impl(Executor executor, VideoView2.OnErrorListener l) {
-        mOnErrorListener = l;
-    }
-
-    @Override
-    public void setOnInfoListener_impl(Executor executor, VideoView2.OnInfoListener l) {
-        mOnInfoListener = l;
-    }
-
-    @Override
-    public void setOnViewTypeChangedListener_impl(Executor executor,
-            VideoView2.OnViewTypeChangedListener l) {
-        mOnViewTypeChangedListener = l;
-    }
-
-    @Override
-    public void setFullScreenRequestListener_impl(Executor executor,
-            VideoView2.OnFullScreenRequestListener l) {
-        mOnFullScreenRequestListener = l;
+    public void setFullScreenRequestListener_impl(VideoView2.OnFullScreenRequestListener l) {
+        mFullScreenRequestListener = l;
     }
 
     @Override
@@ -492,8 +494,8 @@ public class VideoView2Impl extends BaseLayout
             Log.d(TAG, "onSurfaceTakeOverDone(). Now current view is: " + view);
         }
         mCurrentView = view;
-        if (mOnViewTypeChangedListener != null) {
-            mOnViewTypeChangedListener.onViewTypeChanged(mInstance, view.getViewType());
+        if (mViewTypeChangedListener != null) {
+            mViewTypeChangedListener.onViewTypeChanged(mInstance, view.getViewType());
         }
         if (needToStart()) {
             mMediaController.getTransportControls().play();
@@ -845,9 +847,6 @@ public class VideoView2Impl extends BaseLayout
             updatePlaybackState();
             extractSubtitleTracks();
 
-            if (mOnPreparedListener != null) {
-                mOnPreparedListener.onPrepared(mInstance);
-            }
             if (mMediaControlView != null) {
                 mMediaControlView.setEnabled(true);
             }
@@ -897,6 +896,13 @@ public class VideoView2Impl extends BaseLayout
 
             if (mMediaSession != null) {
                 mMediaSession.setMetadata(builder.build());
+
+                // TODO: merge this code with the above code when integrating with MediaSession2.
+                if (mNeedUpdateMediaType) {
+                    mMediaSession.sendSessionEvent(
+                            MediaControlView2Impl.EVENT_UPDATE_MEDIA_TYPE_STATUS, mMediaTypeData);
+                    mNeedUpdateMediaType = false;
+                }
             }
         }
     };
@@ -908,9 +914,6 @@ public class VideoView2Impl extends BaseLayout
                     mTargetState = STATE_PLAYBACK_COMPLETED;
                     updatePlaybackState();
 
-                    if (mOnCompletionListener != null) {
-                        mOnCompletionListener.onCompletion(mInstance);
-                    }
                     if (mAudioFocusType != AudioManager.AUDIOFOCUS_NONE) {
                         mAudioManager.abandonAudioFocus(null);
                     }
@@ -920,10 +923,6 @@ public class VideoView2Impl extends BaseLayout
     private MediaPlayer.OnInfoListener mInfoListener =
             new MediaPlayer.OnInfoListener() {
                 public boolean onInfo(MediaPlayer mp, int what, int extra) {
-                    if (mOnInfoListener != null) {
-                        mOnInfoListener.onInfo(mInstance, what, extra);
-                    }
-
                     if (what == MediaPlayer.MEDIA_INFO_METADATA_UPDATE) {
                         extractSubtitleTracks();
                     }
@@ -943,47 +942,6 @@ public class VideoView2Impl extends BaseLayout
 
                     if (mMediaControlView != null) {
                         mMediaControlView.setVisibility(View.GONE);
-                    }
-
-                    /* If an error handler has been supplied, use it and finish. */
-                    if (mOnErrorListener != null) {
-                        if (mOnErrorListener.onError(mInstance, frameworkErr, implErr)) {
-                            return true;
-                        }
-                    }
-
-                    /* Otherwise, pop up an error dialog so the user knows that
-                     * something bad has happened. Only try and pop up the dialog
-                     * if we're attached to a window. When we're going away and no
-                     * longer have a window, don't bother showing the user an error.
-                    */
-                    if (mInstance.getWindowToken() != null) {
-                        int messageId;
-
-                        if (frameworkErr
-                                == MediaPlayer.MEDIA_ERROR_NOT_VALID_FOR_PROGRESSIVE_PLAYBACK) {
-                            messageId = R.string.VideoView2_error_text_invalid_progressive_playback;
-                        } else {
-                            messageId = R.string.VideoView2_error_text_unknown;
-                        }
-
-                        Resources res = ApiHelper.getLibResources();
-                        new AlertDialog.Builder(mInstance.getContext())
-                                .setMessage(res.getString(messageId))
-                                .setPositiveButton(res.getString(R.string.VideoView2_error_button),
-                                        new DialogInterface.OnClickListener() {
-                                            public void onClick(DialogInterface dialog,
-                                                    int whichButton) {
-                                                /* If we get here, there is no onError listener, so
-                                                * at least inform them that the video is over.
-                                                */
-                                                if (mOnCompletionListener != null) {
-                                                    mOnCompletionListener.onCompletion(mInstance);
-                                                }
-                                            }
-                                        })
-                                .setCancelable(false)
-                                .show();
                     }
                     return true;
                 }
@@ -1020,8 +978,8 @@ public class VideoView2Impl extends BaseLayout
                         mInstance.setSubtitleEnabled(false);
                         break;
                     case MediaControlView2.COMMAND_SET_FULLSCREEN:
-                        if (mOnFullScreenRequestListener != null) {
-                            mOnFullScreenRequestListener.onFullScreenRequest(
+                        if (mFullScreenRequestListener != null) {
+                            mFullScreenRequestListener.onFullScreenRequest(
                                     mInstance,
                                     args.getBoolean(MediaControlView2Impl.ARGUMENT_KEY_FULLSCREEN));
                         }
@@ -1033,7 +991,8 @@ public class VideoView2Impl extends BaseLayout
 
         @Override
         public void onCustomAction(String action, Bundle extras) {
-            mOnCustomActionListener.onCustomAction(action, extras);
+            mCustomActionListenerRecord.first.execute(() ->
+                    mCustomActionListenerRecord.second.onCustomAction(action, extras));
             showController();
         }
 

@@ -20,7 +20,6 @@ import android.content.Context;
 import android.media.MediaBrowser2;
 import android.media.MediaBrowser2.BrowserCallback;
 import android.media.MediaItem2;
-import android.media.MediaSession2.CommandButton;
 import android.media.SessionToken2;
 import android.media.update.MediaBrowser2Provider;
 import android.os.Bundle;
@@ -64,12 +63,36 @@ public class MediaBrowser2Impl extends MediaController2Impl implements MediaBrow
 
     @Override
     public void subscribe_impl(String parentId, Bundle extras) {
-        // TODO(jaewan): Implement
+        final IMediaSession2 binder = getSessionBinder();
+        if (binder != null) {
+            try {
+                binder.subscribe(getControllerStub(), parentId, extras);
+            } catch (RemoteException e) {
+                // TODO(jaewan): Handle disconnect.
+                if (DEBUG) {
+                    Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+                }
+            }
+        } else {
+            Log.w(TAG, "Session isn't active", new IllegalStateException());
+        }
     }
 
     @Override
-    public void unsubscribe_impl(String parentId, Bundle extras) {
-        // TODO(jaewan): Implement
+    public void unsubscribe_impl(String parentId) {
+        final IMediaSession2 binder = getSessionBinder();
+        if (binder != null) {
+            try {
+                binder.unsubscribe(getControllerStub(), parentId);
+            } catch (RemoteException e) {
+                // TODO(jaewan): Handle disconnect.
+                if (DEBUG) {
+                    Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+                }
+            }
+        } else {
+            Log.w(TAG, "Session isn't active", new IllegalStateException());
+        }
     }
 
     @Override
@@ -157,30 +180,42 @@ public class MediaBrowser2Impl extends MediaController2Impl implements MediaBrow
         }
     }
 
-    public void onGetRootResult(
+    public void onGetLibraryRootDone(
             final Bundle rootHints, final String rootMediaId, final Bundle rootExtra) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onGetRootResult(rootHints, rootMediaId, rootExtra);
+            mCallback.onGetLibraryRootDone(rootHints, rootMediaId, rootExtra);
         });
     }
 
-    public void onItemLoaded(String mediaId, MediaItem2 item) {
+    public void onGetItemDone(String mediaId, MediaItem2 item) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onItemLoaded(mediaId, item);
+            mCallback.onGetItemDone(mediaId, item);
         });
     }
 
-    public void onChildrenLoaded(String parentId, int page, int pageSize, Bundle extras,
-            List<MediaItem2> result) {
+    public void onGetChildrenDone(String parentId, int page, int pageSize, List<MediaItem2> result,
+            Bundle extras) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onChildrenLoaded(parentId, page, pageSize, extras, result);
+            mCallback.onGetChildrenDone(parentId, page, pageSize, result, extras);
         });
     }
 
-    public void onSearchResultLoaded(String query, int page, int pageSize, Bundle extras,
-            List<MediaItem2> result) {
+    public void onSearchResultChanged(String query, int itemCount, Bundle extras) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onSearchResultLoaded(query, page, pageSize, extras, result);
+            mCallback.onSearchResultChanged(query, itemCount, extras);
+        });
+    }
+
+    public void onGetSearchResultDone(String query, int page, int pageSize, List<MediaItem2> result,
+            Bundle extras) {
+        getCallbackExecutor().execute(() -> {
+            mCallback.onGetSearchResultDone(query, page, pageSize, result, extras);
+        });
+    }
+
+    public void onChildrenChanged(final String parentId, int itemCount, final Bundle extras) {
+        getCallbackExecutor().execute(() -> {
+            mCallback.onChildrenChanged(parentId, itemCount, extras);
         });
     }
 }
