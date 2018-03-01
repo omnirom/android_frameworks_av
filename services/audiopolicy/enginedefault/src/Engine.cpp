@@ -667,10 +667,14 @@ audio_devices_t Engine::getDeviceForInputSource(audio_source_t inputSource) cons
 
     case AUDIO_SOURCE_DEFAULT:
     case AUDIO_SOURCE_MIC:
-    if (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_A2DP) {
+    if (property_get_bool("vendor.audio.enable.mirrorlink", false) &&
+        (availableDeviceTypes & AUDIO_DEVICE_IN_REMOTE_SUBMIX)) {
+        device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
+    } else if (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_A2DP) {
         device = AUDIO_DEVICE_IN_BLUETOOTH_A2DP;
-    } else if ((mForceUse[AUDIO_POLICY_FORCE_FOR_RECORD] == AUDIO_POLICY_FORCE_BT_SCO) &&
-        (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET)) {
+    } else if ((mForceUse[AUDIO_POLICY_FORCE_FOR_RECORD] ==
+               AUDIO_POLICY_FORCE_BT_SCO) &&
+               (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET)) {
         device = AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET;
     } else if (availableDeviceTypes & AUDIO_DEVICE_IN_WIRED_HEADSET) {
         device = AUDIO_DEVICE_IN_WIRED_HEADSET;
@@ -728,8 +732,12 @@ audio_devices_t Engine::getDeviceForInputSource(audio_source_t inputSource) cons
     case AUDIO_SOURCE_VOICE_RECOGNITION:
     case AUDIO_SOURCE_UNPROCESSED:
     case AUDIO_SOURCE_HOTWORD:
-        if (mForceUse[AUDIO_POLICY_FORCE_FOR_RECORD] == AUDIO_POLICY_FORCE_BT_SCO &&
-                availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET) {
+        if (property_get_bool("vendor.audio.enable.mirrorlink", false) &&
+            (availableDeviceTypes & AUDIO_DEVICE_IN_REMOTE_SUBMIX)) {
+            device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
+        } else if ((mForceUse[AUDIO_POLICY_FORCE_FOR_RECORD] ==
+            AUDIO_POLICY_FORCE_BT_SCO) &&
+            (availableDeviceTypes & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET)) {
             device = AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET;
         } else if (availableDeviceTypes & AUDIO_DEVICE_IN_WIRED_HEADSET) {
             device = AUDIO_DEVICE_IN_WIRED_HEADSET;
