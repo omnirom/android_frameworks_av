@@ -16,11 +16,20 @@
 
 package android.media;
 
+import static android.media.AudioAttributes.CONTENT_TYPE_MUSIC;
+import static android.media.TestUtils.ensurePlaylistParamsModeEquals;
+
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertTrue;
 
-import static android.media.TestUtils.createPlaybackState;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.fail;
 
+import android.content.Context;
+import android.media.AudioManager;
+import android.media.MediaController2.PlaybackInfo;
 import android.media.MediaPlayerInterface.PlaybackListener;
 import android.media.MediaSession2.Builder;
 import android.media.MediaSession2.Command;
@@ -36,18 +45,16 @@ import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
 import android.text.TextUtils;
 
-import java.util.ArrayList;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
-import static org.junit.Assert.*;
 
 /**
  * Tests {@link MediaSession2}.
@@ -95,13 +102,65 @@ public class MediaSession2Test extends MediaSession2TestBase {
 
     @Test
     public void testSetPlayer() throws Exception {
-        sHandler.postAndSync(() -> {
-            MockPlayer player = new MockPlayer(0);
-            // Test if setPlayer doesn't crash with various situations.
-            mSession.setPlayer(mPlayer);
-            mSession.setPlayer(player);
-            mSession.close();
-        });
+        MockPlayer player = new MockPlayer(0);
+        // Test if setPlayer doesn't crash with various situations.
+        mSession.setPlayer(mPlayer);
+        mSession.setPlayer(player);
+        mSession.close();
+    }
+
+    @Test
+    public void testSetPlayer_playbackInfo() throws Exception {
+        MockPlayer player = new MockPlayer(0);
+        AudioAttributes attrs = new AudioAttributes.Builder()
+                .setContentType(CONTENT_TYPE_MUSIC)
+                .build();
+        player.setAudioAttributes(attrs);
+
+        final int maxVolume = 100;
+        final int currentVolume = 23;
+        final int volumeControlType = VolumeProvider2.VOLUME_CONTROL_ABSOLUTE;
+        VolumeProvider2 volumeProvider =
+                new VolumeProvider2(mContext, volumeControlType, maxVolume, currentVolume) { };
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final TestControllerCallbackInterface callback = new TestControllerCallbackInterface() {
+            @Override
+            public void onPlaybackInfoChanged(PlaybackInfo info) {
+                assertEquals(MediaController2.PlaybackInfo.PLAYBACK_TYPE_REMOTE,
+                        info.getPlaybackType());
+                assertEquals(attrs, info.getAudioAttributes());
+                assertEquals(volumeControlType, info.getPlaybackType());
+                assertEquals(maxVolume, info.getMaxVolume());
+                assertEquals(currentVolume, info.getCurrentVolume());
+                latch.countDown();
+            }
+        };
+
+        mSession.setPlayer(player);
+
+        final MediaController2 controller = createController(mSession.getToken(), true, callback);
+        PlaybackInfo info = controller.getPlaybackInfo();
+        assertNotNull(info);
+        assertEquals(PlaybackInfo.PLAYBACK_TYPE_LOCAL, info.getPlaybackType());
+        assertEquals(attrs, info.getAudioAttributes());
+        AudioManager manager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
+        int localVolumeControlType = manager.isVolumeFixed()
+                ? VolumeProvider2.VOLUME_CONTROL_FIXED : VolumeProvider2.VOLUME_CONTROL_ABSOLUTE;
+        assertEquals(localVolumeControlType, info.getControlType());
+        assertEquals(manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC), info.getMaxVolume());
+        assertEquals(manager.getStreamVolume(AudioManager.STREAM_MUSIC), info.getCurrentVolume());
+
+        mSession.setPlayer(player, volumeProvider);
+        assertTrue(latch.await(WAIT_TIME_MS, TimeUnit.MILLISECONDS));
+
+        info = controller.getPlaybackInfo();
+        assertNotNull(info);
+        assertEquals(PlaybackInfo.PLAYBACK_TYPE_REMOTE, info.getPlaybackType());
+        assertEquals(attrs, info.getAudioAttributes());
+        assertEquals(volumeControlType, info.getControlType());
+        assertEquals(maxVolume, info.getMaxVolume());
+        assertEquals(currentVolume, info.getCurrentVolume());
     }
 
     @Test
@@ -170,7 +229,7 @@ public class MediaSession2Test extends MediaSession2TestBase {
 
     @Test
     public void testSetPlaylistParams() throws Exception {
-        final PlaylistParams params = new PlaylistParams(
+        final PlaylistParams params = new PlaylistParams(mContext,
                 PlaylistParams.REPEAT_MODE_ALL,
                 PlaylistParams.SHUFFLE_MODE_ALL,
                 null /* PlaylistMetadata */);
@@ -179,7 +238,7 @@ public class MediaSession2Test extends MediaSession2TestBase {
         final TestControllerCallbackInterface callback = new TestControllerCallbackInterface() {
             @Override
             public void onPlaylistParamsChanged(PlaylistParams givenParams) {
-                TestUtils.equals(params.toBundle(), givenParams.toBundle());
+                ensurePlaylistParamsModeEquals(params, givenParams);
                 latch.countDown();
             }
         };
@@ -187,8 +246,8 @@ public class MediaSession2Test extends MediaSession2TestBase {
         final MediaController2 controller = createController(mSession.getToken(), true, callback);
         mSession.setPlaylistParams(params);
         assertTrue(mPlayer.mSetPlaylistParamsCalled);
-        TestUtils.equals(params.toBundle(), mPlayer.mPlaylistParams.toBundle());
-        TestUtils.equals(params.toBundle(), mSession.getPlaylistParams().toBundle());
+        ensurePlaylistParamsModeEquals(params, mPlayer.mPlaylistParams);
+        ensurePlaylistParamsModeEquals(params, mSession.getPlaylistParams());
         assertTrue(latch.await(WAIT_TIME_MS, TimeUnit.MILLISECONDS));
     }
 
@@ -390,7 +449,7 @@ public class MediaSession2Test extends MediaSession2TestBase {
 
             assertEquals(aItem.getMediaId(), bItem.getMediaId());
             assertEquals(aItem.getFlags(), bItem.getFlags());
-            TestUtils.equals(aItem.getMetadata().getBundle(), bItem.getMetadata().getBundle());
+            TestUtils.equals(aItem.getMetadata().toBundle(), bItem.getMetadata().toBundle());
 
             // Note: Here it does not check whether DataSourceDesc are equal,
             // since there DataSourceDec is not comparable.

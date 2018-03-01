@@ -21,13 +21,14 @@ import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.PlaybackState;
 import android.media.update.MediaControlView2Provider;
-import android.media.update.ViewProvider;
+import android.media.update.ViewGroupProvider;
 import android.os.Bundle;
+import android.support.annotation.Nullable;
+import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.accessibility.AccessibilityManager;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.MediaControlView2;
@@ -38,16 +39,18 @@ import android.widget.TextView;
 
 import com.android.media.update.ApiHelper;
 import com.android.media.update.R;
+import com.android.support.mediarouter.app.MediaRouteButton;
+import com.android.support.mediarouter.media.MediaRouter;
+import com.android.support.mediarouter.media.MediaRouteSelector;
 
 import java.util.Formatter;
 import java.util.List;
 import java.util.Locale;
 
-public class MediaControlView2Impl implements MediaControlView2Provider {
+public class MediaControlView2Impl extends BaseLayout implements MediaControlView2Provider {
     private static final String TAG = "MediaControlView2";
 
     private final MediaControlView2 mInstance;
-    private final ViewProvider mSuperProvider;
 
     static final String ARGUMENT_KEY_FULLSCREEN = "fullScreen";
 
@@ -56,12 +59,9 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
 
     private static final int MAX_PROGRESS = 1000;
     private static final int DEFAULT_PROGRESS_UPDATE_TIME_MS = 1000;
-    private static final int DEFAULT_TIMEOUT_MS = 2000;
 
     private static final int REWIND_TIME_MS = 10000;
     private static final int FORWARD_TIME_MS = 30000;
-
-    private final AccessibilityManager mAccessibilityManager;
 
     private MediaController mController;
     private MediaController.TransportControls mControls;
@@ -72,6 +72,7 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
     private TextView mTitleView;
     private int mDuration;
     private int mPrevState;
+    private int mCurrentVisibility;
     private long mPlaybackActions;
     private boolean mShowing;
     private boolean mDragging;
@@ -106,12 +107,17 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
     private StringBuilder mFormatBuilder;
     private Formatter mFormatter;
 
-    public MediaControlView2Impl(
-            MediaControlView2 instance, ViewProvider superProvider) {
-        mInstance = instance;
-        mSuperProvider = superProvider;
-        mAccessibilityManager = AccessibilityManager.getInstance(mInstance.getContext());
+    private MediaRouteButton mRouteButton;
+    private MediaRouteSelector mRouteSelector;
 
+    public MediaControlView2Impl(MediaControlView2 instance,
+            ViewGroupProvider superProvider, ViewGroupProvider privateProvider) {
+        super(instance, superProvider, privateProvider);
+        mInstance = instance;
+    }
+
+    @Override
+    public void initialize(@Nullable AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         // Inflate MediaControlView2 from XML
         View root = makeControllerView();
         mInstance.addView(root);
@@ -130,53 +136,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
             updateTitle();
 
             mController.registerCallback(new MediaControllerCallback());
-        }
-    }
-
-    @Override
-    public void show_impl() {
-        mInstance.show(DEFAULT_TIMEOUT_MS);
-    }
-
-    @Override
-    public void show_impl(long timeout) {
-        if (!mShowing) {
-            setProgress();
-            if (mPlayPauseButton != null) {
-                mPlayPauseButton.requestFocus();
-            }
-            disableUnsupportedButtons();
-            mInstance.setVisibility(View.VISIBLE);
-            mShowing = true;
-        }
-        // cause the progress bar to be updated even if mShowing
-        // was already true.  This happens, for example, if we're
-        // paused with the progress bar showing the user hits play.
-        mInstance.post(mShowProgress);
-
-        if (timeout != 0 && !mAccessibilityManager.isTouchExplorationEnabled()) {
-            mInstance.removeCallbacks(mFadeOut);
-            mInstance.postDelayed(mFadeOut, timeout);
-        }
-    }
-
-    @Override
-    public boolean isShowing_impl() {
-        return mShowing;
-    }
-
-    @Override
-    public void hide_impl() {
-        if (mShowing) {
-            try {
-                mInstance.removeCallbacks(mShowProgress);
-                // Remove existing call to mFadeOut to avoid from being called later.
-                mInstance.removeCallbacks(mFadeOut);
-                mInstance.setVisibility(View.GONE);
-            } catch (IllegalArgumentException ex) {
-                Log.w(TAG, "already removed");
-            }
-            mShowing = false;
         }
     }
 
@@ -248,13 +207,10 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
     }
 
     @Override
-    public void onAttachedToWindow_impl() {
-        mSuperProvider.onAttachedToWindow_impl();
-    }
-
-    @Override
-    public void onDetachedFromWindow_impl() {
-        mSuperProvider.onDetachedFromWindow_impl();
+    public void requestPlayButtonFocus_impl() {
+        if (mPlayPauseButton != null) {
+            mPlayPauseButton.requestFocus();
+        }
     }
 
     @Override
@@ -270,17 +226,13 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
     // TODO: Should this function be removed?
     @Override
     public boolean onTrackballEvent_impl(MotionEvent ev) {
-        mInstance.show(DEFAULT_TIMEOUT_MS);
         return false;
     }
 
     @Override
-    public void onFinishInflate_impl() {
-        mSuperProvider.onFinishInflate_impl();
-    }
-
-    @Override
     public void setEnabled_impl(boolean enabled) {
+        super.setEnabled_impl(enabled);
+
         if (mPlayPauseButton != null) {
             mPlayPauseButton.setEnabled(enabled);
         }
@@ -300,7 +252,39 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
             mProgress.setEnabled(enabled);
         }
         disableUnsupportedButtons();
-        mSuperProvider.setEnabled_impl(enabled);
+    }
+
+    @Override
+    public void onVisibilityAggregated_impl(boolean invisible) {
+        super.onVisibilityAggregated_impl(invisible);
+
+        int visibility = mInstance.getVisibility();
+        if (mCurrentVisibility != visibility) {
+            mInstance.setVisibility(visibility);
+            mCurrentVisibility = visibility;
+
+            if (visibility == View.VISIBLE) {
+                setProgress();
+                disableUnsupportedButtons();
+                // cause the progress bar to be updated even if mShowing
+                // was already true.  This happens, for example, if we're
+                // paused with the progress bar showing the user hits play.
+                mInstance.post(mShowProgress);
+            } else if (visibility == View.GONE) {
+                mInstance.removeCallbacks(mShowProgress);
+            }
+        }
+    }
+
+    public void setRouteSelector(MediaRouteSelector selector) {
+        mRouteSelector = selector;
+        if (mRouteSelector != null && !mRouteSelector.isEmpty()) {
+            mRouteButton.setRouteSelector(selector, MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN);
+            mRouteButton.setVisibility(View.VISIBLE);
+        } else {
+            mRouteButton.setRouteSelector(MediaRouteSelector.EMPTY);
+            mRouteButton.setVisibility(View.GONE);
+        }
     }
 
     ///////////////////////////////////////////////////
@@ -372,6 +356,8 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
         mPlayDescription = res.getText(R.string.lockscreen_play_button_content_description);
         mPauseDescription = res.getText(R.string.lockscreen_pause_button_content_description);
         mReplayDescription = res.getText(R.string.lockscreen_replay_button_content_description);
+
+        mRouteButton = v.findViewById(R.id.cast);
 
         mPlayPauseButton = v.findViewById(R.id.pause);
         if (mPlayPauseButton != null) {
@@ -479,15 +465,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
         }
     }
 
-    private final Runnable mFadeOut = new Runnable() {
-        @Override
-        public void run() {
-            if (isPlaying()) {
-                mInstance.hide();
-            }
-        }
-    };
-
     private final Runnable mShowProgress = new Runnable() {
         @Override
         public void run() {
@@ -572,7 +549,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
             if (!mSeekAvailable) {
                 return;
             }
-            mInstance.show(3600000);
 
             mDragging = true;
 
@@ -622,7 +598,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
             mDragging = false;
 
             setProgress();
-            mInstance.show(DEFAULT_TIMEOUT_MS);
 
             // Ensure that progress is properly updated in the future,
             // the call to show() does not guarantee this because it is a
@@ -635,7 +610,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
         @Override
         public void onClick(View v) {
             togglePausePlayState();
-            mInstance.show(DEFAULT_TIMEOUT_MS);
         }
     };
 
@@ -645,8 +619,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
             int pos = getCurrentPosition() - REWIND_TIME_MS;
             mControls.seekTo(pos);
             setProgress();
-
-            mInstance.show(DEFAULT_TIMEOUT_MS);
         }
     };
 
@@ -656,8 +628,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
             int pos = getCurrentPosition() + FORWARD_TIME_MS;
             mControls.seekTo(pos);
             setProgress();
-
-            mInstance.show(DEFAULT_TIMEOUT_MS);
         }
     };
 
@@ -665,7 +635,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
         @Override
         public void onClick(View v) {
             mControls.skipToNext();
-            mInstance.show(DEFAULT_TIMEOUT_MS);
         }
     };
 
@@ -673,7 +642,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
         @Override
         public void onClick(View v) {
             mControls.skipToPrevious();
-            mInstance.show(DEFAULT_TIMEOUT_MS);
         }
     };
 
@@ -693,7 +661,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
                 mController.sendCommand(MediaControlView2.COMMAND_HIDE_SUBTITLE, null, null);
                 mSubtitleIsEnabled = false;
             }
-            mInstance.show(DEFAULT_TIMEOUT_MS);
         }
     };
 
@@ -715,7 +682,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
             mController.sendCommand(MediaControlView2.COMMAND_SET_FULLSCREEN, args, null);
 
             mIsFullScreen = isEnteringFullScreen;
-            mInstance.show(DEFAULT_TIMEOUT_MS);
         }
     };
 
@@ -724,7 +690,6 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
         public void onClick(View v) {
             mBasicControls.setVisibility(View.GONE);
             mExtraControls.setVisibility(View.VISIBLE);
-            mInstance.show(DEFAULT_TIMEOUT_MS);
         }
     };
 
@@ -830,7 +795,7 @@ public class MediaControlView2Impl implements MediaControlView2Provider {
                             // TODO: Currently, we are just sending extras that came from session.
                             // Is it the right behavior?
                             mControls.sendCustomAction(actionString, action.getExtras());
-                            mInstance.show(DEFAULT_TIMEOUT_MS);
+                            mInstance.setVisibility(View.VISIBLE);
                         }
                     });
                     mCustomButtons.addView(button);

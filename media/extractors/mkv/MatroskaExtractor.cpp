@@ -21,27 +21,27 @@
 #include "FLACDecoder.h"
 #include "MatroskaExtractor.h"
 
-#include <media/DataSource.h>
+#include <media/DataSourceBase.h>
 #include <media/MediaSourceBase.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ByteUtils.h>
 #include <media/stagefright/foundation/ColorUtils.h>
-#include <media/stagefright/foundation/avc_utils.h>
 #include <media/stagefright/foundation/hexdump.h>
 #include <media/stagefright/MediaBuffer.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
+#include <media/stagefright/MetaDataUtils.h>
 #include <utils/String8.h>
 
 #include <inttypes.h>
 
 namespace android {
 
-struct DataSourceReader : public mkvparser::IMkvReader {
-    explicit DataSourceReader(const sp<DataSource> &source)
+struct DataSourceBaseReader : public mkvparser::IMkvReader {
+    explicit DataSourceBaseReader(DataSourceBase *source)
         : mSource(source) {
     }
 
@@ -83,10 +83,10 @@ struct DataSourceReader : public mkvparser::IMkvReader {
     }
 
 private:
-    sp<DataSource> mSource;
+    DataSourceBase *mSource;
 
-    DataSourceReader(const DataSourceReader &);
-    DataSourceReader &operator=(const DataSourceReader &);
+    DataSourceBaseReader(const DataSourceBaseReader &);
+    DataSourceBaseReader &operator=(const DataSourceBaseReader &);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -852,9 +852,9 @@ status_t MatroskaSource::read(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-MatroskaExtractor::MatroskaExtractor(const sp<DataSource> &source)
+MatroskaExtractor::MatroskaExtractor(DataSourceBase *source)
     : mDataSource(source),
-      mReader(new DataSourceReader(mDataSource)),
+      mReader(new DataSourceBaseReader(mDataSource)),
       mSegment(NULL),
       mExtractedThumbnails(false),
       mIsWebm(false),
@@ -862,8 +862,8 @@ MatroskaExtractor::MatroskaExtractor(const sp<DataSource> &source)
     off64_t size;
     mIsLiveStreaming =
         (mDataSource->flags()
-            & (DataSource::kWantsPrefetching
-                | DataSource::kIsCachingDataSource))
+            & (DataSourceBase::kWantsPrefetching
+                | DataSourceBase::kIsCachingDataSource))
         && mDataSource->getSize(&size) != OK;
 
     mkvparser::EBMLHeader ebmlHeader;
@@ -1548,9 +1548,9 @@ uint32_t MatroskaExtractor::flags() const {
 }
 
 bool SniffMatroska(
-        const sp<DataSource> &source, String8 *mimeType, float *confidence,
+        DataSourceBase *source, String8 *mimeType, float *confidence,
         sp<AMessage> *) {
-    DataSourceReader reader(source);
+    DataSourceBaseReader reader(source);
     mkvparser::EBMLHeader ebmlHeader;
     long long pos;
     if (ebmlHeader.Parse(&reader, pos) < 0) {
@@ -1574,13 +1574,13 @@ MediaExtractor::ExtractorDef GETEXTRACTORDEF() {
         1,
         "Matroska Extractor",
         [](
-                const sp<DataSource> &source,
+                DataSourceBase *source,
                 String8 *mimeType,
                 float *confidence,
                 sp<AMessage> *meta __unused) -> MediaExtractor::CreatorFunc {
             if (SniffMatroska(source, mimeType, confidence, meta)) {
                 return [](
-                        const sp<DataSource> &source,
+                        DataSourceBase *source,
                         const sp<AMessage>& meta __unused) -> MediaExtractor* {
                     return new MatroskaExtractor(source);};
             }

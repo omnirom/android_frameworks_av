@@ -35,20 +35,21 @@ import android.media.SubtitleController;
 import android.media.TtmlRenderer;
 import android.media.WebVttRenderer;
 import android.media.session.MediaController;
+import android.media.session.MediaController.PlaybackInfo;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.media.update.VideoView2Provider;
-import android.media.update.ViewProvider;
+import android.media.update.ViewGroupProvider;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.ResultReceiver;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
 import android.util.Log;
-import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.FrameLayout.LayoutParams;
+import android.view.ViewGroup.LayoutParams;
+import android.view.accessibility.AccessibilityManager;
 import android.widget.MediaControlView2;
 import android.widget.VideoView2;
 
@@ -66,12 +67,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 
-public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.SurfaceListener {
+public class VideoView2Impl extends BaseLayout
+        implements VideoView2Provider, VideoViewInterface.SurfaceListener {
     private static final String TAG = "VideoView2";
     private static final boolean DEBUG = true; // STOPSHIP: Log.isLoggable(TAG, Log.DEBUG);
+    private static final long DEFAULT_SHOW_CONTROLLER_INTERVAL_MS = 2000;
 
     private final VideoView2 mInstance;
-    private final ViewProvider mSuperProvider;
 
     private static final int STATE_ERROR = -1;
     private static final int STATE_IDLE = 0;
@@ -81,7 +83,10 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
     private static final int STATE_PAUSED = 4;
     private static final int STATE_PLAYBACK_COMPLETED = 5;
 
-    private final AudioManager mAudioManager;
+    private static final int INVALID_TRACK_INDEX = -1;
+
+    private AccessibilityManager mAccessibilityManager;
+    private AudioManager mAudioManager;
     private AudioAttributes mAudioAttributes;
     private int mAudioFocusType = AudioManager.AUDIOFOCUS_GAIN; // legacy focus gain
 
@@ -103,7 +108,7 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
     private MediaController mMediaController;
     private MediaSession.Callback mRouteSessionCallback = new RouteSessionCallback();
     private MediaRouter mMediaRouter;
-    private MediaRouteSelector mMediaRouteSelector;
+    private MediaRouteSelector mRouteSelector;
     private Metadata mMetadata;
     private String mTitle;
 
@@ -117,24 +122,34 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
     private int mVideoWidth;
     private int mVideoHeight;
 
-    private boolean mCCEnabled;
-    private int mSelectedTrackIndex;
-
     private SubtitleView mSubtitleView;
+    private boolean mSubtitleEnabled;
+    private int mSelectedTrackIndex;  // selected subtitle track index as MediaPlayer2 returns
+
     private float mSpeed;
     // TODO: Remove mFallbackSpeed when integration with MediaPlayer2's new setPlaybackParams().
     // Refer: https://docs.google.com/document/d/1nzAfns6i2hJ3RkaUre3QMT6wsDedJ5ONLiA_OOBFFX8/edit
     private float mFallbackSpeed;  // keep the original speed before 'pause' is called.
 
-    public VideoView2Impl(VideoView2 instance, ViewProvider superProvider,
-            @Nullable AttributeSet attrs, int defStyleAttr, int defStyleRes) {
-        mInstance = instance;
-        mSuperProvider = superProvider;
+    private long mShowControllerIntervalMs;
 
+    public VideoView2Impl(VideoView2 instance,
+            ViewGroupProvider superProvider, ViewGroupProvider privateProvider) {
+        super(instance, superProvider, privateProvider);
+        mInstance = instance;
+    }
+
+    @Override
+    public void initialize(@Nullable AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         mVideoWidth = 0;
         mVideoHeight = 0;
         mSpeed = 1.0f;
         mFallbackSpeed = mSpeed;
+        mSelectedTrackIndex = INVALID_TRACK_INDEX;
+        // TODO: add attributes to get this value.
+        mShowControllerIntervalMs = DEFAULT_SHOW_CONTROLLER_INTERVAL_MS;
+
+        mAccessibilityManager = AccessibilityManager.getInstance(mInstance.getContext());
 
         mAudioManager = (AudioManager) mInstance.getContext()
                 .getSystemService(Context.AUDIO_SERVICE);
@@ -149,7 +164,6 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
         mSurfaceView = new VideoSurfaceView(mInstance.getContext());
         LayoutParams params = new LayoutParams(LayoutParams.MATCH_PARENT,
                 LayoutParams.MATCH_PARENT);
-        params.gravity = Gravity.CENTER;
         mTextureView.setLayoutParams(params);
         mSurfaceView.setLayoutParams(params);
         mTextureView.setSurfaceListener(this);
@@ -172,16 +186,39 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
 
         // TODO: Need a common namespace for attributes those are defined in updatable library.
         boolean enableControlView = (attrs == null) || attrs.getAttributeBooleanValue(
-                "http://schemas.android.com/apk/com.android.media.update",
+                "http://schemas.android.com/apk/res/android",
                 "enableControlView", true);
         if (enableControlView) {
             mMediaControlView = new MediaControlView2(mInstance.getContext());
         }
+        boolean enableSubtitle = (attrs == null) || attrs.getAttributeBooleanValue(
+                "http://schemas.android.com/apk/res/android",
+                "enableSubtitle", true);
+        if (enableSubtitle) {
+            Log.d(TAG, "enableSubtitle attribute is true.");
+            // TODO: implement
+        }
+        int viewType = (attrs == null) ? VideoView2.VIEW_TYPE_SURFACEVIEW
+                : attrs.getAttributeIntValue(
+                "http://schemas.android.com/apk/res/android",
+                "viewType", 0);
+        if (viewType == 0) {
+            Log.d(TAG, "viewType attribute is surfaceView.");
+            // TODO: implement
+        } else if (viewType == 1) {
+            Log.d(TAG, "viewType attribute is textureView.");
+            // TODO: implement
+        }
     }
 
     @Override
-    public void setMediaControlView2_impl(MediaControlView2 mediaControlView) {
+    public void setMediaControlView2_impl(MediaControlView2 mediaControlView, long intervalMs) {
         mMediaControlView = mediaControlView;
+        mShowControllerIntervalMs = intervalMs;
+        if (mRouteSelector != null) {
+            ((MediaControlView2Impl) mMediaControlView.getProvider())
+                    .setRouteSelector(mRouteSelector);
+        }
 
         if (mInstance.isAttachedToWindow()) {
             attachMediaControlView();
@@ -202,31 +239,35 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
     }
 
     @Override
-    public void showSubtitle_impl() {
-        // Retrieve all tracks that belong to the current video.
-        MediaPlayer.TrackInfo[] trackInfos = mMediaPlayer.getTrackInfo();
+    public void setSubtitleEnabled_impl(boolean enable) {
+        if (enable) {
+            // Retrieve all tracks that belong to the current video.
+            MediaPlayer.TrackInfo[] trackInfos = mMediaPlayer.getTrackInfo();
 
-        List<Integer> subtitleTrackIndices = new ArrayList<>();
-        for (int i = 0; i < trackInfos.length; ++i) {
-            int trackType = trackInfos[i].getTrackType();
-            if (trackType == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE) {
-                subtitleTrackIndices.add(i);
+            List<Integer> subtitleTrackIndices = new ArrayList<>();
+            for (int i = 0; i < trackInfos.length; ++i) {
+                int trackType = trackInfos[i].getTrackType();
+                if (trackType == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE) {
+                    subtitleTrackIndices.add(i);
+                }
+            }
+            if (subtitleTrackIndices.size() > 0) {
+                // Select first subtitle track
+                mSelectedTrackIndex = subtitleTrackIndices.get(0);
+                mMediaPlayer.selectTrack(mSelectedTrackIndex);
+            }
+        } else {
+            if (mSelectedTrackIndex != INVALID_TRACK_INDEX) {
+                mMediaPlayer.deselectTrack(mSelectedTrackIndex);
+                mSelectedTrackIndex = INVALID_TRACK_INDEX;
             }
         }
-        if (subtitleTrackIndices.size() > 0) {
-            // Select first subtitle track
-            mCCEnabled = true;
-            mSelectedTrackIndex = subtitleTrackIndices.get(0);
-            mMediaPlayer.selectTrack(mSelectedTrackIndex);
-        }
+        mSubtitleEnabled = enable;
     }
 
     @Override
-    public void hideSubtitle_impl() {
-        if (mCCEnabled) {
-            mMediaPlayer.deselectTrack(mSelectedTrackIndex);
-            mCCEnabled = false;
-        }
+    public boolean isSubtitleEnabled_impl() {
+        return mSubtitleEnabled;
     }
 
     // TODO: remove setSpeed_impl once MediaController2 is ready.
@@ -275,7 +316,11 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
         for (String category : routeCategories) {
             builder.addControlCategory(category);
         }
-        mMediaRouteSelector = builder.build();
+        mRouteSelector = builder.build();
+        if (mMediaControlView != null) {
+            ((MediaControlView2Impl) mMediaControlView.getProvider())
+                    .setRouteSelector(mRouteSelector);
+        }
         mMediaRouter = MediaRouter.getInstance(mInstance.getContext());
         mRouteSessionCallback = sessionPlayer;
         if (mMediaSession != null) {
@@ -371,7 +416,7 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
 
     @Override
     public void onAttachedToWindow_impl() {
-        mSuperProvider.onAttachedToWindow_impl();
+        super.onAttachedToWindow_impl();
 
         // Create MediaSession
         mMediaSession = new MediaSession(mInstance.getContext(), "VideoView2MediaSession");
@@ -386,7 +431,8 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
 
     @Override
     public void onDetachedFromWindow_impl() {
-        mSuperProvider.onDetachedFromWindow_impl();
+        super.onDetachedFromWindow_impl();
+
         mMediaSession.release();
         mMediaSession = null;
         mMediaController = null;
@@ -403,30 +449,26 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
             Log.d(TAG, "onTouchEvent(). mCurrentState=" + mCurrentState
                     + ", mTargetState=" + mTargetState);
         }
-        if (ev.getAction() == MotionEvent.ACTION_UP
-                && isInPlaybackState() && mMediaControlView != null) {
+        if (ev.getAction() == MotionEvent.ACTION_UP && mMediaControlView != null) {
             toggleMediaControlViewVisibility();
         }
-        return mSuperProvider.onTouchEvent_impl(ev);
+
+        return super.onTouchEvent_impl(ev);
     }
 
     @Override
     public boolean onTrackballEvent_impl(MotionEvent ev) {
-        if (ev.getAction() == MotionEvent.ACTION_UP
-                && isInPlaybackState() && mMediaControlView != null) {
+        if (ev.getAction() == MotionEvent.ACTION_UP && mMediaControlView != null) {
             toggleMediaControlViewVisibility();
         }
-        return mSuperProvider.onTrackballEvent_impl(ev);
+
+        return super.onTrackballEvent_impl(ev);
     }
 
     @Override
-    public void onFinishInflate_impl() {
-        mSuperProvider.onFinishInflate_impl();
-    }
-
-    @Override
-    public void setEnabled_impl(boolean enabled) {
-        mSuperProvider.setEnabled_impl(enabled);
+    public boolean dispatchTouchEvent_impl(MotionEvent ev) {
+        // TODO: Test touch event handling logic thoroughly and simplify the logic.
+        return super.dispatchTouchEvent_impl(ev);
     }
 
     ///////////////////////////////////////////////////
@@ -450,9 +492,6 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
         if (DEBUG) {
             Log.d(TAG, "onSurfaceDestroyed(). mCurrentState=" + mCurrentState
                     + ", mTargetState=" + mTargetState + ", " + view.toString());
-        }
-        if (mMediaControlView != null) {
-            mMediaControlView.hide();
         }
     }
 
@@ -641,8 +680,12 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
         }
         mStateBuilder.setState(getCorrespondingPlaybackState(),
                 mMediaPlayer.getCurrentPosition(), mSpeed);
-        mStateBuilder.setBufferedPosition(
-                (long) (mCurrentBufferPercentage / 100.0) * mMediaPlayer.getDuration());
+        if (mCurrentState != STATE_ERROR
+            && mCurrentState != STATE_IDLE
+            && mCurrentState != STATE_PREPARING) {
+            mStateBuilder.setBufferedPosition(
+                    (long) (mCurrentBufferPercentage / 100.0) * mMediaPlayer.getDuration());
+        }
 
         // Set PlaybackState for MediaSession
         if (mMediaSession != null) {
@@ -672,11 +715,34 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
         }
     }
 
+    private final Runnable mFadeOut = new Runnable() {
+        @Override
+        public void run() {
+            if (mCurrentState == STATE_PLAYING) {
+                mMediaControlView.setVisibility(View.GONE);
+            }
+        }
+    };
+
+    private void showController() {
+        // TODO: Decide what to show when the state is not in playback state
+        if (mMediaControlView == null || !isInPlaybackState()) {
+            return;
+        }
+        mMediaControlView.removeCallbacks(mFadeOut);
+        mMediaControlView.setVisibility(View.VISIBLE);
+        if (mShowControllerIntervalMs != 0
+            && !mAccessibilityManager.isTouchExplorationEnabled()) {
+            mMediaControlView.postDelayed(mFadeOut, mShowControllerIntervalMs);
+        }
+    }
+
     private void toggleMediaControlViewVisibility() {
-        if (mMediaControlView.isShowing()) {
-            mMediaControlView.hide();
+        if (mMediaControlView.getVisibility() == View.VISIBLE) {
+            mMediaControlView.removeCallbacks(mFadeOut);
+            mMediaControlView.setVisibility(View.GONE);
         } else {
-            mMediaControlView.show();
+            showController();
         }
     }
 
@@ -701,6 +767,14 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
                 mSpeed = mFallbackSpeed;
             }
         }
+    }
+
+    private boolean isRemotePlayback() {
+        if (mMediaController == null) {
+            return false;
+        }
+        PlaybackInfo playbackInfo = mMediaController.getPlaybackInfo();
+        return (playbackInfo != null) && (playbackInfo.getPlaybackType() == PlaybackInfo.PLAYBACK_TYPE_REMOTE);
     }
 
     MediaPlayer.OnVideoSizeChangedListener mSizeChangedListener =
@@ -729,6 +803,9 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
                         + ", mTargetState=" + mTargetState);
             }
             mCurrentState = STATE_PREPARED;
+            // Create and set playback state for MediaControlView2
+            updatePlaybackState();
+
             if (mOnPreparedListener != null) {
                 mOnPreparedListener.onPrepared(mInstance);
             }
@@ -762,16 +839,6 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
 
                 if (needToStart()) {
                     mMediaController.getTransportControls().play();
-                    if (mMediaControlView != null) {
-                        mMediaControlView.show();
-                    }
-                } else if (!(isInPlaybackState() && mMediaPlayer.isPlaying())
-                        && (seekToPosition != 0 || mMediaPlayer.getCurrentPosition() > 0)) {
-                    if (mMediaControlView != null) {
-                        // Show the media controls when we're paused into a video and
-                        // make them stick.
-                        mMediaControlView.show(0);
-                    }
                 }
             } else {
                 // We don't know the video size yet, but should start anyway.
@@ -780,8 +847,6 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
                     mMediaController.getTransportControls().play();
                 }
             }
-            // Create and set playback state for MediaControlView2
-            updatePlaybackState();
 
             // Get and set duration and title values as MediaMetadata for MediaControlView2
             MediaMetadata.Builder builder = new MediaMetadata.Builder();
@@ -834,7 +899,7 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
                     updatePlaybackState();
 
                     if (mMediaControlView != null) {
-                        mMediaControlView.hide();
+                        mMediaControlView.setVisibility(View.GONE);
                     }
 
                     /* If an error handler has been supplied, use it and finish. */
@@ -892,16 +957,15 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
     private class MediaSessionCallback extends MediaSession.Callback {
         @Override
         public void onCommand(String command, Bundle args, ResultReceiver receiver) {
-            if (mMediaController.getPlaybackInfo().getPlaybackType()
-                    == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
+            if (isRemotePlayback()) {
                 mRouteSessionCallback.onCommand(command, args, receiver);
             } else {
                 switch (command) {
                     case MediaControlView2.COMMAND_SHOW_SUBTITLE:
-                        mInstance.showSubtitle();
+                        mInstance.setSubtitleEnabled(true);
                         break;
                     case MediaControlView2.COMMAND_HIDE_SUBTITLE:
-                        mInstance.hideSubtitle();
+                        mInstance.setSubtitleEnabled(false);
                         break;
                     case MediaControlView2.COMMAND_SET_FULLSCREEN:
                         if (mOnFullScreenRequestListener != null) {
@@ -912,17 +976,18 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
                         break;
                 }
             }
+            showController();
         }
 
         @Override
         public void onCustomAction(String action, Bundle extras) {
             mOnCustomActionListener.onCustomAction(action, extras);
+            showController();
         }
 
         @Override
         public void onPlay() {
-            if (mMediaController.getPlaybackInfo().getPlaybackType()
-                    == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
+            if (isRemotePlayback()) {
                 mRouteSessionCallback.onPlay();
             } else {
                 if (isInPlaybackState() && mCurrentView.hasAvailableSurface()) {
@@ -937,12 +1002,12 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
                             + ", mTargetState=" + mTargetState);
                 }
             }
+            showController();
         }
 
         @Override
         public void onPause() {
-            if (mMediaController.getPlaybackInfo().getPlaybackType()
-                    == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
+            if (isRemotePlayback()) {
                 mRouteSessionCallback.onPause();
             } else {
                 if (isInPlaybackState()) {
@@ -958,12 +1023,12 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
                             + ", mTargetState=" + mTargetState);
                 }
             }
+            showController();
         }
 
         @Override
         public void onSeekTo(long pos) {
-            if (mMediaController.getPlaybackInfo().getPlaybackType()
-                    == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
+            if (isRemotePlayback()) {
                 mRouteSessionCallback.onSeekTo(pos);
             } else {
                 if (isInPlaybackState()) {
@@ -974,16 +1039,17 @@ public class VideoView2Impl implements VideoView2Provider, VideoViewInterface.Su
                     mSeekWhenPrepared = pos;
                 }
             }
+            showController();
         }
 
         @Override
         public void onStop() {
-            if (mMediaController.getPlaybackInfo().getPlaybackType()
-                    == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE) {
+            if (isRemotePlayback()) {
                 mRouteSessionCallback.onStop();
             } else {
                 resetPlayer();
             }
+            showController();
         }
     }
 

@@ -30,6 +30,7 @@ struct AMessage;
 struct ANativeWindowWrapper;
 struct AudioPlaybackRate;
 struct AVSyncSettings;
+struct DataSourceDesc;
 class IDataSource;
 struct MediaClock;
 struct MediaHTTPService;
@@ -43,16 +44,7 @@ struct NuPlayer2 : public AHandler {
 
     void setDriver(const wp<NuPlayer2Driver> &driver);
 
-    void setDataSourceAsync(const sp<IStreamSource> &source);
-
-    void setDataSourceAsync(
-            const sp<MediaHTTPService> &httpService,
-            const char *url,
-            const KeyedVector<String8, String8> *headers);
-
-    void setDataSourceAsync(int fd, int64_t offset, int64_t length);
-
-    void setDataSourceAsync(const sp<DataSource> &source);
+    void setDataSourceAsync(const sp<DataSourceDesc> &dsd);
 
     status_t getBufferingSettings(BufferingSettings* buffering /* nonnull */);
     status_t setBufferingSettings(const BufferingSettings& buffering);
@@ -61,7 +53,7 @@ struct NuPlayer2 : public AHandler {
 
     void setVideoSurfaceTextureAsync(const sp<ANativeWindowWrapper> &nww);
 
-    void setAudioSink(const sp<MediaPlayer2Base::AudioSink> &sink);
+    void setAudioSink(const sp<MediaPlayer2Interface::AudioSink> &sink);
     status_t setPlaybackSettings(const AudioPlaybackRate &rate);
     status_t getPlaybackSettings(AudioPlaybackRate *rate /* nonnull */);
     status_t setSyncSettings(const AVSyncSettings &sync, float videoFpsHint);
@@ -114,11 +106,10 @@ private:
     struct DecoderBase;
     struct DecoderPassThrough;
     struct CCDecoder;
-    struct GenericSource;
-    struct HTTPLiveSource;
+    struct GenericSource2;
+    struct HTTPLiveSource2;
     struct Renderer;
-    struct RTSPSource;
-    struct StreamingSource;
+    struct RTSPSource2;
     struct Action;
     struct SeekAction;
     struct SetSurfaceAction;
@@ -168,7 +159,7 @@ private:
     sp<Source> mSource;
     uint32_t mSourceFlags;
     sp<ANativeWindowWrapper> mNativeWindow;
-    sp<MediaPlayer2Base::AudioSink> mAudioSink;
+    sp<MediaPlayer2Interface::AudioSink> mAudioSink;
     sp<DecoderBase> mVideoDecoder;
     bool mOffloadAudio;
     sp<DecoderBase> mAudioDecoder;

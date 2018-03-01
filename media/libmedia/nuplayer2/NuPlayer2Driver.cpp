@@ -129,7 +129,6 @@ NuPlayer2Driver::NuPlayer2Driver(pid_t pid)
 
     // set up an analytics record
     mAnalyticsItem = new MediaAnalyticsItem(kKeyPlayer);
-    mAnalyticsItem->generateSessionID();
 
     mNuPlayer2Looper->start(
             false, /* runOnCallingThread */
@@ -176,67 +175,7 @@ status_t NuPlayer2Driver::setUID(uid_t uid) {
     return OK;
 }
 
-status_t NuPlayer2Driver::setDataSource(
-        const sp<MediaHTTPService> &httpService,
-        const char *url,
-        const KeyedVector<String8, String8> *headers) {
-    ALOGV("setDataSource(%p) url(%s)", this, uriDebugString(url, false).c_str());
-    Mutex::Autolock autoLock(mLock);
-
-    if (mState != STATE_IDLE) {
-        return INVALID_OPERATION;
-    }
-
-    mState = STATE_SET_DATASOURCE_PENDING;
-
-    mPlayer->setDataSourceAsync(httpService, url, headers);
-
-    while (mState == STATE_SET_DATASOURCE_PENDING) {
-        mCondition.wait(mLock);
-    }
-
-    return mAsyncResult;
-}
-
-status_t NuPlayer2Driver::setDataSource(int fd, int64_t offset, int64_t length) {
-    ALOGV("setDataSource(%p) file(%d)", this, fd);
-    Mutex::Autolock autoLock(mLock);
-
-    if (mState != STATE_IDLE) {
-        return INVALID_OPERATION;
-    }
-
-    mState = STATE_SET_DATASOURCE_PENDING;
-
-    mPlayer->setDataSourceAsync(fd, offset, length);
-
-    while (mState == STATE_SET_DATASOURCE_PENDING) {
-        mCondition.wait(mLock);
-    }
-
-    return mAsyncResult;
-}
-
-status_t NuPlayer2Driver::setDataSource(const sp<IStreamSource> &source) {
-    ALOGV("setDataSource(%p) stream source", this);
-    Mutex::Autolock autoLock(mLock);
-
-    if (mState != STATE_IDLE) {
-        return INVALID_OPERATION;
-    }
-
-    mState = STATE_SET_DATASOURCE_PENDING;
-
-    mPlayer->setDataSourceAsync(source);
-
-    while (mState == STATE_SET_DATASOURCE_PENDING) {
-        mCondition.wait(mLock);
-    }
-
-    return mAsyncResult;
-}
-
-status_t NuPlayer2Driver::setDataSource(const sp<DataSource> &source) {
+status_t NuPlayer2Driver::setDataSource(const sp<DataSourceDesc> &dsd) {
     ALOGV("setDataSource(%p) callback source", this);
     Mutex::Autolock autoLock(mLock);
 
@@ -246,7 +185,7 @@ status_t NuPlayer2Driver::setDataSource(const sp<DataSource> &source) {
 
     mState = STATE_SET_DATASOURCE_PENDING;
 
-    mPlayer->setDataSourceAsync(source);
+    mPlayer->setDataSourceAsync(dsd);
 
     while (mState == STATE_SET_DATASOURCE_PENDING) {
         mCondition.wait(mLock);
@@ -661,14 +600,12 @@ void NuPlayer2Driver::logMetrics(const char *where) {
     // So the canonical "empty" record has 3 elements in it.
     if (mAnalyticsItem->count() > 3) {
 
-        mAnalyticsItem->setFinalized(true);
         mAnalyticsItem->selfrecord();
 
         // re-init in case we prepare() and start() again.
         delete mAnalyticsItem ;
         mAnalyticsItem = new MediaAnalyticsItem(kKeyPlayer);
         if (mAnalyticsItem) {
-            mAnalyticsItem->generateSessionID();
             mAnalyticsItem->setUid(mClientUid);
         }
     } else {
@@ -734,10 +671,6 @@ status_t NuPlayer2Driver::notifyAt(int64_t mediaTimeUs) {
 status_t NuPlayer2Driver::setLooping(int loop) {
     mLooping = loop != 0;
     return OK;
-}
-
-player2_type NuPlayer2Driver::playerType() {
-    return PLAYER2_NU_PLAYER2;
 }
 
 status_t NuPlayer2Driver::invoke(const Parcel &request, Parcel *reply) {
