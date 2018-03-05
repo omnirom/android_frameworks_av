@@ -63,6 +63,7 @@ abstract class MediaSession2TestBase {
         // Add methods in ControllerCallback/BrowserCallback that you want to test.
         default void onPlaylistChanged(List<MediaItem2> playlist) {}
         default void onPlaylistParamsChanged(MediaSession2.PlaylistParams params) {}
+        default void onPlaybackInfoChanged(MediaController2.PlaybackInfo info) {}
 
         // Currently empty. Add methods in ControllerCallback/BrowserCallback that you want to test.
         default void onPlaybackStateChanged(PlaybackState2 state) { }
@@ -106,6 +107,17 @@ abstract class MediaSession2TestBase {
         for (int i = 0; i < mControllers.size(); i++) {
             mControllers.get(i).close();
         }
+    }
+
+    /**
+     * Creates a {@link android.media.session.PlaybackState} with the given state.
+     *
+     * @param state one of the PlaybackState.STATE_xxx.
+     * @return a PlaybackState
+     */
+    public PlaybackState2 createPlaybackState(int state) {
+        return new PlaybackState2(mContext, state, 0, 0, 1.0f,
+                0, 0, null);
     }
 
     final MediaController2 createController(SessionToken2 token) throws InterruptedException {
@@ -228,6 +240,13 @@ abstract class MediaSession2TestBase {
         public void onPlaylistParamsChanged(MediaSession2.PlaylistParams params) {
             if (mCallbackProxy != null) {
                 mCallbackProxy.onPlaylistParamsChanged(params);
+            }
+        }
+
+        @Override
+        public void onPlaybackInfoChanged(MediaController2.PlaybackInfo info) {
+            if (mCallbackProxy != null) {
+                mCallbackProxy.onPlaybackInfoChanged(info);
             }
         }
     }

@@ -127,7 +127,6 @@ StagefrightRecorder::~StagefrightRecorder() {
     if (mAnalyticsDirty && mAnalyticsItem != NULL) {
         updateMetrics();
         if (mAnalyticsItem->count() > 0) {
-            mAnalyticsItem->setFinalized(true);
             mAnalyticsItem->selfrecord();
         }
         delete mAnalyticsItem;
@@ -187,14 +186,12 @@ void StagefrightRecorder::resetMetrics() {
     if (mAnalyticsDirty && mAnalyticsItem != NULL) {
         updateMetrics();
         if (mAnalyticsItem->count() > 0) {
-            mAnalyticsItem->setFinalized(true);
             mAnalyticsItem->selfrecord();
         }
         delete mAnalyticsItem;
         mAnalyticsItem = NULL;
     }
     mAnalyticsItem = new MediaAnalyticsItem(kKeyRecorder);
-    (void) mAnalyticsItem->generateSessionID();
     mAnalyticsDirty = false;
 }
 
@@ -2164,6 +2161,15 @@ status_t StagefrightRecorder::enableAudioDeviceCallback(bool enabled) {
     }
     return NO_ERROR;
 }
+
+status_t StagefrightRecorder::getActiveMicrophones(
+        std::vector<media::MicrophoneInfo>* activeMicrophones) {
+    if (mAudioSourceNode != 0) {
+        return mAudioSourceNode->getActiveMicrophones(activeMicrophones);
+    }
+    return NO_INIT;
+}
+
 
 status_t StagefrightRecorder::dump(
         int fd, const Vector<String16>& args) const {

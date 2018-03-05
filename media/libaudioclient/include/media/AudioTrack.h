@@ -765,6 +765,9 @@ public:
     /* Gets the volume shaper state */
             sp<media::VolumeShaper::State> getVolumeShaperState(int id);
 
+    /* Selects the presentation (if available) */
+            status_t    selectPresentation(int presentationId, int programId);
+
     /* Get parameters */
             String8     getParameters(const String8& keys);
 
@@ -1198,7 +1201,6 @@ private:
             // mAnalyticsItem alloc failure will be flagged in the constructor
             // don't log empty records
             if (mAnalyticsItem->count() > 0) {
-                mAnalyticsItem->setFinalized(true);
                 mAnalyticsItem->selfrecord();
             }
         }

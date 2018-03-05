@@ -26,6 +26,28 @@ cc_library_static {
     shared_libs: ["libmedia"],
 }
 
+cc_library_static {
+    name: "libstagefright_metadatautils",
+
+    srcs: ["MetaDataUtils.cpp"],
+
+    cflags: [
+        "-Werror",
+        "-Wall",
+    ],
+    sanitize: {
+        misc_undefined: [
+            "signed-integer-overflow",
+        ],
+        cfi: true,
+        diag: {
+            cfi: true,
+        },
+    },
+
+    shared_libs: ["libmedia"],
+}
+
 cc_library_shared {
     name: "libstagefright",
 
@@ -35,6 +57,7 @@ cc_library_shared {
         "AACWriter.cpp",
         "AMRWriter.cpp",
         "AudioPlayer.cpp",
+        "AudioPresentationInfo.cpp",
         "AudioSource.cpp",
         "BufferImpl.cpp",
         "CCodec.cpp",
@@ -78,9 +101,13 @@ cc_library_shared {
         "StagefrightMetadataRetriever.cpp",
         "SurfaceMediaSource.cpp",
         "SurfaceUtils.cpp",
-        "ThrottledSource.cpp",
         "Utils.cpp",
+        "ThrottledSource.cpp",
         "VideoFrameScheduler.cpp",
+    ],
+
+    header_libs: [
+        "libstagefright_codec2_internal",
     ],
 
     shared_libs: [
@@ -105,6 +132,7 @@ cc_library_shared {
         "libutils",
         "libmedia_helper",
         "libstagefright_codec2",
+        "libstagefright_codec2_vndk",
         "libstagefright_foundation",
         "libstagefright_gbs",
         "libstagefright_omx",
@@ -114,6 +142,8 @@ cc_library_shared {
         "libRScpp",
         "libhidlbase",
         "libhidlmemory",
+        // TODO: Remove libv4l2_c2_componentstore.
+        "libv4l2_c2componentstore",
         "libziparchive",
         "android.hidl.allocator@1.0",
         "android.hardware.cas.native@1.0",
@@ -133,9 +163,6 @@ cc_library_shared {
         "libstagefright_esds",
         "libstagefright_id3",
         "libFLAC",
-
-        "libstagefright_codec2_vndk",
-
         "libavextensions"
     ],
 
