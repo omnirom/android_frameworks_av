@@ -77,11 +77,12 @@ enum output_format {
 
     /* VP8/VORBIS data in a WEBM container */
     OUTPUT_FORMAT_WEBM = 9,
-    OUTPUT_FORMAT_QCP = 20,
-    OUTPUT_FORMAT_WAVE = 21,
 
     /* HEIC data in a HEIF container */
     OUTPUT_FORMAT_HEIF = 10,
+
+    OUTPUT_FORMAT_QCP = 20,
+    OUTPUT_FORMAT_WAVE = 21,
 
     OUTPUT_FORMAT_LIST_END // must be last - used to validate format type
 };
