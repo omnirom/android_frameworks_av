@@ -162,8 +162,8 @@ public class ApiFactory implements StaticProvider {
     }
 
     public BuilderBaseProvider<MediaSession2, SessionCallback> createMediaSession2Builder(
-            Context context, MediaSession2.Builder instance, MediaPlayerBase player) {
-        return new MediaSession2Impl.BuilderImpl(context, instance, player);
+            Context context, MediaSession2.Builder instance) {
+        return new MediaSession2Impl.BuilderImpl(context, instance);
     }
 
     @Override
@@ -188,9 +188,9 @@ public class ApiFactory implements StaticProvider {
     @Override
     public BuilderBaseProvider<MediaLibrarySession, MediaLibrarySessionCallback>
         createMediaLibraryService2Builder(MediaLibraryService2 service,
-            MediaLibrarySession.Builder instance, MediaPlayerBase player,
-            Executor callbackExecutor, MediaLibrarySessionCallback callback) {
-        return new MediaLibraryService2Impl.BuilderImpl(service, instance, player, callbackExecutor,
+            MediaLibrarySession.Builder instance, Executor callbackExecutor,
+            MediaLibrarySessionCallback callback) {
+        return new MediaLibraryService2Impl.BuilderImpl(service, instance, callbackExecutor,
                 callback);
     }
 
@@ -226,9 +226,9 @@ public class ApiFactory implements StaticProvider {
     }
 
     @Override
-    public MediaItem2Provider createMediaItem2(Context context, MediaItem2 instance,
-            String mediaId, DataSourceDesc dsd, MediaMetadata2 metadata, int flags) {
-        return new MediaItem2Impl(context, instance, mediaId, dsd, metadata, flags);
+    public MediaItem2Provider.BuilderProvider createMediaItem2Builder(
+            Context context, MediaItem2.Builder instance, int flags) {
+        return new MediaItem2Impl.BuilderImpl(context, instance, flags);
     }
 
     @Override
@@ -249,14 +249,14 @@ public class ApiFactory implements StaticProvider {
 
     @Override
     public MediaMetadata2Provider.BuilderProvider createMediaMetadata2Builder(
-            Context context, MediaMetadata2.Builder builder) {
-        return new MediaMetadata2Impl.BuilderImpl(context, builder);
+            Context context, MediaMetadata2.Builder instance) {
+        return new MediaMetadata2Impl.BuilderImpl(context, instance);
     }
 
     @Override
     public MediaMetadata2Provider.BuilderProvider createMediaMetadata2Builder(
-            Context context, MediaMetadata2.Builder builder, MediaMetadata2 source) {
-        return new MediaMetadata2Impl.BuilderImpl(context, builder, source);
+            Context context, MediaMetadata2.Builder instance, MediaMetadata2 source) {
+        return new MediaMetadata2Impl.BuilderImpl(context, instance, source);
     }
 
     @Override
