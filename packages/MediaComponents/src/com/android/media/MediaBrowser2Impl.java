@@ -19,11 +19,12 @@ package com.android.media;
 import android.content.Context;
 import android.media.MediaBrowser2;
 import android.media.MediaBrowser2.BrowserCallback;
-import android.media.MediaSession2.CommandButton;
+import android.media.MediaItem2;
 import android.media.SessionToken2;
 import android.media.update.MediaBrowser2Provider;
 import android.os.Bundle;
 import android.os.RemoteException;
+import android.text.TextUtils;
 import android.util.Log;
 
 import java.util.List;
@@ -61,40 +62,160 @@ public class MediaBrowser2Impl extends MediaController2Impl implements MediaBrow
     }
 
     @Override
-    public void subscribe_impl(String parentId, Bundle options) {
-        // TODO(jaewan): Implement
+    public void subscribe_impl(String parentId, Bundle extras) {
+        final IMediaSession2 binder = getSessionBinder();
+        if (binder != null) {
+            try {
+                binder.subscribe(getControllerStub(), parentId, extras);
+            } catch (RemoteException e) {
+                // TODO(jaewan): Handle disconnect.
+                if (DEBUG) {
+                    Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+                }
+            }
+        } else {
+            Log.w(TAG, "Session isn't active", new IllegalStateException());
+        }
     }
 
     @Override
-    public void unsubscribe_impl(String parentId, Bundle options) {
-        // TODO(jaewan): Implement
+    public void unsubscribe_impl(String parentId) {
+        final IMediaSession2 binder = getSessionBinder();
+        if (binder != null) {
+            try {
+                binder.unsubscribe(getControllerStub(), parentId);
+            } catch (RemoteException e) {
+                // TODO(jaewan): Handle disconnect.
+                if (DEBUG) {
+                    Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+                }
+            }
+        } else {
+            Log.w(TAG, "Session isn't active", new IllegalStateException());
+        }
     }
 
     @Override
     public void getItem_impl(String mediaId) {
-        // TODO(jaewan): Implement
+        if (mediaId == null) {
+            throw new IllegalArgumentException("mediaId shouldn't be null");
+        }
+
+        final IMediaSession2 binder = getSessionBinder();
+        if (binder != null) {
+            try {
+                binder.getItem(getControllerStub(), mediaId);
+            } catch (RemoteException e) {
+                // TODO(jaewan): Handle disconnect.
+                if (DEBUG) {
+                    Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+                }
+            }
+        } else {
+            Log.w(TAG, "Session isn't active", new IllegalStateException());
+        }
     }
 
     @Override
-    public void getChildren_impl(String parentId, int page, int pageSize, Bundle options) {
-        // TODO(jaewan): Implement
+    public void getChildren_impl(String parentId, int page, int pageSize, Bundle extras) {
+        if (parentId == null) {
+            throw new IllegalArgumentException("parentId shouldn't be null");
+        }
+        if (page < 1 || pageSize < 1) {
+            throw new IllegalArgumentException("Neither page nor pageSize should be less than 1");
+        }
+
+        final IMediaSession2 binder = getSessionBinder();
+        if (binder != null) {
+            try {
+                binder.getChildren(getControllerStub(), parentId, page, pageSize, extras);
+            } catch (RemoteException e) {
+                // TODO(jaewan): Handle disconnect.
+                if (DEBUG) {
+                    Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+                }
+            }
+        } else {
+            Log.w(TAG, "Session isn't active", new IllegalStateException());
+        }
     }
 
     @Override
-    public void search_impl(String query, int page, int pageSize, Bundle extras) {
-        // TODO(jaewan): Implement
+    public void search_impl(String query, Bundle extras) {
+        if (TextUtils.isEmpty(query)) {
+            throw new IllegalArgumentException("query shouldn't be empty");
+        }
+        final IMediaSession2 binder = getSessionBinder();
+        if (binder != null) {
+            try {
+                binder.search(getControllerStub(), query, extras);
+            } catch (RemoteException e) {
+                // TODO(jaewan): Handle disconnect.
+                if (DEBUG) {
+                    Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+                }
+            }
+        } else {
+            Log.w(TAG, "Session isn't active", new IllegalStateException());
+        }
     }
 
-    public void onGetRootResult(
+    @Override
+    public void getSearchResult_impl(String query, int page, int pageSize, Bundle extras) {
+        if (TextUtils.isEmpty(query)) {
+            throw new IllegalArgumentException("query shouldn't be empty");
+        }
+        final IMediaSession2 binder = getSessionBinder();
+        if (binder != null) {
+            try {
+                binder.getSearchResult(getControllerStub(), query, page, pageSize, extras);
+            } catch (RemoteException e) {
+                // TODO(jaewan): Handle disconnect.
+                if (DEBUG) {
+                    Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+                }
+            }
+        } else {
+            Log.w(TAG, "Session isn't active", new IllegalStateException());
+        }
+    }
+
+    public void onGetLibraryRootDone(
             final Bundle rootHints, final String rootMediaId, final Bundle rootExtra) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onGetRootResult(rootHints, rootMediaId, rootExtra);
+            mCallback.onGetLibraryRootDone(rootHints, rootMediaId, rootExtra);
         });
     }
 
-    public void onCustomLayoutChanged(final List<CommandButton> layout) {
+    public void onGetItemDone(String mediaId, MediaItem2 item) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onCustomLayoutChanged(layout);
+            mCallback.onGetItemDone(mediaId, item);
+        });
+    }
+
+    public void onGetChildrenDone(String parentId, int page, int pageSize, List<MediaItem2> result,
+            Bundle extras) {
+        getCallbackExecutor().execute(() -> {
+            mCallback.onGetChildrenDone(parentId, page, pageSize, result, extras);
+        });
+    }
+
+    public void onSearchResultChanged(String query, int itemCount, Bundle extras) {
+        getCallbackExecutor().execute(() -> {
+            mCallback.onSearchResultChanged(query, itemCount, extras);
+        });
+    }
+
+    public void onGetSearchResultDone(String query, int page, int pageSize, List<MediaItem2> result,
+            Bundle extras) {
+        getCallbackExecutor().execute(() -> {
+            mCallback.onGetSearchResultDone(query, page, pageSize, result, extras);
+        });
+    }
+
+    public void onChildrenChanged(final String parentId, int itemCount, final Bundle extras) {
+        getCallbackExecutor().execute(() -> {
+            mCallback.onChildrenChanged(parentId, itemCount, extras);
         });
     }
 }

@@ -25,34 +25,34 @@
 #include <media/stagefright/MediaBufferGroup.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MetaData.h>
-#include <media/MediaSourceBase.h>
+#include <media/MediaTrack.h>
 #include <libsonivox/eas_reverb.h>
 
 namespace android {
 
-// how many Sonivox output buffers to aggregate into one MediaBuffer
+// how many Sonivox output buffers to aggregate into one MediaBufferBase
 static const int NUM_COMBINE_BUFFERS = 4;
 
-class MidiSource : public MediaSourceBase {
+class MidiSource : public MediaTrack {
 
 public:
     MidiSource(
-            const sp<MidiEngine> &engine,
-            const sp<MetaData> &trackMetadata);
+            MidiEngine &engine,
+            MetaDataBase &trackMetadata);
 
-    virtual status_t start(MetaData *params);
+    virtual status_t start(MetaDataBase *params);
     virtual status_t stop();
-    virtual sp<MetaData> getFormat();
+    virtual status_t getFormat(MetaDataBase&);
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
 
 protected:
     virtual ~MidiSource();
 
 private:
-    sp<MidiEngine> mEngine;
-    sp<MetaData> mTrackMetadata;
+    MidiEngine &mEngine;
+    MetaDataBase &mTrackMetadata;
     bool mInitCheck;
     bool mStarted;
 
@@ -68,8 +68,8 @@ private:
 // Midisource
 
 MidiSource::MidiSource(
-        const sp<MidiEngine> &engine,
-        const sp<MetaData> &trackMetadata)
+        MidiEngine &engine,
+        MetaDataBase &trackMetadata)
     : mEngine(engine),
       mTrackMetadata(trackMetadata),
       mInitCheck(false),
@@ -87,13 +87,13 @@ MidiSource::~MidiSource()
     }
 }
 
-status_t MidiSource::start(MetaData * /* params */)
+status_t MidiSource::start(MetaDataBase * /* params */)
 {
     ALOGV("MidiSource::start");
 
     CHECK(!mStarted);
     mStarted = true;
-    mEngine->allocateBuffers();
+    mEngine.allocateBuffers();
     return OK;
 }
 
@@ -103,21 +103,22 @@ status_t MidiSource::stop()
 
     CHECK(mStarted);
     mStarted = false;
-    mEngine->releaseBuffers();
+    mEngine.releaseBuffers();
 
     return OK;
 }
 
-sp<MetaData> MidiSource::getFormat()
+status_t MidiSource::getFormat(MetaDataBase &meta)
 {
-    return mTrackMetadata;
+    meta = mTrackMetadata;
+    return OK;
 }
 
 status_t MidiSource::read(
-        MediaBuffer **outBuffer, const ReadOptions *options)
+        MediaBufferBase **outBuffer, const ReadOptions *options)
 {
     ALOGV("MidiSource::read");
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     // process an optional seek request
     int64_t seekTimeUs;
     ReadOptions::SeekMode mode;
@@ -125,9 +126,9 @@ status_t MidiSource::read(
         if (seekTimeUs <= 0LL) {
             seekTimeUs = 0LL;
         }
-        mEngine->seekTo(seekTimeUs);
+        mEngine.seekTo(seekTimeUs);
     }
-    buffer = mEngine->readBuffer();
+    buffer = mEngine.readBuffer();
     *outBuffer = buffer;
     ALOGV("MidiSource::read %p done", this);
     return buffer != NULL ? (status_t) OK : (status_t) ERROR_END_OF_STREAM;
@@ -142,8 +143,8 @@ status_t MidiSource::init()
 // MidiEngine
 
 MidiEngine::MidiEngine(DataSourceBase *dataSource,
-        const sp<MetaData> &fileMetadata,
-        const sp<MetaData> &trackMetadata) :
+        MetaDataBase *fileMetadata,
+        MetaDataBase *trackMetadata) :
             mGroup(NULL),
             mEasData(NULL),
             mEasHandle(NULL),
@@ -191,7 +192,7 @@ MidiEngine::~MidiEngine() {
         EAS_Shutdown(mEasData);
     }
     delete mGroup;
-
+    delete mIoWrapper;
 }
 
 status_t MidiEngine::initCheck() {
@@ -207,7 +208,7 @@ status_t MidiEngine::allocateBuffers() {
     int bufsize = sizeof(EAS_PCM)
             * mEasConfig->mixBufferSize * mEasConfig->numChannels * NUM_COMBINE_BUFFERS;
     ALOGV("using %d byte buffer", bufsize);
-    mGroup->add_buffer(new MediaBuffer(bufsize));
+    mGroup->add_buffer(MediaBufferBase::Create(bufsize));
     return OK;
 }
 
@@ -223,13 +224,13 @@ status_t MidiEngine::seekTo(int64_t positionUs) {
     return result == EAS_SUCCESS ? OK : UNKNOWN_ERROR;
 }
 
-MediaBuffer* MidiEngine::readBuffer() {
+MediaBufferBase* MidiEngine::readBuffer() {
     EAS_STATE state;
     EAS_State(mEasData, mEasHandle, &state);
     if ((state == EAS_STATE_STOPPED) || (state == EAS_STATE_ERROR)) {
         return NULL;
     }
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     status_t err = mGroup->acquire_buffer(&buffer);
     if (err != OK) {
         ALOGE("readBuffer: no buffer");
@@ -238,7 +239,7 @@ MediaBuffer* MidiEngine::readBuffer() {
     EAS_I32 timeMs;
     EAS_GetLocation(mEasData, mEasHandle, &timeMs);
     int64_t timeUs = 1000ll * timeMs;
-    buffer->meta_data()->setInt64(kKeyTime, timeUs);
+    buffer->meta_data().setInt64(kKeyTime, timeUs);
 
     EAS_PCM* p = (EAS_PCM*) buffer->data();
     int numBytesOutput = 0;
@@ -266,9 +267,7 @@ MidiExtractor::MidiExtractor(
       mInitCheck(false)
 {
     ALOGV("MidiExtractor ctor");
-    mFileMetadata = new MetaData;
-    mTrackMetadata = new MetaData;
-    mEngine = new MidiEngine(mDataSource, mFileMetadata, mTrackMetadata);
+    mEngine = new MidiEngine(mDataSource, &mFileMetadata, &mTrackMetadata);
     mInitCheck = mEngine->initCheck();
 }
 
@@ -282,38 +281,38 @@ size_t MidiExtractor::countTracks()
     return mInitCheck == OK ? 1 : 0;
 }
 
-MediaSourceBase *MidiExtractor::getTrack(size_t index)
+MediaTrack *MidiExtractor::getTrack(size_t index)
 {
     if (mInitCheck != OK || index > 0) {
         return NULL;
     }
-    return new MidiSource(mEngine, mTrackMetadata);
+    return new MidiSource(*mEngine, mTrackMetadata);
 }
 
-sp<MetaData> MidiExtractor::getTrackMetaData(
+status_t MidiExtractor::getTrackMetaData(
+        MetaDataBase &meta,
         size_t index, uint32_t /* flags */) {
     ALOGV("MidiExtractor::getTrackMetaData");
     if (mInitCheck != OK || index > 0) {
-        return NULL;
+        return UNKNOWN_ERROR;
     }
-    return mTrackMetadata;
+    meta = mTrackMetadata;
+    return OK;
 }
 
-sp<MetaData> MidiExtractor::getMetaData()
+status_t MidiExtractor::getMetaData(MetaDataBase &meta)
 {
     ALOGV("MidiExtractor::getMetaData");
-    return mFileMetadata;
+    meta = mFileMetadata;
+    return OK;
 }
 
 // Sniffer
 
-bool SniffMidi(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *)
+bool SniffMidi(DataSourceBase *source, float *confidence)
 {
-    sp<MidiEngine> p = new MidiEngine(source, NULL, NULL);
-    if (p->initCheck() == OK) {
-        *mimeType = MEDIA_MIMETYPE_AUDIO_MIDI;
+    MidiEngine p(source, NULL, NULL);
+    if (p.initCheck() == OK) {
         *confidence = 0.8;
         ALOGV("SniffMidi: yes");
         return true;
@@ -334,13 +333,13 @@ MediaExtractor::ExtractorDef GETEXTRACTORDEF() {
         "MIDI Extractor",
         [](
                 DataSourceBase *source,
-                String8 *mimeType,
                 float *confidence,
-                sp<AMessage> *meta __unused) -> MediaExtractor::CreatorFunc {
-            if (SniffMidi(source, mimeType, confidence, meta)) {
+                void **,
+                MediaExtractor::FreeMetaFunc *) -> MediaExtractor::CreatorFunc {
+            if (SniffMidi(source, confidence)) {
                 return [](
                         DataSourceBase *source,
-                        const sp<AMessage>& meta __unused) -> MediaExtractor* {
+                        void *) -> MediaExtractor* {
                     return new MidiExtractor(source);};
             }
             return NULL;

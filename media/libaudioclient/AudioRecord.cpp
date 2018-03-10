@@ -91,11 +91,14 @@ void AudioRecord::MediaMetrics::gather(const AudioRecord *record)
 {
     // key for media statistics is defined in the header
     // attrs for media statistics
-    static constexpr char kAudioRecordChannelCount[] = "android.media.audiorecord.channels";
+    // NB: these are matched with public Java API constants defined
+    // in frameworks/base/media/java/android/media/AudioRecord.java
+    // These must be kept synchronized with the constants there.
     static constexpr char kAudioRecordEncoding[] = "android.media.audiorecord.encoding";
+    static constexpr char kAudioRecordSource[] = "android.media.audiorecord.source";
     static constexpr char kAudioRecordLatency[] = "android.media.audiorecord.latency";
     static constexpr char kAudioRecordSampleRate[] = "android.media.audiorecord.samplerate";
-    static constexpr char kAudioRecordSource[] = "android.media.audiotrack.source";
+    static constexpr char kAudioRecordChannelCount[] = "android.media.audiorecord.channels";
 
     // constructor guarantees mAnalyticsItem is valid
 
@@ -337,7 +340,12 @@ status_t AudioRecord::set(
 
     mUserData = user;
     // TODO: add audio hardware input latency here
-    mLatency = (1000LL * mFrameCount) / mSampleRate;
+    if (mTransfer == TRANSFER_CALLBACK ||
+            mTransfer == TRANSFER_SYNC) {
+        mLatency = (1000 * mNotificationFramesAct) / mSampleRate;
+    } else {
+        mLatency = (1000 * mFrameCount) / mSampleRate;
+    }
     mMarkerPosition = 0;
     mMarkerReached = false;
     mNewPosition = 0;

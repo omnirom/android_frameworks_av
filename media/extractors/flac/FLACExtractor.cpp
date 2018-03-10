@@ -23,169 +23,43 @@
 #include "FLAC/stream_decoder.h"
 
 #include <media/DataSourceBase.h>
-#include <media/MediaSourceBase.h>
+#include <media/MediaTrack.h>
+#include <media/VorbisComment.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/base64.h>
-#include <media/stagefright/foundation/ByteUtils.h>
 #include <media/stagefright/MediaBufferGroup.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MetaData.h>
-#include <media/stagefright/MediaBuffer.h>
+#include <media/stagefright/MediaBufferBase.h>
 
 namespace android {
 
-// also exists in OggExtractor, candidate for moving to utility/support library?
-static void extractAlbumArt(
-        const sp<MetaData> &fileMeta, const void *data, size_t size) {
-    ALOGV("extractAlbumArt from '%s'", (const char *)data);
-
-    sp<ABuffer> flacBuffer = decodeBase64(AString((const char *)data, size));
-    if (flacBuffer == NULL) {
-        ALOGE("malformed base64 encoded data.");
-        return;
-    }
-
-    size_t flacSize = flacBuffer->size();
-    uint8_t *flac = flacBuffer->data();
-    ALOGV("got flac of size %zu", flacSize);
-
-    uint32_t picType;
-    uint32_t typeLen;
-    uint32_t descLen;
-    uint32_t dataLen;
-    char type[128];
-
-    if (flacSize < 8) {
-        return;
-    }
-
-    picType = U32_AT(flac);
-
-    if (picType != 3) {
-        // This is not a front cover.
-        return;
-    }
-
-    typeLen = U32_AT(&flac[4]);
-    if (typeLen > sizeof(type) - 1) {
-        return;
-    }
-
-    // we've already checked above that flacSize >= 8
-    if (flacSize - 8 < typeLen) {
-        return;
-    }
-
-    memcpy(type, &flac[8], typeLen);
-    type[typeLen] = '\0';
-
-    ALOGV("picType = %d, type = '%s'", picType, type);
-
-    if (!strcmp(type, "-->")) {
-        // This is not inline cover art, but an external url instead.
-        return;
-    }
-
-    if (flacSize < 32 || flacSize - 32 < typeLen) {
-        return;
-    }
-
-    descLen = U32_AT(&flac[8 + typeLen]);
-    if (flacSize - 32 - typeLen < descLen) {
-        return;
-    }
-
-    dataLen = U32_AT(&flac[8 + typeLen + 4 + descLen + 16]);
-
-    // we've already checked above that (flacSize - 32 - typeLen - descLen) >= 0
-    if (flacSize - 32 - typeLen - descLen < dataLen) {
-        return;
-    }
-
-    ALOGV("got image data, %zu trailing bytes",
-         flacSize - 32 - typeLen - descLen - dataLen);
-
-    fileMeta->setData(
-            kKeyAlbumArt, 0, &flac[8 + typeLen + 4 + descLen + 20], dataLen);
-
-    fileMeta->setCString(kKeyAlbumArtMIME, type);
-}
-
-// also exists in OggExtractor, candidate for moving to utility/support library?
-static void parseVorbisComment(
-        const sp<MetaData> &fileMeta, const char *comment, size_t commentLength)
-{
-    struct {
-        const char *const mTag;
-        uint32_t mKey;
-    } kMap[] = {
-        { "TITLE", kKeyTitle },
-        { "ARTIST", kKeyArtist },
-        { "ALBUMARTIST", kKeyAlbumArtist },
-        { "ALBUM ARTIST", kKeyAlbumArtist },
-        { "COMPILATION", kKeyCompilation },
-        { "ALBUM", kKeyAlbum },
-        { "COMPOSER", kKeyComposer },
-        { "GENRE", kKeyGenre },
-        { "AUTHOR", kKeyAuthor },
-        { "TRACKNUMBER", kKeyCDTrackNumber },
-        { "DISCNUMBER", kKeyDiscNumber },
-        { "DATE", kKeyDate },
-        { "YEAR", kKeyYear },
-        { "LYRICIST", kKeyWriter },
-        { "METADATA_BLOCK_PICTURE", kKeyAlbumArt },
-        { "ANDROID_LOOP", kKeyAutoLoop },
-    };
-
-        for (size_t j = 0; j < sizeof(kMap) / sizeof(kMap[0]); ++j) {
-            size_t tagLen = strlen(kMap[j].mTag);
-            if (!strncasecmp(kMap[j].mTag, comment, tagLen)
-                    && comment[tagLen] == '=') {
-                if (kMap[j].mKey == kKeyAlbumArt) {
-                    extractAlbumArt(
-                            fileMeta,
-                            &comment[tagLen + 1],
-                            commentLength - tagLen - 1);
-                } else if (kMap[j].mKey == kKeyAutoLoop) {
-                    if (!strcasecmp(&comment[tagLen + 1], "true")) {
-                        fileMeta->setInt32(kKeyAutoLoop, true);
-                    }
-                } else {
-                    fileMeta->setCString(kMap[j].mKey, &comment[tagLen + 1]);
-                }
-            }
-        }
-
-}
-
 class FLACParser;
 
-class FLACSource : public MediaSourceBase {
+class FLACSource : public MediaTrack {
 
 public:
     FLACSource(
             DataSourceBase *dataSource,
-            const sp<MetaData> &trackMetadata);
+            MetaDataBase &meta);
 
-    virtual status_t start(MetaData *params);
+    virtual status_t start(MetaDataBase *params);
     virtual status_t stop();
-    virtual sp<MetaData> getFormat();
+    virtual status_t getFormat(MetaDataBase &meta);
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
 
 protected:
     virtual ~FLACSource();
 
 private:
     DataSourceBase *mDataSource;
-    sp<MetaData> mTrackMetadata;
-    sp<FLACParser> mParser;
+    MetaDataBase mTrackMetadata;
+    FLACParser *mParser;
     bool mInitCheck;
     bool mStarted;
-
-    status_t init();
 
     // no copy constructor or assignment
     FLACSource(const FLACSource &);
@@ -195,7 +69,7 @@ private:
 
 // FLACParser wraps a C libFLAC parser aka stream decoder
 
-class FLACParser : public RefBase {
+class FLACParser {
 
 public:
     enum {
@@ -205,8 +79,10 @@ public:
     explicit FLACParser(
         DataSourceBase *dataSource,
         // If metadata pointers aren't provided, we don't fill them
-        const sp<MetaData> &fileMetadata = 0,
-        const sp<MetaData> &trackMetadata = 0);
+        MetaDataBase *fileMetadata = 0,
+        MetaDataBase *trackMetadata = 0);
+
+    virtual ~FLACParser();
 
     status_t initCheck() const {
         return mInitCheck;
@@ -232,20 +108,17 @@ public:
     // media buffers
     void allocateBuffers();
     void releaseBuffers();
-    MediaBuffer *readBuffer() {
+    MediaBufferBase *readBuffer() {
         return readBuffer(false, 0LL);
     }
-    MediaBuffer *readBuffer(FLAC__uint64 sample) {
+    MediaBufferBase *readBuffer(FLAC__uint64 sample) {
         return readBuffer(true, sample);
     }
 
-protected:
-    virtual ~FLACParser();
-
 private:
     DataSourceBase *mDataSource;
-    sp<MetaData> mFileMetadata;
-    sp<MetaData> mTrackMetadata;
+    MetaDataBase *mFileMetadata;
+    MetaDataBase *mTrackMetadata;
     bool mInitCheck;
 
     // media buffers
@@ -274,7 +147,7 @@ private:
     FLAC__StreamDecoderErrorStatus mErrorStatus;
 
     status_t init();
-    MediaBuffer *readBuffer(bool doSeek, FLAC__uint64 sample);
+    MediaBufferBase *readBuffer(bool doSeek, FLAC__uint64 sample);
 
     // no copy constructor or assignment
     FLACParser(const FLACParser &);
@@ -613,8 +486,8 @@ static void copyTrespass(
 
 FLACParser::FLACParser(
         DataSourceBase *dataSource,
-        const sp<MetaData> &fileMetadata,
-        const sp<MetaData> &trackMetadata)
+        MetaDataBase *fileMetadata,
+        MetaDataBase *trackMetadata)
     : mDataSource(dataSource),
       mFileMetadata(fileMetadata),
       mTrackMetadata(trackMetadata),
@@ -763,7 +636,7 @@ void FLACParser::allocateBuffers()
     CHECK(mGroup == NULL);
     mGroup = new MediaBufferGroup;
     mMaxBufferSize = getMaxBlockSize() * getChannels() * sizeof(short);
-    mGroup->add_buffer(new MediaBuffer(mMaxBufferSize));
+    mGroup->add_buffer(MediaBufferBase::Create(mMaxBufferSize));
 }
 
 void FLACParser::releaseBuffers()
@@ -773,7 +646,7 @@ void FLACParser::releaseBuffers()
     mGroup = NULL;
 }
 
-MediaBuffer *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
+MediaBufferBase *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
 {
     mWriteRequested = true;
     mWriteCompleted = false;
@@ -810,7 +683,7 @@ MediaBuffer *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
     }
     // acquire a media buffer
     CHECK(mGroup != NULL);
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     status_t err = mGroup->acquire_buffer(&buffer);
     if (err != OK) {
         return NULL;
@@ -825,8 +698,8 @@ MediaBuffer *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
     CHECK(mWriteHeader.number_type == FLAC__FRAME_NUMBER_TYPE_SAMPLE_NUMBER);
     FLAC__uint64 sampleNumber = mWriteHeader.number.sample_number;
     int64_t timeUs = (1000000LL * sampleNumber) / getSampleRate();
-    buffer->meta_data()->setInt64(kKeyTime, timeUs);
-    buffer->meta_data()->setInt32(kKeyIsSyncFrame, 1);
+    buffer->meta_data().setInt64(kKeyTime, timeUs);
+    buffer->meta_data().setInt32(kKeyIsSyncFrame, 1);
     return buffer;
 }
 
@@ -834,7 +707,7 @@ MediaBuffer *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
 
 FLACSource::FLACSource(
         DataSourceBase *dataSource,
-        const sp<MetaData> &trackMetadata)
+        MetaDataBase &trackMetadata)
     : mDataSource(dataSource),
       mTrackMetadata(trackMetadata),
       mParser(0),
@@ -842,7 +715,9 @@ FLACSource::FLACSource(
       mStarted(false)
 {
     ALOGV("FLACSource::FLACSource");
-    mInitCheck = init();
+    // re-use the same track metadata passed into constructor from FLACExtractor
+    mParser = new FLACParser(mDataSource);
+    mInitCheck  = mParser->initCheck();
 }
 
 FLACSource::~FLACSource()
@@ -851,9 +726,10 @@ FLACSource::~FLACSource()
     if (mStarted) {
         stop();
     }
+    delete mParser;
 }
 
-status_t FLACSource::start(MetaData * /* params */)
+status_t FLACSource::start(MetaDataBase * /* params */)
 {
     ALOGV("FLACSource::start");
 
@@ -875,15 +751,16 @@ status_t FLACSource::stop()
     return OK;
 }
 
-sp<MetaData> FLACSource::getFormat()
+status_t FLACSource::getFormat(MetaDataBase &meta)
 {
-    return mTrackMetadata;
+    meta = mTrackMetadata;
+    return OK;
 }
 
 status_t FLACSource::read(
-        MediaBuffer **outBuffer, const ReadOptions *options)
+        MediaBufferBase **outBuffer, const ReadOptions *options)
 {
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     // process an optional seek request
     int64_t seekTimeUs;
     ReadOptions::SeekMode mode;
@@ -907,28 +784,24 @@ status_t FLACSource::read(
     return buffer != NULL ? (status_t) OK : (status_t) ERROR_END_OF_STREAM;
 }
 
-status_t FLACSource::init()
-{
-    ALOGV("FLACSource::init");
-    // re-use the same track metadata passed into constructor from FLACExtractor
-    mParser = new FLACParser(mDataSource);
-    return mParser->initCheck();
-}
-
 // FLACExtractor
 
 FLACExtractor::FLACExtractor(
         DataSourceBase *dataSource)
     : mDataSource(dataSource),
+      mParser(nullptr),
       mInitCheck(false)
 {
     ALOGV("FLACExtractor::FLACExtractor");
-    mInitCheck = init();
+    // FLACParser will fill in the metadata for us
+    mParser = new FLACParser(mDataSource, &mFileMetadata, &mTrackMetadata);
+    mInitCheck = mParser->initCheck();
 }
 
 FLACExtractor::~FLACExtractor()
 {
     ALOGV("~FLACExtractor::FLACExtractor");
+    delete mParser;
 }
 
 size_t FLACExtractor::countTracks()
@@ -936,7 +809,7 @@ size_t FLACExtractor::countTracks()
     return mInitCheck == OK ? 1 : 0;
 }
 
-MediaSourceBase *FLACExtractor::getTrack(size_t index)
+MediaTrack *FLACExtractor::getTrack(size_t index)
 {
     if (mInitCheck != OK || index > 0) {
         return NULL;
@@ -944,33 +817,25 @@ MediaSourceBase *FLACExtractor::getTrack(size_t index)
     return new FLACSource(mDataSource, mTrackMetadata);
 }
 
-sp<MetaData> FLACExtractor::getTrackMetaData(
+status_t FLACExtractor::getTrackMetaData(
+        MetaDataBase &meta,
         size_t index, uint32_t /* flags */) {
     if (mInitCheck != OK || index > 0) {
-        return NULL;
+        return UNKNOWN_ERROR;
     }
-    return mTrackMetadata;
+    meta = mTrackMetadata;
+    return OK;
 }
 
-status_t FLACExtractor::init()
+status_t FLACExtractor::getMetaData(MetaDataBase &meta)
 {
-    mFileMetadata = new MetaData;
-    mTrackMetadata = new MetaData;
-    // FLACParser will fill in the metadata for us
-    mParser = new FLACParser(mDataSource, mFileMetadata, mTrackMetadata);
-    return mParser->initCheck();
-}
-
-sp<MetaData> FLACExtractor::getMetaData()
-{
-    return mFileMetadata;
+    meta = mFileMetadata;
+    return OK;
 }
 
 // Sniffer
 
-bool SniffFLAC(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *)
+bool SniffFLAC(DataSourceBase *source, float *confidence)
 {
     // first 4 is the signature word
     // second 4 is the sizeof STREAMINFO
@@ -983,7 +848,6 @@ bool SniffFLAC(
         return false;
     }
 
-    *mimeType = MEDIA_MIMETYPE_AUDIO_FLAC;
     *confidence = 0.5;
 
     return true;
@@ -1001,13 +865,13 @@ MediaExtractor::ExtractorDef GETEXTRACTORDEF() {
             "FLAC Extractor",
             [](
                     DataSourceBase *source,
-                    String8 *mimeType,
                     float *confidence,
-                    sp<AMessage> *meta __unused) -> MediaExtractor::CreatorFunc {
-                if (SniffFLAC(source, mimeType, confidence, meta)) {
+                    void **,
+                    MediaExtractor::FreeMetaFunc *) -> MediaExtractor::CreatorFunc {
+                if (SniffFLAC(source, confidence)) {
                     return [](
                             DataSourceBase *source,
-                            const sp<AMessage>& meta __unused) -> MediaExtractor* {
+                            void *) -> MediaExtractor* {
                         return new FLACExtractor(source);};
                 }
                 return NULL;

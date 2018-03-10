@@ -2453,9 +2453,6 @@ typedef enum acamera_metadata_tag {
      *
      * <p>Different calibration methods and use cases can produce better or worse results
      * depending on the selected coordinate origin.</p>
-     * <p>For devices designed to support the MOTION_TRACKING capability, the GYROSCOPE origin
-     * makes device calibration and later usage by applications combining camera and gyroscope
-     * information together simpler.</p>
      */
     ACAMERA_LENS_POSE_REFERENCE =                               // byte (acamera_metadata_enum_android_lens_pose_reference_t)
             ACAMERA_LENS_START + 12,
@@ -4565,7 +4562,7 @@ typedef enum acamera_metadata_tag {
     ACAMERA_STATISTICS_LENS_SHADING_MAP_MODE =                  // byte (acamera_metadata_enum_android_statistics_lens_shading_map_mode_t)
             ACAMERA_STATISTICS_START + 16,
     /**
-     * <p>Whether the camera device outputs the OIS data in output
+     * <p>A control for selecting whether OIS position information is included in output
      * result metadata.</p>
      *
      * <p>Type: byte (acamera_metadata_enum_android_statistics_ois_data_mode_t)</p>
@@ -4576,11 +4573,6 @@ typedef enum acamera_metadata_tag {
      *   <li>ACaptureRequest</li>
      * </ul></p>
      *
-     * <p>When set to ON,
-     * ACAMERA_STATISTICS_OIS_TIMESTAMPS, android.statistics.oisShiftPixelX,
-     * android.statistics.oisShiftPixelY will provide OIS data in the output result metadata.</p>
-     *
-     * @see ACAMERA_STATISTICS_OIS_TIMESTAMPS
      */
     ACAMERA_STATISTICS_OIS_DATA_MODE =                          // byte (acamera_metadata_enum_android_statistics_ois_data_mode_t)
             ACAMERA_STATISTICS_START + 17,
@@ -4613,7 +4605,7 @@ typedef enum acamera_metadata_tag {
      *
      * <p>The array contains the amount of shifts in x direction, in pixels, based on OIS samples.
      * A positive value is a shift from left to right in active array coordinate system. For
-     * example, if the optical center is (1000, 500) in active array coordinates, an shift of
+     * example, if the optical center is (1000, 500) in active array coordinates, a shift of
      * (3, 0) puts the new optical center at (1003, 500).</p>
      * <p>The number of shifts must match the number of timestamps in
      * ACAMERA_STATISTICS_OIS_TIMESTAMPS.</p>
@@ -4634,7 +4626,7 @@ typedef enum acamera_metadata_tag {
      *
      * <p>The array contains the amount of shifts in y direction, in pixels, based on OIS samples.
      * A positive value is a shift from top to bottom in active array coordinate system. For
-     * example, if the optical center is (1000, 500) in active array coordinates, an shift of
+     * example, if the optical center is (1000, 500) in active array coordinates, a shift of
      * (0, 5) puts the new optical center at (1000, 505).</p>
      * <p>The number of shifts must match the number of timestamps in
      * ACAMERA_STATISTICS_OIS_TIMESTAMPS.</p>
@@ -6601,7 +6593,7 @@ typedef enum acamera_metadata_enum_acamera_lens_pose_reference {
     /**
      * <p>The value of ACAMERA_LENS_POSE_TRANSLATION is relative to the optical center of
      * the largest camera device facing the same direction as this camera.</p>
-     * <p>This default value for API levels before Android P.</p>
+     * <p>This is the default value for API levels before Android P.</p>
      *
      * @see ACAMERA_LENS_POSE_TRANSLATION
      */
@@ -6610,7 +6602,6 @@ typedef enum acamera_metadata_enum_acamera_lens_pose_reference {
     /**
      * <p>The value of ACAMERA_LENS_POSE_TRANSLATION is relative to the position of the
      * primary gyroscope of this Android device.</p>
-     * <p>This is the value reported by all devices that support the MOTION_TRACKING capability.</p>
      *
      * @see ACAMERA_LENS_POSE_TRANSLATION
      */
@@ -6974,46 +6965,12 @@ typedef enum acamera_metadata_enum_acamera_request_available_capabilities {
     ACAMERA_REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT              = 8,
 
     /**
-     * <p>The device supports controls and metadata required for accurate motion tracking for
-     * use cases such as augmented reality, electronic image stabilization, and so on.</p>
-     * <p>This means this camera device has accurate optical calibration and timestamps relative
-     * to the inertial sensors.</p>
-     * <p>This capability requires the camera device to support the following:</p>
-     * <ul>
-     * <li>Capture request templates <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice.html#TEMPLATE_MOTION_TRACKING_PREVIEW">CameraDevice#TEMPLATE_MOTION_TRACKING_PREVIEW</a> and <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice.html#TEMPLATE_MOTION_TRACKING_BEST">CameraDevice#TEMPLATE_MOTION_TRACKING_BEST</a> are defined.</li>
-     * <li>The stream configurations listed in <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice.html#createCaptureSession">CameraDevice#createCaptureSession</a> for MOTION_TRACKING are
-     *   supported, either at 30 or 60fps maximum frame rate.</li>
-     * <li>The following camera characteristics and capture result metadata are provided:<ul>
-     * <li>ACAMERA_LENS_INTRINSIC_CALIBRATION</li>
-     * <li>ACAMERA_LENS_RADIAL_DISTORTION</li>
-     * <li>ACAMERA_LENS_POSE_ROTATION</li>
-     * <li>ACAMERA_LENS_POSE_TRANSLATION</li>
-     * <li>ACAMERA_LENS_POSE_REFERENCE with value GYROSCOPE</li>
-     * </ul>
-     * </li>
-     * <li>The ACAMERA_SENSOR_INFO_TIMESTAMP_SOURCE field has value <code>REALTIME</code>. When compared to
-     *   timestamps from the device's gyroscopes, the clock difference for events occuring at
-     *   the same actual time instant will be less than 1 ms.</li>
-     * <li>The value of the ACAMERA_SENSOR_ROLLING_SHUTTER_SKEW field is accurate to within 1 ms.</li>
-     * <li>The value of ACAMERA_SENSOR_EXPOSURE_TIME is guaranteed to be available in the
-     *   capture result.</li>
-     * <li>The ACAMERA_CONTROL_CAPTURE_INTENT control supports MOTION_TRACKING to limit maximum
-     *   exposure to 20 milliseconds.</li>
-     * <li>The stream configurations required for MOTION_TRACKING (listed at <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice.html#createCaptureSession">CameraDevice#createCaptureSession</a>) can operate at least at
-     *   30fps; optionally, they can operate at 60fps, and '[60, 60]' is listed in
-     *   ACAMERA_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES.</li>
-     * </ul>
+     * <p>The camera device supports the MOTION_TRACKING value for
+     * ACAMERA_CONTROL_CAPTURE_INTENT, which limits maximum exposure time to 20 ms.</p>
+     * <p>This limits the motion blur of capture images, resulting in better image tracking
+     * results for use cases such as image stabilization or augmented reality.</p>
      *
-     * @see ACAMERA_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES
      * @see ACAMERA_CONTROL_CAPTURE_INTENT
-     * @see ACAMERA_LENS_INTRINSIC_CALIBRATION
-     * @see ACAMERA_LENS_POSE_REFERENCE
-     * @see ACAMERA_LENS_POSE_ROTATION
-     * @see ACAMERA_LENS_POSE_TRANSLATION
-     * @see ACAMERA_LENS_RADIAL_DISTORTION
-     * @see ACAMERA_SENSOR_EXPOSURE_TIME
-     * @see ACAMERA_SENSOR_INFO_TIMESTAMP_SOURCE
-     * @see ACAMERA_SENSOR_ROLLING_SHUTTER_SKEW
      */
     ACAMERA_REQUEST_AVAILABLE_CAPABILITIES_MOTION_TRACKING           = 10,
 
@@ -7036,19 +6993,24 @@ typedef enum acamera_metadata_enum_acamera_request_available_capabilities {
      * <li>ACAMERA_LENS_RADIAL_DISTORTION</li>
      * </ul>
      * </li>
+     * <li>The SENSOR_INFO_TIMESTAMP_SOURCE of the logical device and physical devices must be
+     *   the same.</li>
      * <li>The logical camera device must be LIMITED or higher device.</li>
      * </ul>
      * <p>Both the logical camera device and its underlying physical devices support the
      * mandatory stream combinations required for their device levels.</p>
      * <p>Additionally, for each guaranteed stream combination, the logical camera supports:</p>
      * <ul>
-     * <li>Replacing one logical {@link AIMAGE_FORMAT_YUV_420_888 YUV_420_888}
+     * <li>For each guaranteed stream combination, the logical camera supports replacing one
+     *   logical {@link AIMAGE_FORMAT_YUV_420_888 YUV_420_888}
      *   or raw stream with two physical streams of the same size and format, each from a
      *   separate physical camera, given that the size and format are supported by both
      *   physical cameras.</li>
-     * <li>Adding two raw streams, each from one physical camera, if the logical camera doesn't
-     *   advertise RAW capability, but the underlying physical cameras do. This is usually
-     *   the case when the physical cameras have different sensor sizes.</li>
+     * <li>If the logical camera doesn't advertise RAW capability, but the underlying physical
+     *   cameras do, the logical camera will support guaranteed stream combinations for RAW
+     *   capability, except that the RAW streams will be physical streams, each from a separate
+     *   physical camera. This is usually the case when the physical cameras have different
+     *   sensor sizes.</li>
      * </ul>
      * <p>Using physical streams in place of a logical stream of the same size and format will
      * not slow down the frame rate of the capture, as long as the minimum frame duration
@@ -7403,6 +7365,12 @@ typedef enum acamera_metadata_enum_acamera_statistics_ois_data_mode {
 
     /**
      * <p>Include OIS data in the capture result.</p>
+     * <p>ACAMERA_STATISTICS_OIS_TIMESTAMPS, ACAMERA_STATISTICS_OIS_X_SHIFTS,
+     * and ACAMERA_STATISTICS_OIS_Y_SHIFTS provide OIS data in the output result metadata.</p>
+     *
+     * @see ACAMERA_STATISTICS_OIS_TIMESTAMPS
+     * @see ACAMERA_STATISTICS_OIS_X_SHIFTS
+     * @see ACAMERA_STATISTICS_OIS_Y_SHIFTS
      */
     ACAMERA_STATISTICS_OIS_DATA_MODE_ON                              = 1,
 

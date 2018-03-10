@@ -1,3 +1,4 @@
+
 /*
  * Copyright (C) 2009 The Android Open Source Project
  *
@@ -1504,6 +1505,7 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
     }
 
     // XXX TODO add whatever other keys there are
+    AVUtils::get()->convertMessageToMetaData(msg, meta);
 
 #if 0
     ALOGI("converted %s to:", msg->debugString(0).c_str());
@@ -1647,6 +1649,7 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
         ALOGV("Mime type \"%s\" mapped to audio_format %d", mime, info.format);
     }
 
+    info.format  = AVUtils::get()->updateAudioFormat(info.format, meta);
     if (AUDIO_FORMAT_INVALID == info.format) {
         // can't offload if we don't know what the source format is
         ALOGE("mime type \"%s\" not a known audio format", mime);
@@ -1675,7 +1678,7 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
     info.sample_rate = srate;
 
     int32_t cmask = 0;
-    if (!meta->findInt32(kKeyChannelMask, &cmask)) {
+    if (!meta->findInt32(kKeyChannelMask, &cmask) || 0 == cmask) {
         ALOGV("track of type '%s' does not publish channel mask", mime);
 
         // Try a channel count instead
@@ -1685,6 +1688,8 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
         } else {
             cmask = audio_channel_out_mask_from_count(channelCount);
         }
+        ALOGW("track of type '%s' does not publish channel mask, channel count %d",
+              mime, channelCount);
     }
     info.channel_mask = cmask;
 

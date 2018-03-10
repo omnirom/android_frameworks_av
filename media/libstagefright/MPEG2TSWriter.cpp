@@ -85,8 +85,8 @@ private:
 
     void extractCodecSpecificData();
 
-    void appendAACFrames(MediaBuffer *buffer);
-    void appendAVCFrame(MediaBuffer *buffer);
+    void appendAACFrames(MediaBufferBase *buffer);
+    void appendAVCFrame(MediaBufferBase *buffer);
 
     DISALLOW_EVIL_CONSTRUCTORS(SourceInfo);
 };
@@ -249,7 +249,7 @@ void MPEG2TSWriter::SourceInfo::extractCodecSpecificData() {
     notify->post();
 }
 
-void MPEG2TSWriter::SourceInfo::appendAVCFrame(MediaBuffer *buffer) {
+void MPEG2TSWriter::SourceInfo::appendAVCFrame(MediaBufferBase *buffer) {
     sp<AMessage> notify = mNotify->dup();
     notify->setInt32("what", kNotifyBuffer);
 
@@ -264,11 +264,11 @@ void MPEG2TSWriter::SourceInfo::appendAVCFrame(MediaBuffer *buffer) {
            buffer->range_length());
 
     int64_t timeUs;
-    CHECK(buffer->meta_data()->findInt64(kKeyTime, &timeUs));
+    CHECK(buffer->meta_data().findInt64(kKeyTime, &timeUs));
     mBuffer->meta()->setInt64("timeUs", timeUs);
 
     int32_t isSync;
-    if (buffer->meta_data()->findInt32(kKeyIsSyncFrame, &isSync)
+    if (buffer->meta_data().findInt32(kKeyIsSyncFrame, &isSync)
             && isSync != 0) {
         mBuffer->meta()->setInt32("isSync", true);
     }
@@ -279,7 +279,7 @@ void MPEG2TSWriter::SourceInfo::appendAVCFrame(MediaBuffer *buffer) {
     notify->post();
 }
 
-void MPEG2TSWriter::SourceInfo::appendAACFrames(MediaBuffer *buffer) {
+void MPEG2TSWriter::SourceInfo::appendAACFrames(MediaBufferBase *buffer) {
     sp<AMessage> notify = mNotify->dup();
     notify->setInt32("what", kNotifyBuffer);
 
@@ -288,7 +288,7 @@ void MPEG2TSWriter::SourceInfo::appendAACFrames(MediaBuffer *buffer) {
     }
 
     int64_t timeUs;
-    CHECK(buffer->meta_data()->findInt64(kKeyTime, &timeUs));
+    CHECK(buffer->meta_data().findInt64(kKeyTime, &timeUs));
 
     mBuffer->meta()->setInt64("timeUs", timeUs);
     mBuffer->meta()->setInt32("isSync", true);
@@ -368,7 +368,7 @@ void MPEG2TSWriter::SourceInfo::onMessageReceived(const sp<AMessage> &msg) {
 
         case kWhatRead:
         {
-            MediaBuffer *buffer;
+            MediaBufferBase *buffer;
             status_t err = mSource->read(&buffer);
 
             if (err != OK && err != INFO_FORMAT_CHANGED) {

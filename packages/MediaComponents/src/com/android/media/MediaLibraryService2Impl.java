@@ -21,9 +21,9 @@ import android.content.Context;
 import android.media.MediaLibraryService2;
 import android.media.MediaLibraryService2.LibraryRoot;
 import android.media.MediaLibraryService2.MediaLibrarySession;
-import android.media.MediaLibraryService2.MediaLibrarySessionBuilder;
-import android.media.MediaLibraryService2.MediaLibrarySessionCallback;
-import android.media.MediaPlayerInterface;
+import android.media.MediaLibraryService2.MediaLibrarySession.Builder;
+import android.media.MediaLibraryService2.MediaLibrarySession.MediaLibrarySessionCallback;
+import android.media.MediaPlayerBase;
 import android.media.MediaSession2;
 import android.media.MediaSession2.ControllerInfo;
 import android.media.MediaSessionService2;
@@ -31,6 +31,7 @@ import android.media.SessionToken2;
 import android.media.VolumeProvider2;
 import android.media.update.MediaLibraryService2Provider;
 import android.os.Bundle;
+import android.text.TextUtils;
 
 import com.android.media.MediaSession2Impl.BuilderBaseImpl;
 
@@ -65,15 +66,16 @@ public class MediaLibraryService2Impl extends MediaSessionService2Impl implement
 
     public static class MediaLibrarySessionImpl extends MediaSession2Impl
             implements MediaLibrarySessionProvider {
-        private final MediaLibrarySessionCallback mCallback;
-
         public MediaLibrarySessionImpl(Context context,
-                MediaPlayerInterface player, String id, VolumeProvider2 volumeProvider,
-                int ratingType, PendingIntent sessionActivity, Executor callbackExecutor,
+                MediaPlayerBase player, String id, VolumeProvider2 volumeProvider,
+                PendingIntent sessionActivity, Executor callbackExecutor,
                 MediaLibrarySessionCallback callback) {
-            super(context, player, id, volumeProvider, ratingType, sessionActivity,
-                    callbackExecutor, callback);
-            mCallback = callback;
+            super(context, player, id, volumeProvider, sessionActivity, callbackExecutor, callback);
+            // Don't put any extra initialization here. Here's the reason.
+            // System service will recognize this session inside of the super constructor and would
+            // connect to this session assuming that initialization is finished. However, if any
+            // initialization logic is here, calls from the server would fail.
+            // see: MediaSession2Stub#connect()
         }
 
         @Override
@@ -87,29 +89,57 @@ public class MediaLibraryService2Impl extends MediaSessionService2Impl implement
         }
 
         @Override
-        public void notifyChildrenChanged_impl(ControllerInfo controller, String parentId,
-                Bundle options) {
-            // TODO(jaewan): Implements
+        MediaLibrarySessionCallback getCallback() {
+            return (MediaLibrarySessionCallback) super.getCallback();
         }
 
         @Override
-        public void notifyChildrenChanged_impl(String parentId, Bundle options) {
-            // TODO(jaewan): Implements
+        public void notifyChildrenChanged_impl(ControllerInfo controller, String parentId,
+                int itemCount, Bundle extras) {
+            if (controller == null) {
+                throw new IllegalArgumentException("controller shouldn't be null");
+            }
+            if (parentId == null) {
+                throw new IllegalArgumentException("parentId shouldn't be null");
+            }
+            getSessionStub().notifyChildrenChangedNotLocked(controller, parentId, itemCount,
+                    extras);
+        }
+
+        @Override
+        public void notifyChildrenChanged_impl(String parentId, int itemCount, Bundle extras) {
+            if (parentId == null) {
+                throw new IllegalArgumentException("parentId shouldn't be null");
+            }
+            getSessionStub().notifyChildrenChangedNotLocked(parentId, itemCount, extras);
+        }
+
+        @Override
+        public void notifySearchResultChanged_impl(ControllerInfo controller, String query,
+                int itemCount, Bundle extras) {
+            ensureCallingThread();
+            if (controller == null) {
+                throw new IllegalArgumentException("controller shouldn't be null");
+            }
+            if (TextUtils.isEmpty(query)) {
+                throw new IllegalArgumentException("query shouldn't be empty");
+            }
+            getSessionStub().notifySearchResultChanged(controller, query, itemCount, extras);
         }
     }
 
     public static class BuilderImpl
             extends BuilderBaseImpl<MediaLibrarySession, MediaLibrarySessionCallback> {
-        public BuilderImpl(Context context, MediaLibrarySessionBuilder instance,
-                MediaPlayerInterface player, Executor callbackExecutor,
+        public BuilderImpl(MediaLibraryService2 service, Builder instance,
+                MediaPlayerBase player, Executor callbackExecutor,
                 MediaLibrarySessionCallback callback) {
-            super(context, player);
+            super(service, player);
             setSessionCallback_impl(callbackExecutor, callback);
         }
 
         @Override
         public MediaLibrarySession build_impl() {
-            return new MediaLibrarySessionImpl(mContext, mPlayer, mId, mVolumeProvider, mRatingType,
+            return new MediaLibrarySessionImpl(mContext, mPlayer, mId, mVolumeProvider,
                     mSessionActivity, mCallbackExecutor, mCallback).getInstance();
         }
     }

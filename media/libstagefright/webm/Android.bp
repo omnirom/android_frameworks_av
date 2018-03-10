@@ -27,11 +27,28 @@ cc_library_static {
         "WebmWriter.cpp",
     ],
 
-    include_dirs: ["frameworks/av/include"],
+    include_dirs: [
+        "frameworks/av/include",
+        "frameworks/av/media/libmediaextractor",
+        "frameworks/av/media/libstagefright/mpeg2ts",
+        "frameworks/av/media/libavextensions",
+        "frameworks/native/include/media/hardware",
+        "frameworks/native/include/media/openmax",
+        "frameworks/av/media/libstagefright/include",
+    ],
 
     shared_libs: [
         "libstagefright_foundation",
         "libutils",
         "liblog",
+        "libhidlbase",
+        "liblog",
+        "libui",
+        "libgui",
+        "libmediadrm",
+        "libnativewindow",
+        "libcrypto",
+        "android.hardware.media.omx@1.0",
+        "libhidlmemory",
     ],
 }

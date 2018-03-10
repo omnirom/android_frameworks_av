@@ -351,7 +351,7 @@ static sp<ABuffer> FindNAL(const uint8_t *data, size_t size, unsigned nalType) {
     const uint8_t *nalStart;
     size_t nalSize;
     while (getNextNALUnit(&data, &size, &nalStart, &nalSize, true) == OK) {
-        if ((nalStart[0] & 0x1f) == nalType) {
+        if (nalSize > 0 && (nalStart[0] & 0x1f) == nalType) {
             sp<ABuffer> buffer = new ABuffer(nalSize);
             memcpy(buffer->data(), nalStart, nalSize);
             return buffer;
@@ -535,49 +535,6 @@ uint32_t FindAVCLayerId(const uint8_t *data, size_t size) {
         layerId = (*(svcNAL->data() + 3) >> 5) & 0x7;
     }
     return layerId;
-}
-
-sp<ABuffer> MakeAACCodecSpecificData(
-        unsigned profile, unsigned sampling_freq_index,
-        unsigned channel_configuration, int32_t *sampleRate,
-        int32_t *channelCount) {
-    CHECK_LE(sampling_freq_index, 11u);
-    static const int32_t kSamplingFreq[] = {
-        96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
-        16000, 12000, 11025, 8000
-    };
-    *sampleRate = kSamplingFreq[sampling_freq_index];
-    *channelCount = channel_configuration;
-
-    static const uint8_t kStaticESDS[] = {
-        0x03, 22,
-        0x00, 0x00,     // ES_ID
-        0x00,           // streamDependenceFlag, URL_Flag, OCRstreamFlag
-
-        0x04, 17,
-        0x40,                       // Audio ISO/IEC 14496-3
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-
-        0x05, 2,
-        // AudioSpecificInfo follows
-
-        // oooo offf fccc c000
-        // o - audioObjectType
-        // f - samplingFreqIndex
-        // c - channelConfig
-    };
-    sp<ABuffer> csd = new ABuffer(sizeof(kStaticESDS) + 2);
-    memcpy(csd->data(), kStaticESDS, sizeof(kStaticESDS));
-
-    csd->data()[sizeof(kStaticESDS)] =
-        ((profile + 1) << 3) | (sampling_freq_index >> 1);
-
-    csd->data()[sizeof(kStaticESDS) + 1] =
-        ((sampling_freq_index << 7) & 0x80) | (channel_configuration << 3);
-
-    return csd;
 }
 
 bool ExtractDimensionsFromVOLHeader(

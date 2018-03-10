@@ -25,12 +25,12 @@
 #include "XINGSeeker.h"
 
 #include <media/DataSourceBase.h>
-#include <media/MediaSourceBase.h>
+#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/avc_utils.h>
 #include <media/stagefright/foundation/ByteUtils.h>
-#include <media/stagefright/MediaBuffer.h>
+#include <media/stagefright/MediaBufferBase.h>
 #include <media/stagefright/MediaBufferGroup.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
@@ -209,34 +209,34 @@ static bool Resync(
     return valid;
 }
 
-class MP3Source : public MediaSourceBase {
+class MP3Source : public MediaTrack {
 public:
     MP3Source(
-            const sp<MetaData> &meta, DataSourceBase *source,
+            MetaDataBase &meta, DataSourceBase *source,
             off64_t first_frame_pos, uint32_t fixed_header,
-            const sp<MP3Seeker> &seeker);
+            MP3Seeker *seeker);
 
-    virtual status_t start(MetaData *params = NULL);
+    virtual status_t start(MetaDataBase *params = NULL);
     virtual status_t stop();
 
-    virtual sp<MetaData> getFormat();
+    virtual status_t getFormat(MetaDataBase &meta);
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
 
 protected:
     virtual ~MP3Source();
 
 private:
     static const size_t kMaxFrameSize;
-    sp<MetaData> mMeta;
+    MetaDataBase &mMeta;
     DataSourceBase *mDataSource;
     off64_t mFirstFramePos;
     uint32_t mFixedHeader;
     off64_t mCurrentPos;
     int64_t mCurrentTimeUs;
     bool mStarted;
-    sp<MP3Seeker> mSeeker;
+    MP3Seeker *mSeeker;
     MediaBufferGroup *mGroup;
 
     int64_t mBasisTimeUs;
@@ -246,31 +246,31 @@ private:
     MP3Source &operator=(const MP3Source &);
 };
 
+struct Mp3Meta {
+    off64_t pos;
+    off64_t post_id3_pos;
+    uint32_t header;
+};
+
 MP3Extractor::MP3Extractor(
-        DataSourceBase *source, const sp<AMessage> &meta)
+        DataSourceBase *source, Mp3Meta *meta)
     : mInitCheck(NO_INIT),
       mDataSource(source),
       mFirstFramePos(-1),
-      mFixedHeader(0) {
+      mFixedHeader(0),
+      mSeeker(NULL) {
 
     off64_t pos = 0;
     off64_t post_id3_pos;
     uint32_t header;
     bool success;
 
-    int64_t meta_offset;
-    uint32_t meta_header;
-    int64_t meta_post_id3_offset;
-    if (meta != NULL
-            && meta->findInt64("offset", &meta_offset)
-            && meta->findInt32("header", (int32_t *)&meta_header)
-            && meta->findInt64("post-id3-offset", &meta_post_id3_offset)) {
+    if (meta != NULL) {
         // The sniffer has already done all the hard work for us, simply
         // accept its judgement.
-        pos = (off64_t)meta_offset;
-        header = meta_header;
-        post_id3_pos = (off64_t)meta_post_id3_offset;
-
+        pos = meta->pos;
+        header = meta->header;
+        post_id3_pos = meta->post_id3_pos;
         success = true;
     } else {
         success = Resync(mDataSource, 0, &pos, &post_id3_pos, &header);
@@ -283,8 +283,7 @@ MP3Extractor::MP3Extractor(
 
     mFirstFramePos = pos;
     mFixedHeader = header;
-    mMeta = new MetaData;
-    sp<XINGSeeker> seeker = XINGSeeker::CreateFromSource(mDataSource, mFirstFramePos);
+    XINGSeeker *seeker = XINGSeeker::CreateFromSource(mDataSource, mFirstFramePos);
 
     if (seeker == NULL) {
         mSeeker = VBRISeeker::CreateFromSource(mDataSource, post_id3_pos);
@@ -293,8 +292,8 @@ MP3Extractor::MP3Extractor(
         int encd = seeker->getEncoderDelay();
         int encp = seeker->getEncoderPadding();
         if (encd != 0 || encp != 0) {
-            mMeta->setInt32(kKeyEncoderDelay, encd);
-            mMeta->setInt32(kKeyEncoderPadding, encp);
+            mMeta.setInt32(kKeyEncoderDelay, encd);
+            mMeta.setInt32(kKeyEncoderPadding, encp);
         }
     }
 
@@ -330,21 +329,21 @@ MP3Extractor::MP3Extractor(
 
     switch (layer) {
         case 1:
-            mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_I);
+            mMeta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_I);
             break;
         case 2:
-            mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_II);
+            mMeta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_II);
             break;
         case 3:
-            mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
+            mMeta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
             break;
         default:
             TRESPASS();
     }
 
-    mMeta->setInt32(kKeySampleRate, sample_rate);
-    mMeta->setInt32(kKeyBitRate, bitrate * 1000);
-    mMeta->setInt32(kKeyChannelCount, num_channels);
+    mMeta.setInt32(kKeySampleRate, sample_rate);
+    mMeta.setInt32(kKeyBitRate, bitrate * 1000);
+    mMeta.setInt32(kKeyChannelCount, num_channels);
 
     int64_t durationUs;
 
@@ -364,7 +363,7 @@ MP3Extractor::MP3Extractor(
     }
 
     if (durationUs >= 0) {
-        mMeta->setInt64(kKeyDuration, durationUs);
+        mMeta.setInt64(kKeyDuration, durationUs);
     }
 
     mInitCheck = OK;
@@ -391,8 +390,8 @@ MP3Extractor::MP3Extractor(
 
                 int32_t delay, padding;
                 if (sscanf(value, " %*x %x %x %*x", &delay, &padding) == 2) {
-                    mMeta->setInt32(kKeyEncoderDelay, delay);
-                    mMeta->setInt32(kKeyEncoderPadding, padding);
+                    mMeta.setInt32(kKeyEncoderDelay, delay);
+                    mMeta.setInt32(kKeyEncoderPadding, padding);
                 }
                 break;
             }
@@ -403,11 +402,15 @@ MP3Extractor::MP3Extractor(
     }
 }
 
+MP3Extractor::~MP3Extractor() {
+    delete mSeeker;
+}
+
 size_t MP3Extractor::countTracks() {
     return mInitCheck != OK ? 0 : 1;
 }
 
-MediaSourceBase *MP3Extractor::getTrack(size_t index) {
+MediaTrack *MP3Extractor::getTrack(size_t index) {
     if (mInitCheck != OK || index != 0) {
         return NULL;
     }
@@ -417,13 +420,14 @@ MediaSourceBase *MP3Extractor::getTrack(size_t index) {
             mSeeker);
 }
 
-sp<MetaData> MP3Extractor::getTrackMetaData(
+status_t MP3Extractor::getTrackMetaData(
+        MetaDataBase &meta,
         size_t index, uint32_t /* flags */) {
     if (mInitCheck != OK || index != 0) {
-        return NULL;
+        return UNKNOWN_ERROR;
     }
-
-    return mMeta;
+    meta = mMeta;
+    return OK;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -436,9 +440,9 @@ sp<MetaData> MP3Extractor::getTrackMetaData(
 // Set our max frame size to the nearest power of 2 above this size (aka, 4kB)
 const size_t MP3Source::kMaxFrameSize = (1 << 12); /* 4096 bytes */
 MP3Source::MP3Source(
-        const sp<MetaData> &meta, DataSourceBase *source,
+        MetaDataBase &meta, DataSourceBase *source,
         off64_t first_frame_pos, uint32_t fixed_header,
-        const sp<MP3Seeker> &seeker)
+        MP3Seeker *seeker)
     : mMeta(meta),
       mDataSource(source),
       mFirstFramePos(first_frame_pos),
@@ -458,12 +462,12 @@ MP3Source::~MP3Source() {
     }
 }
 
-status_t MP3Source::start(MetaData *) {
+status_t MP3Source::start(MetaDataBase *) {
     CHECK(!mStarted);
 
     mGroup = new MediaBufferGroup;
 
-    mGroup->add_buffer(new MediaBuffer(kMaxFrameSize));
+    mGroup->add_buffer(MediaBufferBase::Create(kMaxFrameSize));
 
     mCurrentPos = mFirstFramePos;
     mCurrentTimeUs = 0;
@@ -487,12 +491,13 @@ status_t MP3Source::stop() {
     return OK;
 }
 
-sp<MetaData> MP3Source::getFormat() {
-    return mMeta;
+status_t MP3Source::getFormat(MetaDataBase &meta) {
+    meta = mMeta;
+    return OK;
 }
 
 status_t MP3Source::read(
-        MediaBuffer **out, const ReadOptions *options) {
+        MediaBufferBase **out, const ReadOptions *options) {
     *out = NULL;
 
     int64_t seekTimeUs;
@@ -504,7 +509,7 @@ status_t MP3Source::read(
         if (mSeeker == NULL
                 || !mSeeker->getOffsetForTime(&actualSeekTimeUs, &mCurrentPos)) {
             int32_t bitrate;
-            if (!mMeta->findInt32(kKeyBitRate, &bitrate)) {
+            if (!mMeta.findInt32(kKeyBitRate, &bitrate)) {
                 // bitrate is in bits/sec.
                 ALOGI("no bitrate");
 
@@ -522,7 +527,7 @@ status_t MP3Source::read(
         mSamplesRead = 0;
     }
 
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     status_t err = mGroup->acquire_buffer(&buffer);
     if (err != OK) {
         return err;
@@ -587,8 +592,8 @@ status_t MP3Source::read(
 
     buffer->set_range(0, frame_size);
 
-    buffer->meta_data()->setInt64(kKeyTime, mCurrentTimeUs);
-    buffer->meta_data()->setInt32(kKeyIsSyncFrame, 1);
+    buffer->meta_data().setInt64(kKeyTime, mCurrentTimeUs);
+    buffer->meta_data().setInt32(kKeyIsSyncFrame, 1);
 
     mCurrentPos += frame_size;
 
@@ -600,19 +605,17 @@ status_t MP3Source::read(
     return OK;
 }
 
-sp<MetaData> MP3Extractor::getMetaData() {
-    sp<MetaData> meta = new MetaData;
-
+status_t MP3Extractor::getMetaData(MetaDataBase &meta) {
+    meta.clear();
     if (mInitCheck != OK) {
-        return meta;
+        return UNKNOWN_ERROR;
     }
-
-    meta->setCString(kKeyMIMEType, "audio/mpeg");
+    meta.setCString(kKeyMIMEType, "audio/mpeg");
 
     ID3 id3(mDataSource);
 
     if (!id3.isValid()) {
-        return meta;
+        return OK;
     }
 
     struct Map {
@@ -651,7 +654,7 @@ sp<MetaData> MP3Extractor::getMetaData() {
         it->getString(&s);
         delete it;
 
-        meta->setCString(kMap[i].key, s);
+        meta.setCString(kMap[i].key, s);
     }
 
     size_t dataSize;
@@ -659,22 +662,23 @@ sp<MetaData> MP3Extractor::getMetaData() {
     const void *data = id3.getAlbumArt(&dataSize, &mime);
 
     if (data) {
-        meta->setData(kKeyAlbumArt, MetaData::TYPE_NONE, data, dataSize);
-        meta->setCString(kKeyAlbumArtMIME, mime.string());
+        meta.setData(kKeyAlbumArt, MetaData::TYPE_NONE, data, dataSize);
+        meta.setCString(kKeyAlbumArtMIME, mime.string());
     }
 
-    return meta;
+    return OK;
 }
 
 static MediaExtractor* CreateExtractor(
         DataSourceBase *source,
-        const sp<AMessage>& meta) {
-    return new MP3Extractor(source, meta);
+        void *meta) {
+    Mp3Meta *metaData = static_cast<Mp3Meta *>(meta);
+    return new MP3Extractor(source, metaData);
 }
 
 static MediaExtractor::CreatorFunc Sniff(
-        DataSourceBase *source, String8 *mimeType,
-        float *confidence, sp<AMessage> *meta) {
+        DataSourceBase *source, float *confidence, void **meta,
+        MediaExtractor::FreeMetaFunc *freeMeta) {
     off64_t pos = 0;
     off64_t post_id3_pos;
     uint32_t header;
@@ -691,12 +695,13 @@ static MediaExtractor::CreatorFunc Sniff(
         return NULL;
     }
 
-    *meta = new AMessage;
-    (*meta)->setInt64("offset", pos);
-    (*meta)->setInt32("header", header);
-    (*meta)->setInt64("post-id3-offset", post_id3_pos);
+    Mp3Meta *mp3Meta = new Mp3Meta;
+    mp3Meta->pos = pos;
+    mp3Meta->header = header;
+    mp3Meta->post_id3_pos = post_id3_pos;
+    *meta = mp3Meta;
+    *freeMeta = ::free;
 
-    *mimeType = MEDIA_MIMETYPE_AUDIO_MPEG;
     *confidence = 0.2f;
 
     return CreateExtractor;

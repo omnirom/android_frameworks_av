@@ -96,7 +96,7 @@ const String8& Camera3Device::getId() const {
     return mId;
 }
 
-status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
+status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const String8& monitorTags) {
     ATRACE_CALL();
     Mutex::Autolock il(mInterfaceLock);
     Mutex::Autolock l(mLock);
@@ -169,6 +169,10 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
     mInterface = new HalInterface(session, queue);
     std::string providerType;
     mVendorTagId = manager->getProviderTagIdLocked(mId.string());
+    mTagMonitor.initialize(mVendorTagId);
+    if (!monitorTags.isEmpty()) {
+        mTagMonitor.parseTagsToMonitor(String8(monitorTags));
+    }
 
     return initializeCommonLocked();
 }
@@ -191,8 +195,6 @@ status_t Camera3Device::initializeCommonLocked() {
 
     /** Create buffer manager */
     mBufferManager = new Camera3BufferManager();
-
-    mTagMonitor.initialize(mVendorTagId);
 
     Vector<int32_t> sessionParamKeys;
     camera_metadata_entry_t sessionKeysEntry = mDeviceInfo.find(
@@ -582,13 +584,12 @@ status_t Camera3Device::dump(int fd, const Vector<String16> &args) {
     bool dumpTemplates = false;
 
     String16 templatesOption("-t");
-    String16 monitorOption("-m");
     int n = args.size();
     for (int i = 0; i < n; i++) {
         if (args[i] == templatesOption) {
             dumpTemplates = true;
         }
-        if (args[i] == monitorOption) {
+        if (args[i] == TagMonitor::kMonitorOption) {
             if (i + 1 < n) {
                 String8 monitorTags = String8(args[i + 1]);
                 if (monitorTags == "off") {
@@ -676,8 +677,6 @@ status_t Camera3Device::dump(int fd, const Vector<String16> &args) {
             "TEMPLATE_VIDEO_SNAPSHOT",
             "TEMPLATE_ZERO_SHUTTER_LAG",
             "TEMPLATE_MANUAL",
-            "TEMPLATE_MOTION_TRACKING_PREVIEW",
-            "TEMPALTE_MOTION_TRACKING_BEST"
         };
 
         for (int i = 1; i < CAMERA3_TEMPLATE_COUNT; i++) {
@@ -3435,65 +3434,31 @@ status_t Camera3Device::HalInterface::constructDefaultRequestSettings(
             }
         };
     hardware::Return<void> err;
-    if (mHidlSession_3_4 != nullptr) {
-        device::V3_4::RequestTemplate id;
-        switch (templateId) {
-            case CAMERA3_TEMPLATE_PREVIEW:
-                id = device::V3_4::RequestTemplate::PREVIEW;
-                break;
-            case CAMERA3_TEMPLATE_STILL_CAPTURE:
-                id = device::V3_4::RequestTemplate::STILL_CAPTURE;
-                break;
-            case CAMERA3_TEMPLATE_VIDEO_RECORD:
-                id = device::V3_4::RequestTemplate::VIDEO_RECORD;
-                break;
-            case CAMERA3_TEMPLATE_VIDEO_SNAPSHOT:
-                id = device::V3_4::RequestTemplate::VIDEO_SNAPSHOT;
-                break;
-            case CAMERA3_TEMPLATE_ZERO_SHUTTER_LAG:
-                id = device::V3_4::RequestTemplate::ZERO_SHUTTER_LAG;
-                break;
-            case CAMERA3_TEMPLATE_MANUAL:
-                id = device::V3_4::RequestTemplate::MANUAL;
-                break;
-            case CAMERA3_TEMPLATE_MOTION_TRACKING_PREVIEW:
-                id = device::V3_4::RequestTemplate::MOTION_TRACKING_PREVIEW;
-                break;
-            case CAMERA3_TEMPLATE_MOTION_TRACKING_BEST:
-                id = device::V3_4::RequestTemplate::MOTION_TRACKING_BEST;
-                break;
-            default:
-                // Unknown template ID
-                return BAD_VALUE;
-        }
-        err = mHidlSession_3_4->constructDefaultRequestSettings_3_4(id, requestCallback);
-    } else {
-        RequestTemplate id;
-        switch (templateId) {
-            case CAMERA3_TEMPLATE_PREVIEW:
-                id = RequestTemplate::PREVIEW;
-                break;
-            case CAMERA3_TEMPLATE_STILL_CAPTURE:
-                id = RequestTemplate::STILL_CAPTURE;
-                break;
-            case CAMERA3_TEMPLATE_VIDEO_RECORD:
-                id = RequestTemplate::VIDEO_RECORD;
-                break;
-            case CAMERA3_TEMPLATE_VIDEO_SNAPSHOT:
-                id = RequestTemplate::VIDEO_SNAPSHOT;
-                break;
-            case CAMERA3_TEMPLATE_ZERO_SHUTTER_LAG:
-                id = RequestTemplate::ZERO_SHUTTER_LAG;
-                break;
-            case CAMERA3_TEMPLATE_MANUAL:
-                id = RequestTemplate::MANUAL;
-                break;
-            default:
-                // Unknown template ID, or this HAL is too old to support it
-                return BAD_VALUE;
-        }
-        err = mHidlSession->constructDefaultRequestSettings(id, requestCallback);
+    RequestTemplate id;
+    switch (templateId) {
+        case CAMERA3_TEMPLATE_PREVIEW:
+            id = RequestTemplate::PREVIEW;
+            break;
+        case CAMERA3_TEMPLATE_STILL_CAPTURE:
+            id = RequestTemplate::STILL_CAPTURE;
+            break;
+        case CAMERA3_TEMPLATE_VIDEO_RECORD:
+            id = RequestTemplate::VIDEO_RECORD;
+            break;
+        case CAMERA3_TEMPLATE_VIDEO_SNAPSHOT:
+            id = RequestTemplate::VIDEO_SNAPSHOT;
+            break;
+        case CAMERA3_TEMPLATE_ZERO_SHUTTER_LAG:
+            id = RequestTemplate::ZERO_SHUTTER_LAG;
+            break;
+        case CAMERA3_TEMPLATE_MANUAL:
+            id = RequestTemplate::MANUAL;
+            break;
+        default:
+            // Unknown template ID, or this HAL is too old to support it
+            return BAD_VALUE;
     }
+    err = mHidlSession->constructDefaultRequestSettings(id, requestCallback);
 
     if (!err.isOk()) {
         ALOGE("%s: Transaction error: %s", __FUNCTION__, err.description().c_str());
@@ -3864,21 +3829,27 @@ status_t Camera3Device::HalInterface::processBatchCaptureRequests(
         if (hidlSession_3_4 != nullptr) {
             captureRequests_3_4[i].physicalCameraSettings.resize(request->num_physcam_settings);
             for (size_t j = 0; j < request->num_physcam_settings; j++) {
-                size_t settingsSize = get_camera_metadata_size(request->physcam_settings[j]);
-                if (mRequestMetadataQueue != nullptr && mRequestMetadataQueue->write(
-                            reinterpret_cast<const uint8_t*>(request->physcam_settings[j]),
-                            settingsSize)) {
-                    captureRequests_3_4[i].physicalCameraSettings[j].settings.resize(0);
-                    captureRequests_3_4[i].physicalCameraSettings[j].fmqSettingsSize = settingsSize;
-                } else {
-                    if (mRequestMetadataQueue != nullptr) {
-                        ALOGW("%s: couldn't utilize fmq, fallback to hwbinder", __FUNCTION__);
+                if (request->physcam_settings != nullptr) {
+                    size_t settingsSize = get_camera_metadata_size(request->physcam_settings[j]);
+                    if (mRequestMetadataQueue != nullptr && mRequestMetadataQueue->write(
+                                reinterpret_cast<const uint8_t*>(request->physcam_settings[j]),
+                                settingsSize)) {
+                        captureRequests_3_4[i].physicalCameraSettings[j].settings.resize(0);
+                        captureRequests_3_4[i].physicalCameraSettings[j].fmqSettingsSize =
+                            settingsSize;
+                    } else {
+                        if (mRequestMetadataQueue != nullptr) {
+                            ALOGW("%s: couldn't utilize fmq, fallback to hwbinder", __FUNCTION__);
+                        }
+                        captureRequests_3_4[i].physicalCameraSettings[j].settings.setToExternal(
+                                reinterpret_cast<uint8_t*>(const_cast<camera_metadata_t*>(
+                                        request->physcam_settings[j])),
+                                get_camera_metadata_size(request->physcam_settings[j]));
+                        captureRequests_3_4[i].physicalCameraSettings[j].fmqSettingsSize = 0u;
                     }
-                    captureRequests_3_4[i].physicalCameraSettings[j].settings.setToExternal(
-                            reinterpret_cast<uint8_t*>(const_cast<camera_metadata_t*>(
-                                    request->physcam_settings[j])),
-                            get_camera_metadata_size(request->physcam_settings[j]));
+                } else {
                     captureRequests_3_4[i].physicalCameraSettings[j].fmqSettingsSize = 0u;
+                    captureRequests_3_4[i].physicalCameraSettings[j].settings.resize(0);
                 }
                 captureRequests_3_4[i].physicalCameraSettings[j].physicalCameraId =
                     request->physcam_id[j];
@@ -4716,7 +4687,8 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
         mPrevTriggers = triggerCount;
 
         // If the request is the same as last, or we had triggers last time
-        if (mPrevRequest != captureRequest || triggersMixedIn) {
+        bool newRequest = mPrevRequest != captureRequest || triggersMixedIn;
+        if (newRequest) {
             /**
              * HAL workaround:
              * Insert a dummy trigger ID if a trigger is set but no trigger ID is
@@ -4761,14 +4733,20 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
         if (captureRequest->mSettingsList.size() > 1) {
             halRequest->num_physcam_settings = captureRequest->mSettingsList.size() - 1;
             halRequest->physcam_id = new const char* [halRequest->num_physcam_settings];
-            halRequest->physcam_settings =
-                new const camera_metadata* [halRequest->num_physcam_settings];
+            if (newRequest) {
+                halRequest->physcam_settings =
+                    new const camera_metadata* [halRequest->num_physcam_settings];
+            } else {
+                halRequest->physcam_settings = nullptr;
+            }
             auto it = ++captureRequest->mSettingsList.begin();
             size_t i = 0;
             for (; it != captureRequest->mSettingsList.end(); it++, i++) {
                 halRequest->physcam_id[i] = it->cameraId.c_str();
-                it->metadata.sort();
-                halRequest->physcam_settings[i] = it->metadata.getAndLock();
+                if (newRequest) {
+                    it->metadata.sort();
+                    halRequest->physcam_settings[i] = it->metadata.getAndLock();
+                }
             }
         }
 

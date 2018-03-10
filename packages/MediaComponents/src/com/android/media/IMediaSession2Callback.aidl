@@ -36,7 +36,7 @@ oneway interface IMediaSession2Callback {
 
     // TODO(jaewan): Handle when the playlist becomes too huge.
     void onConnected(IMediaSession2 sessionBinder, in Bundle commandGroup, in Bundle playbackState,
-            in Bundle playbackInfo, in Bundle params, in List<Bundle> playlist, int ratingType,
+            in Bundle playbackInfo, in Bundle params, in List<Bundle> playlist,
             in PendingIntent sessionActivity);
     void onDisconnected();
 
@@ -47,5 +47,12 @@ oneway interface IMediaSession2Callback {
     //////////////////////////////////////////////////////////////////////////////////////////////
     // Browser sepcific
     //////////////////////////////////////////////////////////////////////////////////////////////
-    void onGetRootResult(in Bundle rootHints, String rootMediaId, in Bundle rootExtra);
+    void onGetLibraryRootDone(in Bundle rootHints, String rootMediaId, in Bundle rootExtra);
+    void onGetItemDone(String mediaId, in Bundle result);
+    void onChildrenChanged(String rootMediaId, int itemCount, in Bundle extras);
+    void onGetChildrenDone(String parentId, int page, int pageSize, in List<Bundle> result,
+            in Bundle extras);
+    void onSearchResultChanged(String query, int itemCount, in Bundle extras);
+    void onGetSearchResultDone(String query, int page, int pageSize, in List<Bundle> result,
+            in Bundle extras);
 }

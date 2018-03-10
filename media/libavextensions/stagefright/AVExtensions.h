@@ -144,7 +144,11 @@ struct AVUtils {
     virtual void extractCustomCameraKeys(
             const CameraParameters& /*params*/, sp<MetaData> &/*meta*/) {}
     virtual void printFileName(int /*fd*/) {}
+
+    // deprecate this and use one with MediaBufferBase
     virtual void addDecodingTimesFromBatch(MediaBuffer * /*buf*/,
+            List<int64_t> &/*decodeTimeQueue*/) {}
+    virtual void addDecodingTimesFromBatch(MediaBufferBase * /*buf*/,
             List<int64_t> &/*decodeTimeQueue*/) {}
 
     virtual bool canDeferRelease(const sp<MetaData> &/*meta*/) { return false; }
