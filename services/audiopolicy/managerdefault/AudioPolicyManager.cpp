@@ -67,7 +67,9 @@ status_t AudioPolicyManager::setDeviceConnectionState(audio_devices_t device,
                                                       const char *device_address,
                                                       const char *device_name)
 {
-    return setDeviceConnectionStateInt(device, state, device_address, device_name);
+    status_t status = setDeviceConnectionStateInt(device, state, device_address, device_name);
+    nextAudioPortGeneration();
+    return status;
 }
 
 void AudioPolicyManager::broadcastDeviceConnectionState(audio_devices_t device,
@@ -3501,7 +3503,7 @@ uint32_t AudioPolicyManager::nextAudioPortGeneration()
 #ifdef USE_XML_AUDIO_POLICY_CONF
 // Treblized audio policy xml config will be located in /odm/etc or /vendor/etc.
 static const char *kConfigLocationList[] =
-        {"/odm/etc", "/vendor/etc", "/system/etc"};
+        {"/odm/etc", "/vendor/etc/audio", "/vendor/etc", "/system/etc"};
 static const int kConfigLocationListSize =
         (sizeof(kConfigLocationList) / sizeof(kConfigLocationList[0]));
 
@@ -3789,9 +3791,11 @@ status_t AudioPolicyManager::initCheck()
 
 // ---
 
-void AudioPolicyManager::addOutput(audio_io_handle_t output, const sp<SwAudioOutputDescriptor>& outputDesc)
+void AudioPolicyManager::addOutput(audio_io_handle_t output,
+                                   const sp<SwAudioOutputDescriptor>& outputDesc)
 {
     mOutputs.add(output, outputDesc);
+    applyStreamVolumes(outputDesc, AUDIO_DEVICE_NONE, 0 /* delayMs */, true /* force */);
     updateMono(output); // update mono status when adding to output list
     selectOutputForMusicEffects();
     nextAudioPortGeneration();
@@ -3803,7 +3807,8 @@ void AudioPolicyManager::removeOutput(audio_io_handle_t output)
     selectOutputForMusicEffects();
 }
 
-void AudioPolicyManager::addInput(audio_io_handle_t input, const sp<AudioInputDescriptor>& inputDesc)
+void AudioPolicyManager::addInput(audio_io_handle_t input,
+                                  const sp<AudioInputDescriptor>& inputDesc)
 {
     mInputs.add(input, inputDesc);
     nextAudioPortGeneration();
@@ -3953,27 +3958,16 @@ status_t AudioPolicyManager::checkOutputsForDevice(const sp<DeviceDescriptor>& d
                         // outputs used by dynamic policy mixes
                         audio_io_handle_t duplicatedOutput = AUDIO_IO_HANDLE_NONE;
 
-                        // set initial stream volume for device
-                        applyStreamVolumes(desc, device, 0, true);
-
                         //TODO: configure audio effect output stage here
 
                         // open a duplicating output thread for the new output and the primary output
-                        duplicatedOutput =
-                                mpClientInterface->openDuplicateOutput(output,
-                                                                       mPrimaryOutput->mIoHandle);
-                        if (duplicatedOutput != AUDIO_IO_HANDLE_NONE) {
+                        sp<SwAudioOutputDescriptor> dupOutputDesc =
+                                new SwAudioOutputDescriptor(NULL, mpClientInterface);
+                        status_t status = dupOutputDesc->openDuplicating(mPrimaryOutput, desc,
+                                                                         &duplicatedOutput);
+                        if (status == NO_ERROR) {
                             // add duplicated output descriptor
-                            sp<SwAudioOutputDescriptor> dupOutputDesc =
-                                    new SwAudioOutputDescriptor(NULL, mpClientInterface);
-                            dupOutputDesc->mOutput1 = mPrimaryOutput;
-                            dupOutputDesc->mOutput2 = desc;
-                            dupOutputDesc->mSamplingRate = desc->mSamplingRate;
-                            dupOutputDesc->mFormat = desc->mFormat;
-                            dupOutputDesc->mChannelMask = desc->mChannelMask;
-                            dupOutputDesc->mLatency = desc->mLatency;
                             addOutput(duplicatedOutput, dupOutputDesc);
-                            applyStreamVolumes(dupOutputDesc, device, 0, true);
                         } else {
                             ALOGW("checkOutputsForDevice() could not open dup output for %d and %d",
                                     mPrimaryOutput->mIoHandle, output);
@@ -5034,7 +5028,23 @@ sp<IOProfile> AudioPolicyManager::getInputProfile(audio_devices_t device,
                                              &format /*updatedFormat*/,
                                              channelMask,
                                              &channelMask /*updatedChannelMask*/,
-                                             (audio_output_flags_t) flags)) {
+                                             (audio_output_flags_t) flags,
+                                             true)) {
+
+                return profile;
+            }
+        }
+
+        for (const auto& profile : hwModule->getInputProfiles()) {
+            // profile->log();
+            if (profile->isCompatibleProfile(device, address, samplingRate,
+                                             &samplingRate /*updatedSamplingRate*/,
+                                             format,
+                                             &format /*updatedFormat*/,
+                                             channelMask,
+                                             &channelMask /*updatedChannelMask*/,
+                                             (audio_output_flags_t) flags,
+                                              false)) {
 
                 return profile;
             }

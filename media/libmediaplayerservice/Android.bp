@@ -49,7 +49,6 @@ cc_library_shared {
 
     whole_static_libs: [
         "libavmediaserviceextensions",
-        "libavextensions",
     ],
 
     export_shared_lib_headers: ["libmedia"],

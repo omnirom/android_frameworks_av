@@ -23,7 +23,6 @@
 #include <media/MediaAnalyticsItem.h>
 #include <media/MediaExtractor.h>
 #include <media/stagefright/foundation/AMessage.h>
-#include <media/stagefright/FileSource.h>
 #include <media/stagefright/InterfaceUtils.h>
 #include <media/stagefright/MediaExtractorFactory.h>
 #include <media/IMediaExtractor.h>
@@ -40,7 +39,7 @@ namespace android {
 // static
 sp<IMediaExtractor> MediaExtractorFactory::Create(
         const sp<DataSource> &source, const char *mime) {
-    ALOGV("MediaExtractorFactory::%s %s", __func__, mime);
+    ALOGV("MediaExtractorFactory::Create %s", mime);
 
     if (!property_get_bool("media.stagefright.extractremote", true)) {
         // local extractor
@@ -64,44 +63,6 @@ sp<IMediaExtractor> MediaExtractorFactory::Create(
     return NULL;
 }
 
-// static
-sp<IMediaExtractor> MediaExtractorFactory::CreateFromFd(
-        int fd, int64_t offset, int64_t length, const char *mime, sp<DataSource> *out) {
-    ALOGV("MediaExtractorFactory::%s %s", __func__, mime);
-
-    if (property_get_bool("media.stagefright.extractremote", true)) {
-        // remote extractor
-        ALOGV("get service manager");
-        sp<IBinder> binder = defaultServiceManager()->getService(String16("media.extractor"));
-
-        if (binder != 0) {
-            sp<IMediaExtractorService> mediaExService(
-                    interface_cast<IMediaExtractorService>(binder));
-            if (!FileSource::requiresDrm(fd, offset, length, nullptr /* mime */)) {
-                ALOGD("FileSource remote");
-                sp<IDataSource> remoteSource =
-                    mediaExService->makeIDataSource(fd, offset, length);
-                ALOGV("IDataSource(FileSource): %p %d %lld %lld",
-                        remoteSource.get(), fd, (long long)offset, (long long)length);
-                if (remoteSource.get() != nullptr) {
-                    // replace the caller's local source with remote source.
-                    *out = CreateDataSourceFromIDataSource(remoteSource);
-                    return mediaExService->makeExtractor(remoteSource, mime);
-                } else {
-                    ALOGW("extractor service cannot make file source."
-                            " falling back to local file source.");
-                }
-            }
-            // Falls back.
-        } else {
-            ALOGE("extractor service not running");
-            return nullptr;
-        }
-    }
-    *out = new FileSource(fd, offset, length);
-    return Create(*out, mime);
-}
-
 sp<IMediaExtractor> MediaExtractorFactory::CreateFromService(
         const sp<DataSource> &source, const char *mime) {
 
@@ -112,23 +73,25 @@ sp<IMediaExtractor> MediaExtractorFactory::CreateFromService(
     // initialize source decryption if needed
     source->DrmInitialization(nullptr /* mime */);
 
-    sp<AMessage> meta;
-
+    void *meta = nullptr;
     MediaExtractor::CreatorFunc creator = NULL;
-    String8 tmp;
+    MediaExtractor::FreeMetaFunc freeMeta = nullptr;
     float confidence;
     sp<ExtractorPlugin> plugin;
-    creator = sniff(source.get(), &tmp, &confidence, &meta, plugin);
+    creator = sniff(source.get(), &confidence, &meta, &freeMeta, plugin);
     if (!creator) {
         ALOGV("FAILED to autodetect media content.");
         return NULL;
     }
 
-    mime = tmp.string();
-    ALOGV("Autodetected media content as '%s' with confidence %.2f",
-         mime, confidence);
-
     MediaExtractor *ret = creator(source.get(), meta);
+    if (meta != nullptr && freeMeta != nullptr) {
+        freeMeta(meta);
+    }
+
+    ALOGV("Created an extractor '%s' with confidence %.2f",
+         ret != nullptr ? ret->name() : "<null>", confidence);
+
     return CreateIMediaExtractorFromMediaExtractor(ret, source, plugin);
 }
 
@@ -165,11 +128,10 @@ bool MediaExtractorFactory::gPluginsRegistered = false;
 
 // static
 MediaExtractor::CreatorFunc MediaExtractorFactory::sniff(
-        DataSourceBase *source, String8 *mimeType, float *confidence, sp<AMessage> *meta,
-        sp<ExtractorPlugin> &plugin) {
-    *mimeType = "";
+        DataSourceBase *source, float *confidence, void **meta,
+        MediaExtractor::FreeMetaFunc *freeMeta, sp<ExtractorPlugin> &plugin) {
     *confidence = 0.0f;
-    meta->clear();
+    *meta = nullptr;
 
     std::shared_ptr<List<sp<ExtractorPlugin>>> plugins;
     {
@@ -183,16 +145,23 @@ MediaExtractor::CreatorFunc MediaExtractorFactory::sniff(
     MediaExtractor::CreatorFunc curCreator = NULL;
     MediaExtractor::CreatorFunc bestCreator = NULL;
     for (auto it = plugins->begin(); it != plugins->end(); ++it) {
-        String8 newMimeType;
         float newConfidence;
-        sp<AMessage> newMeta;
-        if ((curCreator = (*it)->def.sniff(source, &newMimeType, &newConfidence, &newMeta))) {
+        void *newMeta = nullptr;
+        MediaExtractor::FreeMetaFunc newFreeMeta = nullptr;
+        if ((curCreator = (*it)->def.sniff(source, &newConfidence, &newMeta, &newFreeMeta))) {
             if (newConfidence > *confidence) {
-                *mimeType = newMimeType;
                 *confidence = newConfidence;
+                if (*meta != nullptr && *freeMeta != nullptr) {
+                    (*freeMeta)(*meta);
+                }
                 *meta = newMeta;
+                *freeMeta = newFreeMeta;
                 plugin = *it;
                 bestCreator = curCreator;
+            } else {
+                if (newMeta != nullptr && newFreeMeta != nullptr) {
+                    newFreeMeta(newMeta);
+                }
             }
         }
     }

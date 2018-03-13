@@ -24,16 +24,22 @@
 #include <C2PlatformSupport.h>
 #include <C2V4l2Support.h>
 
+#include <android/IOMXBufferSource.h>
+#include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
 #include <gui/Surface.h>
+#include <media/stagefright/codec2/1.0/InputSurface.h>
 #include <media/stagefright/BufferProducerWrapper.h>
 #include <media/stagefright/CCodec.h>
 #include <media/stagefright/PersistentSurface.h>
 
+#include "include/C2OMXNode.h"
 #include "include/CCodecBufferChannel.h"
-
-using namespace std::chrono_literals;
+#include "include/InputSurfaceWrapper.h"
 
 namespace android {
+
+using namespace std::chrono_literals;
+using ::android::hardware::graphics::bufferqueue::V1_0::utils::H2BGraphicBufferProducer;
 
 namespace {
 
@@ -146,6 +152,76 @@ private:
     wp<CCodec> mCodec;
 };
 
+class C2InputSurfaceWrapper : public InputSurfaceWrapper {
+public:
+    explicit C2InputSurfaceWrapper(const sp<InputSurface> &surface) : mSurface(surface) {}
+    ~C2InputSurfaceWrapper() override = default;
+
+    status_t connect(const std::shared_ptr<C2Component> &comp) override {
+        if (mConnection != nullptr) {
+            return ALREADY_EXISTS;
+        }
+        mConnection = mSurface->connectToComponent(comp);
+        return OK;
+    }
+
+    void disconnect() override {
+        if (mConnection != nullptr) {
+            mConnection->disconnect();
+            mConnection.clear();
+        }
+    }
+
+private:
+    sp<InputSurface> mSurface;
+    sp<InputSurfaceConnection> mConnection;
+};
+
+class GraphicBufferSourceWrapper : public InputSurfaceWrapper {
+public:
+    explicit GraphicBufferSourceWrapper(const sp<IGraphicBufferSource> &source) : mSource(source) {}
+    ~GraphicBufferSourceWrapper() override = default;
+
+    status_t connect(const std::shared_ptr<C2Component> &comp) override {
+        // TODO: proper color aspect & dataspace
+        android_dataspace dataSpace = HAL_DATASPACE_BT709;
+
+        mNode = new C2OMXNode(comp);
+        mSource->configure(mNode, dataSpace);
+
+        // TODO: configure according to intf().
+
+        sp<IOMXBufferSource> source = mNode->getSource();
+        if (source == nullptr) {
+            return NO_INIT;
+        }
+        constexpr size_t kNumSlots = 16;
+        for (size_t i = 0; i < kNumSlots; ++i) {
+            source->onInputBufferAdded(i);
+        }
+        source->onOmxExecuting();
+        return OK;
+    }
+
+    void disconnect() override {
+        if (mNode == nullptr) {
+            return;
+        }
+        sp<IOMXBufferSource> source = mNode->getSource();
+        if (source == nullptr) {
+            ALOGD("GBSWrapper::disconnect: node is not configured with OMXBufferSource.");
+            return;
+        }
+        source->onOmxIdle();
+        source->onOmxLoaded();
+        mNode.clear();
+    }
+
+private:
+    sp<IGraphicBufferSource> mSource;
+    sp<C2OMXNode> mNode;
+};
+
 }  // namespace
 
 CCodec::CCodec()
@@ -237,6 +313,19 @@ void CCodec::initiateConfigureComponent(const sp<AMessage> &format) {
 }
 
 void CCodec::configure(const sp<AMessage> &msg) {
+    std::shared_ptr<C2ComponentInterface> intf;
+    {
+        Mutexed<State>::Locked state(mState);
+        if (state->get() != ALLOCATED) {
+            state->set(RELEASED);
+            state.unlock();
+            mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+            state.lock();
+            return;
+        }
+        intf = state->comp->intf();
+    }
+
     sp<AMessage> inputFormat(new AMessage);
     sp<AMessage> outputFormat(new AMessage);
     if (status_t err = [=] {
@@ -256,11 +345,34 @@ void CCodec::configure(const sp<AMessage> &msg) {
             setSurface(surface);
         }
 
+        std::vector<std::unique_ptr<C2Param>> params;
+        std::initializer_list<C2Param::Index> indices {
+            C2PortMimeConfig::input::PARAM_TYPE,
+            C2PortMimeConfig::output::PARAM_TYPE,
+        };
+        c2_status_t c2err = intf->query_vb(
+                {},
+                indices,
+                C2_DONT_BLOCK,
+                &params);
+        if (c2err != C2_OK) {
+            ALOGE("Failed to query component interface: %d", c2err);
+            return UNKNOWN_ERROR;
+        }
+        if (params.size() != indices.size()) {
+            ALOGE("Component returns wrong number of params");
+            return UNKNOWN_ERROR;
+        }
+        if (!params[0] || !params[1]) {
+            ALOGE("Component returns null params");
+            return UNKNOWN_ERROR;
+        }
+        inputFormat->setString("mime", ((C2PortMimeConfig *)params[0].get())->m.value);
+        outputFormat->setString("mime", ((C2PortMimeConfig *)params[1].get())->m.value);
+
         // XXX: hack
         bool audio = mime.startsWithIgnoreCase("audio/");
         if (encoder) {
-            outputFormat->setString("mime", mime);
-            inputFormat->setString("mime", AStringPrintf("%s/raw", audio ? "audio" : "video"));
             if (audio) {
                 inputFormat->setInt32("channel-count", 1);
                 inputFormat->setInt32("sample-rate", 44100);
@@ -271,8 +383,6 @@ void CCodec::configure(const sp<AMessage> &msg) {
                 outputFormat->setInt32("height", 1920);
             }
         } else {
-            inputFormat->setString("mime", mime);
-            outputFormat->setString("mime", AStringPrintf("%s/raw", audio ? "audio" : "video"));
             if (audio) {
                 outputFormat->setInt32("channel-count", 2);
                 outputFormat->setInt32("sample-rate", 44100);
@@ -300,18 +410,18 @@ void CCodec::initiateCreateInputSurface() {
 }
 
 void CCodec::createInputSurface() {
-    sp<IGraphicBufferProducer> producer;
-    sp<GraphicBufferSource> source(new GraphicBufferSource);
+    // TODO: get this from codec process
+    sp<InputSurface> surface(InputSurface::Create());
 
-    status_t err = source->initCheck();
+    // TODO: get proper error code.
+    status_t err = (surface == nullptr) ? UNKNOWN_ERROR : OK;
     if (err != OK) {
-        ALOGE("Failed to initialize graphic buffer source: %d", err);
+        ALOGE("Failed to initialize input surface: %d", err);
         mCallback->onInputSurfaceCreationFailed(err);
         return;
     }
-    producer = source->getIGraphicBufferProducer();
 
-    err = setupInputSurface(source);
+    err = setupInputSurface(std::make_shared<C2InputSurfaceWrapper>(surface));
     if (err != OK) {
         ALOGE("Failed to set up input surface: %d", err);
         mCallback->onInputSurfaceCreationFailed(err);
@@ -328,16 +438,16 @@ void CCodec::createInputSurface() {
     mCallback->onInputSurfaceCreated(
             inputFormat,
             outputFormat,
-            new BufferProducerWrapper(producer));
+            new BufferProducerWrapper(new H2BGraphicBufferProducer(surface)));
 }
 
-status_t CCodec::setupInputSurface(const sp<GraphicBufferSource> &source) {
-    status_t err = mChannel->setGraphicBufferSource(source);
+status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &surface) {
+    status_t err = mChannel->setInputSurface(surface);
     if (err != OK) {
         return err;
     }
 
-    // TODO: configure |source| with other settings.
+    // TODO: configure |surface| with other settings.
     return OK;
 }
 
@@ -348,10 +458,22 @@ void CCodec::initiateSetInputSurface(const sp<PersistentSurface> &surface) {
 }
 
 void CCodec::setInputSurface(const sp<PersistentSurface> &surface) {
-    // TODO
-    (void)surface;
+    status_t err = setupInputSurface(std::make_shared<GraphicBufferSourceWrapper>(
+            surface->getBufferSource()));
+    if (err != OK) {
+        ALOGE("Failed to set up input surface: %d", err);
+        mCallback->onInputSurfaceDeclined(err);
+        return;
+    }
 
-    mCallback->onInputSurfaceDeclined(ERROR_UNSUPPORTED);
+    sp<AMessage> inputFormat;
+    sp<AMessage> outputFormat;
+    {
+        Mutexed<Formats>::Locked formats(mFormats);
+        inputFormat = formats->inputFormat;
+        outputFormat = formats->outputFormat;
+    }
+    mCallback->onInputSurfaceAccepted(inputFormat, outputFormat);
 }
 
 void CCodec::initiateStart() {
@@ -624,7 +746,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
     switch (msg->what()) {
         case kWhatAllocate: {
             // C2ComponentStore::createComponent() should return within 100ms.
-            setDeadline(now + 150ms);
+            setDeadline(now + 150ms, "allocate");
             AString componentName;
             CHECK(msg->findString("componentName", &componentName));
             allocate(componentName);
@@ -632,7 +754,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatConfigure: {
             // C2Component::commit_sm() should return within 5ms.
-            setDeadline(now + 50ms);
+            setDeadline(now + 50ms, "configure");
             sp<AMessage> format;
             CHECK(msg->findMessage("format", &format));
             configure(format);
@@ -640,31 +762,31 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatStart: {
             // C2Component::start() should return within 500ms.
-            setDeadline(now + 550ms);
+            setDeadline(now + 550ms, "start");
             start();
             break;
         }
         case kWhatStop: {
             // C2Component::stop() should return within 500ms.
-            setDeadline(now + 550ms);
+            setDeadline(now + 550ms, "stop");
             stop();
             break;
         }
         case kWhatFlush: {
             // C2Component::flush_sm() should return within 5ms.
-            setDeadline(now + 50ms);
+            setDeadline(now + 50ms, "flush");
             flush();
             break;
         }
         case kWhatCreateInputSurface: {
             // Surface operations may be briefly blocking.
-            setDeadline(now + 100ms);
+            setDeadline(now + 100ms, "createInputSurface");
             createInputSurface();
             break;
         }
         case kWhatSetInputSurface: {
             // Surface operations may be briefly blocking.
-            setDeadline(now + 100ms);
+            setDeadline(now + 100ms, "setInputSurface");
             sp<RefBase> obj;
             CHECK(msg->findObject("surface", &obj));
             sp<PersistentSurface> surface(static_cast<PersistentSurface *>(obj.get()));
@@ -692,25 +814,28 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             break;
         }
     }
-    setDeadline(TimePoint::max());
+    setDeadline(TimePoint::max(), "none");
 }
 
-void CCodec::setDeadline(const TimePoint &newDeadline) {
-    Mutexed<TimePoint>::Locked deadline(mDeadline);
-    *deadline = newDeadline;
+void CCodec::setDeadline(const TimePoint &newDeadline, const char *name) {
+    Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
+    deadline->set(newDeadline, name);
 }
 
 void CCodec::initiateReleaseIfStuck() {
+    std::string name;
     {
-        Mutexed<TimePoint>::Locked deadline(mDeadline);
-        if (*deadline >= std::chrono::steady_clock::now()) {
+        Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
+        if (deadline->get() >= std::chrono::steady_clock::now()) {
             // We're not stuck.
             return;
         }
+        name = deadline->getName();
     }
 
+    ALOGW("previous call to %s exceeded timeout", name.c_str());
     mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
-    initiateRelease();
+    initiateRelease(false);
 }
 
 }  // namespace android

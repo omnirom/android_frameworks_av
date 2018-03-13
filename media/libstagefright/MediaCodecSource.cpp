@@ -60,7 +60,7 @@ struct MediaCodecSource::Puller : public AHandler {
     void pause();
     void resume();
     status_t setStopTimeUs(int64_t stopTimeUs);
-    bool readBuffer(MediaBuffer **buffer);
+    bool readBuffer(MediaBufferBase **buffer);
 
 protected:
     virtual void onMessageReceived(const sp<AMessage> &msg);
@@ -87,14 +87,14 @@ private:
         int64_t mReadPendingSince;
         bool mPaused;
         bool mPulling;
-        Vector<MediaBuffer *> mReadBuffers;
+        Vector<MediaBufferBase *> mReadBuffers;
 
         void flush();
         // if queue is empty, return false and set *|buffer| to NULL . Otherwise, pop
         // buffer from front of the queue, place it into *|buffer| and return true.
-        bool readBuffer(MediaBuffer **buffer);
+        bool readBuffer(MediaBufferBase **buffer);
         // add a buffer to the back of the queue
-        void pushBuffer(MediaBuffer *mbuf);
+        void pushBuffer(MediaBufferBase *mbuf);
     };
     Mutexed<Queue> mQueue;
 
@@ -124,11 +124,11 @@ MediaCodecSource::Puller::~Puller() {
     mLooper->stop();
 }
 
-void MediaCodecSource::Puller::Queue::pushBuffer(MediaBuffer *mbuf) {
+void MediaCodecSource::Puller::Queue::pushBuffer(MediaBufferBase *mbuf) {
     mReadBuffers.push_back(mbuf);
 }
 
-bool MediaCodecSource::Puller::Queue::readBuffer(MediaBuffer **mbuf) {
+bool MediaCodecSource::Puller::Queue::readBuffer(MediaBufferBase **mbuf) {
     if (mReadBuffers.empty()) {
         *mbuf = NULL;
         return false;
@@ -139,14 +139,14 @@ bool MediaCodecSource::Puller::Queue::readBuffer(MediaBuffer **mbuf) {
 }
 
 void MediaCodecSource::Puller::Queue::flush() {
-    MediaBuffer *mbuf;
+    MediaBufferBase *mbuf;
     while (readBuffer(&mbuf)) {
         // there are no null buffers in the queue
         mbuf->release();
     }
 }
 
-bool MediaCodecSource::Puller::readBuffer(MediaBuffer **mbuf) {
+bool MediaCodecSource::Puller::readBuffer(MediaBufferBase **mbuf) {
     Mutexed<Queue>::Locked queue(mQueue);
     return queue->readBuffer(mbuf);
 }
@@ -299,7 +299,7 @@ void MediaCodecSource::Puller::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             queue.unlock();
-            MediaBuffer *mbuf = NULL;
+            MediaBufferBase *mbuf = NULL;
             status_t err = mSource->read(&mbuf);
             queue.lock();
 
@@ -414,7 +414,7 @@ sp<IGraphicBufferProducer> MediaCodecSource::getGraphicBufferProducer() {
 }
 
 status_t MediaCodecSource::read(
-        MediaBuffer** buffer, const ReadOptions* /* options */) {
+        MediaBufferBase** buffer, const ReadOptions* /* options */) {
     Mutexed<Output>::Locked output(mOutput);
 
     *buffer = NULL;
@@ -429,7 +429,7 @@ status_t MediaCodecSource::read(
     return output->mErrorCode;
 }
 
-void MediaCodecSource::signalBufferReturned(MediaBuffer *buffer) {
+void MediaCodecSource::signalBufferReturned(MediaBufferBase *buffer) {
     buffer->setObserver(0);
     buffer->release();
 }
@@ -513,12 +513,12 @@ status_t MediaCodecSource::initEncoder() {
                     MediaCodec::CONFIGURE_FLAG_ENCODE);
     } else {
         Vector<AString> matchingCodecs;
-        MediaCodecList::findMatchingCodecs(
-                outputMIME.c_str(), true /* encoder */,
-                ((mFlags & FLAG_PREFER_SOFTWARE_CODEC) ? MediaCodecList::kPreferSoftwareCodecs : 0),
-                &matchingCodecs);
-        if (matchingCodecs.size() == 0) {
-           AVUtils::get()->useQCHWEncoder(mOutputFormat, &matchingCodecs);
+        bool useQcHwEnc = AVUtils::get()->useQCHWEncoder(mOutputFormat, &matchingCodecs);
+        if (!useQcHwEnc) {
+            MediaCodecList::findMatchingCodecs(
+                    outputMIME.c_str(), true /* encoder */,
+                    ((mFlags & FLAG_PREFER_SOFTWARE_CODEC) ? MediaCodecList::kPreferSoftwareCodecs : 0),
+                    &matchingCodecs);
         }
         for (size_t ix = 0; ix < matchingCodecs.size(); ++ix) {
             mEncoder = MediaCodec::CreateByComponentName(
@@ -639,7 +639,7 @@ void MediaCodecSource::signalEOS(status_t err) {
         if (!reachedEOS) {
             ALOGV("encoder (%s) reached EOS", mIsVideo ? "video" : "audio");
             // release all unread media buffers
-            for (List<MediaBuffer*>::iterator it = output->mBufferQueue.begin();
+            for (List<MediaBufferBase*>::iterator it = output->mBufferQueue.begin();
                     it != output->mBufferQueue.end(); it++) {
                 (*it)->release();
             }
@@ -685,7 +685,7 @@ void MediaCodecSource::resume(int64_t resumeStartTimeUs) {
 }
 
 status_t MediaCodecSource::feedEncoderInputBuffers() {
-    MediaBuffer* mbuf = NULL;
+    MediaBufferBase* mbuf = NULL;
     while (!mAvailEncoderInputIndices.empty() && mPuller->readBuffer(&mbuf)) {
         size_t bufferIndex = *mAvailEncoderInputIndices.begin();
         mAvailEncoderInputIndices.erase(mAvailEncoderInputIndices.begin());
@@ -695,7 +695,7 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
         size_t size = 0;
 
         if (mbuf != NULL) {
-            CHECK(mbuf->meta_data()->findInt64(kKeyTime, &timeUs));
+            CHECK(mbuf->meta_data().findInt64(kKeyTime, &timeUs));
             if (mFirstSampleSystemTimeUs < 0ll) {
                 mFirstSampleSystemTimeUs = systemTime() / 1000;
                 if (mPausePending) {
@@ -721,7 +721,7 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
                     mFirstSampleTimeUs = timeUs;
                 }
                 int64_t driftTimeUs = 0;
-                if (mbuf->meta_data()->findInt64(kKeyDriftTime, &driftTimeUs)
+                if (mbuf->meta_data().findInt64(kKeyDriftTime, &driftTimeUs)
                         && driftTimeUs) {
                     driftTimeUs = timeUs - mFirstSampleTimeUs - driftTimeUs;
                 }
@@ -913,8 +913,9 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             MediaBuffer *mbuf = new MediaBuffer(outbuf->size());
-            sp<MetaData> meta = mbuf->meta_data();
+            sp<MetaData> meta = new MetaData(mbuf->meta_data());
             AVUtils::get()->setDeferRelease(meta);
+
             mbuf->setObserver(this);
             mbuf->add_ref();
 
@@ -945,7 +946,7 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
                         decodingTimeUs = *(mDecodingTimeQueue.begin());
                         mDecodingTimeQueue.erase(mDecodingTimeQueue.begin());
                     }
-                    mbuf->meta_data()->setInt64(kKeyDecodingTime, decodingTimeUs);
+                    mbuf->meta_data().setInt64(kKeyDecodingTime, decodingTimeUs);
 
                     ALOGV("[video] time %" PRId64 " us (%.2f secs), dts/pts diff %" PRId64,
                             timeUs, timeUs / 1E6, decodingTimeUs - timeUs);
@@ -955,18 +956,18 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
                     CHECK(!mDriftTimeQueue.empty());
                     driftTimeUs = *(mDriftTimeQueue.begin());
                     mDriftTimeQueue.erase(mDriftTimeQueue.begin());
-                    mbuf->meta_data()->setInt64(kKeyDriftTime, driftTimeUs);
+                    mbuf->meta_data().setInt64(kKeyDriftTime, driftTimeUs);
 #endif // DEBUG_DRIFT_TIME
                     ALOGV("[audio] time %" PRId64 " us (%.2f secs), drift %" PRId64,
                             timeUs, timeUs / 1E6, driftTimeUs);
                 }
-                mbuf->meta_data()->setInt64(kKeyTime, timeUs);
+                mbuf->meta_data().setInt64(kKeyTime, timeUs);
             } else {
-                mbuf->meta_data()->setInt64(kKeyTime, 0ll);
-                mbuf->meta_data()->setInt32(kKeyIsCodecConfig, true);
+                mbuf->meta_data().setInt64(kKeyTime, 0ll);
+                mbuf->meta_data().setInt32(kKeyIsCodecConfig, true);
             }
             if (flags & MediaCodec::BUFFER_FLAG_SYNCFRAME) {
-                mbuf->meta_data()->setInt32(kKeyIsSyncFrame, true);
+                mbuf->meta_data().setInt32(kKeyIsSyncFrame, true);
             }
             memcpy(mbuf->data(), outbuf->data(), outbuf->size());
 

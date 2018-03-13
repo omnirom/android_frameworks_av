@@ -574,17 +574,13 @@ bool AMediaCryptoWrapper::requiresSecureDecoderComponent(const char *mime) {
 
 //////////// AMediaCodecCryptoInfoWrapper
 // static
-sp<AMediaCodecCryptoInfoWrapper> AMediaCodecCryptoInfoWrapper::Create(sp<MetaData> meta) {
-    if (meta == NULL) {
-        ALOGE("Create: Unexpected. No meta data for sample.");
-        return NULL;
-    }
+sp<AMediaCodecCryptoInfoWrapper> AMediaCodecCryptoInfoWrapper::Create(MetaDataBase &meta) {
 
     uint32_t type;
     const void *crypteddata;
     size_t cryptedsize;
 
-    if (!meta->findData(kKeyEncryptedSizes, &type, &crypteddata, &cryptedsize)) {
+    if (!meta.findData(kKeyEncryptedSizes, &type, &crypteddata, &cryptedsize)) {
         return NULL;
     }
 
@@ -597,7 +593,7 @@ sp<AMediaCodecCryptoInfoWrapper> AMediaCodecCryptoInfoWrapper::Create(sp<MetaDat
 
     const void *cleardata;
     size_t clearsize;
-    if (meta->findData(kKeyPlainSizes, &type, &cleardata, &clearsize)) {
+    if (meta.findData(kKeyPlainSizes, &type, &cleardata, &clearsize)) {
         if (clearsize != cryptedsize) {
             // The two must be of the same length.
             ALOGE("Create: mismatch cryptedsize: %zu != clearsize: %zu", cryptedsize, clearsize);
@@ -607,7 +603,7 @@ sp<AMediaCodecCryptoInfoWrapper> AMediaCodecCryptoInfoWrapper::Create(sp<MetaDat
 
     const void *key;
     size_t keysize;
-    if (meta->findData(kKeyCryptoKey, &type, &key, &keysize)) {
+    if (meta.findData(kKeyCryptoKey, &type, &key, &keysize)) {
         if (keysize != kAESBlockSize) {
             // Keys must be 16 bytes in length.
             ALOGE("Create: Keys must be %zu bytes in length: %zu", kAESBlockSize, keysize);
@@ -617,7 +613,7 @@ sp<AMediaCodecCryptoInfoWrapper> AMediaCodecCryptoInfoWrapper::Create(sp<MetaDat
 
     const void *iv;
     size_t ivsize;
-    if (meta->findData(kKeyCryptoIV, &type, &iv, &ivsize)) {
+    if (meta.findData(kKeyCryptoIV, &type, &iv, &ivsize)) {
         if (ivsize != kAESBlockSize) {
             // IVs must be 16 bytes in length.
             ALOGE("Create: IV must be %zu bytes in length: %zu", kAESBlockSize, ivsize);
@@ -626,7 +622,7 @@ sp<AMediaCodecCryptoInfoWrapper> AMediaCodecCryptoInfoWrapper::Create(sp<MetaDat
     }
 
     int32_t mode;
-    if (!meta->findInt32(kKeyCryptoMode, &mode)) {
+    if (!meta.findInt32(kKeyCryptoMode, &mode)) {
         mode = CryptoPlugin::kMode_AES_CTR;
     }
 
@@ -1057,11 +1053,25 @@ status_t AMediaExtractorWrapper::setDataSource(const char *location) {
     return translateErrorCode(AMediaExtractor_setDataSource(mAMediaExtractor, location));
 }
 
+status_t AMediaExtractorWrapper::setDataSource(AMediaDataSource *source) {
+    if (mAMediaExtractor == NULL) {
+        return DEAD_OBJECT;
+    }
+    return translateErrorCode(AMediaExtractor_setDataSourceCustom(mAMediaExtractor, source));
+}
+
 size_t AMediaExtractorWrapper::getTrackCount() {
     if (mAMediaExtractor == NULL) {
         return 0;
     }
     return AMediaExtractor_getTrackCount(mAMediaExtractor);
+}
+
+sp<AMediaFormatWrapper> AMediaExtractorWrapper::getFormat() {
+    if (mAMediaExtractor == NULL) {
+        return NULL;
+    }
+    return new AMediaFormatWrapper(AMediaExtractor_getFileFormat(mAMediaExtractor));
 }
 
 sp<AMediaFormatWrapper> AMediaExtractorWrapper::getTrackFormat(size_t idx) {
@@ -1085,11 +1095,38 @@ status_t AMediaExtractorWrapper::unselectTrack(size_t idx) {
     return translateErrorCode(AMediaExtractor_unselectTrack(mAMediaExtractor, idx));
 }
 
+status_t AMediaExtractorWrapper::selectSingleTrack(size_t idx) {
+    if (mAMediaExtractor == NULL) {
+        return DEAD_OBJECT;
+    }
+    for (size_t i = 0; i < AMediaExtractor_getTrackCount(mAMediaExtractor); ++i) {
+        if (i == idx) {
+            media_status_t err = AMediaExtractor_selectTrack(mAMediaExtractor, i);
+            if (err != AMEDIA_OK) {
+                return translateErrorCode(err);
+            }
+        } else {
+            media_status_t err = AMediaExtractor_unselectTrack(mAMediaExtractor, i);
+            if (err != AMEDIA_OK) {
+                return translateErrorCode(err);
+            }
+        }
+    }
+    return OK;
+}
+
 ssize_t AMediaExtractorWrapper::readSampleData(const sp<ABuffer> &buffer) {
     if (mAMediaExtractor == NULL) {
         return -1;
     }
     return AMediaExtractor_readSampleData(mAMediaExtractor, buffer->data(), buffer->capacity());
+}
+
+ssize_t AMediaExtractorWrapper::getSampleSize() {
+    if (mAMediaExtractor == NULL) {
+        return 0;
+    }
+    return AMediaExtractor_getSampleSize(mAMediaExtractor);
 }
 
 uint32_t AMediaExtractorWrapper::getSampleFlags() {
@@ -1113,6 +1150,13 @@ int64_t AMediaExtractorWrapper::getSampleTime() {
     return AMediaExtractor_getSampleTime(mAMediaExtractor);
 }
 
+int64_t AMediaExtractorWrapper::getCachedDuration() {
+    if (mAMediaExtractor == NULL) {
+        return -1;
+    }
+    return AMediaExtractor_getCachedDuration(mAMediaExtractor);
+}
+
 bool AMediaExtractorWrapper::advance() {
     if (mAMediaExtractor == NULL) {
         return false;
@@ -1120,11 +1164,27 @@ bool AMediaExtractorWrapper::advance() {
     return AMediaExtractor_advance(mAMediaExtractor);
 }
 
-status_t AMediaExtractorWrapper::seekTo(int64_t seekPosUs, SeekMode mode) {
+status_t AMediaExtractorWrapper::seekTo(int64_t seekPosUs, MediaSource::ReadOptions::SeekMode mode) {
     if (mAMediaExtractor == NULL) {
         return DEAD_OBJECT;
     }
-    return AMediaExtractor_seekTo(mAMediaExtractor, seekPosUs, mode);
+
+    SeekMode aMode;
+    switch (mode) {
+        case MediaSource::ReadOptions::SEEK_PREVIOUS_SYNC: {
+            aMode = AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC;
+            break;
+        }
+        case MediaSource::ReadOptions::SEEK_NEXT_SYNC: {
+            aMode = AMEDIAEXTRACTOR_SEEK_NEXT_SYNC;
+            break;
+        }
+        default: {
+            aMode = AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC;
+            break;
+        }
+    }
+    return AMediaExtractor_seekTo(mAMediaExtractor, seekPosUs, aMode);
 }
 
 PsshInfo* AMediaExtractorWrapper::getPsshInfo() {
@@ -1139,6 +1199,45 @@ sp<AMediaCodecCryptoInfoWrapper> AMediaExtractorWrapper::getSampleCryptoInfo() {
         return NULL;
     }
     return new AMediaCodecCryptoInfoWrapper(AMediaExtractor_getSampleCryptoInfo(mAMediaExtractor));
+}
+
+ssize_t AMediaDataSourceWrapper::AMediaDataSourceWrapper_getSize(void *userdata) {
+    DataSource *source = static_cast<DataSource *>(userdata);
+    off64_t size = -1;
+    source->getSize(&size);
+    return size;
+}
+
+ssize_t AMediaDataSourceWrapper::AMediaDataSourceWrapper_readAt(void *userdata, off64_t offset, void * buf, size_t size) {
+    DataSource *source = static_cast<DataSource *>(userdata);
+    return source->readAt(offset, buf, size);
+}
+
+void AMediaDataSourceWrapper::AMediaDataSourceWrapper_close(void *userdata) {
+    DataSource *source = static_cast<DataSource *>(userdata);
+    source->close();
+}
+
+AMediaDataSourceWrapper::AMediaDataSourceWrapper(const sp<DataSource> &dataSource)
+    : mDataSource(dataSource),
+      mAMediaDataSource(AMediaDataSource_new()) {
+    ALOGV("setDataSource (source: %p)", dataSource.get());
+    AMediaDataSource_setUserdata(mAMediaDataSource, dataSource.get());
+    AMediaDataSource_setReadAt(mAMediaDataSource, AMediaDataSourceWrapper_readAt);
+    AMediaDataSource_setGetSize(mAMediaDataSource, AMediaDataSourceWrapper_getSize);
+    AMediaDataSource_setClose(mAMediaDataSource, AMediaDataSourceWrapper_close);
+}
+
+AMediaDataSourceWrapper::~AMediaDataSourceWrapper() {
+    if (mAMediaDataSource == NULL) {
+        return;
+    }
+    AMediaDataSource_delete(mAMediaDataSource);
+    mAMediaDataSource = NULL;
+}
+
+AMediaDataSource* AMediaDataSourceWrapper::getAMediaDataSource() {
+    return mAMediaDataSource;
 }
 
 }  // namespace android

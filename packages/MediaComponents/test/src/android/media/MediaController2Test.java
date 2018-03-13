@@ -19,11 +19,13 @@ package android.media;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.media.MediaPlayerInterface.PlaybackListener;
+import android.media.MediaPlayerBase.EventCallback;
 import android.media.MediaSession2.Command;
+import android.media.MediaSession2.CommandGroup;
 import android.media.MediaSession2.ControllerInfo;
 import android.media.MediaSession2.PlaylistParams;
 import android.media.MediaSession2.SessionCallback;
+import android.media.TestServiceRegistry.SessionCallbackProxy;
 import android.media.TestUtils.SyncHandler;
 import android.net.Uri;
 import android.os.Bundle;
@@ -59,7 +61,6 @@ import static org.junit.Assert.*;
 @FlakyTest
 public class MediaController2Test extends MediaSession2TestBase {
     private static final String TAG = "MediaController2Test";
-    private static final int DEFAULT_RATING_TYPE = Rating2.RATING_5_STARS;
 
     PendingIntent mIntent;
     MediaSession2 mSession;
@@ -76,8 +77,7 @@ public class MediaController2Test extends MediaSession2TestBase {
 
         mPlayer = new MockPlayer(1);
         mSession = new MediaSession2.Builder(mContext, mPlayer)
-                .setSessionCallback(sHandlerExecutor, new SessionCallback(mContext))
-                .setRatingType(DEFAULT_RATING_TYPE)
+                .setSessionCallback(sHandlerExecutor, new SessionCallback(mContext) {})
                 .setSessionActivity(mIntent)
                 .setId(TAG).build();
         mController = createController(mSession.getToken());
@@ -195,23 +195,22 @@ public class MediaController2Test extends MediaSession2TestBase {
         assertEquals(seekPosition, mPlayer.mSeekPosition);
     }
 
+    // TODO(jaewan): Re-enable this test
+    /*
     @Test
     public void testSetCurrentPlaylistItem() throws InterruptedException {
+        final
         final int itemIndex = 9;
-        mController.setCurrentPlaylistItem(itemIndex);
+        mController.skipToPlaylistItem(itemIndex);
         try {
             assertTrue(mPlayer.mCountDownLatch.await(WAIT_TIME_MS, TimeUnit.MILLISECONDS));
         } catch (InterruptedException e) {
             fail(e.getMessage());
         }
         assertTrue(mPlayer.mSetCurrentPlaylistItemCalled);
-        assertEquals(itemIndex, mPlayer.mItemIndex);
+        assertEquals(itemIndex, mPlayer.mCurrentItem);
     }
-
-    @Test
-    public void testGetRatingType() throws InterruptedException {
-        assertEquals(DEFAULT_RATING_TYPE, mController.getRatingType());
-    }
+    */
 
     @Test
     public void testGetSessionActivity() throws InterruptedException {
@@ -388,7 +387,7 @@ public class MediaController2Test extends MediaSession2TestBase {
                 assertEquals(mContext.getPackageName(), controller.getPackageName());
                 assertEquals(request, query);
                 assertTrue(TestUtils.equals(bundle, extras));
-                latch.countDown();;
+                latch.countDown();
             }
         };
         try (MediaSession2 session = new MediaSession2.Builder(mContext, mPlayer)
@@ -412,7 +411,7 @@ public class MediaController2Test extends MediaSession2TestBase {
                 assertEquals(mContext.getPackageName(), controller.getPackageName());
                 assertEquals(request, uri);
                 assertTrue(TestUtils.equals(bundle, extras));
-                latch.countDown();;
+                latch.countDown();
             }
         };
         try (MediaSession2 session = new MediaSession2.Builder(mContext, mPlayer)
@@ -436,7 +435,7 @@ public class MediaController2Test extends MediaSession2TestBase {
                 assertEquals(mContext.getPackageName(), controller.getPackageName());
                 assertEquals(request, id);
                 assertTrue(TestUtils.equals(bundle, extras));
-                latch.countDown();;
+                latch.countDown();
             }
         };
         try (MediaSession2 session = new MediaSession2.Builder(mContext, mPlayer)
@@ -457,11 +456,12 @@ public class MediaController2Test extends MediaSession2TestBase {
         final CountDownLatch latch = new CountDownLatch(1);
         final SessionCallback callback = new SessionCallback(mContext) {
             @Override
-            public void onPrepareFromSearch(ControllerInfo controller, String query, Bundle extras) {
+            public void onPrepareFromSearch(ControllerInfo controller, String query,
+                    Bundle extras) {
                 assertEquals(mContext.getPackageName(), controller.getPackageName());
                 assertEquals(request, query);
                 assertTrue(TestUtils.equals(bundle, extras));
-                latch.countDown();;
+                latch.countDown();
             }
         };
         try (MediaSession2 session = new MediaSession2.Builder(mContext, mPlayer)
@@ -485,7 +485,7 @@ public class MediaController2Test extends MediaSession2TestBase {
                 assertEquals(mContext.getPackageName(), controller.getPackageName());
                 assertEquals(request, uri);
                 assertTrue(TestUtils.equals(bundle, extras));
-                latch.countDown();;
+                latch.countDown();
             }
         };
         try (MediaSession2 session = new MediaSession2.Builder(mContext, mPlayer)
@@ -509,7 +509,7 @@ public class MediaController2Test extends MediaSession2TestBase {
                 assertEquals(mContext.getPackageName(), controller.getPackageName());
                 assertEquals(request, id);
                 assertTrue(TestUtils.equals(bundle, extras));
-                latch.countDown();;
+                latch.countDown();
             }
         };
         try (MediaSession2 session = new MediaSession2.Builder(mContext, mPlayer)
@@ -517,6 +517,34 @@ public class MediaController2Test extends MediaSession2TestBase {
                 .setId("testPrepareFromMediaId").build()) {
             MediaController2 controller = createController(session.getToken());
             controller.prepareFromMediaId(request, bundle);
+            assertTrue(latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS));
+        }
+    }
+
+    @Test
+    public void testSetRating() throws InterruptedException {
+        final int ratingType = Rating2.RATING_5_STARS;
+        final float ratingValue = 3.5f;
+        final Rating2 rating = Rating2.newStarRating(mContext, ratingType, ratingValue);
+        final String mediaId = "media_id";
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final SessionCallback callback = new SessionCallback(mContext) {
+            @Override
+            public void onSetRating(ControllerInfo controller, String mediaIdOut,
+                    Rating2 ratingOut) {
+                assertEquals(mContext.getPackageName(), controller.getPackageName());
+                assertEquals(mediaId, mediaIdOut);
+                assertEquals(rating, ratingOut);
+                latch.countDown();
+            }
+        };
+
+        try (MediaSession2 session = new MediaSession2.Builder(mContext, mPlayer)
+                .setSessionCallback(sHandlerExecutor, callback)
+                .setId("testSetRating").build()) {
+            MediaController2 controller = createController(session.getToken());
+            controller.setRating(mediaId, rating);
             assertTrue(latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS));
         }
     }
@@ -555,7 +583,7 @@ public class MediaController2Test extends MediaSession2TestBase {
             final MockPlayer player = new MockPlayer(0);
             sessionHandler.postAndSync(() -> {
                 mSession = new MediaSession2.Builder(mContext, mPlayer)
-                        .setSessionCallback(sHandlerExecutor, new SessionCallback(mContext))
+                        .setSessionCallback(sHandlerExecutor, new SessionCallback(mContext) {})
                         .setId("testDeadlock").build();
             });
             final MediaController2 controller = createController(mSession.getToken());
@@ -598,7 +626,6 @@ public class MediaController2Test extends MediaSession2TestBase {
         }
     }
 
-    @Ignore
     @Test
     public void testGetServiceToken() {
         SessionToken2 token = TestUtils.getServiceToken(mContext, MockMediaSessionService2.ID);
@@ -609,33 +636,40 @@ public class MediaController2Test extends MediaSession2TestBase {
     }
 
     private void connectToService(SessionToken2 token) throws InterruptedException {
+        if (mSession != null) {
+            mSession.close();
+        }
         mController = createController(token);
         mSession = TestServiceRegistry.getInstance().getServiceInstance().getSession();
         mPlayer = (MockPlayer) mSession.getPlayer();
     }
 
-    // TODO(jaewan): Reenable when session manager detects app installs
-    @Ignore
     @Test
     public void testConnectToService_sessionService() throws InterruptedException {
-        connectToService(TestUtils.getServiceToken(mContext, MockMediaSessionService2.ID));
-        testConnectToService();
+        testConnectToService(MockMediaSessionService2.ID);
     }
 
-    // TODO(jaewan): Reenable when session manager detects app installs
-    @Ignore
     @Test
     public void testConnectToService_libraryService() throws InterruptedException {
-        connectToService(TestUtils.getServiceToken(mContext, MockMediaLibraryService2.ID));
-        testConnectToService();
+        testConnectToService(MockMediaLibraryService2.ID);
     }
 
-    public void testConnectToService() throws InterruptedException {
-        TestServiceRegistry serviceInfo = TestServiceRegistry.getInstance();
-        ControllerInfo info = serviceInfo.getOnConnectControllerInfo();
-        assertEquals(mContext.getPackageName(), info.getPackageName());
-        assertEquals(Process.myUid(), info.getUid());
-        assertFalse(info.isTrusted());
+    public void testConnectToService(String id) throws InterruptedException {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final SessionCallbackProxy proxy = new SessionCallbackProxy(mContext) {
+            @Override
+            public CommandGroup onConnect(ControllerInfo controller) {
+                if (Process.myUid() == controller.getUid()) {
+                    assertEquals(mContext.getPackageName(), controller.getPackageName());
+                    assertFalse(controller.isTrusted());
+                    latch.countDown();
+                }
+                return super.onConnect(controller);
+            }
+        };
+        TestServiceRegistry.getInstance().setSessionCallbackProxy(proxy);
+        connectToService(TestUtils.getServiceToken(mContext, id));
+        assertTrue(latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS));
 
         // Test command from controller to session service
         mController.play();
@@ -646,7 +680,7 @@ public class MediaController2Test extends MediaSession2TestBase {
         // TODO(jaewan): Add equivalent tests again
         /*
         final CountDownLatch latch = new CountDownLatch(1);
-        mController.addPlaybackListener((state) -> {
+        mController.registerPlayerEventCallback((state) -> {
             assertNotNull(state);
             assertEquals(PlaybackState.STATE_REWINDING, state.getState());
             latch.countDown();
@@ -657,15 +691,11 @@ public class MediaController2Test extends MediaSession2TestBase {
         */
     }
 
-    // TODO(jaewan): Re-enable after b/72792686 is fixed
-    @Ignore
     @Test
     public void testControllerAfterSessionIsGone_session() throws InterruptedException {
         testControllerAfterSessionIsGone(mSession.getToken().getId());
     }
 
-    // TODO(jaewan): Re-enable after b/72792686 is fixed
-    @Ignore
     @Test
     public void testControllerAfterSessionIsGone_sessionService() throws InterruptedException {
         connectToService(TestUtils.getServiceToken(mContext, MockMediaSessionService2.ID));
@@ -697,31 +727,28 @@ public class MediaController2Test extends MediaSession2TestBase {
         testControllerAfterSessionIsGone(id);
     }
 
-    // TODO(jaewan): Reenable when session manager detects app installs
     @Ignore
     @Test
     public void testClose_sessionService() throws InterruptedException {
-        connectToService(TestUtils.getServiceToken(mContext, MockMediaSessionService2.ID));
-        testCloseFromService();
+        testCloseFromService(MockMediaSessionService2.ID);
     }
 
-    // TODO(jaewan): Reenable when session manager detects app installs
     @Ignore
     @Test
     public void testClose_libraryService() throws InterruptedException {
-        connectToService(TestUtils.getServiceToken(mContext, MockMediaSessionService2.ID));
-        testCloseFromService();
+        testCloseFromService(MockMediaLibraryService2.ID);
     }
 
-    private void testCloseFromService() throws InterruptedException {
-        final String id = mController.getSessionToken().getId();
+    private void testCloseFromService(String id) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
-        TestServiceRegistry.getInstance().setServiceInstanceChangedCallback((service) -> {
-            if (service == null) {
-                // Destroying..
+        final SessionCallbackProxy proxy = new SessionCallbackProxy(mContext) {
+            @Override
+            public void onServiceDestroyed() {
                 latch.countDown();
             }
-        });
+        };
+        TestServiceRegistry.getInstance().setSessionCallbackProxy(proxy);
+        mController = createController(TestUtils.getServiceToken(mContext, id));
         mController.close();
         // Wait until close triggers onDestroy() of the session service.
         assertTrue(latch.await(WAIT_TIME_MS, TimeUnit.MILLISECONDS));
@@ -741,12 +768,12 @@ public class MediaController2Test extends MediaSession2TestBase {
         waitForDisconnect(mController, true);
         testNoInteraction();
 
-        // Test with the newly created session.
+        // Ensure that the controller cannot use newly create session with the same ID.
         sHandler.postAndSync(() -> {
             // Recreated session has different session stub, so previously created controller
             // shouldn't be available.
             mSession = new MediaSession2.Builder(mContext, mPlayer)
-                    .setSessionCallback(sHandlerExecutor, new SessionCallback(mContext))
+                    .setSessionCallback(sHandlerExecutor, new SessionCallback(mContext) {})
                     .setId(id).build();
         });
         testNoInteraction();
@@ -754,16 +781,19 @@ public class MediaController2Test extends MediaSession2TestBase {
 
     private void testNoInteraction() throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
-        final PlaybackListener playbackListener = (state) -> {
-            fail("Controller shouldn't be notified about change in session after the close.");
-            latch.countDown();
+        final EventCallback callback = new EventCallback() {
+            @Override
+            public void onPlaybackStateChanged(PlaybackState2 state) {
+                fail("Controller shouldn't be notified about change in session after the close.");
+                latch.countDown();
+            }
         };
         // TODO(jaewan): Add equivalent tests again
         /*
-        mController.addPlaybackListener(playbackListener, sHandler);
+        mController.registerPlayerEventCallback(playbackListener, sHandler);
         mPlayer.notifyPlaybackState(TestUtils.createPlaybackState(PlaybackState.STATE_BUFFERING));
         assertFalse(latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        mController.removePlaybackListener(playbackListener);
+        mController.unregisterPlayerEventCallback(playbackListener);
         */
     }
 

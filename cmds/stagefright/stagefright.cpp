@@ -150,7 +150,7 @@ static void dumpSource(const sp<MediaSource> &source, const String8 &filename) {
 
     status_t err;
     for (;;) {
-        MediaBuffer *mbuf;
+        MediaBufferBase *mbuf;
         err = source->read(&mbuf);
 
         if (err == INFO_FORMAT_CHANGED) {
@@ -234,7 +234,7 @@ static void playSource(sp<MediaSource> &source) {
         CHECK(meta->findInt64(kKeyDuration, &durationUs));
 
         status_t err;
-        MediaBuffer *buffer;
+        MediaBufferBase *buffer;
         MediaSource::ReadOptions options;
         int64_t seekTimeUs = -1;
         for (;;) {
@@ -253,7 +253,7 @@ static void playSource(sp<MediaSource> &source) {
                 shouldSeek = true;
             } else {
                 int64_t timestampUs;
-                CHECK(buffer->meta_data()->findInt64(kKeyTime, &timestampUs));
+                CHECK(buffer->meta_data().findInt64(kKeyTime, &timestampUs));
 
                 bool failed = false;
 
@@ -321,7 +321,7 @@ static void playSource(sp<MediaSource> &source) {
     while (numIterationsLeft-- > 0) {
         long numFrames = 0;
 
-        MediaBuffer *buffer;
+        MediaBufferBase *buffer;
 
         for (;;) {
             int64_t startDecodeUs = getNowUs();
@@ -416,7 +416,7 @@ struct DetectSyncSource : public MediaSource {
     virtual sp<MetaData> getFormat();
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options);
+            MediaBufferBase **buffer, const ReadOptions *options);
 
 private:
     enum StreamType {
@@ -465,7 +465,7 @@ sp<MetaData> DetectSyncSource::getFormat() {
     return mSource->getFormat();
 }
 
-static bool isIDRFrame(MediaBuffer *buffer) {
+static bool isIDRFrame(MediaBufferBase *buffer) {
     const uint8_t *data =
         (const uint8_t *)buffer->data() + buffer->range_offset();
     size_t size = buffer->range_length();
@@ -482,7 +482,7 @@ static bool isIDRFrame(MediaBuffer *buffer) {
 }
 
 status_t DetectSyncSource::read(
-        MediaBuffer **buffer, const ReadOptions *options) {
+        MediaBufferBase **buffer, const ReadOptions *options) {
     for (;;) {
         status_t err = mSource->read(buffer, options);
 
@@ -492,12 +492,12 @@ status_t DetectSyncSource::read(
 
         if (mStreamType == AVC) {
             bool isIDR = isIDRFrame(*buffer);
-            (*buffer)->meta_data()->setInt32(kKeyIsSyncFrame, isIDR);
+            (*buffer)->meta_data().setInt32(kKeyIsSyncFrame, isIDR);
             if (isIDR) {
                 mSawFirstIDRFrame = true;
             }
         } else {
-            (*buffer)->meta_data()->setInt32(kKeyIsSyncFrame, true);
+            (*buffer)->meta_data().setInt32(kKeyIsSyncFrame, true);
         }
 
         if (mStreamType != AVC || mSawFirstIDRFrame) {
@@ -562,7 +562,7 @@ static void performSeekTest(const sp<MediaSource> &source) {
         options.setSeekTo(
                 seekTimeUs, MediaSource::ReadOptions::SEEK_PREVIOUS_SYNC);
 
-        MediaBuffer *buffer;
+        MediaBufferBase *buffer;
         status_t err;
         for (;;) {
             err = source->read(&buffer, &options);
@@ -591,7 +591,7 @@ static void performSeekTest(const sp<MediaSource> &source) {
 
         if (err == OK) {
             int64_t timeUs;
-            CHECK(buffer->meta_data()->findInt64(kKeyTime, &timeUs));
+            CHECK(buffer->meta_data().findInt64(kKeyTime, &timeUs));
 
             printf("%" PRId64 "\t%" PRId64 "\t%" PRId64 "\n",
                    seekTimeUs, timeUs, seekTimeUs - timeUs);

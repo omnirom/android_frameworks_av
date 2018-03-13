@@ -20,7 +20,7 @@
 
 #include "AACExtractor.h"
 #include <media/DataSourceBase.h>
-#include <media/MediaSourceBase.h>
+#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -33,20 +33,21 @@
 
 namespace android {
 
-class AACSource : public MediaSourceBase {
+class AACSource : public MediaTrack {
 public:
-    AACSource(DataSourceBase *source,
-              const sp<MetaData> &meta,
-              const Vector<uint64_t> &offset_vector,
-              int64_t frame_duration_us);
+    AACSource(
+            DataSourceBase *source,
+            MetaDataBase &meta,
+            const Vector<uint64_t> &offset_vector,
+            int64_t frame_duration_us);
 
-    virtual status_t start(MetaData *params = NULL);
+    virtual status_t start(MetaDataBase *params = NULL);
     virtual status_t stop();
 
-    virtual sp<MetaData> getFormat();
+    virtual status_t getFormat(MetaDataBase&);
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
 
 protected:
     virtual ~AACSource();
@@ -54,7 +55,7 @@ protected:
 private:
     static const size_t kMaxFrameSize;
     DataSourceBase *mDataSource;
-    sp<MetaData> mMeta;
+    MetaDataBase mMeta;
 
     off64_t mOffset;
     int64_t mCurrentTimeUs;
@@ -132,19 +133,10 @@ static size_t getAdtsFrameLength(DataSourceBase *source, off64_t offset, size_t*
 }
 
 AACExtractor::AACExtractor(
-        DataSourceBase *source, const sp<AMessage> &_meta)
+        DataSourceBase *source, off64_t offset)
     : mDataSource(source),
       mInitCheck(NO_INIT),
       mFrameDurationUs(0) {
-    sp<AMessage> meta = _meta;
-
-    if (meta == NULL) {
-        ALOGE("no metadata specified");
-        return;
-    }
-
-    int64_t offset;
-    CHECK(meta->findInt64("offset", &offset));
 
     uint8_t profile, sf_index, channel, header[2];
     if (mDataSource->readAt(offset + 2, &header, 2) < 2) {
@@ -159,7 +151,7 @@ AACExtractor::AACExtractor(
     }
     channel = (header[0] & 0x1) << 2 | (header[1] >> 6);
 
-    mMeta = MakeAACCodecSpecificData(profile, sf_index, channel);
+    MakeAACCodecSpecificData(mMeta, profile, sf_index, channel);
 
     off64_t streamSize, numFrames = 0;
     size_t frameSize = 0;
@@ -182,7 +174,7 @@ AACExtractor::AACExtractor(
         // Round up and get the duration
         mFrameDurationUs = (1024 * 1000000ll + (sr - 1)) / sr;
         duration = numFrames * mFrameDurationUs;
-        mMeta->setInt64(kKeyDuration, duration);
+        mMeta.setInt64(kKeyDuration, duration);
     }
 
     mInitCheck = OK;
@@ -191,23 +183,20 @@ AACExtractor::AACExtractor(
 AACExtractor::~AACExtractor() {
 }
 
-sp<MetaData> AACExtractor::getMetaData() {
-    sp<MetaData> meta = new MetaData;
-
-    if (mInitCheck != OK) {
-        return meta;
+status_t AACExtractor::getMetaData(MetaDataBase &meta) {
+    meta.clear();
+    if (mInitCheck == OK) {
+        meta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_AAC_ADTS);
     }
 
-    meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_AAC_ADTS);
-
-    return meta;
+    return OK;
 }
 
 size_t AACExtractor::countTracks() {
     return mInitCheck == OK ? 1 : 0;
 }
 
-MediaSourceBase *AACExtractor::getTrack(size_t index) {
+MediaTrack *AACExtractor::getTrack(size_t index) {
     if (mInitCheck != OK || index != 0) {
         return NULL;
     }
@@ -215,12 +204,13 @@ MediaSourceBase *AACExtractor::getTrack(size_t index) {
     return new AACSource(mDataSource, mMeta, mOffsetVector, mFrameDurationUs);
 }
 
-sp<MetaData> AACExtractor::getTrackMetaData(size_t index, uint32_t /* flags */) {
+status_t AACExtractor::getTrackMetaData(MetaDataBase &meta, size_t index, uint32_t /* flags */) {
     if (mInitCheck != OK || index != 0) {
-        return NULL;
+        return UNKNOWN_ERROR;
     }
 
-    return mMeta;
+    meta = mMeta;
+    return OK;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -229,7 +219,8 @@ sp<MetaData> AACExtractor::getTrackMetaData(size_t index, uint32_t /* flags */) 
 const size_t AACSource::kMaxFrameSize = 8192;
 
 AACSource::AACSource(
-        DataSourceBase *source, const sp<MetaData> &meta,
+        DataSourceBase *source,
+        MetaDataBase &meta,
         const Vector<uint64_t> &offset_vector,
         int64_t frame_duration_us)
     : mDataSource(source),
@@ -248,7 +239,7 @@ AACSource::~AACSource() {
     }
 }
 
-status_t AACSource::start(MetaData * /* params */) {
+status_t AACSource::start(MetaDataBase * /* params */) {
     CHECK(!mStarted);
 
     if (mOffsetVector.empty()) {
@@ -259,7 +250,7 @@ status_t AACSource::start(MetaData * /* params */) {
 
     mCurrentTimeUs = 0;
     mGroup = new MediaBufferGroup;
-    mGroup->add_buffer(new MediaBuffer(kMaxFrameSize));
+    mGroup->add_buffer(MediaBufferBase::Create(kMaxFrameSize));
     mStarted = true;
 
     return OK;
@@ -275,12 +266,13 @@ status_t AACSource::stop() {
     return OK;
 }
 
-sp<MetaData> AACSource::getFormat() {
-    return mMeta;
+status_t AACSource::getFormat(MetaDataBase &meta) {
+    meta = mMeta;
+    return OK;
 }
 
 status_t AACSource::read(
-        MediaBuffer **out, const ReadOptions *options) {
+        MediaBufferBase **out, const ReadOptions *options) {
     *out = NULL;
 
     int64_t seekTimeUs;
@@ -303,7 +295,7 @@ status_t AACSource::read(
         return ERROR_END_OF_STREAM;
     }
 
-    MediaBuffer *buffer;
+    MediaBufferBase *buffer;
     status_t err = mGroup->acquire_buffer(&buffer);
     if (err != OK) {
         return err;
@@ -319,8 +311,8 @@ status_t AACSource::read(
     }
 
     buffer->set_range(0, frameSizeWithoutHeader);
-    buffer->meta_data()->setInt64(kKeyTime, mCurrentTimeUs);
-    buffer->meta_data()->setInt32(kKeyIsSyncFrame, 1);
+    buffer->meta_data().setInt64(kKeyTime, mCurrentTimeUs);
+    buffer->meta_data().setInt32(kKeyIsSyncFrame, 1);
 
     mOffset += frameSize;
     mCurrentTimeUs += mFrameDurationUs;
@@ -333,13 +325,14 @@ status_t AACSource::read(
 
 static MediaExtractor* CreateExtractor(
         DataSourceBase *source,
-        const sp<AMessage>& meta) {
-    return new AACExtractor(source, meta);
+        void *meta) {
+    off64_t offset = *static_cast<off64_t*>(meta);
+    return new AACExtractor(source, offset);
 }
 
 static MediaExtractor::CreatorFunc Sniff(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *meta) {
+        DataSourceBase *source, float *confidence, void **meta,
+        MediaExtractor::FreeMetaFunc *freeMeta) {
     off64_t pos = 0;
 
     for (;;) {
@@ -377,11 +370,11 @@ static MediaExtractor::CreatorFunc Sniff(
 
     // ADTS syncword
     if ((header[0] == 0xff) && ((header[1] & 0xf6) == 0xf0)) {
-        *mimeType = MEDIA_MIMETYPE_AUDIO_AAC_ADTS;
         *confidence = 0.2;
 
-        *meta = new AMessage;
-        (*meta)->setInt64("offset", pos);
+        off64_t *offPtr = (off64_t*) malloc(sizeof(off64_t));
+        *meta = offPtr;
+        *freeMeta = ::free;
 
         return CreateExtractor;
     }

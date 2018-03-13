@@ -24,7 +24,7 @@
 #include "mpeg2ts/ESQueue.h"
 
 #include <media/DataSourceBase.h>
-#include <media/MediaSourceBase.h>
+#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ABitReader.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -40,16 +40,16 @@
 
 namespace android {
 
-struct MPEG2PSExtractor::Track : public MediaSourceBase, public RefBase {
+struct MPEG2PSExtractor::Track : public MediaTrack, public RefBase {
     Track(MPEG2PSExtractor *extractor,
           unsigned stream_id, unsigned stream_type);
 
-    virtual status_t start(MetaData *params);
+    virtual status_t start(MetaDataBase *params);
     virtual status_t stop();
-    virtual sp<MetaData> getFormat();
+    virtual status_t getFormat(MetaDataBase &);
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options);
+            MediaBufferBase **buffer, const ReadOptions *options);
 
 protected:
     virtual ~Track();
@@ -72,15 +72,15 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(Track);
 };
 
-struct MPEG2PSExtractor::WrappedTrack : public MediaSourceBase {
+struct MPEG2PSExtractor::WrappedTrack : public MediaTrack {
     WrappedTrack(MPEG2PSExtractor *extractor, const sp<Track> &track);
 
-    virtual status_t start(MetaData *params);
+    virtual status_t start(MetaDataBase *params);
     virtual status_t stop();
-    virtual sp<MetaData> getFormat();
+    virtual status_t getFormat(MetaDataBase &);
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options);
+            MediaBufferBase **buffer, const ReadOptions *options);
 
 protected:
     virtual ~WrappedTrack();
@@ -108,9 +108,10 @@ MPEG2PSExtractor::MPEG2PSExtractor(DataSourceBase *source)
     }
 
     // Remove all tracks that were unable to determine their format.
+    MetaDataBase meta;
     for (size_t i = mTracks.size(); i > 0;) {
         i--;
-        if (mTracks.valueAt(i)->getFormat() == NULL) {
+        if (mTracks.valueAt(i)->getFormat(meta) != OK) {
             mTracks.removeItemsAt(i);
         }
     }
@@ -125,7 +126,7 @@ size_t MPEG2PSExtractor::countTracks() {
     return mTracks.size();
 }
 
-MediaSourceBase *MPEG2PSExtractor::getTrack(size_t index) {
+MediaTrack *MPEG2PSExtractor::getTrack(size_t index) {
     if (index >= mTracks.size()) {
         return NULL;
     }
@@ -133,20 +134,20 @@ MediaSourceBase *MPEG2PSExtractor::getTrack(size_t index) {
     return new WrappedTrack(this, mTracks.valueAt(index));
 }
 
-sp<MetaData> MPEG2PSExtractor::getTrackMetaData(
+status_t MPEG2PSExtractor::getTrackMetaData(
+        MetaDataBase &meta,
         size_t index, uint32_t /* flags */) {
     if (index >= mTracks.size()) {
-        return NULL;
+        return UNKNOWN_ERROR;
     }
 
-    return mTracks.valueAt(index)->getFormat();
+    return mTracks.valueAt(index)->getFormat(meta);
 }
 
-sp<MetaData> MPEG2PSExtractor::getMetaData() {
-    sp<MetaData> meta = new MetaData;
-    meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_CONTAINER_MPEG2PS);
+status_t MPEG2PSExtractor::getMetaData(MetaDataBase &meta) {
+    meta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_CONTAINER_MPEG2PS);
 
-    return meta;
+    return OK;
 }
 
 uint32_t MPEG2PSExtractor::flags() const {
@@ -634,12 +635,12 @@ MPEG2PSExtractor::Track::~Track() {
     mQueue = NULL;
 }
 
-status_t MPEG2PSExtractor::Track::start(MetaData *params) {
+status_t MPEG2PSExtractor::Track::start(MetaDataBase *) {
     if (mSource == NULL) {
         return NO_INIT;
     }
 
-    return mSource->start(params);
+    return mSource->start(NULL); // AnotherPacketSource::start doesn't use its argument
 }
 
 status_t MPEG2PSExtractor::Track::stop() {
@@ -650,16 +651,18 @@ status_t MPEG2PSExtractor::Track::stop() {
     return mSource->stop();
 }
 
-sp<MetaData> MPEG2PSExtractor::Track::getFormat() {
+status_t MPEG2PSExtractor::Track::getFormat(MetaDataBase &meta) {
     if (mSource == NULL) {
-        return NULL;
+        return NO_INIT;
     }
 
-    return mSource->getFormat();
+    sp<MetaData> sourceMeta = mSource->getFormat();
+    meta = *sourceMeta;
+    return OK;
 }
 
 status_t MPEG2PSExtractor::Track::read(
-        MediaBuffer **buffer, const ReadOptions *options) {
+        MediaBufferBase **buffer, const ReadOptions *options) {
     if (mSource == NULL) {
         return NO_INIT;
     }
@@ -731,7 +734,7 @@ MPEG2PSExtractor::WrappedTrack::WrappedTrack(
 MPEG2PSExtractor::WrappedTrack::~WrappedTrack() {
 }
 
-status_t MPEG2PSExtractor::WrappedTrack::start(MetaData *params) {
+status_t MPEG2PSExtractor::WrappedTrack::start(MetaDataBase *params) {
     return mTrack->start(params);
 }
 
@@ -739,20 +742,19 @@ status_t MPEG2PSExtractor::WrappedTrack::stop() {
     return mTrack->stop();
 }
 
-sp<MetaData> MPEG2PSExtractor::WrappedTrack::getFormat() {
-    return mTrack->getFormat();
+status_t MPEG2PSExtractor::WrappedTrack::getFormat(MetaDataBase &meta) {
+    return mTrack->getFormat(meta);
 }
 
 status_t MPEG2PSExtractor::WrappedTrack::read(
-        MediaBuffer **buffer, const ReadOptions *options) {
+        MediaBufferBase **buffer, const ReadOptions *options) {
     return mTrack->read(buffer, options);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 bool SniffMPEG2PS(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *) {
+        DataSourceBase *source, float *confidence) {
     uint8_t header[5];
     if (source->readAt(0, header, sizeof(header)) < (ssize_t)sizeof(header)) {
         return false;
@@ -763,8 +765,6 @@ bool SniffMPEG2PS(
     }
 
     *confidence = 0.25f;  // Slightly larger than .mp3 extractor's confidence
-
-    mimeType->setTo(MEDIA_MIMETYPE_CONTAINER_MPEG2PS);
 
     return true;
 }

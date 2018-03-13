@@ -28,26 +28,26 @@ class RemoteMediaSource : public BnMediaSource {
 public:
     static sp<IMediaSource> wrap(
             const sp<RemoteMediaExtractor> &extractor,
-            MediaSourceBase *source,
+            MediaTrack *source,
             const sp<RefBase> &plugin);
     virtual ~RemoteMediaSource();
     virtual status_t start(MetaData *params = NULL);
     virtual status_t stop();
     virtual sp<MetaData> getFormat();
     virtual status_t read(
-            MediaBuffer **buffer,
+            MediaBufferBase **buffer,
             const MediaSource::ReadOptions *options = NULL);
     virtual status_t pause();
     virtual status_t setStopTimeUs(int64_t stopTimeUs);
 
 private:
     sp<RemoteMediaExtractor> mExtractor;
-    MediaSourceBase *mSource;
+    MediaTrack *mSource;
     sp<RefBase> mExtractorPlugin;
 
     explicit RemoteMediaSource(
             const sp<RemoteMediaExtractor> &extractor,
-            MediaSourceBase *source,
+            MediaTrack *source,
             const sp<RefBase> &plugin);
 
     DISALLOW_EVIL_CONSTRUCTORS(RemoteMediaSource);

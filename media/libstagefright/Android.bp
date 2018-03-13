@@ -60,8 +60,10 @@ cc_library_shared {
         "AudioPresentationInfo.cpp",
         "AudioSource.cpp",
         "BufferImpl.cpp",
+        "C2OMXNode.cpp",
         "CCodec.cpp",
         "CCodecBufferChannel.cpp",
+        "Codec2InfoBuilder.cpp",
         "CodecBase.cpp",
         "CallbackDataSource.cpp",
         "CallbackMediaSource.cpp",
@@ -99,7 +101,6 @@ cc_library_shared {
         "SkipCutBuffer.cpp",
         "StagefrightMediaScanner.cpp",
         "StagefrightMetadataRetriever.cpp",
-        "SurfaceMediaSource.cpp",
         "SurfaceUtils.cpp",
         "Utils.cpp",
         "ThrottledSource.cpp",
@@ -134,12 +135,12 @@ cc_library_shared {
         "libstagefright_codec2",
         "libstagefright_codec2_vndk",
         "libstagefright_foundation",
-        "libstagefright_gbs",
         "libstagefright_omx",
         "libstagefright_omx_utils",
         "libstagefright_xmlparser",
         "libdl",
         "libRScpp",
+        "libhidlallocatorutils",
         "libhidlbase",
         "libhidlmemory",
         // TODO: Remove libv4l2_c2_componentstore.
@@ -150,6 +151,10 @@ cc_library_shared {
         "android.hardware.media.omx@1.0",
         "android.hardware.graphics.allocator@2.0",
         "android.hardware.graphics.mapper@2.0",
+
+        // TODO: do not link directly with impl
+        "android.hardware.media.c2@1.0-service-impl",
+        "libstagefright_bufferqueue_helper",
     ],
 
     static_libs: [
@@ -163,6 +168,9 @@ cc_library_shared {
         "libstagefright_esds",
         "libstagefright_id3",
         "libFLAC",
+    ],
+
+    whole_static_libs: [
         "libavextensions"
     ],
 
@@ -224,6 +232,7 @@ cc_library {
         "InterfaceUtils.cpp",
         "MediaClock.cpp",
         "MediaExtractorFactory.cpp",
+        "NdkUtils.cpp",
         "NuCachedSource2.cpp",
         "RemoteMediaExtractor.cpp",
         "RemoteMediaSource.cpp",

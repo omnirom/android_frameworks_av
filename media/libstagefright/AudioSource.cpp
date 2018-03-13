@@ -70,10 +70,11 @@ AudioSource::AudioSource(
       mNoMoreFramesToRead(false) {
     ALOGV("sampleRate: %u, outSampleRate: %u, channelCount: %u",
             sampleRate, outSampleRate, channelCount);
-    CHECK(channelCount == 1 || channelCount == 2);
+    CHECK(channelCount == 1 || channelCount == 2 || channelCount == 6);
     CHECK(sampleRate > 0);
 
     size_t minFrameCount;
+    mMaxBufferSize = kMaxBufferSize;
     status_t status = AudioRecord::getMinFrameCount(&minFrameCount,
                                            sampleRate,
                                            AUDIO_FORMAT_PCM_16_BIT,
@@ -201,7 +202,7 @@ sp<MetaData> AudioSource::getFormat() {
     meta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_RAW);
     meta->setInt32(kKeySampleRate, mSampleRate);
     meta->setInt32(kKeyChannelCount, mRecord->channelCount());
-    meta->setInt32(kKeyMaxInputSize, kMaxBufferSize);
+    meta->setInt32(kKeyMaxInputSize, mMaxBufferSize);
     meta->setInt32(kKeyPcmEncoding, kAudioEncodingPcm16bit);
 
     return meta;
@@ -240,7 +241,7 @@ void AudioSource::rampVolume(
 }
 
 status_t AudioSource::read(
-        MediaBuffer **out, const ReadOptions * /* options */) {
+        MediaBufferBase **out, const ReadOptions * /* options */) {
     Mutex::Autolock autoLock(mLock);
     *out = NULL;
 
@@ -265,7 +266,7 @@ status_t AudioSource::read(
 
     // Mute/suppress the recording sound
     int64_t timeUs;
-    CHECK(buffer->meta_data()->findInt64(kKeyTime, &timeUs));
+    CHECK(buffer->meta_data().findInt64(kKeyTime, &timeUs));
     int64_t elapsedTimeUs = timeUs - mStartTimeUs;
     if (elapsedTimeUs < kAutoRampStartUs) {
         memset((uint8_t *) buffer->data(), 0, buffer->range_length());
@@ -289,7 +290,7 @@ status_t AudioSource::read(
 
     if (mSampleRate != mOutSampleRate) {
             timeUs *= (int64_t)mSampleRate / (int64_t)mOutSampleRate;
-            buffer->meta_data()->setInt64(kKeyTime, timeUs);
+            buffer->meta_data().setInt64(kKeyTime, timeUs);
     }
 
     *out = buffer;
@@ -311,7 +312,7 @@ status_t AudioSource::setStopTimeUs(int64_t stopTimeUs) {
     return OK;
 }
 
-void AudioSource::signalBufferReturned(MediaBuffer *buffer) {
+void AudioSource::signalBufferReturned(MediaBufferBase *buffer) {
     ALOGV("signalBufferReturned: %p", buffer->data());
     Mutex::Autolock autoLock(mLock);
     --mNumClientOwnedBuffers;
@@ -398,9 +399,9 @@ status_t AudioSource::dataCallback(const AudioRecord::Buffer& audioBuffer) {
 
     while (numLostBytes > 0) {
         size_t bufferSize = numLostBytes;
-        if (numLostBytes > kMaxBufferSize) {
-            numLostBytes -= kMaxBufferSize;
-            bufferSize = kMaxBufferSize;
+        if (numLostBytes > mMaxBufferSize) {
+            numLostBytes -= mMaxBufferSize;
+            bufferSize = mMaxBufferSize;
         } else {
             numLostBytes = 0;
         }
@@ -433,11 +434,11 @@ void AudioSource::queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs) {
                         (mSampleRate >> 1)) / mSampleRate;
 
     if (mNumFramesReceived == 0) {
-        buffer->meta_data()->setInt64(kKeyAnchorTime, mStartTimeUs);
+        buffer->meta_data().setInt64(kKeyAnchorTime, mStartTimeUs);
     }
 
-    buffer->meta_data()->setInt64(kKeyTime, mPrevSampleTimeUs);
-    buffer->meta_data()->setInt64(kKeyDriftTime, timeUs - mInitialReadTimeUs);
+    buffer->meta_data().setInt64(kKeyTime, mPrevSampleTimeUs);
+    buffer->meta_data().setInt64(kKeyDriftTime, timeUs - mInitialReadTimeUs);
     mPrevSampleTimeUs = timestampUs;
     mNumFramesReceived += bufferSize / frameSize;
     mBuffersReceived.push_back(buffer);

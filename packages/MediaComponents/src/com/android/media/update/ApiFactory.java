@@ -29,13 +29,11 @@ import android.media.MediaItem2;
 import android.media.MediaLibraryService2;
 import android.media.MediaLibraryService2.LibraryRoot;
 import android.media.MediaLibraryService2.MediaLibrarySession;
-import android.media.MediaLibraryService2.MediaLibrarySessionBuilder;
-import android.media.MediaLibraryService2.MediaLibrarySessionCallback;
+import android.media.MediaLibraryService2.MediaLibrarySession.MediaLibrarySessionCallback;
 import android.media.MediaMetadata2;
-import android.media.MediaPlayerInterface;
+import android.media.MediaPlayerBase;
 import android.media.MediaSession2;
 import android.media.MediaSession2.Command;
-import android.media.MediaSession2.CommandButton.Builder;
 import android.media.MediaSession2.CommandGroup;
 import android.media.MediaSession2.ControllerInfo;
 import android.media.MediaSession2.PlaylistParams;
@@ -44,7 +42,6 @@ import android.media.MediaSessionService2;
 import android.media.MediaSessionService2.MediaNotification;
 import android.media.PlaybackState2;
 import android.media.Rating2;
-import android.media.SessionPlayer2;
 import android.media.SessionToken2;
 import android.media.VolumeProvider2;
 import android.media.update.MediaBrowser2Provider;
@@ -60,7 +57,6 @@ import android.media.update.MediaSession2Provider.PlaylistParamsProvider;
 import android.media.update.MediaSessionService2Provider;
 import android.media.update.MediaSessionService2Provider.MediaNotificationProvider;
 import android.media.update.PlaybackState2Provider;
-import android.media.update.SessionPlayer2Provider;
 import android.media.update.SessionToken2Provider;
 import android.media.update.StaticProvider;
 import android.media.update.VideoView2Provider;
@@ -161,12 +157,12 @@ public class ApiFactory implements StaticProvider {
 
     @Override
     public BuilderProvider createMediaSession2CommandButtonBuilder(Context context,
-            Builder instance) {
+            MediaSession2.CommandButton.Builder instance) {
         return new MediaSession2Impl.CommandButtonImpl.BuilderImpl(context, instance);
     }
 
     public BuilderBaseProvider<MediaSession2, SessionCallback> createMediaSession2Builder(
-            Context context, MediaSession2.Builder instance, MediaPlayerInterface player) {
+            Context context, MediaSession2.Builder instance, MediaPlayerBase player) {
         return new MediaSession2Impl.BuilderImpl(context, instance, player);
     }
 
@@ -191,10 +187,10 @@ public class ApiFactory implements StaticProvider {
 
     @Override
     public BuilderBaseProvider<MediaLibrarySession, MediaLibrarySessionCallback>
-        createMediaLibraryService2Builder(
-            Context context, MediaLibrarySessionBuilder instance, MediaPlayerInterface player,
+        createMediaLibraryService2Builder(MediaLibraryService2 service,
+            MediaLibrarySession.Builder instance, MediaPlayerBase player,
             Executor callbackExecutor, MediaLibrarySessionCallback callback) {
-        return new MediaLibraryService2Impl.BuilderImpl(context, instance, player, callbackExecutor,
+        return new MediaLibraryService2Impl.BuilderImpl(service, instance, player, callbackExecutor,
                 callback);
     }
 
@@ -225,14 +221,8 @@ public class ApiFactory implements StaticProvider {
     }
 
     @Override
-    public SessionToken2 SessionToken2_fromBundle(Context context, Bundle bundle) {
+    public SessionToken2 fromBundle_SessionToken2(Context context, Bundle bundle) {
         return SessionToken2Impl.fromBundle_impl(context, bundle);
-    }
-
-    @Override
-    public SessionPlayer2Provider createSessionPlayer2(Context context, SessionPlayer2 instance) {
-        // TODO(jaewan): Implement this
-        return null;
     }
 
     @Override
@@ -302,9 +292,9 @@ public class ApiFactory implements StaticProvider {
     @Override
     public PlaybackState2Provider createPlaybackState2(Context context, PlaybackState2 instance,
             int state, long position, long updateTime, float speed, long bufferedPosition,
-            long activeItemId, CharSequence error) {
+            long activeItemId) {
         return new PlaybackState2Impl(context, instance, state, position, updateTime, speed,
-                bufferedPosition, activeItemId, error);
+                bufferedPosition, activeItemId);
     }
 
     @Override

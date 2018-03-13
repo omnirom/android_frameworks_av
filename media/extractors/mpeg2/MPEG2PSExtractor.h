@@ -20,6 +20,7 @@
 
 #include <media/stagefright/foundation/ABase.h>
 #include <media/MediaExtractor.h>
+#include <media/stagefright/MetaDataBase.h>
 #include <utils/threads.h>
 #include <utils/KeyedVector.h>
 
@@ -34,10 +35,10 @@ struct MPEG2PSExtractor : public MediaExtractor {
     explicit MPEG2PSExtractor(DataSourceBase *source);
 
     virtual size_t countTracks();
-    virtual MediaSourceBase *getTrack(size_t index);
-    virtual sp<MetaData> getTrackMetaData(size_t index, uint32_t flags);
+    virtual MediaTrack *getTrack(size_t index);
+    virtual status_t getTrackMetaData(MetaDataBase& meta, size_t index, uint32_t flags);
 
-    virtual sp<MetaData> getMetaData();
+    virtual status_t getMetaData(MetaDataBase& meta);
 
     virtual uint32_t flags() const;
     virtual const char * name() { return "MPEG2PSExtractor"; }
@@ -71,9 +72,7 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(MPEG2PSExtractor);
 };
 
-bool SniffMPEG2PS(
-        DataSourceBase *source, String8 *mimeType, float *confidence,
-        sp<AMessage> *);
+bool SniffMPEG2PS(DataSourceBase *source, float *confidence);
 
 }  // namespace android
 

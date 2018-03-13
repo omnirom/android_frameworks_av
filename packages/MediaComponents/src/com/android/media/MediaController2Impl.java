@@ -21,14 +21,15 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.media.AudioAttributes;
+import android.media.MediaController2;
+import android.media.MediaController2.ControllerCallback;
 import android.media.MediaController2.PlaybackInfo;
 import android.media.MediaItem2;
 import android.media.MediaSession2;
 import android.media.MediaSession2.Command;
 import android.media.MediaSession2.CommandButton;
 import android.media.MediaSession2.CommandGroup;
-import android.media.MediaController2;
-import android.media.MediaController2.ControllerCallback;
 import android.media.MediaSession2.PlaylistParams;
 import android.media.MediaSessionService2;
 import android.media.PlaybackState2;
@@ -43,9 +44,6 @@ import android.os.ResultReceiver;
 import android.support.annotation.GuardedBy;
 import android.util.Log;
 
-import com.android.media.MediaSession2Impl.CommandButtonImpl;
-
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -76,8 +74,6 @@ public class MediaController2Impl implements MediaController2Provider {
     private PlaylistParams mPlaylistParams;
     @GuardedBy("mLock")
     private PlaybackInfo mPlaybackInfo;
-    @GuardedBy("mLock")
-    private int mRatingType;
     @GuardedBy("mLock")
     private PendingIntent mSessionActivity;
     @GuardedBy("mLock")
@@ -122,16 +118,15 @@ public class MediaController2Impl implements MediaController2Provider {
 
     @Override
     public void initialize() {
-        SessionToken2Impl impl = SessionToken2Impl.from(mToken);
         // TODO(jaewan): More sanity checks.
-        if (impl.getSessionBinder() == null) {
+        if (mToken.getType() == SessionToken2.TYPE_SESSION) {
+            // Session
+            mServiceConnection = null;
+            connectToSession(SessionToken2Impl.from(mToken).getSessionBinder());
+        } else {
             // Session service
             mServiceConnection = new SessionServiceConnection();
             connectToService();
-        } else {
-            // Session
-            mServiceConnection = null;
-            connectToSession(impl.getSessionBinder());
         }
     }
 
@@ -166,7 +161,7 @@ public class MediaController2Impl implements MediaController2Provider {
 
     private void connectToSession(IMediaSession2 sessionBinder) {
         try {
-            sessionBinder.connect(mContext.getPackageName(), mSessionCallbackStub);
+            sessionBinder.connect(mSessionCallbackStub, mContext.getPackageName());
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to call connection request. Framework will retry"
                     + " automatically");
@@ -219,7 +214,11 @@ public class MediaController2Impl implements MediaController2Provider {
     }
 
     Context getContext() {
-      return mContext;
+        return mContext;
+    }
+
+    MediaController2 getInstance() {
+        return mInstance;
     }
 
     @Override
@@ -281,11 +280,6 @@ public class MediaController2Impl implements MediaController2Provider {
     @Override
     public PendingIntent getSessionActivity_impl() {
         return mSessionActivity;
-    }
-
-    @Override
-    public int getRatingType_impl() {
-        return mRatingType;
     }
 
     @Override
@@ -401,9 +395,26 @@ public class MediaController2Impl implements MediaController2Provider {
             // TODO(jaewan): Handle.
         }
     }
+
     @Override
-    public void setRating_impl(Rating2 rating) {
-        // TODO(jaewan): Implement
+    public void setRating_impl(String mediaId, Rating2 rating) {
+        if (mediaId == null) {
+            throw new IllegalArgumentException("mediaId shouldn't be null");
+        }
+        if (rating == null) {
+            throw new IllegalArgumentException("rating shouldn't be null");
+        }
+
+        final IMediaSession2 binder = mSessionBinder;
+        if (binder != null) {
+            try {
+                binder.setRating(mSessionCallbackStub, mediaId, rating.toBundle());
+            } catch (RemoteException e) {
+                Log.w(TAG, "Cannot connect to the service or the session is gone", e);
+            }
+        } else {
+            // TODO(jaewan): Handle.
+        }
     }
 
     @Override
@@ -454,11 +465,14 @@ public class MediaController2Impl implements MediaController2Provider {
     }
 
     @Override
-    public void setCurrentPlaylistItem_impl(int index) {
+    public void skipToPlaylistItem_impl(MediaItem2 item) {
+        // TODO(jaewan): Implement this
+        /*
         Bundle args = new Bundle();
-        args.putInt(MediaSession2Stub.ARGUMENT_KEY_ITEM_INDEX, index);
+        args.putInt(MediaSession2Stub.ARGUMENT_KEY_ITEM_INDEX, item);
         sendTransportControlCommand(
                 MediaSession2.COMMAND_CODE_PLAYBACK_SET_CURRENT_PLAYLIST_ITEM, args);
+        */
     }
 
     @Override
@@ -475,7 +489,7 @@ public class MediaController2Impl implements MediaController2Provider {
 
     @Override
     public void addPlaylistItem_impl(int index, MediaItem2 item) {
-    // TODO(jaewan): Implement
+        // TODO(jaewan): Implement
     }
 
     @Override
@@ -502,10 +516,37 @@ public class MediaController2Impl implements MediaController2Provider {
         sendTransportControlCommand(MediaSession2.COMMAND_CODE_PLAYBACK_SET_PLAYLIST_PARAMS, args);
     }
 
-    ///////////////////////////////////////////////////
-    // Protected or private methods
-    ///////////////////////////////////////////////////
-    private void pushPlaybackStateChanges(final PlaybackState2 state) {
+    @Override
+    public int getPlayerState_impl() {
+        // TODO(jaewan): Implement
+        return 0;
+    }
+
+    @Override
+    public long getPosition_impl() {
+        // TODO(jaewan): Implement
+        return 0;
+    }
+
+    @Override
+    public float getPlaybackSpeed_impl() {
+        // TODO(jaewan): Implement
+        return 0;
+    }
+
+    @Override
+    public long getBufferedPosition_impl() {
+        // TODO(jaewan): Implement
+        return 0;
+    }
+
+    @Override
+    public MediaItem2 getCurrentPlaylistItem_impl() {
+        // TODO(jaewan): Implement
+        return null;
+    }
+
+    void pushPlaybackStateChanges(final PlaybackState2 state) {
         synchronized (mLock) {
             mPlaybackState = state;
         }
@@ -517,7 +558,7 @@ public class MediaController2Impl implements MediaController2Provider {
         });
     }
 
-    private void pushPlaylistParamsChanges(final PlaylistParams params) {
+    void pushPlaylistParamsChanges(final PlaylistParams params) {
         synchronized (mLock) {
             mPlaylistParams = params;
         }
@@ -529,7 +570,7 @@ public class MediaController2Impl implements MediaController2Provider {
         });
     }
 
-    private void pushPlaybackInfoChanges(final PlaybackInfo info) {
+    void pushPlaybackInfoChanges(final PlaybackInfo info) {
         synchronized (mLock) {
             mPlaybackInfo = info;
         }
@@ -541,7 +582,7 @@ public class MediaController2Impl implements MediaController2Provider {
         });
     }
 
-    private void pushPlaylistChanges(final List<Bundle> list) {
+    void pushPlaylistChanges(final List<Bundle> list) {
         final List<MediaItem2> playlist = new ArrayList<>();
         for (int i = 0; i < list.size(); i++) {
             MediaItem2 item = MediaItem2.fromBundle(mContext, list.get(i));
@@ -562,9 +603,9 @@ public class MediaController2Impl implements MediaController2Provider {
     }
 
     // Should be used without a lock to prevent potential deadlock.
-    private void onConnectedNotLocked(IMediaSession2 sessionBinder,
+    void onConnectedNotLocked(IMediaSession2 sessionBinder,
             final CommandGroup commandGroup, final PlaybackState2 state, final PlaybackInfo info,
-            final PlaylistParams params, final List<MediaItem2> playlist, final int ratingType,
+            final PlaylistParams params, final List<MediaItem2> playlist,
             final PendingIntent sessionActivity) {
         if (DEBUG) {
             Log.d(TAG, "onConnectedNotLocked sessionBinder=" + sessionBinder
@@ -592,7 +633,6 @@ public class MediaController2Impl implements MediaController2Provider {
                 mPlaybackInfo = info;
                 mPlaylistParams = params;
                 mPlaylist = playlist;
-                mRatingType = ratingType;
                 mSessionActivity = sessionActivity;
                 mSessionBinder = sessionBinder;
                 try {
@@ -623,7 +663,7 @@ public class MediaController2Impl implements MediaController2Provider {
         }
     }
 
-    private void onCustomCommand(final Command command, final Bundle args,
+    void onCustomCommand(final Command command, final Bundle args,
             final ResultReceiver receiver) {
         if (DEBUG) {
             Log.d(TAG, "onCustomCommand cmd=" + command);
@@ -634,193 +674,10 @@ public class MediaController2Impl implements MediaController2Provider {
         });
     }
 
-    // TODO(jaewan): Pull out this from the controller2, and rename it to the MediaController2Stub
-    //               or MediaBrowser2Stub.
-    static class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
-        private final WeakReference<MediaController2Impl> mController;
-
-        private MediaSession2CallbackStub(MediaController2Impl controller) {
-            mController = new WeakReference<>(controller);
-        }
-
-        private MediaController2Impl getController() throws IllegalStateException {
-            final MediaController2Impl controller = mController.get();
-            if (controller == null) {
-                throw new IllegalStateException("Controller is released");
-            }
-            return controller;
-        }
-
-        // TODO(jaewan): Refactor code to get rid of these pattern.
-        private MediaBrowser2Impl getBrowser() throws IllegalStateException {
-            final MediaController2Impl controller = getController();
-            if (controller instanceof MediaBrowser2Impl) {
-                return (MediaBrowser2Impl) controller;
-            }
-            return null;
-        }
-
-        public void destroy() {
-            mController.clear();
-        }
-
-        @Override
-        public void onPlaybackStateChanged(Bundle state) throws RuntimeException {
-            final MediaController2Impl controller;
-            try {
-                controller = getController();
-            } catch (IllegalStateException e) {
-                Log.w(TAG, "Don't fail silently here. Highly likely a bug");
-                return;
-            }
-            controller.pushPlaybackStateChanges(
-                    PlaybackState2.fromBundle(controller.getContext(), state));
-        }
-
-        @Override
-        public void onPlaylistChanged(List<Bundle> playlist) throws RuntimeException {
-            final MediaController2Impl controller;
-            try {
-                controller = getController();
-            } catch (IllegalStateException e) {
-                Log.w(TAG, "Don't fail silently here. Highly likely a bug");
-                return;
-            }
-            if (playlist == null) {
-                return;
-            }
-            controller.pushPlaylistChanges(playlist);
-        }
-
-        @Override
-        public void onPlaylistParamsChanged(Bundle params) throws RuntimeException {
-            final MediaController2Impl controller;
-            try {
-                controller = getController();
-            } catch (IllegalStateException e) {
-                Log.w(TAG, "Don't fail silently here. Highly likely a bug");
-                return;
-            }
-            controller.pushPlaylistParamsChanges(
-                    PlaylistParams.fromBundle(controller.getContext(), params));
-        }
-
-        @Override
-        public void onPlaybackInfoChanged(Bundle playbackInfo) throws RuntimeException {
-            if (DEBUG) {
-                Log.d(TAG, "onPlaybackInfoChanged");
-            }
-            final MediaController2Impl controller;
-            try {
-                controller = getController();
-            } catch (IllegalStateException e) {
-                Log.w(TAG, "Don't fail silently here. Highly likely a bug");
-                return;
-            }
-            controller.pushPlaybackInfoChanges(
-                    PlaybackInfoImpl.fromBundle(controller.getContext(), playbackInfo));
-        }
-
-        @Override
-        public void onConnected(IMediaSession2 sessionBinder, Bundle commandGroup,
-                Bundle playbackState, Bundle playbackInfo, Bundle playlistParams, List<Bundle>
-                playlist, int ratingType, PendingIntent sessionActivity) {
-            final MediaController2Impl controller = mController.get();
-            if (controller == null) {
-                if (DEBUG) {
-                    Log.d(TAG, "onConnected after MediaController2.close()");
-                }
-                return;
-            }
-            final Context context = controller.getContext();
-            List<MediaItem2> list = new ArrayList<>();
-            for (int i = 0; i < playlist.size(); i++) {
-                MediaItem2 item = MediaItem2.fromBundle(context, playlist.get(i));
-                if (item != null) {
-                    list.add(item);
-                }
-            }
-            controller.onConnectedNotLocked(sessionBinder,
-                    CommandGroup.fromBundle(context, commandGroup),
-                    PlaybackState2.fromBundle(context, playbackState),
-                    PlaybackInfoImpl.fromBundle(context, playbackInfo),
-                    PlaylistParams.fromBundle(context, playlistParams),
-                    list, ratingType, sessionActivity);
-        }
-
-        @Override
-        public void onDisconnected() {
-            final MediaController2Impl controller = mController.get();
-            if (controller == null) {
-                if (DEBUG) {
-                    Log.d(TAG, "onDisconnected after MediaController2.close()");
-                }
-                return;
-            }
-            controller.mInstance.close();
-        }
-
-        @Override
-        public void onGetRootResult(Bundle rootHints, String rootMediaId, Bundle rootExtra)
-                throws RuntimeException {
-            final MediaBrowser2Impl browser;
-            try {
-                browser = getBrowser();
-            } catch (IllegalStateException e) {
-                Log.w(TAG, "Don't fail silently here. Highly likely a bug");
-                return;
-            }
-            if (browser == null) {
-                // TODO(jaewan): Revisit here. Could be a bug
-                return;
-            }
-            browser.onGetRootResult(rootHints, rootMediaId, rootExtra);
-        }
-
-        @Override
-        public void onCustomLayoutChanged(List<Bundle> commandButtonlist) {
-            if (commandButtonlist == null) {
-                // Illegal call. Ignore
-                return;
-            }
-            // TODO(jaewan): Fix here. It's controller feature so shouldn't use browser
-            final MediaBrowser2Impl browser;
-            try {
-                browser = getBrowser();
-            } catch (IllegalStateException e) {
-                Log.w(TAG, "Don't fail silently here. Highly likely a bug");
-                return;
-            }
-            if (browser == null) {
-                // TODO(jaewan): Revisit here. Could be a bug
-                return;
-            }
-            List<CommandButton> layout = new ArrayList<>();
-            for (int i = 0; i < commandButtonlist.size(); i++) {
-                CommandButton button = CommandButtonImpl.fromBundle(
-                        browser.getContext(), commandButtonlist.get(i));
-                if (button != null) {
-                    layout.add(button);
-                }
-            }
-            browser.onCustomLayoutChanged(layout);
-        }
-
-        @Override
-        public void sendCustomCommand(Bundle commandBundle, Bundle args, ResultReceiver receiver) {
-            final MediaController2Impl controller;
-            try {
-                controller = getController();
-            } catch (IllegalStateException e) {
-                Log.w(TAG, "Don't fail silently here. Highly likely a bug");
-                return;
-            }
-            Command command = Command.fromBundle(controller.getContext(), commandBundle);
-            if (command == null) {
-                return;
-            }
-            controller.onCustomCommand(command, args, receiver);
-        }
+    void onCustomLayoutChanged(final List<CommandButton> layout) {
+        mCallbackExecutor.execute(() -> {
+            mCallback.onCustomLayoutChanged(layout);
+        });
     }
 
     // This will be called on the main thread.
@@ -857,6 +714,99 @@ public class MediaController2Impl implements MediaController2Provider {
             // This SessionServiceRecord will be removed accordingly, but forget session binder here
             // for sure.
             mInstance.close();
+        }
+    }
+
+    public static final class PlaybackInfoImpl implements PlaybackInfoProvider {
+
+        private static final String KEY_PLAYBACK_TYPE =
+                "android.media.playbackinfo_impl.playback_type";
+        private static final String KEY_CONTROL_TYPE =
+                "android.media.playbackinfo_impl.control_type";
+        private static final String KEY_MAX_VOLUME =
+                "android.media.playbackinfo_impl.max_volume";
+        private static final String KEY_CURRENT_VOLUME =
+                "android.media.playbackinfo_impl.current_volume";
+        private static final String KEY_AUDIO_ATTRIBUTES =
+                "android.media.playbackinfo_impl.audio_attrs";
+
+        private final Context mContext;
+        private final PlaybackInfo mInstance;
+
+        private final int mPlaybackType;
+        private final int mControlType;
+        private final int mMaxVolume;
+        private final int mCurrentVolume;
+        private final AudioAttributes mAudioAttrs;
+
+        private PlaybackInfoImpl(Context context, int playbackType, AudioAttributes attrs,
+                int controlType, int max, int current) {
+            mContext = context;
+            mPlaybackType = playbackType;
+            mAudioAttrs = attrs;
+            mControlType = controlType;
+            mMaxVolume = max;
+            mCurrentVolume = current;
+            mInstance = new PlaybackInfo(this);
+        }
+
+        @Override
+        public int getPlaybackType_impl() {
+            return mPlaybackType;
+        }
+
+        @Override
+        public AudioAttributes getAudioAttributes_impl() {
+            return mAudioAttrs;
+        }
+
+        @Override
+        public int getControlType_impl() {
+            return mControlType;
+        }
+
+        @Override
+        public int getMaxVolume_impl() {
+            return mMaxVolume;
+        }
+
+        @Override
+        public int getCurrentVolume_impl() {
+            return mCurrentVolume;
+        }
+
+        public PlaybackInfo getInstance() {
+            return mInstance;
+        }
+
+        public Bundle toBundle() {
+            Bundle bundle = new Bundle();
+            bundle.putInt(KEY_PLAYBACK_TYPE, mPlaybackType);
+            bundle.putInt(KEY_CONTROL_TYPE, mControlType);
+            bundle.putInt(KEY_MAX_VOLUME, mMaxVolume);
+            bundle.putInt(KEY_CURRENT_VOLUME, mCurrentVolume);
+            bundle.putParcelable(KEY_AUDIO_ATTRIBUTES, mAudioAttrs);
+            return bundle;
+        }
+
+        public static PlaybackInfo createPlaybackInfo(Context context, int playbackType,
+                AudioAttributes attrs, int controlType, int max, int current) {
+            return new PlaybackInfoImpl(context, playbackType, attrs, controlType, max, current)
+                    .getInstance();
+        }
+
+        public static PlaybackInfo fromBundle(Context context, Bundle bundle) {
+            if (bundle == null) {
+                return null;
+            }
+            final int volumeType = bundle.getInt(KEY_PLAYBACK_TYPE);
+            final int volumeControl = bundle.getInt(KEY_CONTROL_TYPE);
+            final int maxVolume = bundle.getInt(KEY_MAX_VOLUME);
+            final int currentVolume = bundle.getInt(KEY_CURRENT_VOLUME);
+            final AudioAttributes attrs = bundle.getParcelable(KEY_AUDIO_ATTRIBUTES);
+
+            return createPlaybackInfo(
+                    context, volumeType, attrs, volumeControl, maxVolume, currentVolume);
         }
     }
 }

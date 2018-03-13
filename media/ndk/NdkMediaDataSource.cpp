@@ -40,10 +40,19 @@ struct AMediaDataSource {
     void *userdata;
     AMediaDataSourceReadAt readAt;
     AMediaDataSourceGetSize getSize;
+    AMediaDataSourceClose close;
 };
 
 NdkDataSource::NdkDataSource(AMediaDataSource *dataSource)
-    : mDataSource(dataSource) {
+    : mDataSource(AMediaDataSource_new()) {
+      AMediaDataSource_setReadAt(mDataSource, dataSource->readAt);
+      AMediaDataSource_setGetSize(mDataSource, dataSource->getSize);
+      AMediaDataSource_setClose(mDataSource, dataSource->close);
+      AMediaDataSource_setUserdata(mDataSource, dataSource->userdata);
+}
+
+NdkDataSource::~NdkDataSource() {
+    AMediaDataSource_delete(mDataSource);
 }
 
 status_t NdkDataSource::initCheck() const {
@@ -77,6 +86,12 @@ String8 NdkDataSource::getMIMEType() const {
     return String8("application/octet-stream");
 }
 
+void NdkDataSource::close() {
+    if (mDataSource->close != NULL && mDataSource->userdata != NULL) {
+        mDataSource->close(mDataSource->userdata);
+    }
+}
+
 extern "C" {
 
 EXPORT
@@ -85,6 +100,7 @@ AMediaDataSource* AMediaDataSource_new() {
     mSource->userdata = NULL;
     mSource->readAt = NULL;
     mSource->getSize = NULL;
+    mSource->close = NULL;
     return mSource;
 }
 
@@ -109,6 +125,11 @@ void AMediaDataSource_setReadAt(AMediaDataSource *mSource, AMediaDataSourceReadA
 EXPORT
 void AMediaDataSource_setGetSize(AMediaDataSource *mSource, AMediaDataSourceGetSize getSize) {
     mSource->getSize = getSize;
+}
+
+EXPORT
+void AMediaDataSource_setClose(AMediaDataSource *mSource, AMediaDataSourceClose close) {
+    mSource->close = close;
 }
 
 } // extern "C"

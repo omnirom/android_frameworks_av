@@ -113,9 +113,9 @@ public:
         return NULL;
     }
 
-    virtual status_t read(MediaBuffer **buffer,
+    virtual status_t read(MediaBufferBase **buffer,
             const MediaSource::ReadOptions *options) {
-        Vector<MediaBuffer *> buffers;
+        Vector<MediaBufferBase *> buffers;
         status_t ret = readMultiple(&buffers, 1 /* maxNumBuffers */, options);
         *buffer = buffers.size() == 0 ? nullptr : buffers[0];
         ALOGV("read status %d, bufferCount %u, sinceStop %u",
@@ -124,7 +124,7 @@ public:
     }
 
     virtual status_t readMultiple(
-            Vector<MediaBuffer *> *buffers, uint32_t maxNumBuffers,
+            Vector<MediaBufferBase *> *buffers, uint32_t maxNumBuffers,
             const MediaSource::ReadOptions *options) {
         ALOGV("readMultiple");
         if (buffers == NULL || !buffers->isEmpty()) {
@@ -171,13 +171,13 @@ public:
                 size_t length = reply.readInt32();
                 buf = new RemoteMediaBufferWrapper(mem);
                 buf->set_range(offset, length);
-                buf->meta_data()->updateFromParcel(reply);
+                buf->meta_data().updateFromParcel(reply);
             } else { // INLINE_BUFFER
                 int32_t len = reply.readInt32();
                 ALOGV("INLINE_BUFFER status %d and len %d", ret, len);
                 buf = new MediaBuffer(len);
                 reply.read(buf->data(), len);
-                buf->meta_data()->updateFromParcel(reply);
+                buf->meta_data().updateFromParcel(reply);
             }
             buffers->push_back(buf);
             ++bufferCount;
@@ -341,7 +341,7 @@ status_t BnMediaSource::onTransact(
             uint32_t bufferCount = 0;
             for (; bufferCount < maxNumBuffers; ++bufferCount, ++mBuffersSinceStop) {
                 MediaBuffer *buf = nullptr;
-                ret = read(&buf, useOptions ? &opts : nullptr);
+                ret = read((MediaBufferBase **)&buf, useOptions ? &opts : nullptr);
                 opts.clearNonPersistent(); // Remove options that only apply to first buffer.
                 if (ret != NO_ERROR || buf == nullptr) {
                     break;
@@ -364,7 +364,7 @@ status_t BnMediaSource::onTransact(
                     } else {
                         ALOGD("Large buffer %zu without IMemory!", length);
                         ret = mGroup->acquire_buffer(
-                                &transferBuf, false /* nonBlocking */, length);
+                                (MediaBufferBase **)&transferBuf, false /* nonBlocking */, length);
                         if (ret != OK
                                 || transferBuf == nullptr
                                 || transferBuf->mMemory == nullptr) {
@@ -408,7 +408,7 @@ status_t BnMediaSource::onTransact(
                     }
                     reply->writeInt32(offset);
                     reply->writeInt32(length);
-                    buf->meta_data()->writeToParcel(*reply);
+                    buf->meta_data().writeToParcel(*reply);
                     transferBuf->addRemoteRefcount(1);
                     if (transferBuf != buf) {
                         transferBuf->release(); // release local ref
@@ -421,7 +421,7 @@ status_t BnMediaSource::onTransact(
                             buf, buf->mMemory->size(), length);
                     reply->writeInt32(INLINE_BUFFER);
                     reply->writeByteArray(length, (uint8_t*)buf->data() + offset);
-                    buf->meta_data()->writeToParcel(*reply);
+                    buf->meta_data().writeToParcel(*reply);
                     inlineTransferSize += length;
                     if (inlineTransferSize > kInlineMaxTransfer) {
                         maxNumBuffers = 0; // stop readMultiple if inline transfer is too large.

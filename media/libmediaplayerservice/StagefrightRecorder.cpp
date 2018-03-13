@@ -71,22 +71,26 @@ static const int kMaxNumVideoTemporalLayers = 8;
 // key for media statistics
 static const char *kKeyRecorder = "recorder";
 // attrs for media statistics
-static const char *kRecorderHeight = "android.media.mediarecorder.height";
-static const char *kRecorderWidth = "android.media.mediarecorder.width";
-static const char *kRecorderFrameRate = "android.media.mediarecorder.frame-rate";
-static const char *kRecorderVideoBitrate = "android.media.mediarecorder.video-bitrate";
-static const char *kRecorderAudioSampleRate = "android.media.mediarecorder.audio-samplerate";
-static const char *kRecorderAudioChannels = "android.media.mediarecorder.audio-channels";
+// NB: these are matched with public Java API constants defined
+// in frameworks/base/media/java/android/media/MediaRecorder.java
+// These must be kept synchronized with the constants there.
 static const char *kRecorderAudioBitrate = "android.media.mediarecorder.audio-bitrate";
-static const char *kRecorderVideoIframeInterval = "android.media.mediarecorder.video-iframe-interval";
-static const char *kRecorderMovieTimescale = "android.media.mediarecorder.movie-timescale";
+static const char *kRecorderAudioChannels = "android.media.mediarecorder.audio-channels";
+static const char *kRecorderAudioSampleRate = "android.media.mediarecorder.audio-samplerate";
 static const char *kRecorderAudioTimescale = "android.media.mediarecorder.audio-timescale";
-static const char *kRecorderVideoTimescale = "android.media.mediarecorder.video-timescale";
-static const char *kRecorderVideoProfile = "android.media.mediarecorder.video-encoder-profile";
-static const char *kRecorderVideoLevel = "android.media.mediarecorder.video-encoder-level";
-static const char *kRecorderCaptureFpsEnable = "android.media.mediarecorder.capture-fpsenable";
 static const char *kRecorderCaptureFps = "android.media.mediarecorder.capture-fps";
+static const char *kRecorderCaptureFpsEnable = "android.media.mediarecorder.capture-fpsenable";
+static const char *kRecorderFrameRate = "android.media.mediarecorder.frame-rate";
+static const char *kRecorderHeight = "android.media.mediarecorder.height";
+static const char *kRecorderMovieTimescale = "android.media.mediarecorder.movie-timescale";
 static const char *kRecorderRotation = "android.media.mediarecorder.rotation";
+static const char *kRecorderVideoBitrate = "android.media.mediarecorder.video-bitrate";
+static const char *kRecorderVideoIframeInterval = "android.media.mediarecorder.video-iframe-interval";
+static const char *kRecorderVideoLevel = "android.media.mediarecorder.video-encoder-level";
+static const char *kRecorderVideoProfile = "android.media.mediarecorder.video-encoder-profile";
+static const char *kRecorderVideoTimescale = "android.media.mediarecorder.video-timescale";
+static const char *kRecorderWidth = "android.media.mediarecorder.width";
+
 
 // To collect the encoder usage for the battery app
 static void addBatteryData(uint32_t params) {
@@ -491,7 +495,7 @@ status_t StagefrightRecorder::setParamAudioSamplingRate(int32_t sampleRate) {
 
 status_t StagefrightRecorder::setParamAudioNumberOfChannels(int32_t channels) {
     ALOGV("setParamAudioNumberOfChannels: %d", channels);
-    if (channels <= 0 || channels >= 3) {
+    if (channels <= 0 || channels > 6) {
         ALOGE("Invalid number of audio channels: %d", channels);
         return BAD_VALUE;
     }
@@ -938,8 +942,10 @@ status_t StagefrightRecorder::prepareInternal() {
             break;
 
         default:
-            ALOGE("Unsupported output file format: %d", mOutputFormat);
-            status = UNKNOWN_ERROR;
+            if (handleCustomRecording() != OK) {
+                ALOGE("Unsupported output file format: %d", mOutputFormat);
+                status = UNKNOWN_ERROR;
+            }
             break;
     }
 
@@ -1012,8 +1018,10 @@ status_t StagefrightRecorder::start() {
 
         default:
         {
-            ALOGE("Unsupported output file format: %d", mOutputFormat);
-            status = UNKNOWN_ERROR;
+            if (handleCustomOutputFormats() != OK) {
+                ALOGE("Unsupported output file format: %d", mOutputFormat);
+                status = UNKNOWN_ERROR;
+            }
             break;
         }
     }
@@ -1101,8 +1109,10 @@ sp<MediaCodecSource> StagefrightRecorder::createAudioSource() {
             break;
 
         default:
-            ALOGE("Unknown audio encoder: %d", mAudioEncoder);
-            return NULL;
+            if (handleCustomAudioSource(format) != OK) {
+                ALOGE("Unknown audio encoder: %d", mAudioEncoder);
+                return NULL;
+            }
     }
 
     int32_t maxInputSize;
@@ -1120,14 +1130,15 @@ sp<MediaCodecSource> StagefrightRecorder::createAudioSource() {
 
     sp<MediaCodecSource> audioEncoder =
             MediaCodecSource::Create(mLooper, format, audioSource);
-    sp<AudioSystem::AudioDeviceCallback> callback = mAudioDeviceCallback.promote();
+    if (audioEncoder == NULL) {
+        ALOGE("Failed to create audio encoder");
+    } else {
+        sp<AudioSystem::AudioDeviceCallback> callback = mAudioDeviceCallback.promote();
     if (mDeviceCallbackEnabled && callback != 0) {
         audioSource->addAudioDeviceCallback(callback);
     }
     mAudioSourceNode = audioSource;
 
-    if (audioEncoder == NULL) {
-        ALOGE("Failed to create audio encoder");
     }
 
     return audioEncoder;
@@ -1182,13 +1193,23 @@ status_t StagefrightRecorder::setupRawAudioRecording() {
     }
 
     sp<MediaCodecSource> audioEncoder = createAudioSource();
-    if (audioEncoder == NULL) {
+    if (audioEncoder != NULL) {
+        CHECK(mWriter != 0);
+        mWriter->addSource(audioEncoder);
+        mAudioEncoderSource = audioEncoder;
+    } else if (audioEncoder == NULL && mAudioEncoder == AUDIO_ENCODER_LPCM) {
+        CHECK(mWriter != 0);
+        sp<MediaSource> src = setPCMRecording();
+        if (src == NULL) {
+            ALOGE("Recording source is null");
+            return UNKNOWN_ERROR;
+        }
+        mAudioSourceNode =  reinterpret_cast<AudioSource* > (src.get());
+        mWriter->addSource(src);
+    } else if (audioEncoder == NULL) {
         return UNKNOWN_ERROR;
     }
 
-    CHECK(mWriter != 0);
-    mWriter->addSource(audioEncoder);
-    mAudioEncoderSource = audioEncoder;
 
     if (mMaxFileDurationUs != 0) {
         mWriter->setMaxFileDuration(mMaxFileDurationUs);
@@ -1788,8 +1809,10 @@ status_t StagefrightRecorder::setupAudioEncoder(const sp<MediaWriter>& writer) {
             break;
 
         default:
-            ALOGE("Unsupported audio encoder: %d", mAudioEncoder);
-            return UNKNOWN_ERROR;
+            if (handleCustomAudioEncoder() != OK) {
+                ALOGE("Unsupported audio encoder: %d", mAudioEncoder);
+                return UNKNOWN_ERROR;
+            }
     }
 
     sp<MediaCodecSource> audioEncoder = createAudioSource();

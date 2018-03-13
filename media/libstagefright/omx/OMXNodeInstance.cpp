@@ -47,6 +47,8 @@
 
 static const OMX_U32 kPortIndexInput = 0;
 static const OMX_U32 kPortIndexOutput = 1;
+static const OMX_U32 kPortIndexInputExtradata = 2;
+static const OMX_U32 kPortIndexOutputExtradata = 3;
 
 #define CLOGW(fmt, ...) ALOGW("[%p:%s] " fmt, mHandle, mName, ##__VA_ARGS__)
 
@@ -364,16 +366,22 @@ OMXNodeInstance::OMXNodeInstance(
     DEBUG_BUMP = DEBUG;
     mNumPortBuffers[0] = 0;
     mNumPortBuffers[1] = 0;
+    mNumPortBuffers[2] = 0;
+    mNumPortBuffers[3] = 0;
     mDebugLevelBumpPendingBuffers[0] = 0;
     mDebugLevelBumpPendingBuffers[1] = 0;
     mMetadataType[0] = kMetadataBufferTypeInvalid;
     mMetadataType[1] = kMetadataBufferTypeInvalid;
+    mMetadataType[2] = kMetadataBufferTypeInvalid;
+    mMetadataType[3] = kMetadataBufferTypeInvalid;
     mPortMode[0] = IOMX::kPortModePresetByteBuffer;
     mPortMode[1] = IOMX::kPortModePresetByteBuffer;
     mSecureBufferType[0] = kSecureBufferTypeUnknown;
     mSecureBufferType[1] = kSecureBufferTypeUnknown;
     mGraphicBufferEnabled[0] = false;
     mGraphicBufferEnabled[1] = false;
+    mGraphicBufferEnabled[2] = false;
+    mGraphicBufferEnabled[3] = false;
     mIsSecure = AString(name).endsWith(".secure");
     mLegacyAdaptiveExperiment = ADebug::isExperimentEnabled("legacy-adaptive");
 }
@@ -1140,7 +1148,9 @@ status_t OMXNodeInstance::useBuffer_l(
             : kRequiresAllocateBufferOnOutputPorts;
 
     // we use useBuffer for output metadata regardless of quirks
-    if (!isOutputGraphicMetadata && (mQuirks & requiresAllocateBufferBit)) {
+    if (!isOutputGraphicMetadata && (mQuirks & requiresAllocateBufferBit) &&
+            portIndex != kPortIndexOutputExtradata &&
+            portIndex != kPortIndexInputExtradata) {
         // metadata buffers are not connected cross process; only copy if not meta.
         buffer_meta = new BufferMeta(
                     params, hParams, portIndex, !isMetadata /* copy */, NULL /* data */);
@@ -1666,7 +1676,10 @@ status_t OMXNodeInstance::emptyBuffer_l(
         return INVALID_OPERATION;
     }
 
-    OMX_BUFFERHEADERTYPE *header = findBufferHeader(buffer, kPortIndexInput);
+    OMX_BUFFERHEADERTYPE *header = NULL;
+    OMX_BOOL extradata_buffer = ((header = findBufferHeader(buffer, kPortIndexInput)) != NULL) ?
+        OMX_FALSE : ((header = findBufferHeader(buffer, kPortIndexInputExtradata)) != NULL) ?
+        OMX_TRUE : OMX_FALSE;
     if (header == NULL) {
         ALOGE("b/25884056");
         return BAD_VALUE;
@@ -1676,7 +1689,7 @@ status_t OMXNodeInstance::emptyBuffer_l(
 
     // set up proper filled length if component is configured for gralloc metadata mode
     // ignore rangeOffset in this case (as client may be assuming ANW meta buffers).
-    if (mMetadataType[kPortIndexInput] == kMetadataBufferTypeGrallocSource) {
+    if (!extradata_buffer && mMetadataType[kPortIndexInput] == kMetadataBufferTypeGrallocSource) {
         header->nFilledLen = rangeLength ? sizeof(VideoGrallocMetadata) : 0;
         header->nOffset = 0;
     } else {

@@ -78,6 +78,7 @@ public:
 
     sp<AudioPort>       mPort;
     audio_devices_t mDevice;                   // current device this output is routed to
+    audio_io_handle_t mIoHandle;           // output handle
     uint32_t mRefCount[AUDIO_STREAM_CNT]; // number of streams of each type using this output
     nsecs_t mStopTime[AUDIO_STREAM_CNT];
     float mCurVolume[AUDIO_STREAM_CNT];   // current stream volume in dB
@@ -133,9 +134,11 @@ public:
             // Note: called after changeRefCount(-1);
             void stop();
             void close();
+            status_t openDuplicating(const sp<SwAudioOutputDescriptor>& output1,
+                                     const sp<SwAudioOutputDescriptor>& output2,
+                                     audio_io_handle_t *ioHandle);
 
     const sp<IOProfile> mProfile;          // I/O profile this output derives from
-    audio_io_handle_t mIoHandle;           // output handle
     uint32_t mLatency;                  //
     audio_output_flags_t mFlags;   //
     AudioMix *mPolicyMix;             // non NULL when used by a dynamic policy

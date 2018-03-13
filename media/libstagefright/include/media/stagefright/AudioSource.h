@@ -56,11 +56,11 @@ struct AudioSource : public MediaSource, public MediaBufferObserver {
     int16_t getMaxAmplitude();
 
     virtual status_t read(
-            MediaBuffer **buffer, const ReadOptions *options = NULL);
+            MediaBufferBase **buffer, const ReadOptions *options = NULL);
     virtual status_t setStopTimeUs(int64_t stopTimeUs);
 
     status_t dataCallback(const AudioRecord::Buffer& buffer);
-    virtual void signalBufferReturned(MediaBuffer *buffer);
+    virtual void signalBufferReturned(MediaBufferBase *buffer);
 
     status_t setInputDevice(audio_port_handle_t deviceId);
     status_t getRoutedDeviceId(audio_port_handle_t* deviceId);
@@ -122,7 +122,7 @@ protected:
     void queueInputBuffer_l(MediaBuffer *buffer, int64_t timeUs);
     void releaseQueuedFrames_l();
     void waitOutstandingEncodingFrames_l();
-    status_t reset();
+    virtual status_t reset();
 
     AudioSource(const AudioSource &);
     AudioSource &operator=(const AudioSource &);

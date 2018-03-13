@@ -39,8 +39,8 @@
 #include <memunreachable/memunreachable.h>
 #include <utils/String16.h>
 #include <utils/threads.h>
-#include <utils/Atomic.h>
 
+#include <cutils/atomic.h>
 #include <cutils/properties.h>
 
 #include <system/audio.h>
@@ -321,6 +321,7 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
                                               actualSessionId,
                                               client.clientPid,
                                               client.clientUid,
+                                              client.packageName,
                                               config,
                                               AUDIO_INPUT_FLAG_MMAP_NOIRQ, deviceId, &portId);
     }
@@ -340,7 +341,7 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
         if (direction == MmapStreamInterface::DIRECTION_OUTPUT) {
             AudioSystem::releaseOutput(io, streamType, actualSessionId);
         } else {
-            AudioSystem::releaseInput(io, actualSessionId);
+            AudioSystem::releaseInput(portId);
         }
         ret = NO_INIT;
     }
@@ -658,7 +659,7 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
     sp<Client> client;
     status_t lStatus;
     audio_stream_type_t streamType;
-    audio_port_handle_t portId;
+    audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE;
 
     bool updatePid = (input.clientInfo.clientPid == -1);
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
@@ -1098,26 +1099,17 @@ status_t AudioFlinger::setStreamVolume(audio_stream_type_t stream, float value,
     if (status != NO_ERROR) {
         return status;
     }
+    if (output == AUDIO_IO_HANDLE_NONE) {
+        return BAD_VALUE;
+    }
     ALOG_ASSERT(stream != AUDIO_STREAM_PATCH, "attempt to change AUDIO_STREAM_PATCH volume");
 
     AutoMutex lock(mLock);
-    Vector<VolumeInterface *> volumeInterfaces;
-    if (output != AUDIO_IO_HANDLE_NONE) {
-        VolumeInterface *volumeInterface = getVolumeInterface_l(output);
-        if (volumeInterface == NULL) {
-            return BAD_VALUE;
-        }
-        volumeInterfaces.add(volumeInterface);
+    VolumeInterface *volumeInterface = getVolumeInterface_l(output);
+    if (volumeInterface == NULL) {
+        return BAD_VALUE;
     }
-
-    mStreamTypes[stream].volume = value;
-
-    if (volumeInterfaces.size() == 0) {
-        volumeInterfaces = getAllVolumeInterfaces_l();
-    }
-    for (size_t i = 0; i < volumeInterfaces.size(); i++) {
-        volumeInterfaces[i]->setStreamVolume(stream, value);
-    }
+    volumeInterface->setStreamVolume(stream, value);
 
     return NO_ERROR;
 }
@@ -1156,21 +1148,17 @@ float AudioFlinger::streamVolume(audio_stream_type_t stream, audio_io_handle_t o
     if (status != NO_ERROR) {
         return 0.0f;
     }
-
-    AutoMutex lock(mLock);
-    float volume;
-    if (output != AUDIO_IO_HANDLE_NONE) {
-        VolumeInterface *volumeInterface = getVolumeInterface_l(output);
-        if (volumeInterface != NULL) {
-            volume = volumeInterface->streamVolume(stream);
-        } else {
-            volume = 0.0f;
-        }
-    } else {
-        volume = streamVolume_l(stream);
+    if (output == AUDIO_IO_HANDLE_NONE) {
+        return 0.0f;
     }
 
-    return volume;
+    AutoMutex lock(mLock);
+    VolumeInterface *volumeInterface = getVolumeInterface_l(output);
+    if (volumeInterface == NULL) {
+        return 0.0f;
+    }
+
+    return volumeInterface->streamVolume(stream);
 }
 
 bool AudioFlinger::streamMute(audio_stream_type_t stream) const
@@ -1596,7 +1584,7 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
     sp<Client> client;
     status_t lStatus;
     audio_session_t sessionId = input.sessionId;
-    audio_port_handle_t portId;
+    audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE;
 
     output.cblk.clear();
     output.buffers.clear();
@@ -1621,12 +1609,6 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
         clientPid = callingPid;
     }
 
-    // check calling permissions
-    if (!recordingAllowed(input.opPackageName, input.clientInfo.clientTid, clientUid)) {
-        ALOGE("createRecord() permission denied: recording not allowed");
-        lStatus = PERMISSION_DENIED;
-        goto Exit;
-    }
     // we don't yet support anything other than linear PCM
     if (!audio_is_valid_format(input.config.format) || !audio_is_linear_pcm(input.config.format)) {
         ALOGE("createRecord() invalid format %#x", input.config.format);
@@ -1663,14 +1645,16 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
     // release previously opened input if retrying.
     if (output.inputId != AUDIO_IO_HANDLE_NONE) {
         recordTrack.clear();
-        AudioSystem::releaseInput(output.inputId, sessionId);
+        AudioSystem::releaseInput(portId);
         output.inputId = AUDIO_IO_HANDLE_NONE;
+        portId = AUDIO_PORT_HANDLE_NONE;
     }
     lStatus = AudioSystem::getInputForAttr(&input.attr, &output.inputId,
                                       sessionId,
                                     // FIXME compare to AudioTrack
                                       clientPid,
                                       clientUid,
+                                      input.opPackageName,
                                       &input.config,
                                       output.flags, &output.selectedDeviceId, &portId);
 
@@ -1739,7 +1723,7 @@ Exit:
         }
         recordTrack.clear();
         if (output.inputId != AUDIO_IO_HANDLE_NONE) {
-            AudioSystem::releaseInput(output.inputId, sessionId);
+            AudioSystem::releaseInput(portId);
         }
     }
 

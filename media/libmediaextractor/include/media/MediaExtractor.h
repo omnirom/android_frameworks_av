@@ -28,10 +28,8 @@
 namespace android {
 
 class DataSourceBase;
-class MetaData;
-class String8;
-struct AMessage;
-struct MediaSourceBase;
+class MetaDataBase;
+struct MediaTrack;
 
 
 class ExtractorAllocTracker {
@@ -51,17 +49,18 @@ class MediaExtractor
 public:
     virtual ~MediaExtractor();
     virtual size_t countTracks() = 0;
-    virtual MediaSourceBase *getTrack(size_t index) = 0;
+    virtual MediaTrack *getTrack(size_t index) = 0;
 
     enum GetTrackMetaDataFlags {
         kIncludeExtensiveMetaData = 1
     };
-    virtual sp<MetaData> getTrackMetaData(
+    virtual status_t getTrackMetaData(
+            MetaDataBase& meta,
             size_t index, uint32_t flags = 0) = 0;
 
     // Return container specific meta-data. The default implementation
     // returns an empty metadata object.
-    virtual sp<MetaData> getMetaData();
+    virtual status_t getMetaData(MetaDataBase& meta) = 0;
 
     enum Flags {
         CAN_SEEK_BACKWARD  = 1,  // the "seek 10secs back button"
@@ -74,12 +73,6 @@ public:
     // CAN_SEEK_BACKWARD | CAN_SEEK_FORWARD | CAN_SEEK | CAN_PAUSE
     virtual uint32_t flags() const;
 
-    // for DRM
-    virtual char* getDrmTrackInfo(size_t /*trackID*/, int * /*len*/) {
-        return NULL;
-    }
-    virtual void setUID(uid_t /*uid*/) {
-    }
     virtual status_t setMediaCas(const uint8_t* /*casToken*/, size_t /*size*/) {
         return INVALID_OPERATION;
     }
@@ -87,14 +80,16 @@ public:
     virtual const char * name() { return "<unspecified>"; }
 
     typedef MediaExtractor* (*CreatorFunc)(
-            DataSourceBase *source, const sp<AMessage> &meta);
+            DataSourceBase *source, void *meta);
+    typedef void (*FreeMetaFunc)(void *meta);
 
-    // The sniffer can optionally fill in "meta" with an AMessage containing
-    // a dictionary of values that helps the corresponding extractor initialize
-    // its state without duplicating effort already exerted by the sniffer.
+    // The sniffer can optionally fill in an opaque object, "meta", that helps
+    // the corresponding extractor initialize its state without duplicating
+    // effort already exerted by the sniffer. If "freeMeta" is given, it will be
+    // called against the opaque object when it is no longer used.
     typedef CreatorFunc (*SnifferFunc)(
-            DataSourceBase *source, String8 *mimeType,
-            float *confidence, sp<AMessage> *meta);
+            DataSourceBase *source, float *confidence,
+            void **meta, FreeMetaFunc *freeMeta);
 
     typedef struct {
         const uint8_t b[16];

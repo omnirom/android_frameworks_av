@@ -22,6 +22,7 @@
 
 #include <media/DataSourceBase.h>
 #include <media/MediaExtractor.h>
+#include <media/stagefright/MetaDataBase.h>
 #include <media/stagefright/foundation/AString.h>
 #include <utils/List.h>
 #include <utils/Vector.h>
@@ -56,15 +57,12 @@ public:
     explicit MPEG4Extractor(DataSourceBase *source, const char *mime = NULL);
 
     virtual size_t countTracks();
-    virtual MediaSourceBase *getTrack(size_t index);
-    virtual sp<MetaData> getTrackMetaData(size_t index, uint32_t flags);
+    virtual MediaTrack *getTrack(size_t index);
+    virtual status_t getTrackMetaData(MetaDataBase& meta, size_t index, uint32_t flags);
 
-    virtual sp<MetaData> getMetaData();
+    virtual status_t getMetaData(MetaDataBase& meta);
     virtual uint32_t flags() const;
     virtual const char * name() { return "MPEG4Extractor"; }
-
-    // for DRM
-    virtual char* getDrmTrackInfo(size_t trackID, int *len);
 
 protected:
     virtual ~MPEG4Extractor();
@@ -78,7 +76,7 @@ private:
     };
     struct Track {
         Track *next;
-        sp<MetaData> meta;
+        MetaDataBase meta;
         uint32_t timescale;
         sp<SampleTable> sampleTable;
         bool includes_expensive_metadata;
@@ -108,7 +106,7 @@ private:
 
     Track *mFirstTrack, *mLastTrack;
 
-    sp<MetaData> mFileMetaData;
+    MetaDataBase mFileMetaData;
 
     Vector<uint32_t> mPath;
     String8 mLastCommentMean;
@@ -131,20 +129,7 @@ private:
 
     static status_t verifyTrack(Track *track);
 
-    struct SINF {
-        SINF *next;
-        uint16_t trackID;
-        uint8_t IPMPDescriptorID;
-        ssize_t len;
-        char *IPMPData;
-    };
-
-    SINF *mFirstSINF;
-
-    bool mIsDrm;
     sp<ItemTable> mItemTable;
-
-    status_t parseDrmSINF(off64_t *offset, off64_t data_offset);
 
     status_t parseTrackHeader(off64_t data_offset, off64_t data_size);
 
