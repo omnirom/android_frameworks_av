@@ -40,7 +40,7 @@ import android.util.Log;
 public class MediaSessionService2Impl implements MediaSessionService2Provider {
 
     private static final String TAG = "MPSessionService"; // to meet 23 char limit in Log tag
-    private static final boolean DEBUG = true; // TODO(jaewan): Change this.
+    private static final boolean DEBUG = true; // TODO(jaewan): Change this. (b/74094611)
 
     private final MediaSessionService2 mInstance;
     private final PlayerEventCallback mCallback = new SessionServiceEventCallback();
@@ -138,7 +138,7 @@ public class MediaSessionService2Impl implements MediaSessionService2Provider {
 
     private class SessionServiceEventCallback extends PlayerEventCallback {
         @Override
-        public void onPlayerStateChanged(MediaPlayerBase mpb, int state) {
+        public void onPlayerStateChanged(MediaPlayerBase player, int state) {
             // TODO: Implement this
             return;
         }

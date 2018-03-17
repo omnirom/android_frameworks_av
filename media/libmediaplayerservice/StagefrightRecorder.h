@@ -96,7 +96,7 @@ protected:
 
     MediaAnalyticsItem *mAnalyticsItem;
     bool mAnalyticsDirty;
-    void resetMetrics();
+    void flushAndResetMetrics(bool reinitialize);
     void updateMetrics();
 
     audio_source_t mAudioSource;
@@ -127,6 +127,11 @@ protected:
     int32_t mLongitudex10000;
     int32_t mStartTimeOffsetMs;
     int32_t mTotalBitRate;
+
+    int64_t mDurationRecordedUs;
+    int64_t mStartedRecordingUs;
+    int64_t mDurationPausedUs;
+    int32_t mNPauses;
 
     bool mCaptureFpsEnable;
     double mCaptureFps;
