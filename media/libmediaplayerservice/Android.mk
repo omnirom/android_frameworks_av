@@ -60,6 +60,11 @@ LOCAL_C_INCLUDES :=                                                 \
     external/tremolo/Tremolo                                 \
 
 LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall
+ifeq ($(TARGET_STORES_METADATA_IN_BUFFER),false)
+LOCAL_CFLAGS += -DSTORE_METADATA_IN_BUFFER=false
+else
+LOCAL_CFLAGS += -DSTORE_METADATA_IN_BUFFER=true
+endif
 
 LOCAL_MODULE:= libmediaplayerservice
 
