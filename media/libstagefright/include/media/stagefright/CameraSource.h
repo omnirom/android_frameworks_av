@@ -90,7 +90,7 @@ public:
                                           Size videoSize,
                                           int32_t frameRate,
                                           const sp<IGraphicBufferProducer>& surface,
-                                          bool storeMetaDataInVideoBuffers = true);
+                                          bool storeMetaDataInVideoBuffers = STORE_METADATA_IN_BUFFER);
 
     virtual ~CameraSource();
 
