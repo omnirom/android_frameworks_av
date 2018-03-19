@@ -32,6 +32,7 @@ import android.media.MediaLibraryService2.MediaLibrarySession;
 import android.media.MediaLibraryService2.MediaLibrarySession.MediaLibrarySessionCallback;
 import android.media.MediaMetadata2;
 import android.media.MediaPlayerBase;
+import android.media.MediaPlaylistAgent;
 import android.media.MediaSession2;
 import android.media.MediaSession2.Command;
 import android.media.MediaSession2.CommandGroup;
@@ -50,6 +51,7 @@ import android.media.update.MediaController2Provider;
 import android.media.update.MediaItem2Provider;
 import android.media.update.MediaLibraryService2Provider.LibraryRootProvider;
 import android.media.update.MediaMetadata2Provider;
+import android.media.update.MediaPlaylistAgentProvider;
 import android.media.update.MediaSession2Provider;
 import android.media.update.MediaSession2Provider.BuilderBaseProvider;
 import android.media.update.MediaSession2Provider.CommandButtonProvider.BuilderProvider;
@@ -76,6 +78,7 @@ import com.android.media.MediaItem2Impl;
 import com.android.media.MediaLibraryService2Impl;
 import com.android.media.MediaLibraryService2Impl.LibraryRootImpl;
 import com.android.media.MediaMetadata2Impl;
+import com.android.media.MediaPlaylistAgentImpl;
 import com.android.media.MediaSession2Impl;
 import com.android.media.MediaSession2Impl.PlaylistParamsImpl;
 import com.android.media.MediaSessionService2Impl;
@@ -162,8 +165,8 @@ public class ApiFactory implements StaticProvider {
     }
 
     public BuilderBaseProvider<MediaSession2, SessionCallback> createMediaSession2Builder(
-            Context context, MediaSession2.Builder instance, MediaPlayerBase player) {
-        return new MediaSession2Impl.BuilderImpl(context, instance, player);
+            Context context, MediaSession2.Builder instance) {
+        return new MediaSession2Impl.BuilderImpl(context, instance);
     }
 
     @Override
@@ -188,9 +191,9 @@ public class ApiFactory implements StaticProvider {
     @Override
     public BuilderBaseProvider<MediaLibrarySession, MediaLibrarySessionCallback>
         createMediaLibraryService2Builder(MediaLibraryService2 service,
-            MediaLibrarySession.Builder instance, MediaPlayerBase player,
-            Executor callbackExecutor, MediaLibrarySessionCallback callback) {
-        return new MediaLibraryService2Impl.BuilderImpl(service, instance, player, callbackExecutor,
+            MediaLibrarySession.Builder instance, Executor callbackExecutor,
+            MediaLibrarySessionCallback callback) {
+        return new MediaLibraryService2Impl.BuilderImpl(service, instance, callbackExecutor,
                 callback);
     }
 
@@ -226,9 +229,9 @@ public class ApiFactory implements StaticProvider {
     }
 
     @Override
-    public MediaItem2Provider createMediaItem2(Context context, MediaItem2 instance,
-            String mediaId, DataSourceDesc dsd, MediaMetadata2 metadata, int flags) {
-        return new MediaItem2Impl(context, instance, mediaId, dsd, metadata, flags);
+    public MediaItem2Provider.BuilderProvider createMediaItem2Builder(
+            Context context, MediaItem2.Builder instance, int flags) {
+        return new MediaItem2Impl.BuilderImpl(context, instance, flags);
     }
 
     @Override
@@ -249,14 +252,14 @@ public class ApiFactory implements StaticProvider {
 
     @Override
     public MediaMetadata2Provider.BuilderProvider createMediaMetadata2Builder(
-            Context context, MediaMetadata2.Builder builder) {
-        return new MediaMetadata2Impl.BuilderImpl(context, builder);
+            Context context, MediaMetadata2.Builder instance) {
+        return new MediaMetadata2Impl.BuilderImpl(context, instance);
     }
 
     @Override
     public MediaMetadata2Provider.BuilderProvider createMediaMetadata2Builder(
-            Context context, MediaMetadata2.Builder builder, MediaMetadata2 source) {
-        return new MediaMetadata2Impl.BuilderImpl(context, builder, source);
+            Context context, MediaMetadata2.Builder instance, MediaMetadata2 source) {
+        return new MediaMetadata2Impl.BuilderImpl(context, instance, source);
     }
 
     @Override
@@ -300,5 +303,11 @@ public class ApiFactory implements StaticProvider {
     @Override
     public PlaybackState2 fromBundle_PlaybackState2(Context context, Bundle bundle) {
         return PlaybackState2Impl.fromBundle(context, bundle);
+    }
+
+    @Override
+    public MediaPlaylistAgentProvider createMediaPlaylistAgent(Context context,
+            MediaPlaylistAgent instance) {
+        return new MediaPlaylistAgentImpl(context, instance);
     }
 }

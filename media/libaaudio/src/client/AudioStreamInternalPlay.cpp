@@ -38,6 +38,18 @@ AudioStreamInternalPlay::AudioStreamInternalPlay(AAudioServiceInterface  &servic
 
 AudioStreamInternalPlay::~AudioStreamInternalPlay() {}
 
+constexpr int kRampMSec = 10; // time to apply a change in volume
+
+aaudio_result_t AudioStreamInternalPlay::open(const AudioStreamBuilder &builder) {
+    aaudio_result_t result = AudioStreamInternal::open(builder);
+    if (result == AAUDIO_OK) {
+        // Sample rate is constrained to common values by now and should not overflow.
+        int32_t numFrames = kRampMSec * getSampleRate() / AAUDIO_MILLIS_PER_SECOND;
+        mVolumeRamp.setLengthInFrames(numFrames);
+    }
+    return result;
+}
+
 aaudio_result_t AudioStreamInternalPlay::requestPause()
 {
     aaudio_result_t result = stopCallback();
@@ -45,7 +57,7 @@ aaudio_result_t AudioStreamInternalPlay::requestPause()
         return result;
     }
     if (mServiceStreamHandle == AAUDIO_HANDLE_INVALID) {
-        ALOGE("AudioStreamInternal::requestPauseInternal() mServiceStreamHandle invalid = 0x%08X",
+        ALOGE("requestPauseInternal() mServiceStreamHandle invalid = 0x%08X",
               mServiceStreamHandle);
         return AAUDIO_ERROR_INVALID_STATE;
     }
@@ -194,7 +206,7 @@ aaudio_result_t AudioStreamInternalPlay::writeNowWithConversion(const void *buff
     // ALOGD("AudioStreamInternal::writeNowWithConversion(%p, %d)",
     //              buffer, numFrames);
     WrappingBuffer wrappingBuffer;
-    uint8_t *source = (uint8_t *) buffer;
+    uint8_t *byteBuffer = (uint8_t *) buffer;
     int32_t framesLeft = numFrames;
 
     mAudioEndpoint.getEmptyFramesAvailable(&wrappingBuffer);
@@ -208,69 +220,26 @@ aaudio_result_t AudioStreamInternalPlay::writeNowWithConversion(const void *buff
             if (framesToWrite > framesAvailable) {
                 framesToWrite = framesAvailable;
             }
+
             int32_t numBytes = getBytesPerFrame() * framesToWrite;
-            int32_t numSamples = framesToWrite * getSamplesPerFrame();
             // Data conversion.
             float levelFrom;
             float levelTo;
-            bool ramping = mVolumeRamp.nextSegment(framesToWrite, &levelFrom, &levelTo);
-            // The formats are validated when the stream is opened so we do not have to
-            // check for illegal combinations here.
-            // TODO factor this out into a utility function
-            if (getFormat() == AAUDIO_FORMAT_PCM_FLOAT) {
-                if (mDeviceFormat == AAUDIO_FORMAT_PCM_FLOAT) {
-                    AAudio_linearRamp(
-                            (const float *) source,
-                            (float *) wrappingBuffer.data[partIndex],
-                            framesToWrite,
-                            getSamplesPerFrame(),
-                            levelFrom,
-                            levelTo);
-                } else if (mDeviceFormat == AAUDIO_FORMAT_PCM_I16) {
-                    if (ramping) {
-                        AAudioConvert_floatToPcm16(
-                                (const float *) source,
-                                (int16_t *) wrappingBuffer.data[partIndex],
-                                framesToWrite,
-                                getSamplesPerFrame(),
-                                levelFrom,
-                                levelTo);
-                    } else {
-                        AAudioConvert_floatToPcm16(
-                                (const float *) source,
-                                (int16_t *) wrappingBuffer.data[partIndex],
-                                numSamples,
-                                levelTo);
-                    }
-                }
-            } else if (getFormat() == AAUDIO_FORMAT_PCM_I16) {
-                if (mDeviceFormat == AAUDIO_FORMAT_PCM_FLOAT) {
-                    if (ramping) {
-                        AAudioConvert_pcm16ToFloat(
-                                (const int16_t *) source,
-                                (float *) wrappingBuffer.data[partIndex],
-                                framesToWrite,
-                                getSamplesPerFrame(),
-                                levelFrom,
-                                levelTo);
-                    } else {
-                        AAudioConvert_pcm16ToFloat(
-                                (const int16_t *) source,
-                                (float *) wrappingBuffer.data[partIndex],
-                                numSamples,
-                                levelTo);
-                    }
-                } else if (mDeviceFormat == AAUDIO_FORMAT_PCM_I16) {
-                    AAudio_linearRamp(
-                            (const int16_t *) source,
-                            (int16_t *) wrappingBuffer.data[partIndex],
-                            framesToWrite,
-                            getSamplesPerFrame(),
-                            levelFrom,
-                            levelTo);
-                }
-            }
-            source += numBytes;
+            mVolumeRamp.nextSegment(framesToWrite, &levelFrom, &levelTo);
+
+            AAudioDataConverter::FormattedData source(
+                    (void *)byteBuffer,
+                    getFormat(),
+                    getSamplesPerFrame());
+            AAudioDataConverter::FormattedData destination(
+                    wrappingBuffer.data[partIndex],
+                    getDeviceFormat(),
+                    getDeviceChannelCount());
+
+            AAudioDataConverter::convert(source, destination, framesToWrite,
+                                         levelFrom, levelTo);
+
+            byteBuffer += numBytes;
             framesLeft -= framesToWrite;
         } else {
             break;

@@ -93,6 +93,8 @@ private:
 
     sp<IProducerListener> mProducerListener;
 
+    std::atomic_int mLinearPoolId;
+
     std::shared_ptr<C2Allocator> mAllocIon;
     std::shared_ptr<C2BlockPool> mLinearPool;
 
@@ -137,12 +139,13 @@ private:
 SimplePlayer::SimplePlayer()
     : mListener(new Listener(this)),
       mProducerListener(new DummyProducerListener),
+      mLinearPoolId(C2BlockPool::PLATFORM_START),
       mComposerClient(new SurfaceComposerClient) {
     CHECK_EQ(mComposerClient->initCheck(), (status_t)OK);
 
     std::shared_ptr<C2AllocatorStore> store = GetCodec2PlatformAllocatorStore();
     CHECK_EQ(store->fetchAllocator(C2AllocatorStore::DEFAULT_LINEAR, &mAllocIon), C2_OK);
-    mLinearPool = std::make_shared<C2BasicLinearBlockPool>(mAllocIon);
+    mLinearPool = std::make_shared<C2PooledBlockPool>(mAllocIon, mLinearPoolId++);
 
     mControl = mComposerClient->createSurface(
             String8("A Surface"),
@@ -245,7 +248,7 @@ void SimplePlayer::play(const sp<IMediaSource> &source) {
             ALOGV("Render: Frame #%lld", work->worklets.front()->output.ordinal.frameIndex.peekll());
             const std::shared_ptr<C2Buffer> &output = work->worklets.front()->output.buffers[0];
             if (output) {
-                const C2ConstGraphicBlock &block = output->data().graphicBlocks().front();
+                const C2ConstGraphicBlock block = output->data().graphicBlocks().front();
                 native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(block.handle());
                 sp<GraphicBuffer> buffer(new GraphicBuffer(
                         grallocHandle,
@@ -284,7 +287,7 @@ void SimplePlayer::play(const sp<IMediaSource> &source) {
     });
 
     long numFrames = 0;
-    mLinearPool.reset(new C2BasicLinearBlockPool(mAllocIon));
+    mLinearPool.reset(new C2PooledBlockPool(mAllocIon, mLinearPoolId++));
 
     for (;;) {
         size_t size = 0u;
