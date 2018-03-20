@@ -537,6 +537,7 @@ status_t NuPlayerDriver::getDuration(int *msec) {
 }
 
 void NuPlayerDriver::updateMetrics(const char *where) {
+
     if (where == NULL) {
         where = "unknown";
     }
@@ -594,6 +595,8 @@ void NuPlayerDriver::updateMetrics(const char *where) {
     getDuration(&duration_ms);
     mAnalyticsItem->setInt64(kPlayerDuration, duration_ms);
 
+    mPlayer->updateInternalTimers();
+
     mAnalyticsItem->setInt64(kPlayerPlaying, (mPlayingTimeUs+500)/1000 );
 
     if (mRebufferingEvents != 0) {
@@ -632,7 +635,7 @@ void NuPlayerDriver::logMetrics(const char *where) {
             mAnalyticsItem->setUid(mClientUid);
         }
     } else {
-        ALOGV("did not have anything to record");
+        ALOGV("nothing to record (only %d fields)", mAnalyticsItem->count());
     }
 }
 

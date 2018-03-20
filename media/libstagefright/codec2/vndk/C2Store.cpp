@@ -152,6 +152,39 @@ c2_status_t GetCodec2BlockPool(
     return res;
 }
 
+c2_status_t CreateCodec2BlockPool(
+        C2PlatformAllocatorStore::id_t allocatorId,
+        std::shared_ptr<const C2Component> component,
+        std::shared_ptr<C2BlockPool> *pool) {
+    pool->reset();
+    if (!component) {
+        return C2_BAD_VALUE;
+    }
+    // TODO: support caching block pool along with GetCodec2BlockPool.
+    static std::atomic_int sBlockPoolId(C2BlockPool::PLATFORM_START);
+    std::shared_ptr<C2AllocatorStore> allocatorStore = GetCodec2PlatformAllocatorStore();
+    std::shared_ptr<C2Allocator> allocator;
+    c2_status_t res = C2_NOT_FOUND;
+
+    switch (allocatorId) {
+    case C2PlatformAllocatorStore::ION:
+        res = allocatorStore->fetchAllocator(C2AllocatorStore::DEFAULT_LINEAR, &allocator);
+        if (res == C2_OK) {
+            *pool = std::make_shared<C2PooledBlockPool>(allocator, sBlockPoolId++);
+            if (!*pool) {
+                res = C2_NO_MEMORY;
+            }
+        }
+        break;
+    case C2PlatformAllocatorStore::GRALLOC:
+        // TODO: support gralloc
+        break;
+    default:
+        break;
+    }
+    return res;
+}
+
 class C2PlatformComponentStore : public C2ComponentStore {
 public:
     virtual std::vector<std::shared_ptr<const C2Component::Traits>> listComponents() override;
@@ -433,9 +466,29 @@ C2PlatformComponentStore::C2PlatformComponentStore() {
     mComponents.emplace("c2.google.avc.encoder", "libstagefright_soft_c2avcenc.so");
     mComponents.emplace("c2.google.aac.decoder", "libstagefright_soft_c2aacdec.so");
     mComponents.emplace("c2.google.aac.encoder", "libstagefright_soft_c2aacenc.so");
-    mComponents.emplace("c2.google.mp3.decoder", "libstagefright_soft_c2mp3dec.so");
+    mComponents.emplace("c2.google.amrnb.decoder", "libstagefright_soft_c2amrnbdec.so");
+    mComponents.emplace("c2.google.amrnb.encoder", "libstagefright_soft_c2amrnbenc.so");
+    mComponents.emplace("c2.google.amrwb.decoder", "libstagefright_soft_c2amrwbdec.so");
+    mComponents.emplace("c2.google.amrwb.encoder", "libstagefright_soft_c2amrwbenc.so");
+    mComponents.emplace("c2.google.hevc.decoder", "libstagefright_soft_c2hevcdec.so");
     mComponents.emplace("c2.google.g711.alaw.decoder", "libstagefright_soft_c2g711alawdec.so");
     mComponents.emplace("c2.google.g711.mlaw.decoder", "libstagefright_soft_c2g711mlawdec.so");
+    mComponents.emplace("c2.google.mpeg2.decoder", "libstagefright_soft_c2mpeg2dec.so");
+    mComponents.emplace("c2.google.h263.decoder", "libstagefright_soft_c2h263dec.so");
+    mComponents.emplace("c2.google.h263.encoder", "libstagefright_soft_c2h263enc.so");
+    mComponents.emplace("c2.google.mpeg4.decoder", "libstagefright_soft_c2mpeg4dec.so");
+    mComponents.emplace("c2.google.mpeg4.encoder", "libstagefright_soft_c2mpeg4enc.so");
+    mComponents.emplace("c2.google.mp3.decoder", "libstagefright_soft_c2mp3dec.so");
+    mComponents.emplace("c2.google.vorbis.decoder", "libstagefright_soft_c2vorbisdec.so");
+    mComponents.emplace("c2.google.opus.decoder", "libstagefright_soft_c2opusdec.so");
+    mComponents.emplace("c2.google.vp8.decoder", "libstagefright_soft_c2vp8dec.so");
+    mComponents.emplace("c2.google.vp9.decoder", "libstagefright_soft_c2vp9dec.so");
+    mComponents.emplace("c2.google.vp8.encoder", "libstagefright_soft_c2vp8enc.so");
+    mComponents.emplace("c2.google.vp9.encoder", "libstagefright_soft_c2vp9enc.so");
+    mComponents.emplace("c2.google.raw.decoder", "libstagefright_soft_c2rawdec.so");
+    mComponents.emplace("c2.google.flac.decoder", "libstagefright_soft_c2flacdec.so");
+    mComponents.emplace("c2.google.flac.encoder", "libstagefright_soft_c2flacenc.so");
+    mComponents.emplace("c2.google.gsm.decoder", "libstagefright_soft_c2gsmdec.so");
 }
 
 c2_status_t C2PlatformComponentStore::copyBuffer(

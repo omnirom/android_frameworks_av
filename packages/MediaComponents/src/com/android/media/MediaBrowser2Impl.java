@@ -19,6 +19,7 @@ package com.android.media;
 import android.content.Context;
 import android.media.MediaBrowser2;
 import android.media.MediaBrowser2.BrowserCallback;
+import android.media.MediaController2;
 import android.media.MediaItem2;
 import android.media.SessionToken2;
 import android.media.update.MediaBrowser2Provider;
@@ -44,12 +45,16 @@ public class MediaBrowser2Impl extends MediaController2Impl implements MediaBrow
         mCallback = callback;
     }
 
+    @Override MediaBrowser2 getInstance() {
+        return (MediaBrowser2) super.getInstance();
+    }
+
     @Override
     public void getLibraryRoot_impl(Bundle rootHints) {
         final IMediaSession2 binder = getSessionBinder();
         if (binder != null) {
             try {
-                binder.getBrowserRoot(getControllerStub(), rootHints);
+                binder.getLibraryRoot(getControllerStub(), rootHints);
             } catch (RemoteException e) {
                 // TODO(jaewan): Handle disconnect.
                 if (DEBUG) {
@@ -63,6 +68,10 @@ public class MediaBrowser2Impl extends MediaController2Impl implements MediaBrow
 
     @Override
     public void subscribe_impl(String parentId, Bundle extras) {
+        if (parentId == null) {
+            throw new IllegalArgumentException("parentId shouldn't be null");
+        }
+
         final IMediaSession2 binder = getSessionBinder();
         if (binder != null) {
             try {
@@ -80,6 +89,10 @@ public class MediaBrowser2Impl extends MediaController2Impl implements MediaBrow
 
     @Override
     public void unsubscribe_impl(String parentId) {
+        if (parentId == null) {
+            throw new IllegalArgumentException("parentId shouldn't be null");
+        }
+
         final IMediaSession2 binder = getSessionBinder();
         if (binder != null) {
             try {
@@ -165,6 +178,9 @@ public class MediaBrowser2Impl extends MediaController2Impl implements MediaBrow
         if (TextUtils.isEmpty(query)) {
             throw new IllegalArgumentException("query shouldn't be empty");
         }
+        if (page < 1 || pageSize < 1) {
+            throw new IllegalArgumentException("Neither page nor pageSize should be less than 1");
+        }
         final IMediaSession2 binder = getSessionBinder();
         if (binder != null) {
             try {
@@ -183,39 +199,39 @@ public class MediaBrowser2Impl extends MediaController2Impl implements MediaBrow
     public void onGetLibraryRootDone(
             final Bundle rootHints, final String rootMediaId, final Bundle rootExtra) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onGetLibraryRootDone(rootHints, rootMediaId, rootExtra);
+            mCallback.onGetLibraryRootDone(getInstance(), rootHints, rootMediaId, rootExtra);
         });
     }
 
     public void onGetItemDone(String mediaId, MediaItem2 item) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onGetItemDone(mediaId, item);
+            mCallback.onGetItemDone(getInstance(), mediaId, item);
         });
     }
 
     public void onGetChildrenDone(String parentId, int page, int pageSize, List<MediaItem2> result,
             Bundle extras) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onGetChildrenDone(parentId, page, pageSize, result, extras);
+            mCallback.onGetChildrenDone(getInstance(), parentId, page, pageSize, result, extras);
         });
     }
 
     public void onSearchResultChanged(String query, int itemCount, Bundle extras) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onSearchResultChanged(query, itemCount, extras);
+            mCallback.onSearchResultChanged(getInstance(), query, itemCount, extras);
         });
     }
 
     public void onGetSearchResultDone(String query, int page, int pageSize, List<MediaItem2> result,
             Bundle extras) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onGetSearchResultDone(query, page, pageSize, result, extras);
+            mCallback.onGetSearchResultDone(getInstance(), query, page, pageSize, result, extras);
         });
     }
 
     public void onChildrenChanged(final String parentId, int itemCount, final Bundle extras) {
         getCallbackExecutor().execute(() -> {
-            mCallback.onChildrenChanged(parentId, itemCount, extras);
+            mCallback.onChildrenChanged(getInstance(), parentId, itemCount, extras);
         });
     }
 }

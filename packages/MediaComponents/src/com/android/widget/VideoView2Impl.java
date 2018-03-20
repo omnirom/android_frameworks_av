@@ -16,17 +16,18 @@
 
 package com.android.widget;
 
-import android.annotation.NonNull;
 import android.content.Context;
-import android.content.res.Resources;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
+import android.media.DataSourceDesc;
 import android.media.MediaMetadata;
-import android.media.MediaPlayer;
-import android.media.MediaPlayerBase;
+import android.media.MediaPlayer2;
+import android.media.MediaPlayer2.MediaPlayer2EventCallback;
+import android.media.MediaPlayer2Impl;
 import android.media.Cea708CaptionRenderer;
 import android.media.ClosedCaptionRenderer;
+import android.media.MediaItem2;
 import android.media.MediaMetadata2;
 import android.media.Metadata;
 import android.media.PlaybackParams;
@@ -39,9 +40,11 @@ import android.media.session.MediaController;
 import android.media.session.MediaController.PlaybackInfo;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
+import android.media.SessionToken2;
 import android.media.update.VideoView2Provider;
 import android.media.update.ViewGroupProvider;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.ResultReceiver;
 import android.support.annotation.Nullable;
@@ -55,15 +58,12 @@ import android.view.accessibility.AccessibilityManager;
 import android.widget.MediaControlView2;
 import android.widget.VideoView2;
 
-import com.android.media.update.ApiHelper;
-import com.android.media.update.R;
+import com.android.media.RoutePlayer;
+import com.android.support.mediarouter.media.MediaItemStatus;
+import com.android.support.mediarouter.media.MediaControlIntent;
 import com.android.support.mediarouter.media.MediaRouter;
 import com.android.support.mediarouter.media.MediaRouteSelector;
-import com.android.support.mediarouter.media.RemotePlaybackClient;
-import com.android.support.mediarouter.media.MediaItemStatus;
-import com.android.support.mediarouter.media.MediaSessionStatus;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -100,13 +100,11 @@ public class VideoView2Impl extends BaseLayout
     private VideoTextureView mTextureView;
     private VideoSurfaceView mSurfaceView;
 
-    private MediaPlayer mMediaPlayer;
+    private MediaPlayer2 mMediaPlayer;
+    private DataSourceDesc mDsd;
     private MediaControlView2 mMediaControlView;
     private MediaSession mMediaSession;
     private MediaController mMediaController;
-    private MediaSession.Callback mRouteSessionCallback = new RouteSessionCallback();
-    private MediaRouter mMediaRouter;
-    private MediaRouteSelector mRouteSelector;
     private Metadata mMetadata;
     private MediaMetadata2 mMediaMetadata;
     private boolean mNeedUpdateMediaType;
@@ -123,17 +121,95 @@ public class VideoView2Impl extends BaseLayout
     private int mVideoWidth;
     private int mVideoHeight;
 
+    private ArrayList<Integer> mVideoTrackIndices;
+    private ArrayList<Integer> mAudioTrackIndices;
     private ArrayList<Integer> mSubtitleTrackIndices;
+
+    // selected video/audio/subtitle track index as MediaPlayer2 returns
+    private int mSelectedVideoTrackIndex;
+    private int mSelectedAudioTrackIndex;
+    private int mSelectedSubtitleTrackIndex;
+
     private SubtitleView mSubtitleView;
     private boolean mSubtitleEnabled;
-    private int mSelectedTrackIndex;  // selected subtitle track index as MediaPlayer2 returns
 
     private float mSpeed;
     // TODO: Remove mFallbackSpeed when integration with MediaPlayer2's new setPlaybackParams().
     // Refer: https://docs.google.com/document/d/1nzAfns6i2hJ3RkaUre3QMT6wsDedJ5ONLiA_OOBFFX8/edit
     private float mFallbackSpeed;  // keep the original speed before 'pause' is called.
-
     private long mShowControllerIntervalMs;
+
+    private MediaRouter mMediaRouter;
+    private MediaRouteSelector mRouteSelector;
+    private MediaRouter.RouteInfo mRoute;
+    private RoutePlayer mRoutePlayer;
+
+    private final MediaRouter.Callback mRouterCallback = new MediaRouter.Callback() {
+        @Override
+        public void onRouteSelected(MediaRouter router, MediaRouter.RouteInfo route) {
+            if (route.supportsControlCategory(MediaControlIntent.CATEGORY_REMOTE_PLAYBACK)) {
+                // Stop local playback (if necessary)
+                resetPlayer();
+                mRoute = route;
+                mRoutePlayer = new RoutePlayer(mInstance.getContext(), route);
+                mRoutePlayer.setPlayerEventCallback(new RoutePlayer.PlayerEventCallback() {
+                    @Override
+                    public void onPlayerStateChanged(MediaItemStatus itemStatus) {
+                        PlaybackState.Builder psBuilder = new PlaybackState.Builder();
+                        psBuilder.setActions(RoutePlayer.PLAYBACK_ACTIONS);
+                        long position = itemStatus.getContentPosition();
+                        switch (itemStatus.getPlaybackState()) {
+                            case MediaItemStatus.PLAYBACK_STATE_PENDING:
+                                psBuilder.setState(PlaybackState.STATE_NONE, position, 0);
+                                mCurrentState = STATE_IDLE;
+                                break;
+                            case MediaItemStatus.PLAYBACK_STATE_PLAYING:
+                                psBuilder.setState(PlaybackState.STATE_PLAYING, position, 1);
+                                mCurrentState = STATE_PLAYING;
+                                break;
+                            case MediaItemStatus.PLAYBACK_STATE_PAUSED:
+                                psBuilder.setState(PlaybackState.STATE_PAUSED, position, 0);
+                                mCurrentState = STATE_PAUSED;
+                                break;
+                            case MediaItemStatus.PLAYBACK_STATE_BUFFERING:
+                                psBuilder.setState(PlaybackState.STATE_BUFFERING, position, 0);
+                                mCurrentState = STATE_PAUSED;
+                                break;
+                            case MediaItemStatus.PLAYBACK_STATE_FINISHED:
+                                psBuilder.setState(PlaybackState.STATE_STOPPED, position, 0);
+                                mCurrentState = STATE_PLAYBACK_COMPLETED;
+                                break;
+                        }
+
+                        PlaybackState pbState = psBuilder.build();
+                        mMediaSession.setPlaybackState(pbState);
+
+                        MediaMetadata.Builder mmBuilder = new MediaMetadata.Builder();
+                        mmBuilder.putLong(MediaMetadata.METADATA_KEY_DURATION,
+                                itemStatus.getContentDuration());
+                        mMediaSession.setMetadata(mmBuilder.build());
+                    }
+                });
+                // Start remote playback (if necessary)
+                mRoutePlayer.openVideo(mDsd);
+            }
+        }
+
+        @Override
+        public void onRouteUnselected(MediaRouter router, MediaRouter.RouteInfo route, int reason) {
+            if (mRoute != null && mRoutePlayer != null) {
+                mRoutePlayer.release();
+                mRoutePlayer = null;
+            }
+            if (mRoute == route) {
+                mRoute = null;
+            }
+            if (reason != MediaRouter.UNSELECT_REASON_ROUTE_CHANGED) {
+                // TODO: Resume local playback  (if necessary)
+                openVideo(mDsd);
+            }
+        }
+    };
 
     public VideoView2Impl(VideoView2 instance,
             ViewGroupProvider superProvider, ViewGroupProvider privateProvider) {
@@ -147,7 +223,7 @@ public class VideoView2Impl extends BaseLayout
         mVideoHeight = 0;
         mSpeed = 1.0f;
         mFallbackSpeed = mSpeed;
-        mSelectedTrackIndex = INVALID_TRACK_INDEX;
+        mSelectedSubtitleTrackIndex = INVALID_TRACK_INDEX;
         // TODO: add attributes to get this value.
         mShowControllerIntervalMs = DEFAULT_SHOW_CONTROLLER_INTERVAL_MS;
 
@@ -186,7 +262,6 @@ public class VideoView2Impl extends BaseLayout
         mSubtitleView.setBackgroundColor(0);
         mInstance.addView(mSubtitleView);
 
-        // TODO: Need a common namespace for attributes those are defined in updatable library.
         boolean enableControlView = (attrs == null) || attrs.getAttributeBooleanValue(
                 "http://schemas.android.com/apk/res/android",
                 "enableControlView", true);
@@ -209,16 +284,20 @@ public class VideoView2Impl extends BaseLayout
             Log.d(TAG, "viewType attribute is textureView.");
             // TODO: implement
         }
+
+        MediaRouteSelector.Builder builder = new MediaRouteSelector.Builder();
+        builder.addControlCategory(MediaControlIntent.CATEGORY_REMOTE_PLAYBACK);
+        builder.addControlCategory(MediaControlIntent.CATEGORY_LIVE_AUDIO);
+        builder.addControlCategory(MediaControlIntent.CATEGORY_LIVE_VIDEO);
+        mRouteSelector = builder.build();
     }
 
     @Override
     public void setMediaControlView2_impl(MediaControlView2 mediaControlView, long intervalMs) {
         mMediaControlView = mediaControlView;
         mShowControllerIntervalMs = intervalMs;
-        if (mRouteSelector != null) {
-            ((MediaControlView2Impl) mMediaControlView.getProvider())
-                    .setRouteSelector(mRouteSelector);
-        }
+        // TODO: Call MediaControlView2.setRouteSelector only when cast availalbe.
+        ((MediaControlView2Impl) mMediaControlView.getProvider()).setRouteSelector(mRouteSelector);
 
         if (mInstance.isAttachedToWindow()) {
             attachMediaControlView();
@@ -231,6 +310,12 @@ public class VideoView2Impl extends BaseLayout
             throw new IllegalStateException("MediaSession instance is not available.");
         }
         return mMediaController;
+    }
+
+    @Override
+    public SessionToken2 getMediaSessionToken_impl() {
+        // TODO: implement this
+        return null;
     }
 
     @Override
@@ -312,30 +397,6 @@ public class VideoView2Impl extends BaseLayout
     }
 
     @Override
-    public void setRouteAttributes_impl(List<String> routeCategories, MediaPlayerBase player) {
-        // TODO: implement this.
-    }
-
-    @Override
-    public void setRouteAttributes_impl(@NonNull List<String> routeCategories,
-            MediaSession.Callback sessionPlayer) {
-        MediaRouteSelector.Builder builder = new MediaRouteSelector.Builder();
-        for (String category : routeCategories) {
-            builder.addControlCategory(category);
-        }
-        mRouteSelector = builder.build();
-        if (mMediaControlView != null) {
-            ((MediaControlView2Impl) mMediaControlView.getProvider())
-                    .setRouteSelector(mRouteSelector);
-        }
-        mMediaRouter = MediaRouter.getInstance(mInstance.getContext());
-        mRouteSessionCallback = sessionPlayer;
-        if (mMediaSession != null) {
-            mMediaRouter.setMediaSession(mMediaSession);
-        }
-    }
-
-    @Override
     public void setVideoPath_impl(String path) {
         mInstance.setVideoUri(Uri.parse(path));
     }
@@ -347,8 +408,21 @@ public class VideoView2Impl extends BaseLayout
 
     @Override
     public void setVideoUri_impl(Uri uri, Map<String, String> headers) {
+        DataSourceDesc.Builder builder = new DataSourceDesc.Builder();
+        builder.setDataSource(mInstance.getContext(), uri, headers, null);
+        mInstance.setDataSource(builder.build());
+    }
+
+    @Override
+    public void setMediaItem_impl(MediaItem2 mediaItem) {
+        // TODO: implement this
+    }
+
+    @Override
+    public void setDataSource_impl(DataSourceDesc dsd) {
+        mDsd = dsd;
         mSeekWhenPrepared = 0;
-        openVideo(uri, headers);
+        openVideo(dsd);
     }
 
     @Override
@@ -405,12 +479,16 @@ public class VideoView2Impl extends BaseLayout
         // Create MediaSession
         mMediaSession = new MediaSession(mInstance.getContext(), "VideoView2MediaSession");
         mMediaSession.setCallback(new MediaSessionCallback());
+        mMediaSession.setActive(true);
         mMediaController = mMediaSession.getController();
-        if (mMediaRouter != null) {
-            mMediaRouter.setMediaSession(mMediaSession);
-        }
-
+        mMediaRouter = MediaRouter.getInstance(mInstance.getContext());
+        mMediaRouter.setMediaSession(mMediaSession);
+        mMediaRouter.addCallback(mRouteSelector, mRouterCallback);
         attachMediaControlView();
+        // TODO: remove this after moving MediaSession creating code inside initializing VideoView2
+        if (mCurrentState == STATE_PREPARED) {
+            extractTracks();
+        }
     }
 
     @Override
@@ -516,21 +594,27 @@ public class VideoView2Impl extends BaseLayout
     }
 
     private boolean isInPlaybackState() {
-        return (mMediaPlayer != null
+        return (mMediaPlayer != null || mRoutePlayer != null)
                 && mCurrentState != STATE_ERROR
                 && mCurrentState != STATE_IDLE
-                && mCurrentState != STATE_PREPARING);
+                && mCurrentState != STATE_PREPARING;
     }
 
     private boolean needToStart() {
-        return (mMediaPlayer != null
+        return (mMediaPlayer != null || mRoutePlayer != null)
                 && mCurrentState != STATE_PLAYING
-                && mTargetState == STATE_PLAYING);
+                && mTargetState == STATE_PLAYING;
     }
 
-    // Creates a MediaPlayer instance and prepare playback.
-    private void openVideo(Uri uri, Map<String, String> headers) {
+    // Creates a MediaPlayer2 instance and prepare playback.
+    private void openVideo(DataSourceDesc dsd) {
+        Uri uri = dsd.getUri();
+        Map<String, String> headers = dsd.getUriHeaders();
         resetPlayer();
+        if (isRemotePlayback()) {
+            mRoutePlayer.openVideo(dsd);
+            return;
+        }
         if (mAudioFocusType != AudioManager.AUDIOFOCUS_NONE) {
             // TODO this should have a focus listener
             AudioFocusRequest focusRequest;
@@ -541,13 +625,13 @@ public class VideoView2Impl extends BaseLayout
         }
 
         try {
-            Log.d(TAG, "openVideo(): creating new MediaPlayer instance.");
-            mMediaPlayer = new MediaPlayer();
+            Log.d(TAG, "openVideo(): creating new MediaPlayer2 instance.");
+            mMediaPlayer = new MediaPlayer2Impl();
             mSurfaceView.setMediaPlayer(mMediaPlayer);
             mTextureView.setMediaPlayer(mMediaPlayer);
             mCurrentView.assignSurfaceToMediaPlayer(mMediaPlayer);
 
-            // TODO: create SubtitleController in MediaPlayer, but we need
+            // TODO: create SubtitleController in MediaPlayer2, but we need
             // a context for the subtitle renderers
             final Context context = mInstance.getContext();
             final SubtitleController controller = new SubtitleController(
@@ -559,23 +643,21 @@ public class VideoView2Impl extends BaseLayout
             controller.registerRenderer(new SRTRenderer(context));
             mMediaPlayer.setSubtitleAnchor(
                     controller, (SubtitleController.Anchor) mSubtitleView);
-            // TODO: Remove timed text related code later once relevant Renderer is defined.
-            // This is just for debugging purpose.
-            mMediaPlayer.setOnTimedTextListener(mTimedTextListener);
+            Executor executor = new Executor() {
+                @Override
+                public void execute(Runnable runnable) {
+                    runnable.run();
+                }
+            };
+            mMediaPlayer.setMediaPlayer2EventCallback(executor, mMediaPlayer2Callback);
 
-            mMediaPlayer.setOnPreparedListener(mPreparedListener);
-            mMediaPlayer.setOnVideoSizeChangedListener(mSizeChangedListener);
-            mMediaPlayer.setOnCompletionListener(mCompletionListener);
-            mMediaPlayer.setOnErrorListener(mErrorListener);
-            mMediaPlayer.setOnInfoListener(mInfoListener);
-            mMediaPlayer.setOnBufferingUpdateListener(mBufferingUpdateListener);
             mCurrentBufferPercentage = 0;
-            mMediaPlayer.setDataSource(mInstance.getContext(), uri, headers);
+            mMediaPlayer.setDataSource(dsd);
             mMediaPlayer.setAudioAttributes(mAudioAttributes);
             // we don't set the target state here either, but preserve the
             // target state that was there before.
             mCurrentState = STATE_PREPARING;
-            mMediaPlayer.prepareAsync();
+            mMediaPlayer.prepare();
 
             // Save file name as title since the file may not have a title Metadata.
             mTitle = uri.getPath();
@@ -588,24 +670,12 @@ public class VideoView2Impl extends BaseLayout
                 Log.d(TAG, "openVideo(). mCurrentState=" + mCurrentState
                         + ", mTargetState=" + mTargetState);
             }
-            /*
-            for (Pair<InputStream, MediaFormat> pending: mPendingSubtitleTracks) {
-                try {
-                    mMediaPlayer.addSubtitleSource(pending.first, pending.second);
-                } catch (IllegalStateException e) {
-                    mInfoListener.onInfo(
-                            mMediaPlayer, MediaPlayer.MEDIA_INFO_UNSUPPORTED_SUBTITLE, 0);
-                }
-            }
-            */
-        } catch (IOException | IllegalArgumentException ex) {
+        } catch (IllegalArgumentException ex) {
             Log.w(TAG, "Unable to open content: " + uri, ex);
             mCurrentState = STATE_ERROR;
             mTargetState = STATE_ERROR;
-            mErrorListener.onError(mMediaPlayer,
-                    MediaPlayer.MEDIA_ERROR_UNKNOWN, MediaPlayer.MEDIA_ERROR_IO);
-        } finally {
-            //mPendingSubtitleTracks.clear();
+            mMediaPlayer2Callback.onError(mMediaPlayer, dsd,
+                    MediaPlayer2.MEDIA_ERROR_UNKNOWN, MediaPlayer2.MEDIA_ERROR_IO);
         }
     }
 
@@ -614,9 +684,18 @@ public class VideoView2Impl extends BaseLayout
      */
     private void resetPlayer() {
         if (mMediaPlayer != null) {
-            mMediaPlayer.reset();
-            mMediaPlayer.release();
+            final MediaPlayer2 player = mMediaPlayer;
+            new AsyncTask<MediaPlayer2, Void, Void>() {
+                @Override
+                protected Void doInBackground(MediaPlayer2... players) {
+                    // TODO: Fix NPE while MediaPlayer2.close()
+                    //players[0].close();
+                    return null;
+                }
+            }.executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, player);
             mMediaPlayer = null;
+            mTextureView.setMediaPlayer(null);
+            mSurfaceView.setMediaPlayer(null);
             //mPendingSubtitleTracks.clear();
             mCurrentState = STATE_IDLE;
             mTargetState = STATE_IDLE;
@@ -631,8 +710,8 @@ public class VideoView2Impl extends BaseLayout
     private void updatePlaybackState() {
         if (mStateBuilder == null) {
             // Get the capabilities of the player for this stream
-            mMetadata = mMediaPlayer.getMetadata(MediaPlayer.METADATA_ALL,
-                    MediaPlayer.BYPASS_METADATA_FILTER);
+            mMetadata = mMediaPlayer.getMetadata(MediaPlayer2.METADATA_ALL,
+                    MediaPlayer2.BYPASS_METADATA_FILTER);
 
             // Add Play action as default
             long playbackActions = PlaybackState.ACTION_PLAY;
@@ -672,6 +751,8 @@ public class VideoView2Impl extends BaseLayout
         if (mCurrentState != STATE_ERROR
             && mCurrentState != STATE_IDLE
             && mCurrentState != STATE_PREPARING) {
+            // TODO: this should be replaced with MediaPlayer2.getBufferedPosition() once it is
+            // implemented.
             mStateBuilder.setBufferedPosition(
                     (long) (mCurrentBufferPercentage / 100.0) * mMediaPlayer.getDuration());
         }
@@ -763,8 +844,8 @@ public class VideoView2Impl extends BaseLayout
             return false;
         }
         PlaybackInfo playbackInfo = mMediaController.getPlaybackInfo();
-        return (playbackInfo != null)
-                && (playbackInfo.getPlaybackType() == PlaybackInfo.PLAYBACK_TYPE_REMOTE);
+        return playbackInfo != null
+                && playbackInfo.getPlaybackType() == PlaybackInfo.PLAYBACK_TYPE_REMOTE;
     }
 
     private void selectOrDeselectSubtitle(boolean select) {
@@ -773,166 +854,90 @@ public class VideoView2Impl extends BaseLayout
         }
         if (select) {
             if (mSubtitleTrackIndices.size() > 0) {
-                // Select first subtitle track
-                mSelectedTrackIndex = mSubtitleTrackIndices.get(0);
-                mMediaPlayer.selectTrack(mSelectedTrackIndex);
+                // TODO: make this selection dynamic
+                mSelectedSubtitleTrackIndex = mSubtitleTrackIndices.get(0);
+                mMediaPlayer.selectTrack(mSelectedSubtitleTrackIndex);
                 mSubtitleView.setVisibility(View.VISIBLE);
             }
         } else {
-            if (mSelectedTrackIndex != INVALID_TRACK_INDEX) {
-                mMediaPlayer.deselectTrack(mSelectedTrackIndex);
-                mSelectedTrackIndex = INVALID_TRACK_INDEX;
+            if (mSelectedSubtitleTrackIndex != INVALID_TRACK_INDEX) {
+                mMediaPlayer.deselectTrack(mSelectedSubtitleTrackIndex);
+                mSelectedSubtitleTrackIndex = INVALID_TRACK_INDEX;
                 mSubtitleView.setVisibility(View.GONE);
             }
         }
     }
 
-    private void extractSubtitleTracks() {
-        MediaPlayer.TrackInfo[] trackInfos = mMediaPlayer.getTrackInfo();
-        boolean previouslyNoTracks = mSubtitleTrackIndices == null
-                || mSubtitleTrackIndices.size() == 0;
+    private void extractTracks() {
+        List<MediaPlayer2.TrackInfo> trackInfos = mMediaPlayer.getTrackInfo();
+        mVideoTrackIndices = new ArrayList<>();
+        mAudioTrackIndices = new ArrayList<>();
         mSubtitleTrackIndices = new ArrayList<>();
-        for (int i = 0; i < trackInfos.length; ++i) {
-            int trackType = trackInfos[i].getTrackType();
-            if (trackType == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE
-                    || trackType == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT) {
+        for (int i = 0; i < trackInfos.size(); ++i) {
+            int trackType = trackInfos.get(i).getTrackType();
+            if (trackType == MediaPlayer2.TrackInfo.MEDIA_TRACK_TYPE_VIDEO) {
+                mVideoTrackIndices.add(i);
+            } else if (trackType == MediaPlayer2.TrackInfo.MEDIA_TRACK_TYPE_AUDIO) {
+                mAudioTrackIndices.add(i);
+            } else if (trackType == MediaPlayer2.TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE
+                    || trackType == MediaPlayer2.TrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT) {
                   mSubtitleTrackIndices.add(i);
             }
         }
+        Bundle data = new Bundle();
+        data.putInt(MediaControlView2Impl.KEY_VIDEO_TRACK_COUNT, mVideoTrackIndices.size());
+        data.putInt(MediaControlView2Impl.KEY_AUDIO_TRACK_COUNT, mAudioTrackIndices.size());
+        data.putInt(MediaControlView2Impl.KEY_SUBTITLE_TRACK_COUNT, mSubtitleTrackIndices.size());
         if (mSubtitleTrackIndices.size() > 0) {
-            if (previouslyNoTracks) {
-                selectOrDeselectSubtitle(mSubtitleEnabled);
-                // Notify MediaControlView that subtitle track exists
-                // TODO: Send the subtitle track list to MediaSession for MCV2.
-                Bundle data = new Bundle();
-                data.putBoolean(MediaControlView2Impl.KEY_STATE_CONTAINS_SUBTITLE, true);
-                mMediaSession.sendSessionEvent(
-                        MediaControlView2Impl.EVENT_UPDATE_SUBTITLE_STATUS, data);
-            }
-        } else {
-            Bundle data = new Bundle();
-            data.putBoolean(MediaControlView2Impl.KEY_STATE_CONTAINS_SUBTITLE, false);
-            mMediaSession.sendSessionEvent(
-                    MediaControlView2Impl.EVENT_UPDATE_SUBTITLE_STATUS, data);
+            selectOrDeselectSubtitle(mSubtitleEnabled);
         }
+        mMediaSession.sendSessionEvent(MediaControlView2Impl.EVENT_UPDATE_TRACK_STATUS, data);
     }
 
-    MediaPlayer.OnVideoSizeChangedListener mSizeChangedListener =
-            new MediaPlayer.OnVideoSizeChangedListener() {
-                public void onVideoSizeChanged(MediaPlayer mp, int width, int height) {
+    MediaPlayer2EventCallback mMediaPlayer2Callback =
+            new MediaPlayer2EventCallback() {
+                @Override
+                public void onVideoSizeChanged(
+                        MediaPlayer2 mp, DataSourceDesc dsd, int width, int height) {
                     if (DEBUG) {
-                        Log.d(TAG, "OnVideoSizeChanged(): size: " + width + "/" + height);
+                        Log.d(TAG, "onVideoSizeChanged(): size: " + width + "/" + height);
                     }
                     mVideoWidth = mp.getVideoWidth();
                     mVideoHeight = mp.getVideoHeight();
                     if (DEBUG) {
-                        Log.d(TAG, "OnVideoSizeChanged(): mVideoSize:" + mVideoWidth + "/"
+                        Log.d(TAG, "onVideoSizeChanged(): mVideoSize:" + mVideoWidth + "/"
                                 + mVideoHeight);
                     }
-
                     if (mVideoWidth != 0 && mVideoHeight != 0) {
                         mInstance.requestLayout();
                     }
                 }
-            };
 
-    MediaPlayer.OnPreparedListener mPreparedListener = new MediaPlayer.OnPreparedListener() {
-        public void onPrepared(MediaPlayer mp) {
-            if (DEBUG) {
-                Log.d(TAG, "OnPreparedListener(). mCurrentState=" + mCurrentState
-                        + ", mTargetState=" + mTargetState);
-            }
-            mCurrentState = STATE_PREPARED;
-            // Create and set playback state for MediaControlView2
-            updatePlaybackState();
-            extractSubtitleTracks();
-
-            if (mMediaControlView != null) {
-                mMediaControlView.setEnabled(true);
-            }
-            int videoWidth = mp.getVideoWidth();
-            int videoHeight = mp.getVideoHeight();
-
-            // mSeekWhenPrepared may be changed after seekTo() call
-            long seekToPosition = mSeekWhenPrepared;
-            if (seekToPosition != 0) {
-                mMediaController.getTransportControls().seekTo(seekToPosition);
-            }
-
-            if (videoWidth != 0 && videoHeight != 0) {
-                if (videoWidth != mVideoWidth || videoHeight != mVideoHeight) {
-                    if (DEBUG) {
-                        Log.i(TAG, "OnPreparedListener() : ");
-                        Log.i(TAG, " video size: " + videoWidth + "/" + videoHeight);
-                        Log.i(TAG, " measuredSize: " + mInstance.getMeasuredWidth() + "/"
-                                + mInstance.getMeasuredHeight());
-                        Log.i(TAG, " viewSize: " + mInstance.getWidth() + "/"
-                                + mInstance.getHeight());
-                    }
-
-                    mVideoWidth = videoWidth;
-                    mVideoHeight = videoHeight;
-                    mInstance.requestLayout();
+                // TODO: Remove timed text related code later once relevant Renderer is defined.
+                // This is just for debugging purpose.
+                @Override
+                public void onTimedText(
+                        MediaPlayer2 mp, DataSourceDesc dsd, TimedText text) {
+                        Log.d(TAG, "TimedText: " + text.getText());
                 }
 
-                if (needToStart()) {
-                    mMediaController.getTransportControls().play();
-                }
-            } else {
-                // We don't know the video size yet, but should start anyway.
-                // The video size might be reported to us later.
-                if (needToStart()) {
-                    mMediaController.getTransportControls().play();
-                }
-            }
-
-            // Get and set duration and title values as MediaMetadata for MediaControlView2
-            MediaMetadata.Builder builder = new MediaMetadata.Builder();
-            if (mMetadata != null && mMetadata.has(Metadata.TITLE)) {
-                mTitle = mMetadata.getString(Metadata.TITLE);
-            }
-            builder.putString(MediaMetadata.METADATA_KEY_TITLE, mTitle);
-            builder.putLong(MediaMetadata.METADATA_KEY_DURATION, mMediaPlayer.getDuration());
-
-            if (mMediaSession != null) {
-                mMediaSession.setMetadata(builder.build());
-
-                // TODO: merge this code with the above code when integrating with MediaSession2.
-                if (mNeedUpdateMediaType) {
-                    mMediaSession.sendSessionEvent(
-                            MediaControlView2Impl.EVENT_UPDATE_MEDIA_TYPE_STATUS, mMediaTypeData);
-                    mNeedUpdateMediaType = false;
-                }
-            }
-        }
-    };
-
-    private MediaPlayer.OnCompletionListener mCompletionListener =
-            new MediaPlayer.OnCompletionListener() {
-                public void onCompletion(MediaPlayer mp) {
-                    mCurrentState = STATE_PLAYBACK_COMPLETED;
-                    mTargetState = STATE_PLAYBACK_COMPLETED;
-                    updatePlaybackState();
-
-                    if (mAudioFocusType != AudioManager.AUDIOFOCUS_NONE) {
-                        mAudioManager.abandonAudioFocus(null);
+                @Override
+                public void onInfo(
+                        MediaPlayer2 mp, DataSourceDesc dsd, int what, int extra) {
+                    if (what == MediaPlayer2.MEDIA_INFO_METADATA_UPDATE) {
+                        extractTracks();
+                    } else if (what == MediaPlayer2.MEDIA_INFO_PREPARED) {
+                        this.onPrepared(mp, dsd);
+                    } else if (what == MediaPlayer2.MEDIA_INFO_PLAYBACK_COMPLETE) {
+                        this.onCompletion(mp, dsd);
+                    } else if (what == MediaPlayer2.MEDIA_INFO_BUFFERING_UPDATE) {
+                        this.onBufferingUpdate(mp, dsd, extra);
                     }
                 }
-            };
 
-    private MediaPlayer.OnInfoListener mInfoListener =
-            new MediaPlayer.OnInfoListener() {
-                public boolean onInfo(MediaPlayer mp, int what, int extra) {
-                    if (what == MediaPlayer.MEDIA_INFO_METADATA_UPDATE) {
-                        extractSubtitleTracks();
-                    }
-                    return true;
-                }
-            };
-
-    private MediaPlayer.OnErrorListener mErrorListener =
-            new MediaPlayer.OnErrorListener() {
-                public boolean onError(MediaPlayer mp, int frameworkErr, int implErr) {
+                @Override
+                public void onError(
+                        MediaPlayer2 mp, DataSourceDesc dsd, int frameworkErr, int implErr) {
                     if (DEBUG) {
                         Log.d(TAG, "Error: " + frameworkErr + "," + implErr);
                     }
@@ -943,24 +948,95 @@ public class VideoView2Impl extends BaseLayout
                     if (mMediaControlView != null) {
                         mMediaControlView.setVisibility(View.GONE);
                     }
-                    return true;
                 }
-            };
 
-    private MediaPlayer.OnBufferingUpdateListener mBufferingUpdateListener =
-            new MediaPlayer.OnBufferingUpdateListener() {
-                public void onBufferingUpdate(MediaPlayer mp, int percent) {
+                private void onPrepared(MediaPlayer2 mp, DataSourceDesc dsd) {
+                    if (DEBUG) {
+                        Log.d(TAG, "OnPreparedListener(). mCurrentState=" + mCurrentState
+                                + ", mTargetState=" + mTargetState);
+                    }
+                    mCurrentState = STATE_PREPARED;
+                    // Create and set playback state for MediaControlView2
+                    updatePlaybackState();
+
+                    // TODO: change this to send TrackInfos to MediaControlView2
+                    // TODO: create MediaSession when initializing VideoView2
+                    if (mMediaSession != null) {
+                        extractTracks();
+                    }
+
+                    if (mMediaControlView != null) {
+                        mMediaControlView.setEnabled(true);
+                    }
+                    int videoWidth = mp.getVideoWidth();
+                    int videoHeight = mp.getVideoHeight();
+
+                    // mSeekWhenPrepared may be changed after seekTo() call
+                    long seekToPosition = mSeekWhenPrepared;
+                    if (seekToPosition != 0) {
+                        mMediaController.getTransportControls().seekTo(seekToPosition);
+                    }
+
+                    if (videoWidth != 0 && videoHeight != 0) {
+                        if (videoWidth != mVideoWidth || videoHeight != mVideoHeight) {
+                            if (DEBUG) {
+                                Log.i(TAG, "OnPreparedListener() : ");
+                                Log.i(TAG, " video size: " + videoWidth + "/" + videoHeight);
+                                Log.i(TAG, " measuredSize: " + mInstance.getMeasuredWidth() + "/"
+                                        + mInstance.getMeasuredHeight());
+                                Log.i(TAG, " viewSize: " + mInstance.getWidth() + "/"
+                                        + mInstance.getHeight());
+                            }
+                            mVideoWidth = videoWidth;
+                            mVideoHeight = videoHeight;
+                            mInstance.requestLayout();
+                        }
+
+                        if (needToStart()) {
+                            mMediaController.getTransportControls().play();
+                        }
+                    } else {
+                        // We don't know the video size yet, but should start anyway.
+                        // The video size might be reported to us later.
+                        if (needToStart()) {
+                            mMediaController.getTransportControls().play();
+                        }
+                    }
+                    // Get and set duration and title values as MediaMetadata for MediaControlView2
+                    MediaMetadata.Builder builder = new MediaMetadata.Builder();
+                    if (mMetadata != null && mMetadata.has(Metadata.TITLE)) {
+                        mTitle = mMetadata.getString(Metadata.TITLE);
+                    }
+                    builder.putString(MediaMetadata.METADATA_KEY_TITLE, mTitle);
+                    builder.putLong(
+                            MediaMetadata.METADATA_KEY_DURATION, mMediaPlayer.getDuration());
+
+                    if (mMediaSession != null) {
+                        mMediaSession.setMetadata(builder.build());
+
+                        // TODO: merge this code with the above code when integrating with
+                        // MediaSession2.
+                        if (mNeedUpdateMediaType) {
+                            mMediaSession.sendSessionEvent(
+                                    MediaControlView2Impl.EVENT_UPDATE_MEDIA_TYPE_STATUS,
+                                    mMediaTypeData);
+                            mNeedUpdateMediaType = false;
+                        }
+                    }
+                }
+
+                private void onCompletion(MediaPlayer2 mp, DataSourceDesc dsd) {
+                    mCurrentState = STATE_PLAYBACK_COMPLETED;
+                    mTargetState = STATE_PLAYBACK_COMPLETED;
+                    updatePlaybackState();
+                    if (mAudioFocusType != AudioManager.AUDIOFOCUS_NONE) {
+                        mAudioManager.abandonAudioFocus(null);
+                    }
+                }
+
+                private void onBufferingUpdate(MediaPlayer2 mp, DataSourceDesc dsd, int percent) {
                     mCurrentBufferPercentage = percent;
                     updatePlaybackState();
-                }
-            };
-
-    // TODO: Remove timed text related code later once relevant Renderer is defined.
-    // This is just for debugging purpose.
-    private MediaPlayer.OnTimedTextListener mTimedTextListener =
-            new MediaPlayer.OnTimedTextListener() {
-                public void onTimedText(MediaPlayer mp, TimedText text) {
-                    Log.d(TAG, "TimedText: " + text.getText());
                 }
             };
 
@@ -968,16 +1044,16 @@ public class VideoView2Impl extends BaseLayout
         @Override
         public void onCommand(String command, Bundle args, ResultReceiver receiver) {
             if (isRemotePlayback()) {
-                mRouteSessionCallback.onCommand(command, args, receiver);
+                mRoutePlayer.onCommand(command, args, receiver);
             } else {
                 switch (command) {
-                    case MediaControlView2.COMMAND_SHOW_SUBTITLE:
+                    case MediaControlView2Impl.COMMAND_SHOW_SUBTITLE:
                         mInstance.setSubtitleEnabled(true);
                         break;
-                    case MediaControlView2.COMMAND_HIDE_SUBTITLE:
+                    case MediaControlView2Impl.COMMAND_HIDE_SUBTITLE:
                         mInstance.setSubtitleEnabled(false);
                         break;
-                    case MediaControlView2.COMMAND_SET_FULLSCREEN:
+                    case MediaControlView2Impl.COMMAND_SET_FULLSCREEN:
                         if (mFullScreenRequestListener != null) {
                             mFullScreenRequestListener.onFullScreenRequest(
                                     mInstance,
@@ -998,57 +1074,57 @@ public class VideoView2Impl extends BaseLayout
 
         @Override
         public void onPlay() {
-            if (isRemotePlayback()) {
-                mRouteSessionCallback.onPlay();
-            } else {
-                if (isInPlaybackState() && mCurrentView.hasAvailableSurface()) {
+            if (isInPlaybackState() && mCurrentView.hasAvailableSurface()) {
+                if (isRemotePlayback()) {
+                    mRoutePlayer.onPlay();
+                } else {
                     applySpeed();
-                    mMediaPlayer.start();
+                    mMediaPlayer.play();
                     mCurrentState = STATE_PLAYING;
                     updatePlaybackState();
                 }
-                mTargetState = STATE_PLAYING;
-                if (DEBUG) {
-                    Log.d(TAG, "onPlay(). mCurrentState=" + mCurrentState
-                            + ", mTargetState=" + mTargetState);
-                }
+                mCurrentState = STATE_PLAYING;
+            }
+            mTargetState = STATE_PLAYING;
+            if (DEBUG) {
+                Log.d(TAG, "onPlay(). mCurrentState=" + mCurrentState
+                        + ", mTargetState=" + mTargetState);
             }
             showController();
         }
 
         @Override
         public void onPause() {
-            if (isRemotePlayback()) {
-                mRouteSessionCallback.onPause();
-            } else {
-                if (isInPlaybackState()) {
-                    if (mMediaPlayer.isPlaying()) {
-                        mMediaPlayer.pause();
-                        mCurrentState = STATE_PAUSED;
-                        updatePlaybackState();
-                    }
+            if (isInPlaybackState()) {
+                if (isRemotePlayback()) {
+                    mRoutePlayer.onPause();
+                    mCurrentState = STATE_PAUSED;
+                } else if (mMediaPlayer.isPlaying()) {
+                    mMediaPlayer.pause();
+                    mCurrentState = STATE_PAUSED;
+                    updatePlaybackState();
                 }
-                mTargetState = STATE_PAUSED;
-                if (DEBUG) {
-                    Log.d(TAG, "onPause(). mCurrentState=" + mCurrentState
-                            + ", mTargetState=" + mTargetState);
-                }
+            }
+            mTargetState = STATE_PAUSED;
+            if (DEBUG) {
+                Log.d(TAG, "onPause(). mCurrentState=" + mCurrentState
+                        + ", mTargetState=" + mTargetState);
             }
             showController();
         }
 
         @Override
         public void onSeekTo(long pos) {
-            if (isRemotePlayback()) {
-                mRouteSessionCallback.onSeekTo(pos);
-            } else {
-                if (isInPlaybackState()) {
-                    mMediaPlayer.seekTo(pos, MediaPlayer.SEEK_PREVIOUS_SYNC);
+            if (isInPlaybackState()) {
+                if (isRemotePlayback()) {
+                    mRoutePlayer.onSeekTo(pos);
+                } else {
+                    mMediaPlayer.seekTo(pos, MediaPlayer2.SEEK_PREVIOUS_SYNC);
                     mSeekWhenPrepared = 0;
                     updatePlaybackState();
-                } else {
-                    mSeekWhenPrepared = pos;
                 }
+            } else {
+                mSeekWhenPrepared = pos;
             }
             showController();
         }
@@ -1056,74 +1132,11 @@ public class VideoView2Impl extends BaseLayout
         @Override
         public void onStop() {
             if (isRemotePlayback()) {
-                mRouteSessionCallback.onStop();
+                mRoutePlayer.onStop();
             } else {
                 resetPlayer();
             }
             showController();
-        }
-    }
-
-    private class RouteSessionCallback extends MediaSession.Callback {
-        RemotePlaybackClient mClient;
-
-        RemotePlaybackClient.StatusCallback mStatusCallback =
-                new RemotePlaybackClient.StatusCallback() {
-            @Override
-            public void onItemStatusChanged(Bundle data,
-                    String sessionId, MediaSessionStatus sessionStatus,
-                    String itemId, MediaItemStatus itemStatus) {
-                // TODO: implement this
-            }
-
-            @Override
-            public void onSessionStatusChanged(Bundle data,
-                    String sessionId, MediaSessionStatus sessionStatus) {
-                // TODO: implement this
-            }
-
-            @Override
-            public void onSessionChanged(String sessionId) {
-                // TODO: implement this
-            }
-        };
-
-        @Override
-        public void onCommand(String command, Bundle args, ResultReceiver receiver) {
-            ensureClient();
-            // TODO: implement this
-        }
-
-        @Override
-        public void onPlay() {
-            ensureClient();
-            // TODO: implement this
-        }
-
-        @Override
-        public void onPause() {
-            ensureClient();
-            // TODO: implement this
-        }
-
-        @Override
-        public void onSeekTo(long pos) {
-            ensureClient();
-            // TODO: implement this
-        }
-
-        @Override
-        public void onStop() {
-            ensureClient();
-            // TODO: implement this
-        }
-
-        private void ensureClient() {
-            if (mClient == null) {
-                mClient = new RemotePlaybackClient(
-                        mInstance.getContext(), mMediaRouter.getSelectedRoute());
-                mClient.setStatusCallback(mStatusCallback);
-            }
         }
     }
 }

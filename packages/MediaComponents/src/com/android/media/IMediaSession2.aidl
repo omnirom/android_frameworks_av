@@ -46,7 +46,6 @@ oneway interface IMediaSession2 {
     //////////////////////////////////////////////////////////////////////////////////////////////
     // send command
     //////////////////////////////////////////////////////////////////////////////////////////////
-    void sendCommand(IMediaSession2Callback caller, in Bundle command, in Bundle args);
     void sendTransportControlCommand(IMediaSession2Callback caller,
             int commandCode, in Bundle args);
     void sendCustomCommand(IMediaSession2Callback caller, in Bundle command, in Bundle args,
@@ -63,7 +62,7 @@ oneway interface IMediaSession2 {
     //////////////////////////////////////////////////////////////////////////////////////////////
     // library service specific
     //////////////////////////////////////////////////////////////////////////////////////////////
-    void getBrowserRoot(IMediaSession2Callback caller, in Bundle rootHints);
+    void getLibraryRoot(IMediaSession2Callback caller, in Bundle rootHints);
     void getItem(IMediaSession2Callback caller, String mediaId);
     void getChildren(IMediaSession2Callback caller, String parentId, int page, int pageSize,
             in Bundle extras);

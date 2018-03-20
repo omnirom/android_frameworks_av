@@ -519,9 +519,6 @@ ssize_t Camera3Device::getJpegBufferSize(uint32_t width, uint32_t height) const 
             (maxJpegResolution.width * maxJpegResolution.height);
     ssize_t jpegBufferSize = scaleFactor * (maxJpegBufferSize - kMinJpegBufferSize) +
             kMinJpegBufferSize;
-    if (jpegBufferSize > maxJpegBufferSize) {
-        jpegBufferSize = maxJpegBufferSize;
-    }
 
     return jpegBufferSize;
 }
@@ -1550,7 +1547,7 @@ status_t Camera3Device::deleteStream(int id) {
     // CameraDevice semantics require device to already be idle before
     // deleteStream is called, unlike for createStream.
     if (mStatus == STATUS_ACTIVE) {
-        ALOGV("%s: Camera %s: Device not idle", __FUNCTION__, mId.string());
+        ALOGW("%s: Camera %s: Device not idle", __FUNCTION__, mId.string());
         return -EBUSY;
     }
 

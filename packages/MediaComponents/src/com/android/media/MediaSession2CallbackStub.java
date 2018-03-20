@@ -18,6 +18,7 @@ package com.android.media;
 
 import android.app.PendingIntent;
 import android.content.Context;
+import android.media.MediaController2;
 import android.media.MediaItem2;
 import android.media.MediaSession2.Command;
 import android.media.MediaSession2.CommandButton;
@@ -26,6 +27,7 @@ import android.media.MediaSession2.PlaylistParams;
 import android.media.PlaybackState2;
 import android.os.Bundle;
 import android.os.ResultReceiver;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.media.MediaController2Impl.PlaybackInfoImpl;
@@ -79,7 +81,7 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     }
 
     @Override
-    public void onPlaylistChanged(List<Bundle> playlist) throws RuntimeException {
+    public void onPlaylistChanged(List<Bundle> playlistBundle) throws RuntimeException {
         final MediaController2Impl controller;
         try {
             controller = getController();
@@ -87,14 +89,24 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
             Log.w(TAG, "Don't fail silently here. Highly likely a bug");
             return;
         }
-        if (playlist == null) {
+        if (playlistBundle == null) {
+            Log.w(TAG, "onPlaylistChanged(): Ignoring null playlist");
             return;
+        }
+        List<MediaItem2> playlist = new ArrayList<>();
+        for (Bundle bundle : playlistBundle) {
+            MediaItem2 item = MediaItem2.fromBundle(controller.getContext(), bundle);
+            if (item == null) {
+                Log.w(TAG, "onPlaylistChanged(): Ignoring null item in playlist");
+            } else {
+                playlist.add(item);
+            }
         }
         controller.pushPlaylistChanges(playlist);
     }
 
     @Override
-    public void onPlaylistParamsChanged(Bundle params) throws RuntimeException {
+    public void onPlaylistParamsChanged(Bundle paramsBundle) throws RuntimeException {
         final MediaController2Impl controller;
         try {
             controller = getController();
@@ -102,8 +114,12 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
             Log.w(TAG, "Don't fail silently here. Highly likely a bug");
             return;
         }
-        controller.pushPlaylistParamsChanges(
-                PlaylistParams.fromBundle(controller.getContext(), params));
+        PlaylistParams params = PlaylistParams.fromBundle(controller.getContext(), paramsBundle);
+        if (params == null) {
+            Log.w(TAG, "onPlaylistParamsChanged(): Ignoring null playlistParams");
+            return;
+        }
+        controller.pushPlaylistParamsChanges(params);
     }
 
     @Override
@@ -118,6 +134,12 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
             Log.w(TAG, "Don't fail silently here. Highly likely a bug");
             return;
         }
+        MediaController2.PlaybackInfo info =
+                PlaybackInfoImpl.fromBundle(controller.getContext(), playbackInfo);
+        if (info == null) {
+            Log.w(TAG, "onPlaybackInfoChanged(): Ignoring null playbackInfo");
+            return;
+        }
         controller.pushPlaybackInfoChanges(
                 PlaybackInfoImpl.fromBundle(controller.getContext(), playbackInfo));
     }
@@ -125,7 +147,7 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     @Override
     public void onConnected(IMediaSession2 sessionBinder, Bundle commandGroup,
             Bundle playbackState, Bundle playbackInfo, Bundle playlistParams, List<Bundle>
-            playlist, PendingIntent sessionActivity) {
+            itemBundleList, PendingIntent sessionActivity) {
         final MediaController2Impl controller = mController.get();
         if (controller == null) {
             if (DEBUG) {
@@ -134,11 +156,14 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
             return;
         }
         final Context context = controller.getContext();
-        List<MediaItem2> list = new ArrayList<>();
-        for (int i = 0; i < playlist.size(); i++) {
-            MediaItem2 item = MediaItem2.fromBundle(context, playlist.get(i));
-            if (item != null) {
-                list.add(item);
+        List<MediaItem2> itemList = null;
+        if (itemBundleList != null) {
+            itemList = new ArrayList<>();
+            for (int i = 0; i < itemBundleList.size(); i++) {
+                MediaItem2 item = MediaItem2.fromBundle(context, itemBundleList.get(i));
+                if (item != null) {
+                    itemList.add(item);
+                }
             }
         }
         controller.onConnectedNotLocked(sessionBinder,
@@ -146,7 +171,7 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
                 PlaybackState2.fromBundle(context, playbackState),
                 PlaybackInfoImpl.fromBundle(context, playbackInfo),
                 PlaylistParams.fromBundle(context, playlistParams),
-                list, sessionActivity);
+                itemList, sessionActivity);
     }
 
     @Override
@@ -164,7 +189,7 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     @Override
     public void onCustomLayoutChanged(List<Bundle> commandButtonlist) {
         if (commandButtonlist == null) {
-            // Illegal call. Ignore
+            Log.w(TAG, "onCustomLayoutChanged(): Ignoring null commandButtonlist");
             return;
         }
         final MediaController2Impl controller;
@@ -190,7 +215,28 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     }
 
     @Override
-    public void sendCustomCommand(Bundle commandBundle, Bundle args, ResultReceiver receiver) {
+    public void onAllowedCommandsChanged(Bundle commandsBundle) {
+        final MediaController2Impl controller;
+        try {
+            controller = getController();
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "Don't fail silently here. Highly likely a bug");
+            return;
+        }
+        if (controller == null) {
+            // TODO(jaewan): Revisit here. Could be a bug
+            return;
+        }
+        CommandGroup commands = CommandGroup.fromBundle(controller.getContext(), commandsBundle);
+        if (commands == null) {
+            Log.w(TAG, "onAllowedCommandsChanged(): Ignoring null commands");
+            return;
+        }
+        controller.onAllowedCommandsChanged(commands);
+    }
+
+    @Override
+    public void onCustomCommand(Bundle commandBundle, Bundle args, ResultReceiver receiver) {
         final MediaController2Impl controller;
         try {
             controller = getController();
@@ -200,6 +246,7 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
         }
         Command command = Command.fromBundle(controller.getContext(), commandBundle);
         if (command == null) {
+            Log.w(TAG, "onCustomCommand(): Ignoring null command");
             return;
         }
         controller.onCustomCommand(command, args, receiver);
@@ -228,6 +275,10 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
 
     @Override
     public void onGetItemDone(String mediaId, Bundle itemBundle) throws RuntimeException {
+        if (mediaId == null) {
+            Log.w(TAG, "onGetItemDone(): Ignoring null mediaId");
+            return;
+        }
         final MediaBrowser2Impl browser;
         try {
             browser = getBrowser();
@@ -246,6 +297,10 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     @Override
     public void onGetChildrenDone(String parentId, int page, int pageSize,
             List<Bundle> itemBundleList, Bundle extras) throws RuntimeException {
+        if (parentId == null) {
+            Log.w(TAG, "onGetChildrenDone(): Ignoring null parentId");
+            return;
+        }
         final MediaBrowser2Impl browser;
         try {
             browser = getBrowser();
@@ -271,6 +326,10 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     @Override
     public void onSearchResultChanged(String query, int itemCount, Bundle extras)
             throws RuntimeException {
+        if (TextUtils.isEmpty(query)) {
+            Log.w(TAG, "onSearchResultChanged(): Ignoring empty query");
+            return;
+        }
         final MediaBrowser2Impl browser;
         try {
             browser = getBrowser();
@@ -288,6 +347,10 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
     @Override
     public void onGetSearchResultDone(String query, int page, int pageSize,
             List<Bundle> itemBundleList, Bundle extras) throws RuntimeException {
+        if (TextUtils.isEmpty(query)) {
+            Log.w(TAG, "onGetSearchResultDone(): Ignoring empty query");
+            return;
+        }
         final MediaBrowser2Impl browser;
         try {
             browser = getBrowser();
@@ -312,6 +375,10 @@ public class MediaSession2CallbackStub extends IMediaSession2Callback.Stub {
 
     @Override
     public void onChildrenChanged(String parentId, int itemCount, Bundle extras) {
+        if (parentId == null) {
+            Log.w(TAG, "onChildrenChanged(): Ignoring null parentId");
+            return;
+        }
         final MediaBrowser2Impl browser;
         try {
             browser = getBrowser();
