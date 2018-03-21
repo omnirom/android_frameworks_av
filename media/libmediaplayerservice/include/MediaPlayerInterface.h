@@ -66,17 +66,14 @@ enum player_type {
 // duration below which we do not allow deep audio buffering
 #define AUDIO_SINK_MIN_DEEP_BUFFER_DURATION_US 5000000
 
+// callback mechanism for passing messages to MediaPlayer object
+typedef void (*notify_callback_f)(const wp<IMediaPlayer> &listener,
+        int msg, int ext1, int ext2, const Parcel *obj);
+
 // abstract base class - use MediaPlayerInterface
 class MediaPlayerBase : public RefBase
 {
 public:
-    // callback mechanism for passing messages to MediaPlayer object
-    class Listener : public RefBase {
-    public:
-        virtual void notify(int msg, int ext1, int ext2, const Parcel *obj) = 0;
-        virtual ~Listener() {}
-    };
-
     // AudioSink: abstraction layer for audio output
     class AudioSink : public RefBase {
     public:
@@ -155,7 +152,7 @@ public:
         virtual sp<VolumeShaper::State> getVolumeShaperState(int id);
     };
 
-                        MediaPlayerBase() {}
+                        MediaPlayerBase() : mClient(0), mNotify(0) {}
     virtual             ~MediaPlayerBase() {}
     virtual status_t    initCheck() = 0;
     virtual bool        hardwareOutput() = 0;
@@ -266,22 +263,22 @@ public:
     };
 
     void        setNotifyCallback(
-            const sp<Listener> &listener) {
+            const wp<IMediaPlayer> &client, notify_callback_f notifyFunc) {
         Mutex::Autolock autoLock(mNotifyLock);
-        mListener = listener;
+        mClient = client; mNotify = notifyFunc;
     }
 
     void        sendEvent(int msg, int ext1=0, int ext2=0,
                           const Parcel *obj=NULL) {
-        sp<Listener> listener;
+        notify_callback_f notifyCB;
+        wp<IMediaPlayer> client;
         {
             Mutex::Autolock autoLock(mNotifyLock);
-            listener = mListener;
+            notifyCB = mNotify;
+            client = mClient;
         }
 
-        if (listener != NULL) {
-            listener->notify(msg, ext1, ext2, obj);
-        }
+        if (notifyCB) notifyCB(client, msg, ext1, ext2, obj);
     }
 
     virtual status_t dump(int /* fd */, const Vector<String16>& /* args */) const {
@@ -300,7 +297,8 @@ private:
     friend class MediaPlayerService;
 
     Mutex               mNotifyLock;
-    sp<Listener>        mListener;
+    wp<IMediaPlayer>    mClient;
+    notify_callback_f   mNotify;
 };
 
 // Implement this class for media players that use the AudioFlinger software mixer
