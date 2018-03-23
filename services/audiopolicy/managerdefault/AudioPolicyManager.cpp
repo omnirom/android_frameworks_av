@@ -26,6 +26,7 @@
 
 #define AUDIO_POLICY_XML_CONFIG_FILE_PATH_MAX_LENGTH 128
 #define AUDIO_POLICY_XML_CONFIG_FILE_NAME "audio_policy_configuration.xml"
+#define AUDIO_POLICY_A2DP_OFFLOAD_XML_CONFIG_FILE_NAME "audio_policy_a2dp_offload_configuration.xml"
 
 #include <inttypes.h>
 #include <math.h>
@@ -1265,6 +1266,11 @@ status_t AudioPolicyManager::startSource(const sp<AudioOutputDescriptor>& output
         // We do not introduce additional delay here.
     }
 
+    if (stream == AUDIO_STREAM_ENFORCED_AUDIBLE &&
+            mEngine->getForceUse(AUDIO_POLICY_FORCE_FOR_SYSTEM) == AUDIO_POLICY_FORCE_SYSTEM_ENFORCED) {
+        setStrategyMute(STRATEGY_SONIFICATION, true, outputDesc);
+    }
+
     return NO_ERROR;
 }
 
@@ -1365,6 +1371,12 @@ status_t AudioPolicyManager::stopSource(const sp<AudioOutputDescriptor>& outputD
             // update the outputs if stopping one with a stream that can affect notification routing
             handleNotificationRoutingForStream(stream);
         }
+
+        if (stream == AUDIO_STREAM_ENFORCED_AUDIBLE &&
+                mEngine->getForceUse(AUDIO_POLICY_FORCE_FOR_SYSTEM) == AUDIO_POLICY_FORCE_SYSTEM_ENFORCED) {
+            setStrategyMute(STRATEGY_SONIFICATION, false, outputDesc);
+        }
+
         if (stream == AUDIO_STREAM_MUSIC) {
             selectOutputForMusicEffects();
         }
@@ -3517,11 +3529,14 @@ static status_t deserializeAudioPolicyXmlConfig(AudioPolicyConfig &config) {
 
     for (int i = 0; i < kConfigLocationListSize; i++) {
         PolicySerializer serializer;
+        bool use_a2dp_offload_config =
+                 property_get_bool("persist.bluetooth.a2dp_offload.enable", false);
         snprintf(audioPolicyXmlConfigFile,
                  sizeof(audioPolicyXmlConfigFile),
                  "%s/%s",
                  kConfigLocationList[i],
-                 AUDIO_POLICY_XML_CONFIG_FILE_NAME);
+                 use_a2dp_offload_config ? AUDIO_POLICY_A2DP_OFFLOAD_XML_CONFIG_FILE_NAME :
+                     AUDIO_POLICY_XML_CONFIG_FILE_NAME);
         ret = serializer.deserialize(audioPolicyXmlConfigFile, config);
         if (ret == NO_ERROR) {
             break;
@@ -4383,7 +4398,7 @@ void AudioPolicyManager::checkA2dpSuspend()
     audio_io_handle_t a2dpOutput = mOutputs.getA2dpOutput();
     bool a2dpOnPrimary = mOutputs.isA2dpOnPrimary();
 
-    if ((a2dpOutput == 0) && !a2dpOnPrimary) {
+    if ((a2dpOutput == 0 || mOutputs.isA2dpOffloadedOnPrimary()) && !a2dpOnPrimary) {
         mA2dpSuspended = false;
         return;
     }

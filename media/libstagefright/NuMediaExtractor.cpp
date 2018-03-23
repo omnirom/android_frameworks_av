@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "NuMediaExtractor"
 #include <utils/Log.h>
 
@@ -203,6 +203,15 @@ status_t NuMediaExtractor::setMediaCas(const HInterfaceToken &casToken) {
     }
 
     return OK;
+}
+
+void NuMediaExtractor::disconnect() {
+    if (mDataSource != NULL) {
+        // disconnect data source
+        if (mDataSource->flags() & DataSource::kIsCachingDataSource) {
+            static_cast<NuCachedSource2 *>(mDataSource.get())->disconnect();
+        }
+    }
 }
 
 status_t NuMediaExtractor::updateDurationAndBitrate() {

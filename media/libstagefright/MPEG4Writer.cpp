@@ -360,7 +360,7 @@ private:
     Vector<uint16_t> mDimgRefs;
     int32_t mIsPrimary;
     int32_t mWidth, mHeight;
-    int32_t mGridWidth, mGridHeight;
+    int32_t mTileWidth, mTileHeight;
     int32_t mGridRows, mGridCols;
     size_t mNumTiles, mTileIndex;
 
@@ -1383,15 +1383,12 @@ void MPEG4Writer:: StripStartcode(MediaBuffer *buffer) {
 }
 
 void MPEG4Writer::addMultipleLengthPrefixedSamples_l(MediaBuffer *buffer) {
-    const size_t kExtensionNALSearchRange = 64; // bytes to look for non-VCL NALUs
-
     const uint8_t *dataStart = (const uint8_t *)buffer->data() + buffer->range_offset();
     const uint8_t *currentNalStart = dataStart;
     const uint8_t *nextNalStart;
     const uint8_t *data = dataStart;
     size_t nextNalSize;
-    size_t searchSize = buffer->range_length() > kExtensionNALSearchRange ?
-                   kExtensionNALSearchRange : buffer->range_length();
+    size_t searchSize = buffer->range_length();
 
     while (getNextNALUnit(&data, &searchSize, &nextNalStart,
             &nextNalSize, true) == OK) {
@@ -1780,8 +1777,8 @@ MPEG4Writer::Track::Track(
       mIsPrimary(0),
       mWidth(0),
       mHeight(0),
-      mGridWidth(0),
-      mGridHeight(0),
+      mTileWidth(0),
+      mTileHeight(0),
       mGridRows(0),
       mGridCols(0),
       mNumTiles(1),
@@ -1812,13 +1809,13 @@ MPEG4Writer::Track::Track(
         CHECK(mMeta->findInt32(kKeyWidth, &mWidth) && (mWidth > 0));
         CHECK(mMeta->findInt32(kKeyHeight, &mHeight) && (mHeight > 0));
 
-        int32_t gridWidth, gridHeight, gridRows, gridCols;
-        if (mMeta->findInt32(kKeyGridWidth, &gridWidth) && (gridWidth > 0) &&
-            mMeta->findInt32(kKeyGridHeight, &gridHeight) && (gridHeight > 0) &&
+        int32_t tileWidth, tileHeight, gridRows, gridCols;
+        if (mMeta->findInt32(kKeyTileWidth, &tileWidth) && (tileWidth > 0) &&
+            mMeta->findInt32(kKeyTileHeight, &tileHeight) && (tileHeight > 0) &&
             mMeta->findInt32(kKeyGridRows, &gridRows) && (gridRows > 0) &&
             mMeta->findInt32(kKeyGridCols, &gridCols) && (gridCols > 0)) {
-            mGridWidth = gridWidth;
-            mGridHeight = gridHeight;
+            mTileWidth = tileWidth;
+            mTileHeight = tileHeight;
             mGridRows = gridRows;
             mGridCols = gridCols;
             mNumTiles = gridRows * gridCols;
@@ -1969,6 +1966,17 @@ void MPEG4Writer::Track::addItemOffsetAndSize(off64_t offset, size_t size) {
         return;
     }
 
+    // Rotation angle in HEIF is CCW, framework angle is CW.
+    int32_t heifRotation = 0;
+    switch(mRotation) {
+        case 90: heifRotation = 3; break;
+        case 180: heifRotation = 2; break;
+        case 270: heifRotation = 1; break;
+        default: break; // don't set if invalid
+    }
+
+    bool hasGrid = (mNumTiles > 1);
+
     if (mProperties.empty()) {
         mProperties.push_back(mOwner->addProperty_l({
             .type = FOURCC('h', 'v', 'c', 'C'),
@@ -1977,22 +1985,29 @@ void MPEG4Writer::Track::addItemOffsetAndSize(off64_t offset, size_t size) {
 
         mProperties.push_back(mOwner->addProperty_l({
             .type = FOURCC('i', 's', 'p', 'e'),
-            .width = (mNumTiles > 1) ? mGridWidth : mWidth,
-            .height = (mNumTiles > 1) ? mGridHeight : mHeight,
+            .width = hasGrid ? mTileWidth : mWidth,
+            .height = hasGrid ? mTileHeight : mHeight,
         }));
+
+        if (!hasGrid && heifRotation > 0) {
+            mProperties.push_back(mOwner->addProperty_l({
+                .type = FOURCC('i', 'r', 'o', 't'),
+                .rotation = heifRotation,
+            }));
+        }
     }
 
     uint16_t itemId = mOwner->addItem_l({
         .itemType = "hvc1",
-        .isPrimary = (mNumTiles > 1) ? false : (mIsPrimary != 0),
-        .isHidden = (mNumTiles > 1),
+        .isPrimary = hasGrid ? false : (mIsPrimary != 0),
+        .isHidden = hasGrid,
         .offset = (uint32_t)offset,
         .size = (uint32_t)size,
         .properties = mProperties,
     });
 
     mTileIndex++;
-    if (mNumTiles > 1) {
+    if (hasGrid) {
         mDimgRefs.push_back(itemId);
 
         if (mTileIndex == mNumTiles) {
@@ -2002,6 +2017,12 @@ void MPEG4Writer::Track::addItemOffsetAndSize(off64_t offset, size_t size) {
                 .width = mWidth,
                 .height = mHeight,
             }));
+            if (heifRotation > 0) {
+                mProperties.push_back(mOwner->addProperty_l({
+                    .type = FOURCC('i', 'r', 'o', 't'),
+                    .rotation = heifRotation,
+                }));
+            }
             mOwner->addItem_l({
                 .itemType = "grid",
                 .isPrimary = (mIsPrimary != 0),
@@ -2312,7 +2333,8 @@ status_t MPEG4Writer::Track::start(MetaData *params) {
     mStartTimeRealUs = startTimeUs;
 
     int32_t rotationDegrees;
-    if (mIsVideo && params && params->findInt32(kKeyRotation, &rotationDegrees)) {
+    if ((mIsVideo || mIsHeic) && params &&
+            params->findInt32(kKeyRotation, &rotationDegrees)) {
         mRotation = rotationDegrees;
     }
 
@@ -3459,16 +3481,36 @@ int64_t MPEG4Writer::Track::getEstimatedTrackSizeBytes() const {
 
 int32_t MPEG4Writer::Track::getMetaSizeIncrease() const {
     CHECK(mIsHeic);
-    return    20                           // 1. 'ispe' property
-            + (8 + mCodecSpecificDataSize) // 2. 'hvcC' property
-            + (20                          // 3. extra 'ispe'
-            + (8 + 2 + 2 + mNumTiles * 2)  // 4. 'dimg' ref
-            + 12)                          // 5. ImageGrid in 'idat' (worst case)
-            * (mNumTiles > 1)              // -  (3~5: applicable only if grid)
-            + (16                          // 6. increase to 'iloc'
-            + 21                           // 7. increase to 'iinf'
-            + (3 + 2 * 2))                 // 8. increase to 'ipma' (worst case)
-            * (mNumTiles + 1);             // -  (6~8: are per-item)
+
+    int32_t grid = (mNumTiles > 1);
+
+    // Note that the rotation angle is in the file meta, and we don't have
+    // it until start, so here the calculation has to assume rotation.
+
+    // increase to ipco
+    int32_t increase = 20 * (grid + 1)              // 'ispe' property
+                     + (8 + mCodecSpecificDataSize) // 'hvcC' property
+                     + 9;                           // 'irot' property (worst case)
+
+    // increase to iref and idat
+    if (grid) {
+        increase += (8 + 2 + 2 + mNumTiles * 2)  // 'dimg' in iref
+                  + 12;                          // ImageGrid in 'idat' (worst case)
+    }
+
+    // increase to iloc, iinf and ipma
+    increase += (16             // increase to 'iloc'
+              + 21              // increase to 'iinf'
+              + (3 + 2 * 2))    // increase to 'ipma' (worst case, 2 props x 2 bytes)
+              * (mNumTiles + grid);
+
+    // adjust to ipma:
+    // if rotation is present and only one tile, it could ref 3 properties
+    if (!grid) {
+        increase += 2;
+    }
+
+    return increase;
 }
 
 status_t MPEG4Writer::Track::checkCodecSpecificData() const {
@@ -4296,24 +4338,38 @@ void MPEG4Writer::writeIpcoBox() {
         numProperties = 32767;
     }
     for (size_t propIndex = 0; propIndex < numProperties; propIndex++) {
-        if (mProperties[propIndex].type == FOURCC('h', 'v', 'c', 'C')) {
-            beginBox("hvcC");
-            sp<ABuffer> hvcc = mProperties[propIndex].hvcc;
-            // Patch avcc's lengthSize field to match the number
-            // of bytes we use to indicate the size of a nal unit.
-            uint8_t *ptr = (uint8_t *)hvcc->data();
-            ptr[21] = (ptr[21] & 0xfc) | (useNalLengthFour() ? 3 : 1);
-            write(hvcc->data(), hvcc->size());
-            endBox();
-        } else if (mProperties[propIndex].type == FOURCC('i', 's', 'p', 'e')) {
-            beginBox("ispe");
-            writeInt32(0); // Version = 0, Flags = 0
-            writeInt32(mProperties[propIndex].width);
-            writeInt32(mProperties[propIndex].height);
-            endBox();
-        } else {
-            ALOGW("Skipping unrecognized property: type 0x%08x",
-                    mProperties[propIndex].type);
+        switch (mProperties[propIndex].type) {
+            case FOURCC('h', 'v', 'c', 'C'):
+            {
+                beginBox("hvcC");
+                sp<ABuffer> hvcc = mProperties[propIndex].hvcc;
+                // Patch avcc's lengthSize field to match the number
+                // of bytes we use to indicate the size of a nal unit.
+                uint8_t *ptr = (uint8_t *)hvcc->data();
+                ptr[21] = (ptr[21] & 0xfc) | (useNalLengthFour() ? 3 : 1);
+                write(hvcc->data(), hvcc->size());
+                endBox();
+                break;
+            }
+            case FOURCC('i', 's', 'p', 'e'):
+            {
+                beginBox("ispe");
+                writeInt32(0); // Version = 0, Flags = 0
+                writeInt32(mProperties[propIndex].width);
+                writeInt32(mProperties[propIndex].height);
+                endBox();
+                break;
+            }
+            case FOURCC('i', 'r', 'o', 't'):
+            {
+                beginBox("irot");
+                writeInt8(mProperties[propIndex].rotation);
+                endBox();
+                break;
+            }
+            default:
+                ALOGW("Skipping unrecognized property: type 0x%08x",
+                        mProperties[propIndex].type);
         }
     }
     endBox();

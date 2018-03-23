@@ -350,7 +350,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
             if (!isInCall() &&
                     (mForceUse[AUDIO_POLICY_FORCE_FOR_MEDIA] != AUDIO_POLICY_FORCE_NO_BT_A2DP) &&
                     (!mApmObserver->getA2dpSuspended()) &&
-                    (outputs.isA2dpOnPrimary() || (outputs.getA2dpOutput() != 0))) {
+                    (outputs.isA2dpOnPrimary() || (outputs.isA2dpSupported()))) {
                 device = availableOutputDevicesType & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP;
                 if (device) break;
                 device = availableOutputDevicesType & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES;
@@ -389,7 +389,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
             if (!isInCall() &&
                     (mForceUse[AUDIO_POLICY_FORCE_FOR_MEDIA] != AUDIO_POLICY_FORCE_NO_BT_A2DP) &&
                     (!mApmObserver->getA2dpSuspended()) &&
-                    (outputs.isA2dpOnPrimary() || (outputs.getA2dpOutput() != 0))) {
+                    (outputs.isA2dpOnPrimary() || (outputs.isA2dpSupported()))) {
                 device = availableOutputDevicesType & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER;
                 if (device) break;
             }
@@ -516,7 +516,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 (mForceUse[AUDIO_POLICY_FORCE_FOR_MEDIA] != AUDIO_POLICY_FORCE_NO_BT_A2DP) &&
                 (!mApmObserver->getA2dpSuspended()) &&
-                (outputs.isA2dpOnPrimary() || (outputs.getA2dpOutput() != 0))) {
+                (outputs.isA2dpOnPrimary() || (outputs.isA2dpSupported()))) {
             device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP;
             if (device2 == AUDIO_DEVICE_NONE) {
                 device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES;
