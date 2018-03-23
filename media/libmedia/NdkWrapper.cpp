@@ -56,10 +56,8 @@ static const char *AMediaFormatKeyGroupInt32[] = {
     AMEDIAFORMAT_KEY_COLOR_TRANSFER,
     AMEDIAFORMAT_KEY_COMPLEXITY,
     AMEDIAFORMAT_KEY_FLAC_COMPRESSION_LEVEL,
-    AMEDIAFORMAT_KEY_GRID_COLS,
-    AMEDIAFORMAT_KEY_GRID_HEIGHT,
+    AMEDIAFORMAT_KEY_GRID_COLUMNS,
     AMEDIAFORMAT_KEY_GRID_ROWS,
-    AMEDIAFORMAT_KEY_GRID_WIDTH,
     AMEDIAFORMAT_KEY_HEIGHT,
     AMEDIAFORMAT_KEY_INTRA_REFRESH_PERIOD,
     AMEDIAFORMAT_KEY_IS_ADTS,
@@ -84,6 +82,8 @@ static const char *AMediaFormatKeyGroupInt32[] = {
     AMEDIAFORMAT_KEY_DISPLAY_HEIGHT,
     AMEDIAFORMAT_KEY_DISPLAY_WIDTH,
     AMEDIAFORMAT_KEY_TEMPORAL_LAYER_ID,
+    AMEDIAFORMAT_KEY_TILE_HEIGHT,
+    AMEDIAFORMAT_KEY_TILE_WIDTH,
     AMEDIAFORMAT_KEY_TRACK_INDEX,
 };
 
@@ -1066,6 +1066,14 @@ status_t AMediaExtractorWrapper::release() {
         return translateErrorCode(err);
     }
     return OK;
+}
+
+status_t AMediaExtractorWrapper::disconnect() {
+    if (mAMediaExtractor != NULL) {
+        media_status_t err = AMediaExtractor_disconnect(mAMediaExtractor);
+        return translateErrorCode(err);
+    }
+    return DEAD_OBJECT;
 }
 
 AMediaExtractor *AMediaExtractorWrapper::getAMediaExtractor() const {

@@ -309,11 +309,8 @@ static int compareSoftwareCodecsFirst(const AString *name1, const AString *name2
 //static
 void MediaCodecList::findMatchingCodecs(
         const char *mime, bool encoder, uint32_t flags,
-        Vector<AString> *matches, Vector<AString> *owners) {
+        Vector<AString> *matches) {
     matches->clear();
-    if (owners != nullptr) {
-        owners->clear();
-    }
 
     const sp<IMediaCodecList> list = getInstance();
     if (list == nullptr) {
@@ -339,9 +336,6 @@ void MediaCodecList::findMatchingCodecs(
             ALOGV("skipping SW codec '%s'", componentName.c_str());
         } else {
             matches->push(componentName);
-            if (owners != nullptr) {
-                owners->push(AString(info->getOwnerName()));
-            }
             ALOGV("matching '%s'", componentName.c_str());
         }
     }
