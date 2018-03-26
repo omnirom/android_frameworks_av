@@ -38,6 +38,7 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
 #include <stagefright/AVExtensions.h>
+#include <OMX_Core.h>
 
 namespace android {
 
@@ -646,6 +647,9 @@ void MediaCodecSource::signalEOS(status_t err) {
             output->mBufferQueue.clear();
             output->mEncoderReachedEOS = true;
             output->mErrorCode = err;
+            if (err == OMX_ErrorHardware) {
+                output->mErrorCode = ERROR_IO;
+            }
             output->mCond.signal();
 
             reachedEOS = true;
@@ -735,7 +739,7 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
             if (err != OK || inbuf == NULL || inbuf->data() == NULL
                     || mbuf->data() == NULL || mbuf->size() == 0) {
                 mbuf->release();
-                signalEOS();
+                signalEOS(err);
                 break;
             }
 
@@ -908,7 +912,7 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             status_t err = mEncoder->getOutputBuffer(index, &outbuf);
             if (err != OK || outbuf == NULL || outbuf->data() == NULL
                 || outbuf->size() == 0) {
-                signalEOS();
+                signalEOS(err);
                 break;
             }
 
@@ -987,7 +991,7 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
                 mStopping = true;
                 mPuller->stop();
             }
-            signalEOS();
+            signalEOS(err);
        }
        break;
     }
