@@ -41,6 +41,8 @@ public:
             "media_codecs_performance.xml";
     static constexpr char const* defaultProfilingResultsXmlPath =
             "/data/misc/media/media_codecs_profiling_results.xml";
+    static constexpr char const* vendorMediaCodecsAudioXmlName =
+            "media_codecs_vendor_audio.xml";
 
     MediaCodecsXmlParser(
             const char* const* searchDirs = defaultSearchDirs,
