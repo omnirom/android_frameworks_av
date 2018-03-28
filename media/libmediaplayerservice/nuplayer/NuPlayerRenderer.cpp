@@ -550,9 +550,11 @@ void NuPlayer::Renderer::onMessageReceived(const sp<AMessage> &msg) {
 
             if (onDrainAudioQueue()) {
                 uint32_t numFramesPlayed;
-                CHECK_EQ(mAudioSink->getPosition(&numFramesPlayed),
-                         (status_t)OK);
-
+                if (mAudioSink->getPosition(&numFramesPlayed) != OK) {
+                    ALOGE("Error in time stamp query, return from here.\
+                             Fillbuffer is called as part of session recreation");
+                    break;
+                }
                 // Handle AudioTrack race when start is immediately called after flush.
                 uint32_t numFramesPendingPlayout =
                     (mNumFramesWritten > numFramesPlayed ?
@@ -902,10 +904,16 @@ size_t NuPlayer::Renderer::fillAudioBuffer(void *buffer, size_t size) {
 
     if (mAudioFirstAnchorTimeMediaUs >= 0) {
         int64_t nowUs = ALooper::GetNowUs();
-        int64_t nowMediaUs =
-            mAudioFirstAnchorTimeMediaUs + mAudioSink->getPlayedOutDurationUs(nowUs);
+        int64_t nowMediaUs = -1;
+        int64_t playedDuration = mAudioSink->getPlayedOutDurationUs(nowUs);
+        if (playedDuration >= 0) {
+            nowMediaUs = mAudioFirstAnchorTimeMediaUs + playedDuration;
+        } else {
+            mMediaClock->getMediaTime(nowUs, &nowMediaUs);
+        }
         // we don't know how much data we are queueing for offloaded tracks.
         mMediaClock->updateAnchor(nowMediaUs, nowUs, INT64_MAX);
+        mAnchorTimeMediaUs = nowMediaUs;
     }
 
     // for non-offloaded audio, we need to compute the frames written because
@@ -1761,6 +1769,18 @@ void NuPlayer::Renderer::onResume() {
         if (err != OK) {
             ALOGE("cannot start AudioSink err %d", err);
             notifyAudioTearDown(kDueToError);
+        } else {
+            // Update anchor time after resuming playback.
+            // Anchor time has to be updated onResume
+            // to adjust for AV sync after multiple pause/resumes
+            if (offloadingAudio()) {
+                int64_t nowUs = ALooper::GetNowUs();
+                int64_t nowMediaUs = mAudioSink->getPlayedOutDurationUs(nowUs);
+                if (nowMediaUs >= 0) {
+                    nowMediaUs += mAudioFirstAnchorTimeMediaUs;
+                    mMediaClock->updateAnchor(nowMediaUs, nowUs, INT64_MAX);
+                }
+            }
         }
     }
 
