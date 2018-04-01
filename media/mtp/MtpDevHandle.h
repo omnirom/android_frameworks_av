@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,24 +14,32 @@
  * limitations under the License.
  */
 
-#ifndef _MTP_DEBUG_H
-#define _MTP_DEBUG_H
+#ifndef _MTP_DEV_HANDLE_H
+#define _MTP_DEV_HANDLE_H
 
-// #define LOG_NDEBUG 0
-#include "MtpTypes.h"
-
-#include <log/log.h>
+#include <android-base/unique_fd.h>
+#include "IMtpHandle.h"
 
 namespace android {
 
-class MtpDebug {
+class MtpDevHandle : public IMtpHandle {
+private:
+    android::base::unique_fd mFd;
+
 public:
-    static const char* getOperationCodeName(MtpOperationCode code);
-    static const char* getFormatCodeName(MtpObjectFormat code);
-    static const char* getObjectPropCodeName(MtpPropertyCode code);
-    static const char* getDevicePropCodeName(MtpPropertyCode code);
+    MtpDevHandle();
+    ~MtpDevHandle();
+    int read(void *data, size_t len);
+    int write(const void *data, size_t len);
+
+    int receiveFile(mtp_file_range mfr, bool);
+    int sendFile(mtp_file_range mfr);
+    int sendEvent(mtp_event me);
+
+    int start(bool ptp);
+    void close();
 };
 
-}; // namespace android
+} // namespace android
 
-#endif // _MTP_DEBUG_H
+#endif // _MTP_FFS_HANDLE_H

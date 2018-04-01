@@ -6464,15 +6464,22 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
     sp<RefBase> obj;
     CHECK(msg->findObject("codecInfo", &obj));
     sp<MediaCodecInfo> info = (MediaCodecInfo *)obj.get();
-    if (info == nullptr) {
-        ALOGE("Unexpected nullptr for codec information");
-        mCodec->signalError(OMX_ErrorUndefined, UNKNOWN_ERROR);
-        return false;
-    }
-    AString owner = (info->getOwnerName() == nullptr) ? "default" : info->getOwnerName();
-
+    AString owner = "default";
     AString componentName;
     CHECK(msg->findString("componentName", &componentName));
+
+    //make sure if the component name contains qcom/qti, we don't return error
+    //as these components are not present in media_codecs.xml and MediaCodecList won't find
+    //these component by findCodecByName
+    if (!(componentName.find("qcom", 0) > 0 ||
+        componentName.find("qti", 0) > 0)) {
+        if (info == nullptr) {
+            ALOGE("Unexpected nullptr for codec information");
+            mCodec->signalError(OMX_ErrorUndefined, UNKNOWN_ERROR);
+            return false;
+        }
+        AString owner = (info->getOwnerName() == nullptr) ? "default" : info->getOwnerName();
+    }
 
     sp<CodecObserver> observer = new CodecObserver;
     sp<IOMX> omx;

@@ -615,29 +615,37 @@ status_t MediaCodec::init(const AString &name) {
         secureCodec = true;
         tmp.erase(tmp.size() - 7, 7);
     }
-    const sp<IMediaCodecList> mcl = MediaCodecList::getInstance();
-    if (mcl == NULL) {
-        mCodec = NULL;  // remove the codec.
-        return NO_INIT; // if called from Java should raise IOException
-    }
-    for (const AString &codecName : { name, tmp }) {
-        ssize_t codecIdx = mcl->findCodecByName(codecName.c_str());
-        if (codecIdx < 0) {
-            continue;
+
+    //make sure if the component name contains qcom/qti, we don't return error
+    //as these components are not present in media_codecs.xml and MediaCodecList won't find
+    //these component by findCodecByName
+    if (!(name.find("qcom", 0) > 0 ||
+        name.find("qti", 0) > 0)) {
+        const sp<IMediaCodecList> mcl = MediaCodecList::getInstance();
+        if (mcl == NULL) {
+            mCodec = NULL;  // remove the codec.
+            return NO_INIT; // if called from Java should raise IOException
         }
-        mCodecInfo = mcl->getCodecInfo(codecIdx);
-        Vector<AString> mimes;
-        mCodecInfo->getSupportedMimes(&mimes);
-        for (size_t i = 0; i < mimes.size(); i++) {
-            if (mimes[i].startsWith("video/")) {
-                mIsVideo = true;
-                break;
+        for (const AString &codecName : { name, tmp }) {
+            ssize_t codecIdx = mcl->findCodecByName(codecName.c_str());
+            if (codecIdx < 0) {
+                continue;
             }
+            mCodecInfo = mcl->getCodecInfo(codecIdx);
+            Vector<AString> mimes;
+            mCodecInfo->getSupportedMimes(&mimes);
+            for (size_t i = 0; i < mimes.size(); i++) {
+                if (mimes[i].startsWith("video/")) {
+                    mIsVideo = true;
+                    break;
+                }
+            }
+            break;
         }
-        break;
-    }
-    if (mCodecInfo == nullptr) {
-        return NAME_NOT_FOUND;
+        if (mCodecInfo == nullptr) {
+            ALOGE("component not found");
+            return NAME_NOT_FOUND;
+        }
     }
 
     if (mIsVideo) {

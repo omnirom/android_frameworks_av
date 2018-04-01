@@ -24,6 +24,7 @@ import android.media.DataSourceDesc;
 import android.media.MediaItem2;
 import android.media.MediaMetadata2;
 import android.media.MediaPlayerBase;
+import android.media.MediaPlayerBase.PlayerEventCallback;
 import android.media.MediaPlaylistAgent;
 import android.media.MediaSession2;
 import android.media.MediaSession2.OnDataSourceMissingHelper;
@@ -35,6 +36,7 @@ import android.test.AndroidTestCase;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Matchers;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,6 +58,7 @@ public class SessionPlaylistAgentTest extends AndroidTestCase {
     private Context mContext;
     private MediaSession2Impl mSessionImpl;
     private MediaPlayerBase mPlayer;
+    private PlayerEventCallback mPlayerEventCallback;
     private SessionPlaylistAgent mAgent;
     private OnDataSourceMissingHelper mDataSourceHelper;
     private MyPlaylistEventCallback mEventCallback;
@@ -229,9 +232,15 @@ public class SessionPlaylistAgentTest extends AndroidTestCase {
         };
 
         mPlayer = mock(MockPlayer.class);
+        doAnswer(invocation -> {
+            Object[] args = invocation.getArguments();
+            mPlayerEventCallback = (PlayerEventCallback) args[1];
+            return null;
+        }).when(mPlayer).registerPlayerEventCallback(Matchers.any(), Matchers.any());
+
         mSessionImpl = mock(MediaSession2Impl.class);
         mDataSourceHelper = new MyDataSourceHelper();
-        mAgent = new SessionPlaylistAgent(mContext, mSessionImpl, mPlayer);
+        mAgent = new SessionPlaylistAgent(mSessionImpl, mPlayer);
         mAgent.setOnDataSourceMissingHelper(mDataSourceHelper);
         mEventCallback = new MyPlaylistEventCallback(mWaitLock);
         mAgent.registerPlaylistEventCallback(mHandlerExecutor, mEventCallback);
@@ -567,6 +576,33 @@ public class SessionPlaylistAgentTest extends AndroidTestCase {
         assertEquals(SessionPlaylistAgent.END_OF_PLAYLIST, mAgent.getCurShuffledIndex());
     }
 
+    @Test
+    public void testPlaylistAfterOnCurrentDataSourceChanged() throws Exception {
+        int listSize = 2;
+        verify(mPlayer).registerPlayerEventCallback(Matchers.any(), Matchers.any());
+
+        createAndSetPlaylist(listSize);
+        assertEquals(0, mAgent.getCurShuffledIndex());
+
+        mPlayerEventCallback.onCurrentDataSourceChanged(mPlayer, null);
+        assertEquals(1, mAgent.getCurShuffledIndex());
+        mPlayerEventCallback.onCurrentDataSourceChanged(mPlayer, null);
+        assertEquals(SessionPlaylistAgent.END_OF_PLAYLIST, mAgent.getCurShuffledIndex());
+
+        mAgent.skipToNextItem();
+        assertEquals(SessionPlaylistAgent.END_OF_PLAYLIST, mAgent.getCurShuffledIndex());
+
+        mAgent.setRepeatMode(MediaPlaylistAgent.REPEAT_MODE_ONE);
+        assertEquals(SessionPlaylistAgent.END_OF_PLAYLIST, mAgent.getCurShuffledIndex());
+
+        mAgent.setRepeatMode(MediaPlaylistAgent.REPEAT_MODE_ALL);
+        assertEquals(0, mAgent.getCurShuffledIndex());
+        mPlayerEventCallback.onCurrentDataSourceChanged(mPlayer, null);
+        assertEquals(1, mAgent.getCurShuffledIndex());
+        mPlayerEventCallback.onCurrentDataSourceChanged(mPlayer, null);
+        assertEquals(0, mAgent.getCurShuffledIndex());
+    }
+
     private List<MediaItem2> createAndSetPlaylist(int listSize) throws Exception {
         List<MediaItem2> items = new ArrayList<>();
         for (int i = 0; i < listSize; ++i) {
@@ -593,13 +629,13 @@ public class SessionPlaylistAgentTest extends AndroidTestCase {
     }
 
     private MediaItem2 generateMediaItemWithoutDataSourceDesc(int key) {
-        return new MediaItem2.Builder(mContext, 0)
+        return new MediaItem2.Builder(0)
                 .setMediaId("TEST_MEDIA_ID_WITHOUT_DSD_" + key)
                 .build();
     }
 
     private MediaItem2 generateMediaItem(int key) {
-        return new MediaItem2.Builder(mContext, 0)
+        return new MediaItem2.Builder(0)
                 .setMediaId("TEST_MEDIA_ID_" + key)
                 .build();
     }

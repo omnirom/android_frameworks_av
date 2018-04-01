@@ -18,13 +18,13 @@
 
 #include <linux/usb/f_mtp.h>
 
-constexpr char FFS_MTP_EP0[] = "/dev/usb-ffs/mtp/ep0";
+namespace android {
 
 class IMtpHandle {
 public:
     // Return number of bytes read/written, or -1 and errno is set
-    virtual int read(void *data, int len) = 0;
-    virtual int write(const void *data, int len) = 0;
+    virtual int read(void *data, size_t len) = 0;
+    virtual int write(const void *data, size_t len) = 0;
 
     // Return 0 if send/receive is successful, or -1 and errno is set
     virtual int receiveFile(mtp_file_range mfr, bool zero_packet) = 0;
@@ -32,16 +32,14 @@ public:
     virtual int sendEvent(mtp_event me) = 0;
 
     // Return 0 if operation is successful, or -1 else
-    virtual int start() = 0;
-    virtual int configure(bool ptp) = 0;
+    virtual int start(bool ptp) = 0;
 
     virtual void close() = 0;
 
     virtual ~IMtpHandle() {}
 };
 
-IMtpHandle *get_ffs_handle();
-IMtpHandle *get_mtp_handle();
+}
 
 #endif // _IMTP_HANDLE_H
 
