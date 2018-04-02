@@ -400,7 +400,7 @@ status_t VideoFrameDecoder::onInputReceived(
             && IsIDR(codecBuffer->data(), codecBuffer->size())) {
         // Only need to decode one IDR frame, unless we're seeking with CLOSEST
         // option, in which case we need to actually decode to targetTimeUs.
-        *flags |= MediaCodec::BUFFER_FLAG_EOS;
+        mIDRCount == 0 ? mIDRCount++ : *flags |= MediaCodec::BUFFER_FLAG_EOS;
     }
     return OK;
 }
