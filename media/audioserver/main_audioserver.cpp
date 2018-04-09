@@ -38,6 +38,10 @@
 #include "MediaUtils.h"
 #include "SoundTriggerHwService.h"
 
+#ifdef VRAUDIOSERVICE_ENABLE
+#include "VRAudioService.h"
+#endif
+
 using namespace android;
 
 int main(int argc __unused, char **argv)
@@ -138,6 +142,9 @@ int main(int argc __unused, char **argv)
         ALOGI("ServiceManager: %p", sm.get());
         AudioFlinger::instantiate();
         AudioPolicyService::instantiate();
+#ifdef VRAUDIOSERVICE_ENABLE
+        VRAudioServiceNative::instantiate();
+#endif
 
         // AAudioService should only be used in OC-MR1 and later.
         // And only enable the AAudioService if the system MMAP policy explicitly allows it.
