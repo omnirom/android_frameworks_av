@@ -400,7 +400,7 @@ status_t VideoFrameDecoder::onInputReceived(
             && IsIDR(codecBuffer->data(), codecBuffer->size())) {
         // Only need to decode one IDR frame, unless we're seeking with CLOSEST
         // option, in which case we need to actually decode to targetTimeUs.
-        *flags |= MediaCodec::BUFFER_FLAG_EOS;
+        mIDRCount == 0 ? mIDRCount++ : *flags |= MediaCodec::BUFFER_FLAG_EOS;
     }
     return OK;
 }
@@ -423,9 +423,11 @@ status_t VideoFrameDecoder::onOutputReceived(
         return ERROR_MALFORMED;
     }
 
-    int32_t width, height;
+    int32_t width, height, stride, slice_height;
     CHECK(outputFormat->findInt32("width", &width));
     CHECK(outputFormat->findInt32("height", &height));
+    CHECK(outputFormat->findInt32("stride", &stride));
+    CHECK(outputFormat->findInt32("slice-height", &slice_height));
 
     int32_t crop_left, crop_top, crop_right, crop_bottom;
     if (!outputFormat->findRect("crop", &crop_left, &crop_top, &crop_right, &crop_bottom)) {
@@ -448,7 +450,7 @@ status_t VideoFrameDecoder::onOutputReceived(
     if (converter.isValid()) {
         converter.convert(
                 (const uint8_t *)videoFrameBuffer->data(),
-                width, height,
+                stride, slice_height,
                 crop_left, crop_top, crop_right, crop_bottom,
                 frame->mData,
                 frame->mWidth,

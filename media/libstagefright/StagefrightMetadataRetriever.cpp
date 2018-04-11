@@ -290,7 +290,7 @@ status_t StagefrightMetadataRetriever::getFrameInternal(
     MediaCodecList::findMatchingCodecs(
             mime,
             false, /* encoder */
-            MediaCodecList::kPreferSoftwareCodecs,
+            0/*MediaCodecList::kPreferSoftwareCodecs*/,
             &matchingCodecs);
 
     for (size_t i = 0; i < matchingCodecs.size(); ++i) {
