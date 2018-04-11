@@ -2634,22 +2634,32 @@ void AudioFlinger::PlaybackThread::readOutputParameters_l()
 
 void AudioFlinger::PlaybackThread::updateMetadata_l()
 {
-    // TODO: add volume support
-    if (mOutput == nullptr || mOutput->stream == nullptr ||
-            !mActiveTracks.readAndClearHasChanged()) {
-        return;
+    if (mOutput == nullptr || mOutput->stream == nullptr ) {
+        return; // That should not happen
+    }
+    bool hasChanged = mActiveTracks.readAndClearHasChanged();
+    for (const sp<Track> &track : mActiveTracks) {
+        // Do not short-circuit as all hasChanged states must be reset
+        // as all the metadata are going to be sent
+        hasChanged |= track->readAndClearHasChanged();
+    }
+    if (!hasChanged) {
+        return; // nothing to do
     }
     StreamOutHalInterface::SourceMetadata metadata;
+    auto backInserter = std::back_inserter(metadata.tracks);
     for (const sp<Track> &track : mActiveTracks) {
         // No track is invalid as this is called after prepareTrack_l in the same critical section
-        metadata.tracks.push_back({
-                .usage = track->attributes().usage,
-                .content_type = track->attributes().content_type,
-                .gain = 1,
-        });
+        track->copyMetadataTo(backInserter);
     }
-    mOutput->stream->updateSourceMetadata(metadata);
+    sendMetadataToBackend_l(metadata);
 }
+
+void AudioFlinger::PlaybackThread::sendMetadataToBackend_l(
+        const StreamOutHalInterface::SourceMetadata& metadata)
+{
+    mOutput->stream->updateSourceMetadata(metadata);
+};
 
 status_t AudioFlinger::PlaybackThread::getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames)
 {
@@ -4396,13 +4406,19 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                     didModify = true;
                     // no acknowledgement required for newly active tracks
                 }
+                sp<AudioTrackServerProxy> proxy = track->mAudioTrackServerProxy;
                 // cache the combined master volume and stream type volume for fast mixer; this
                 // lacks any synchronization or barrier so VolumeProvider may read a stale value
                 const float vh = track->getVolumeHandler()->getVolume(
-                        track->mAudioTrackServerProxy->framesReleased()).first;
-                track->mCachedVolume = masterVolume
+                        proxy->framesReleased()).first;
+                float volume = masterVolume
                         * mStreamTypes[track->streamType()].volume
                         * vh;
+                track->mCachedVolume = masterVolume;
+                gain_minifloat_packed_t vlr = proxy->getVolumeLR();
+                float vlf = volume * float_from_gain(gain_minifloat_unpack_left(vlr));
+                float vrf = volume * float_from_gain(gain_minifloat_unpack_right(vlr));
+                track->setFinalVolume((vlf + vrf) / 2.f);
                 ++fastTracks;
             } else {
                 // was it previously active?
@@ -4580,6 +4596,8 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                 // vaf is represented as [0.0, 1.0] float by rescaling sendLevel
                 vaf = v * sendLevel * (1. / MAX_GAIN_INT);
             }
+
+            track->setFinalVolume((vrf + vlf) / 2.f);
 
             // Delegate volume control to effect in track effect chain if needed
             if (chain != 0 && chain->setVolume_l(&vl, &vr)) {
@@ -5118,6 +5136,7 @@ void AudioFlinger::DirectOutputThread::processVolume_l(Track *track, bool lastTr
     }
 
     if (lastTrack) {
+        track->setFinalVolume((left + right) / 2.f);
         if (left != mLeftVolFloat || right != mRightVolFloat) {
             mLeftVolFloat = left;
             mRightVolFloat = right;
@@ -6250,15 +6269,12 @@ bool AudioFlinger::DuplicatingThread::outputsReady(
     return true;
 }
 
-void AudioFlinger::DuplicatingThread::updateMetadata_l()
+void AudioFlinger::DuplicatingThread::sendMetadataToBackend_l(
+        const StreamOutHalInterface::SourceMetadata& metadata)
 {
-    // TODO: The duplicated track metadata are stored in other threads
-    // (accessible through mActiveTracks::OutputTrack::thread()::mActiveTracks::Track::attributes())
-    // but this information can be mutated at any time by the owning threads.
-    // Taking the lock of any other owning threads is no possible due to timing constrains.
-    // Similarly, the other threads can not push the metadatas in this thread as cross deadlock
-    // would be possible.
-    // A lock-free structure needs to be used to shared the metadata (maybe an atomic shared_ptr ?).
+    for (auto& outputTrack : outputTracks) { // not mOutputTracks
+        outputTrack->setMetadatas(metadata.tracks);
+    }
 }
 
 uint32_t AudioFlinger::DuplicatingThread::activeSleepTimeUs() const
