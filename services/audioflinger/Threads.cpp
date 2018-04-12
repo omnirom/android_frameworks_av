@@ -4414,7 +4414,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                 float volume = masterVolume
                         * mStreamTypes[track->streamType()].volume
                         * vh;
-                track->mCachedVolume = masterVolume;
+                track->mCachedVolume = volume;
                 gain_minifloat_packed_t vlr = proxy->getVolumeLR();
                 float vlf = volume * float_from_gain(gain_minifloat_unpack_left(vlr));
                 float vrf = volume * float_from_gain(gain_minifloat_unpack_right(vlr));
@@ -4826,6 +4826,18 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
         sp<Track> track = mActiveTracks[i];
         ALOG_ASSERT(track->isFastTrack() && track->isStopped());
         track->reset();
+    }
+
+    // Track destruction may occur outside of threadLoop once it is removed from active tracks.
+    // Ensure the AudioMixer doesn't have a raw "buffer provider" pointer to the track if
+    // it ceases to be active, to allow safe removal from the AudioMixer at the start
+    // of prepareTracks_l(); this releases any outstanding buffer back to the track.
+    // See also the implementation of destroyTrack_l().
+    for (const auto &track : *tracksToRemove) {
+        const int name = track->name();
+        if (mAudioMixer->exists(name)) { // Normal tracks here, fast tracks in FastMixer.
+            mAudioMixer->setBufferProvider(name, nullptr /* bufferProvider */);
+        }
     }
 
     // remove all the tracks that need to be...
