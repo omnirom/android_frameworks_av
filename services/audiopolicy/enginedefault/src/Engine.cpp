@@ -281,7 +281,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
         break;
 
     case STRATEGY_SONIFICATION_RESPECTFUL:
-        if (isInCall()) {
+        if (isInCall() || outputs.isStreamActiveLocally(AUDIO_STREAM_VOICE_CALL)) {
             device = getDeviceForStrategyInt(
                     STRATEGY_SONIFICATION, availableOutputDevices, availableInputDevices, outputs,
                     outputDeviceTypesToIgnore);
@@ -430,7 +430,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
 
         // If incall, just select the STRATEGY_PHONE device: The rest of the behavior is handled by
         // handleIncallSonification().
-        if (isInCall()) {
+        if (isInCall() || outputs.isStreamActiveLocally(AUDIO_STREAM_VOICE_CALL)) {
             device = getDeviceForStrategyInt(
                     STRATEGY_PHONE, availableOutputDevices, availableInputDevices, outputs,
                     outputDeviceTypesToIgnore);

@@ -105,7 +105,7 @@ NuPlayerDriver::NuPlayerDriver(pid_t pid)
 
     mLooper->registerHandler(mPlayer);
 
-    mPlayer->setDriver(this);
+    mPlayer->init(this);
 }
 
 NuPlayerDriver::~NuPlayerDriver() {
