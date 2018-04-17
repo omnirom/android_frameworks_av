@@ -9,27 +9,14 @@ cc_library_shared {
         "MediaCodecsXmlParser.cpp",
     ],
 
-    include_dirs: ["frameworks/av/media/libavextensions/",
-                   "frameworks/av/media/libstagefright/mpeg2ts",
-                   "external/boringssl/include",
-                  ],
-
     export_include_dirs: [
         "include",
     ],
 
-    static_libs: [
-         "libavextensions",
-    ],
-
     shared_libs: [
         "libexpat",
-        "libutils",
         "liblog",
-        "libcutils",
-        "libstagefright_foundation",
         "libstagefright_omx_utils",
-        "android.hidl.memory@1.0",
     ],
 
     cflags: [
