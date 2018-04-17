@@ -27,7 +27,6 @@
 
 #include <cctype>
 #include <algorithm>
-#include <stagefright/AVExtensions.h>
 
 namespace android {
 
@@ -991,7 +990,7 @@ void MediaCodecsXmlParser::generateRoleMap() const {
         const auto& typeMap = codec.second.typeMap;
         for (const auto& type : typeMap) {
             const auto& typeName = type.first;
-            const char* roleName = AVUtils::get()->getComponentRole(isEncoder, typeName.data());
+            const char* roleName = GetComponentRole(isEncoder, typeName.data());
             if (roleName == nullptr) {
                 ALOGE("Cannot find the role for %s of type %s",
                         isEncoder ? "an encoder" : "a decoder",

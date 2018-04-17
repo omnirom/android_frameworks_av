@@ -27,6 +27,12 @@ cc_library {
         "media_plugin_headers",
     ],
 
+    target: {
+        vendor: {
+            cflags: ["-D__ANDROID_VNDK__"],
+        },
+    },
+
     export_header_lib_headers: [
         "libstagefright_foundation_headers",
         "media_plugin_headers",

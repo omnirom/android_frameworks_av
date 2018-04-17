@@ -23,6 +23,8 @@ cc_library_shared {
         "liblog",
         "libmediaextractor",
         "libstagefright_foundation",
+        "libstagefright",
+        "libstagefright_omx",
         "libutils",
     ],
 

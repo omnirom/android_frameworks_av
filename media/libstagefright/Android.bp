@@ -172,6 +172,7 @@ cc_library_shared {
         "libhidlmemory",
         "libziparchive",
         "android.hidl.allocator@1.0",
+        "android.hidl.memory@1.0",
         "android.hardware.cas.native@1.0",
         "android.hardware.media.omx@1.0",
         "android.hardware.graphics.allocator@2.0",

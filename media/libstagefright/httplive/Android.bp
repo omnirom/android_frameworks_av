@@ -11,6 +11,8 @@ cc_library {
 
     include_dirs: [
         "frameworks/av/media/libstagefright",
+        "frameworks/av/media/libavextensions",
+        "frameworks/av/media/libstagefright/mpeg2ts",
         "frameworks/native/include/media/openmax",
     ],
 
@@ -38,10 +40,14 @@ cc_library {
         "libmedia",
         "libmediaextractor",
         "libstagefright",
+        "libstagefright_omx",
         "libstagefright_foundation",
         "libutils",
         "libhidlallocatorutils",
         "libhidlbase",
+        "libhidlmemory",
+        "android.hidl.allocator@1.0",
+        "android.hidl.memory@1.0",
         "android.hardware.cas@1.0",
         "android.hardware.cas.native@1.0",
     ],

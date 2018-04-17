@@ -26,6 +26,7 @@
 #include <media/stagefright/MediaErrors.h>
 #include <media/hardware/HardwareAPI.h>
 #include <system/graphics-base.h>
+#include <media/stagefright/ExtendedMediaDefs.h>
 
 namespace android {
 
@@ -117,6 +118,40 @@ const char *GetComponentRole(bool isEncoder, const char *mime) {
     };
 
     static const MimeToRole kMimeToRole[] = {
+        { MEDIA_MIMETYPE_AUDIO_EVRC,
+          "audio_decoder.evrchw", "audio_encoder.evrc" },
+        { MEDIA_MIMETYPE_AUDIO_QCELP,
+          "audio_decoder.qcelp13Hw", "audio_encoder.qcelp13" },
+        { MEDIA_MIMETYPE_VIDEO_DIVX,
+          "video_decoder.divx", NULL },
+        { MEDIA_MIMETYPE_VIDEO_DIVX4,
+          "video_decoder.divx4", NULL },
+        { MEDIA_MIMETYPE_VIDEO_DIVX311,
+          "video_decoder.divx311", NULL },
+        { MEDIA_MIMETYPE_VIDEO_WMV,
+          "video_decoder.vc1",  NULL },
+        { MEDIA_MIMETYPE_VIDEO_WMV_VC1,
+          "video_decoder.vc1",  NULL },
+        { MEDIA_MIMETYPE_AUDIO_AC3,
+          "audio_decoder.ac3", NULL },
+        { MEDIA_MIMETYPE_AUDIO_WMA,
+          "audio_decoder.wma", NULL },
+        { MEDIA_MIMETYPE_AUDIO_ALAC,
+          "audio_decoder.alac", NULL },
+        { MEDIA_MIMETYPE_AUDIO_APE,
+          "audio_decoder.ape", NULL },
+        { MEDIA_MIMETYPE_VIDEO_HEVC,
+          "video_decoder.hevc", "video_encoder.hevc" },
+        { MEDIA_MIMETYPE_AUDIO_AMR_WB_PLUS,
+            "audio_decoder.amrwbplus", "audio_encoder.amrwbplus" },
+        { MEDIA_MIMETYPE_AUDIO_EVRC,
+            "audio_decoder.evrchw", "audio_encoder.evrc" },
+        { MEDIA_MIMETYPE_AUDIO_QCELP,
+            "audio_decoder.qcelp13Hw", "audio_encoder.qcelp13" },
+        { MEDIA_MIMETYPE_VIDEO_MPEG4_DP,
+            "video_decoder.mpeg4", NULL },
+        { MEDIA_MIMETYPE_VIDEO_TME,
+          NULL, "video_encoder.tme" },
         { MEDIA_MIMETYPE_AUDIO_MPEG,
             "audio_decoder.mp3", "audio_encoder.mp3" },
         { MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_I,
@@ -153,8 +188,15 @@ const char *GetComponentRole(bool isEncoder, const char *mime) {
             "audio_decoder.raw", "audio_encoder.raw" },
         { MEDIA_MIMETYPE_VIDEO_DOLBY_VISION,
             "video_decoder.dolby-vision", "video_encoder.dolby-vision" },
+#ifdef QTI_FLAC_DECODER
+        { MEDIA_MIMETYPE_AUDIO_FLAC,
+            "audio_decoder.flac", NULL },
+#else
         { MEDIA_MIMETYPE_AUDIO_FLAC,
             "audio_decoder.flac", "audio_encoder.flac" },
+#endif
+        { MEDIA_MIMETYPE_AUDIO_DSD,
+            "audio_decoder.dsd", NULL },
         { MEDIA_MIMETYPE_AUDIO_MSGSM,
             "audio_decoder.gsm", "audio_encoder.gsm" },
         { MEDIA_MIMETYPE_VIDEO_MPEG2,
