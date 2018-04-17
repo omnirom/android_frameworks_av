@@ -35,7 +35,6 @@ cc_library_shared {
     export_header_lib_headers: [
         "media_plugin_headers",
     ],
-
     shared_libs: [
         "libbase",
         "libbinder",
@@ -90,9 +89,17 @@ cc_library_shared {
         enabled: true,
     },
     srcs: ["OMXUtils.cpp"],
+    include_dirs: [
+        "frameworks/av/media/libstagefright/include",
+    ],
     export_include_dirs: [
         "include",
     ],
+    target: {
+        vendor: {
+            cflags: ["-D__ANDROID_VNDK__"],
+        },
+    },
     header_libs: [
         "media_plugin_headers",
     ],
