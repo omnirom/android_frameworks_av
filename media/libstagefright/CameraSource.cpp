@@ -340,12 +340,13 @@ status_t CameraSource::isCameraColorFormatSupported(
     }
     return OK;
 }
-
+#ifdef LEGACY_CAMERA
 static int32_t getHighSpeedFrameRate(const CameraParameters& params) {
     const char* hsr = params.get("video-hsr");
     int32_t rate = (hsr != NULL && strncmp(hsr, "off", 3)) ? atoi(hsr) : 0;
     return rate > 240 ? 240 : rate;
 }
+#endif
 
 /*
  * Configure the camera to use the requested video size
@@ -399,10 +400,12 @@ status_t CameraSource::configureCamera(
                 params->get(CameraParameters::KEY_SUPPORTED_PREVIEW_FRAME_RATES);
         CHECK(supportedFrameRates != NULL);
         ALOGV("Supported frame rates: %s", supportedFrameRates);
+#ifdef LEGACY_CAMERA
         if (getHighSpeedFrameRate(*params)) {
             ALOGI("Use default 30fps for HighSpeed %dfps", frameRate);
             frameRate = 30;
         }
+#endif
         char buf[4];
         snprintf(buf, 4, "%d", frameRate);
         if (strstr(supportedFrameRates, buf) == NULL) {
@@ -504,8 +507,10 @@ status_t CameraSource::checkFrameRate(
         ALOGE("Failed to retrieve preview frame rate (%d)", frameRateActual);
         return UNKNOWN_ERROR;
     }
+#ifdef LEGACY_CAMERA
     int32_t highSpeedRate = getHighSpeedFrameRate(params);
     frameRateActual = highSpeedRate ? highSpeedRate : frameRateActual;
+#endif
 
     // Check the actual video frame rate against the target/requested
     // video frame rate.
