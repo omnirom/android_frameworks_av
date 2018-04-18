@@ -144,8 +144,10 @@ MediaProfiles::logVideoEncoderCap(const MediaProfiles::VideoEncoderCap& cap UNUS
     ALOGV("frame width: min = %d and max = %d", cap.mMinFrameWidth, cap.mMaxFrameWidth);
     ALOGV("frame height: min = %d and max = %d", cap.mMinFrameHeight, cap.mMaxFrameHeight);
     ALOGV("frame rate: min = %d and max = %d", cap.mMinFrameRate, cap.mMaxFrameRate);
+#ifdef LEGACY_CAMERA
     ALOGV("max HFR width: = %d max HFR height: = %d", cap.mMaxHFRFrameWidth, cap.mMaxHFRFrameHeight);
     ALOGV("max HFR mode: = %d", cap.mMaxHFRMode);
+#endif
 }
 
 /*static*/ void
@@ -281,6 +283,7 @@ MediaProfiles::createVideoEncoderCap(const char **atts)
     const int codec = findTagForName(sVideoEncoderNameMap, nMappings, atts[1]);
     CHECK(codec != -1);
 
+#ifdef LEGACY_CAMERA
     int maxHFRWidth = 0, maxHFRHeight = 0, maxHFRMode = 0;
     // Check if there are enough (start through end) attributes in the
     // 0-terminated list, to include our additional HFR params. Then check
@@ -292,16 +295,20 @@ MediaProfiles::createVideoEncoderCap(const char **atts)
         maxHFRHeight = atoi(atts[23]);
         maxHFRMode = atoi(atts[25]);
     }
+#endif
 
     MediaProfiles::VideoEncoderCap *cap =
         new MediaProfiles::VideoEncoderCap(static_cast<video_encoder>(codec),
             atoi(atts[5]), atoi(atts[7]), atoi(atts[9]), atoi(atts[11]), atoi(atts[13]),
+#ifdef LEGACY_CAMERA
             atoi(atts[15]), atoi(atts[17]), atoi(atts[19]),
             maxHFRWidth, maxHFRHeight, maxHFRMode);
+#else
+            atoi(atts[15]), atoi(atts[17]), atoi(atts[19]));
+#endif
     logVideoEncoderCap(*cap);
     return cap;
 }
-
 /*static*/ MediaProfiles::AudioEncoderCap*
 MediaProfiles::createAudioEncoderCap(const char **atts)
 {
@@ -656,14 +663,22 @@ MediaProfiles::getInstance()
 MediaProfiles::createDefaultH263VideoEncoderCap()
 {
     return new MediaProfiles::VideoEncoderCap(
+#ifdef LEGACY_CAMERA
         VIDEO_ENCODER_H263, 192000, 420000, 176, 352, 144, 288, 1, 20, 0, 0, 0);
+#else
+        VIDEO_ENCODER_H263, 192000, 420000, 176, 352, 144, 288, 1, 20);
+#endif
 }
 
 /*static*/ MediaProfiles::VideoEncoderCap*
 MediaProfiles::createDefaultM4vVideoEncoderCap()
 {
     return new MediaProfiles::VideoEncoderCap(
+#ifdef LEGACY_CAMERA
         VIDEO_ENCODER_MPEG_4_SP, 192000, 420000, 176, 352, 144, 288, 1, 20, 0, 0, 0);
+#else
+        VIDEO_ENCODER_MPEG_4_SP, 192000, 420000, 176, 352, 144, 288, 1, 20);
+#endif
 }
 
 
@@ -818,7 +833,9 @@ MediaProfiles::createDefaultCamcorderProfiles(MediaProfiles *profiles)
 MediaProfiles::createDefaultAudioEncoders(MediaProfiles *profiles)
 {
     profiles->mAudioEncoders.add(createDefaultAmrNBEncoderCap());
+#ifdef LEGACY_CAMERA
     profiles->mAudioEncoders.add(createDefaultAacEncoderCap());
+#endif
 }
 
 /*static*/ void
@@ -851,6 +868,8 @@ MediaProfiles::createDefaultAmrNBEncoderCap()
 {
     return new MediaProfiles::AudioEncoderCap(
         AUDIO_ENCODER_AMR_NB, 5525, 12200, 8000, 8000, 1, 1);
+
+#ifdef LEGACY_CAMERA
 }
 
 /*static*/ MediaProfiles::AudioEncoderCap*
@@ -858,6 +877,7 @@ MediaProfiles::createDefaultAacEncoderCap()
 {
     return new MediaProfiles::AudioEncoderCap(
         AUDIO_ENCODER_AAC, 64000, 156000, 8000, 48000, 1, 2);
+#endif
 }
 
 /*static*/ void
@@ -981,10 +1001,11 @@ int MediaProfiles::getVideoEncoderParamByName(const char *name, video_encoder co
     if (!strcmp("enc.vid.bps.max", name)) return mVideoEncoders[index]->mMaxBitRate;
     if (!strcmp("enc.vid.fps.min", name)) return mVideoEncoders[index]->mMinFrameRate;
     if (!strcmp("enc.vid.fps.max", name)) return mVideoEncoders[index]->mMaxFrameRate;
+#ifdef LEGACY_CAMERA
     if (!strcmp("enc.vid.hfr.width.max", name)) return mVideoEncoders[index]->mMaxHFRFrameWidth;
     if (!strcmp("enc.vid.hfr.height.max", name)) return mVideoEncoders[index]->mMaxHFRFrameHeight;
     if (!strcmp("enc.vid.hfr.mode.max", name)) return mVideoEncoders[index]->mMaxHFRMode;
-
+#endif
     ALOGE("The given video encoder param name %s is not found", name);
     return -1;
 }
