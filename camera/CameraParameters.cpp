@@ -21,7 +21,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <camera/CameraParameters.h>
+#ifdef LEGACY_CAMERA
 #include <camera/CameraParametersExtra.h>
+#endif
 #include <system/graphics.h>
 
 namespace android {
@@ -107,7 +109,9 @@ const char CameraParameters::WHITE_BALANCE_DAYLIGHT[] = "daylight";
 const char CameraParameters::WHITE_BALANCE_CLOUDY_DAYLIGHT[] = "cloudy-daylight";
 const char CameraParameters::WHITE_BALANCE_TWILIGHT[] = "twilight";
 const char CameraParameters::WHITE_BALANCE_SHADE[] = "shade";
+#ifdef LEGACY_CAMERA
 const char CameraParameters::WHITE_BALANCE_MANUAL_CCT[] = "manual-cct";
+#endif
 
 // Values for effect settings.
 const char CameraParameters::EFFECT_NONE[] = "none";
@@ -170,7 +174,9 @@ const char CameraParameters::FOCUS_MODE_FIXED[] = "fixed";
 const char CameraParameters::FOCUS_MODE_EDOF[] = "edof";
 const char CameraParameters::FOCUS_MODE_CONTINUOUS_VIDEO[] = "continuous-video";
 const char CameraParameters::FOCUS_MODE_CONTINUOUS_PICTURE[] = "continuous-picture";
+#ifdef LEGACY_CAMERA
 const char CameraParameters::FOCUS_MODE_MANUAL_POSITION[] = "manual";
+#endif
 
 // Values for light fx settings
 const char CameraParameters::LIGHTFX_LOWLIGHT[] = "low-light";
