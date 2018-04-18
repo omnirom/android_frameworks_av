@@ -308,17 +308,25 @@ private:
                         int minBitRate, int maxBitRate,
                         int minFrameWidth, int maxFrameWidth,
                         int minFrameHeight, int maxFrameHeight,
+
+#ifdef LEGACY_CAMERA
                         int minFrameRate, int maxFrameRate,
                         int maxHFRFrameWidth, int maxHFRFrameHeight,
                         int maxHFRMode)
+#else
+                        int minFrameRate, int maxFrameRate)
+#endif
             : mCodec(codec),
               mMinBitRate(minBitRate), mMaxBitRate(maxBitRate),
               mMinFrameWidth(minFrameWidth), mMaxFrameWidth(maxFrameWidth),
               mMinFrameHeight(minFrameHeight), mMaxFrameHeight(maxFrameHeight),
+#ifdef LEGACY_CAMERA
               mMinFrameRate(minFrameRate), mMaxFrameRate(maxFrameRate),
               mMaxHFRFrameWidth(maxHFRFrameWidth), mMaxHFRFrameHeight(maxHFRFrameHeight),
               mMaxHFRMode(maxHFRMode) {}
-
+#else
+              mMinFrameRate(minFrameRate), mMaxFrameRate(maxFrameRate) {}
+#endif
          ~VideoEncoderCap() {}
 
         video_encoder mCodec;
@@ -326,8 +334,10 @@ private:
         int mMinFrameWidth, mMaxFrameWidth;
         int mMinFrameHeight, mMaxFrameHeight;
         int mMinFrameRate, mMaxFrameRate;
+#ifdef LEGACY_CAMERA
         int mMaxHFRFrameWidth, mMaxHFRFrameHeight;
         int mMaxHFRMode;
+#endif
     };
 
     struct AudioEncoderCap {
@@ -446,8 +456,9 @@ private:
     static VideoEncoderCap* createDefaultH263VideoEncoderCap();
     static VideoEncoderCap* createDefaultM4vVideoEncoderCap();
     static AudioEncoderCap* createDefaultAmrNBEncoderCap();
+#ifdef LEGACY_CAMERA
     static AudioEncoderCap* createDefaultAacEncoderCap();
-
+#endif
     static int findTagForName(const NameToTagMap *map, size_t nMappings, const char *name);
 
     /**

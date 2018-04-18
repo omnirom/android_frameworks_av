@@ -1781,8 +1781,10 @@ bool CameraService::evictClientIdByRemote(const wp<IBinder>& remote) {
                 ret = true;
             }
         }
+#ifdef LEGACY_CAMERA
         //clear the evicted client list before acquring service lock again.
         evicted.clear();
+#endif
         // Reacquire mServiceLock
         mServiceLock.lock();
 

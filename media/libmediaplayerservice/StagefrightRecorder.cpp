@@ -1951,12 +1951,16 @@ status_t StagefrightRecorder::resume() {
         if (mPauseStartTimeUs < bufferStartTimeUs) {
             mPauseStartTimeUs = bufferStartTimeUs;
         }
-
-    // 30 ms buffer to avoid timestamp overlap
-    mTotalPausedDurationUs +=
-        resumeStartTimeUs - mPauseStartTimeUs -
-        (30000 * (mCaptureFpsEnable ? (mCaptureFps / mFrameRate):1));
-      }
+#ifdef LEGACY_CAMERA
+        // 30 ms buffer to avoid timestamp overlap
+        mTotalPausedDurationUs += resumeStartTimeUs - mPauseStartTimeUs -
+                (30000 * (mCaptureFpsEnable ? (mCaptureFps / mFrameRate):1));
+    }
+#else
+        // 30 ms buffer to avoid timestamp overlap
+        mTotalPausedDurationUs += resumeStartTimeUs - mPauseStartTimeUs - 30000;
+    }
+#endif
     double timeOffset = -mTotalPausedDurationUs;
     if (mCaptureFpsEnable) {
         timeOffset *= mCaptureFps / mFrameRate;
