@@ -13,3 +13,7 @@
 # limitations under the License.
 
 include $(call all-subdir-makefiles)
+
+ifeq ($(TARGET_USES_LEGACY_CAMERA),true)
+LOCAL_CFLAGS += -DLEGACY_CAMERA
+endif
