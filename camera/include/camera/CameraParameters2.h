@@ -19,7 +19,11 @@
 
 #include <utils/Vector.h>
 #include <utils/String8.h>
+#ifdef LEGACY_CAMERA
 #include <camera/CameraParameters.h>
+#else
+#include "CameraParameters.h"
+#endif
 
 namespace android {
 
