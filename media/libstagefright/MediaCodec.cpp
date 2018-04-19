@@ -896,7 +896,7 @@ status_t MediaCodec::init(const AString &name) {
     //as these components are not present in media_codecs.xml and MediaCodecList won't find
     //these component by findCodecByName
     if (!(name.find("qcom", 0) > 0 ||
-        name.find("qti", 0) > 0)) {
+        name.find("qti", 0) > 0) || name.find("video", 0) > 0) {
         const sp<IMediaCodecList> mcl = MediaCodecList::getInstance();
         if (mcl == NULL) {
             mCodec = NULL;  // remove the codec.
