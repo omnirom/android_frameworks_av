@@ -145,6 +145,7 @@ private:
     int32_t mFetchTimedTextDataGeneration;
     int64_t mDurationUs;
     bool mAudioIsVorbis;
+    int32_t mIsByteMode;
     // Secure codec is required.
     bool mIsSecure;
     bool mIsStreaming;

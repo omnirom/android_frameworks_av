@@ -30,6 +30,10 @@ namespace android {
 
 class MediaBufferGroup;
 
+enum {
+    kKeyIsByteStreamMode = 'bytm'
+};
+
 class IMediaSource : public IInterface {
 public:
     DECLARE_META_INTERFACE(MediaSource);
