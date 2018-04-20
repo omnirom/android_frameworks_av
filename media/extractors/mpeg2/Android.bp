@@ -25,11 +25,11 @@ cc_library_shared {
         "libstagefright_foundation",
         "libstagefright",
         "libstagefright_omx",
-        "libutils",
     ],
 
     static_libs: [
         "libstagefright_mpeg2support",
+        "libutils",
     ],
 
     name: "libmpeg2extractor",
