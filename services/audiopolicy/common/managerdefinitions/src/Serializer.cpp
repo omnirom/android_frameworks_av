@@ -191,16 +191,25 @@ const char AudioProfileTraits::Attributes::name[] = "name";
 const char AudioProfileTraits::Attributes::samplingRates[] = "samplingRates";
 const char AudioProfileTraits::Attributes::format[] = "format";
 const char AudioProfileTraits::Attributes::channelMasks[] = "channelMasks";
+static bool fixedEarpieceChannels = false;
 
 status_t AudioProfileTraits::deserialize(_xmlDoc */*doc*/, const _xmlNode *root, PtrElement &profile,
-                                         PtrSerializingCtx /*serializingContext*/)
+                                         PtrSerializingCtx serializingContext)
 {
+    bool isOutput = serializingContext != nullptr;
     string samplingRates = getXmlAttribute(root, Attributes::samplingRates);
     string format = getXmlAttribute(root, Attributes::format);
     string channels = getXmlAttribute(root, Attributes::channelMasks);
+    ChannelTraits::Collection channelsMask = channelMasksFromString(channels, ",");
+
+    //Some Foxconn devices have wrong earpiece channel mask, leading to no channel mask
+    if(channelsMask.size() == 1 && channelsMask[0] == AUDIO_CHANNEL_IN_MONO && isOutput) {
+        fixedEarpieceChannels = true;
+        channelsMask = channelMasksFromString("AUDIO_CHANNEL_OUT_MONO", ",");
+    }
 
     profile = new Element(formatFromString(format, gDynamicFormat),
-                          channelMasksFromString(channels, ","),
+                          channelsMask,
                           samplingRatesFromString(samplingRates, ","));
 
     profile->setDynamicFormat(profile->getFormat() == gDynamicFormat);
@@ -326,7 +335,10 @@ status_t DevicePortTraits::deserialize(_xmlDoc *doc, const _xmlNode *root, PtrEl
     }
 
     AudioProfileTraits::Collection profiles;
-    deserializeCollection<AudioProfileTraits>(doc, root, profiles, NULL);
+    if(audio_is_output_devices(type))
+        deserializeCollection<AudioProfileTraits>(doc, root, profiles, (PtrSerializingCtx)1);
+    else
+        deserializeCollection<AudioProfileTraits>(doc, root, profiles, NULL);
     if (profiles.isEmpty()) {
         sp <AudioProfile> dynamicProfile = new AudioProfile(gDynamicFormat,
                                                             ChannelsVector(), SampleRateVector());
@@ -490,6 +502,13 @@ status_t ModuleTraits::deserialize(xmlDocPtr doc, const xmlNode *root, PtrElemen
             }
         }
         children = children->next;
+    }
+    if(fixedEarpieceChannels) {
+        sp<DeviceDescriptor> device =
+            module->getDeclaredDevices().getDeviceFromTagName(String8("Earpiece"));
+	if(device != 0)
+		ctx->addAvailableDevice(device);
+	fixedEarpieceChannels = false;
     }
     return NO_ERROR;
 }
