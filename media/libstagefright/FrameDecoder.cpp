@@ -381,7 +381,9 @@ sp<AMessage> VideoFrameDecoder::onGetFormatAndSeekOptions(
     if (!isSeekingClosest) {
         videoFormat->setInt32("android._num-input-buffers", 1);
         videoFormat->setInt32("android._num-output-buffers", 1);
+        videoFormat->setInt32("thumbnail-mode", 1);
     }
+
     return videoFormat;
 }
 
@@ -396,11 +398,11 @@ status_t VideoFrameDecoder::onInputReceived(
         ALOGV("Seeking closest: targetTimeUs=%lld", (long long)mTargetTimeUs);
     }
 
-    if (mIsAvcOrHevc && !isSeekingClosest
-            && IsIDR(codecBuffer->data(), codecBuffer->size())) {
+    if ((mIsAvcOrHevc && !isSeekingClosest
+            && IsIDR(codecBuffer->data(), codecBuffer->size())) || (mIDRSent ==  true)) {
         // Only need to decode one IDR frame, unless we're seeking with CLOSEST
         // option, in which case we need to actually decode to targetTimeUs.
-        mIDRCount == 0 ? mIDRCount++ : *flags |= MediaCodec::BUFFER_FLAG_EOS;
+        mIDRSent == false ? mIDRSent = true : *flags |= MediaCodec::BUFFER_FLAG_EOS;
     }
     return OK;
 }
