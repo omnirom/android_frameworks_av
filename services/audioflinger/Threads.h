@@ -1651,6 +1651,7 @@ class MmapThread : public ThreadBase
                 sp<DeviceHalInterface>  mHalDevice;
                 AudioHwDevice* const    mAudioHwDev;
                 ActiveTracks<MmapTrack> mActiveTracks;
+                float                   mHalVolFloat;
 
                 int32_t                 mNoCallbackWarningCount;
      static     constexpr int32_t       kMaxNoCallbackWarnings = 5;
@@ -1702,7 +1703,6 @@ protected:
                 float                       mStreamVolume;
                 bool                        mMasterMute;
                 bool                        mStreamMute;
-                float                       mHalVolFloat;
                 AudioStreamOut*             mOutput;
 };
 
