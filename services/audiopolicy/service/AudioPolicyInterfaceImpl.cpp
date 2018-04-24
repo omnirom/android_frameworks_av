@@ -18,6 +18,7 @@
 //#define LOG_NDEBUG 0
 
 #include <utils/Log.h>
+#include <cutils/properties.h>
 #include "AudioPolicyService.h"
 #include "ServiceUtilities.h"
 
@@ -378,8 +379,16 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
                 break;
             case AudioPolicyInterface::API_INPUT_TELEPHONY_RX:
                 // FIXME: use the same permission as for remote submix for now.
+                // Do not deny permission when SUBMIX_IN is unavailable for input type
+                // API_INPUT_MIX_CAPTURE as SUBMIX_IN does not 'capture' audio
             case AudioPolicyInterface::API_INPUT_MIX_CAPTURE:
                 if (!captureAudioOutputAllowed(pid, uid)) {
+                    if (property_get_bool("vendor.audio.enable.mirrorlink", false) &&
+                        getDeviceConnectionState(AUDIO_DEVICE_IN_REMOTE_SUBMIX, "") !=
+                                                 AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE) {
+                        break;
+                    }
+
                     ALOGE("getInputForAttr() permission denied: capture not allowed");
                     status = PERMISSION_DENIED;
                 }

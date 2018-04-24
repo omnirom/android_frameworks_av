@@ -371,6 +371,7 @@ private:
 
     bool mHaveInputSurface;
     bool mHavePendingInputBuffers;
+    bool mCpuBoostRequested;
 
     std::shared_ptr<BufferChannelBase> mBufferChannel;
 
@@ -427,6 +428,7 @@ private:
 
     uint64_t getGraphicBufferSize();
     void addResource(MediaResource::Type type, MediaResource::SubType subtype, uint64_t value);
+    void requestCpuBoostIfNeeded();
 
     bool hasPendingBuffer(int portIndex);
     bool hasPendingBuffer();
