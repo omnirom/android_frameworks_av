@@ -498,7 +498,6 @@ void MPEG4Writer::initInternal(int fd, bool isFirstSession) {
     mStreamableFile = false;
     mTimeScale = -1;
     mHasFileLevelMeta = false;
-    mHasMoovBox = false;
     mPrimaryItemId = 0;
     mAssociationEntryCount = 0;
     mNumGrids = 0;
@@ -507,6 +506,7 @@ void MPEG4Writer::initInternal(int fd, bool isFirstSession) {
     // And they will stay the same for all the recording sessions.
     if (isFirstSession) {
         mMoovExtraSize = 0;
+        mHasMoovBox = false;
         mMetaKeys = new AMessage();
         addDeviceMeta();
         mLatitudex10000 = 0;
