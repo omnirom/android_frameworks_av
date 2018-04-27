@@ -1713,6 +1713,8 @@ void NuPlayer::Renderer::onDisableOffloadAudio() {
     ++mAudioDrainGeneration;
     if (mAudioRenderingStartGeneration != -1) {
         prepareForMediaRenderingStart_l();
+        // PauseTimeout is applied to offload mode only. Cancel pending timer.
+        cancelAudioOffloadPauseTimeout();
     }
 }
 
@@ -1828,6 +1830,12 @@ void NuPlayer::Renderer::onAudioTearDown(AudioTearDownReason reason) {
     if (mAudioTornDown) {
         return;
     }
+
+    // TimeoutWhenPaused is only for offload mode.
+    if (reason == kDueToTimeout && !offloadingAudio()) {
+        return;
+    }
+
     mAudioTornDown = true;
 
     int64_t currentPositionUs;
