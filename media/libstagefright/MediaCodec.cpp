@@ -453,7 +453,7 @@ sp<MediaCodec> MediaCodec::CreateByType(
     for (size_t i = 0; i < matchingCodecs.size(); ++i) {
         sp<MediaCodec> codec = new MediaCodec(looper, pid, uid);
         AString componentName = matchingCodecs[i];
-        status_t ret = codec->init(componentName);
+        status_t ret = codec->init(componentName, true);
         if (err != NULL) {
             *err = ret;
         }
@@ -868,7 +868,7 @@ sp<CodecBase> MediaCodec::GetCodecBase(const AString &name) {
     }
 }
 
-status_t MediaCodec::init(const AString &name) {
+status_t MediaCodec::init(const AString &name, bool nameIsType) {
     mResourceManagerService->init();
 
     // save init parameters for reset
@@ -953,6 +953,7 @@ status_t MediaCodec::init(const AString &name) {
     // name may be different from mCodecInfo->getCodecName() if we stripped
     // ".secure"
     msg->setString("name", name);
+    msg->setInt32("nameIsType", nameIsType);
 
     if (mAnalyticsItem != NULL) {
         mAnalyticsItem->setCString(kCodecCodec, name.c_str());
@@ -2327,10 +2328,13 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             CHECK(msg->findObject("codecInfo", &codecInfo));
             AString name;
             CHECK(msg->findString("name", &name));
+            int32_t nameIsType;
+            msg->findInt32("nameIsType", &nameIsType);
 
             sp<AMessage> format = new AMessage;
             format->setObject("codecInfo", codecInfo);
             format->setString("componentName", name);
+            format->setInt32("nameIsType", nameIsType);
 
             mCodec->initiateAllocateComponent(format);
             break;

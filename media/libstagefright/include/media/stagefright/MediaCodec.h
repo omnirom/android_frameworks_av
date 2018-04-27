@@ -384,7 +384,7 @@ private:
 
     void PostReplyWithError(const sp<AReplyToken> &replyID, int32_t err);
 
-    status_t init(const AString &name);
+    status_t init(const AString &name, bool nameIsType = false);
 
     void setState(State newState);
     void returnBuffersToCodec(bool isReclaim = false);
