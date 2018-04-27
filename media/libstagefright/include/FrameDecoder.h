@@ -38,7 +38,7 @@ struct FrameDecoder {
             const AString &componentName,
             const sp<MetaData> &trackMeta,
             const sp<IMediaSource> &source) :
-                mIDRCount(0),
+                mIDRSent(false),
                 mComponentName(componentName),
                 mTrackMeta(trackMeta),
                 mSource(source),
@@ -85,7 +85,7 @@ protected:
     void addFrame(VideoFrame *frame) {
         mFrames.push_back(std::unique_ptr<VideoFrame>(frame));
     }
-    int32_t mIDRCount;
+    bool mIDRSent;
 
 private:
     AString mComponentName;
