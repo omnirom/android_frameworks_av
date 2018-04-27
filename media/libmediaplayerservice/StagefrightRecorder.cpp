@@ -1776,7 +1776,8 @@ status_t StagefrightRecorder::setupVideoEncoder(
         }
     }
 
-    if (tsLayers > 1) {
+    // mIFramesIntervalSec == 0 means all Intra frame, can't support P/B layers
+    if (tsLayers > 1 && mIFramesIntervalSec != 0) {
         uint32_t bLayers = std::min(2u, tsLayers - 1); // use up-to 2 B-layers
         uint32_t pLayers = tsLayers - bLayers;
         format->setString(
