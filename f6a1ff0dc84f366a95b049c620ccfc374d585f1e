@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "a23f5cd6_7e5d658e",
+        "filename": "camera/Android.mk",
+        "patchSetId": 5
+      },
+      "lineNbr": 17,
+      "author": {
+        "id": 1001607
+      },
+      "writtenOn": "2018-04-30T16:52:11Z",
+      "side": 1,
+      "message": "This apporach will not work AFAIK, since CLEAR_VARS is called for each sub-makefile. Thus, this code must go to each affected Module definition.\nAlso, I *think* that this snippet should have been declared before calling the sub-makefiles, but that does not matter anyways.",
+      "revId": "f6a1ff0dc84f366a95b049c620ccfc374d585f1e",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
