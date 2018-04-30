@@ -45,16 +45,16 @@ struct FrameDecoder {
                 mDstFormat(OMX_COLOR_Format16bitRGB565),
                 mDstBpp(2) {}
 
-    VideoFrame* extractFrame(int64_t frameTimeUs, int option, int colorFormat);
+    sp<IMemory> extractFrame(int64_t frameTimeUs, int option, int colorFormat);
 
     status_t extractFrames(
             int64_t frameTimeUs,
             size_t numFrames,
             int option,
             int colorFormat,
-            std::vector<VideoFrame*>* frames);
+            std::vector<sp<IMemory> >* frames);
 
-    static VideoFrame* getMetadataOnly(
+    static sp<IMemory> getMetadataOnly(
             const sp<MetaData> &trackMeta, int colorFormat, bool thumbnail = false);
 
 protected:
@@ -82,8 +82,8 @@ protected:
     OMX_COLOR_FORMATTYPE dstFormat() const  { return mDstFormat; }
     int32_t dstBpp()             const      { return mDstBpp; }
 
-    void addFrame(VideoFrame *frame) {
-        mFrames.push_back(std::unique_ptr<VideoFrame>(frame));
+    void addFrame(const sp<IMemory> &frame) {
+        mFrames.push_back(frame);
     }
     bool mIDRSent;
 
@@ -93,7 +93,7 @@ private:
     sp<IMediaSource> mSource;
     OMX_COLOR_FORMATTYPE mDstFormat;
     int32_t mDstBpp;
-    std::vector<std::unique_ptr<VideoFrame> > mFrames;
+    std::vector<sp<IMemory> > mFrames;
 
     static bool getDstColorFormat(
             android_pixel_format_t colorFormat,
