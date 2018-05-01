@@ -451,6 +451,7 @@ protected:
         int32_t heavyCompression;
         int32_t targetRefLevel;
         int32_t encodedTargetLevel;
+        int32_t effectType;
     } drcParams_t;
 
     status_t setupAACCodec(
