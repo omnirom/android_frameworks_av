@@ -16,6 +16,91 @@
       "revId": "f6a1ff0dc84f366a95b049c620ccfc374d585f1e",
       "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
       "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "ac71ff8d_732b1418",
+        "filename": "media/libmedia/MediaProfiles.cpp",
+        "patchSetId": 5
+      },
+      "lineNbr": 303,
+      "author": {
+        "id": 1001607
+      },
+      "writtenOn": "2018-05-02T19:35:45Z",
+      "side": 1,
+      "message": "Indention.\n\nAlso, please don\u0027t ifdef logVideoEncoderCap and return cap. They are equivalent in both cases.",
+      "revId": "f6a1ff0dc84f366a95b049c620ccfc374d585f1e",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "2ef9964e_cf246d09",
+        "filename": "media/libmedia/MediaProfiles.cpp",
+        "patchSetId": 5
+      },
+      "lineNbr": 674,
+      "author": {
+        "id": 1001607
+      },
+      "writtenOn": "2018-05-02T19:35:45Z",
+      "side": 1,
+      "message": "Indention.",
+      "revId": "f6a1ff0dc84f366a95b049c620ccfc374d585f1e",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "9f93e929_7f661a79",
+        "filename": "media/libmedia/MediaProfiles.cpp",
+        "patchSetId": 5
+      },
+      "lineNbr": 685,
+      "author": {
+        "id": 1001607
+      },
+      "writtenOn": "2018-05-02T19:35:45Z",
+      "side": 1,
+      "message": "Indention.",
+      "revId": "f6a1ff0dc84f366a95b049c620ccfc374d585f1e",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "4e919932_77b152c9",
+        "filename": "media/libmedia/include/media/MediaProfiles.h",
+        "patchSetId": 5
+      },
+      "lineNbr": 328,
+      "author": {
+        "id": 1001607
+      },
+      "writtenOn": "2018-05-02T19:35:45Z",
+      "side": 1,
+      "message": "Indention",
+      "revId": "f6a1ff0dc84f366a95b049c620ccfc374d585f1e",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
+        "uuid": "6343b43d_64517a0c",
+        "filename": "media/libmediaplayerservice/StagefrightRecorder.cpp",
+        "patchSetId": 5
+      },
+      "lineNbr": 1956,
+      "author": {
+        "id": 1001607
+      },
+      "writtenOn": "2018-05-02T19:35:45Z",
+      "side": 1,
+      "message": "Indention.",
+      "revId": "f6a1ff0dc84f366a95b049c620ccfc374d585f1e",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
     }
   ]
 }
