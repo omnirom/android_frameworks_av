@@ -1665,7 +1665,8 @@ AudioFlinger::RecordThread::RecordTrack::RecordTrack(
         mFramesToDrop(0),
         mResamplerBufferProvider(NULL), // initialize in case of early constructor exit
         mRecordBufferConverter(NULL),
-        mFlags(flags)
+        mFlags(flags),
+        mSilenced(false)
 {
     if (mCblk == NULL) {
         return;
