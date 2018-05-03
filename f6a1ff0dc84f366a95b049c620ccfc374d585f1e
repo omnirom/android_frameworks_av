@@ -19,6 +19,24 @@
     },
     {
       "key": {
+        "uuid": "16750dc0_388f3e2a",
+        "filename": "camera/Android.mk",
+        "patchSetId": 5
+      },
+      "lineNbr": 17,
+      "author": {
+        "id": 1002027
+      },
+      "writtenOn": "2018-05-03T17:27:07Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "a23f5cd6_7e5d658e",
+      "revId": "f6a1ff0dc84f366a95b049c620ccfc374d585f1e",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    },
+    {
+      "key": {
         "uuid": "ac71ff8d_732b1418",
         "filename": "media/libmedia/MediaProfiles.cpp",
         "patchSetId": 5
