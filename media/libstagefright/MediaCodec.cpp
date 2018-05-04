@@ -896,8 +896,9 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
     //make sure if the component name contains qcom/qti, we don't return error
     //as these components are not present in media_codecs.xml and MediaCodecList won't find
     //these component by findCodecByName
-    if (!(name.find("qcom", 0) > 0 ||
-        name.find("qti", 0) > 0) || name.find("video", 0) > 0) {
+    //Video and Flac decoder are present in list so exclude them.
+    if (!(name.find("qcom", 0) > 0 || name.find("qti", 0) > 0)
+          || name.find("video", 0) > 0 || name.find("flac", 0) > 0) {
         const sp<IMediaCodecList> mcl = MediaCodecList::getInstance();
         if (mcl == NULL) {
             mCodec = NULL;  // remove the codec.
@@ -1520,6 +1521,11 @@ status_t MediaCodec::getCodecInfo(sp<MediaCodecInfo> *codecInfo) const {
 
     sp<RefBase> obj;
     CHECK(response->findObject("codecInfo", &obj));
+
+    if (static_cast<MediaCodecInfo *>(obj.get()) == nullptr) {
+        ALOGE("codec info not found");
+        return NAME_NOT_FOUND;
+    }
     *codecInfo = static_cast<MediaCodecInfo *>(obj.get());
 
     return OK;
