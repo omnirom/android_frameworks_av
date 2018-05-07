@@ -296,7 +296,7 @@ status_t FrameDecoder::extractInternal() {
                 mHaveMoreInputs = false;
                 if (!mFirstSample && err == ERROR_END_OF_STREAM) {
                     err = OK;
-                    haveMoreInputs = true;
+                    mHaveMoreInputs = true;
                 }
                 break;
             }
