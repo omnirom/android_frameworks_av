@@ -171,7 +171,8 @@ FrameDecoder::FrameDecoder(
         const AString &componentName,
         const sp<MetaData> &trackMeta,
         const sp<IMediaSource> &source)
-    : mComponentName(componentName),
+    : mIDRSent(false),
+      mComponentName(componentName),
       mTrackMeta(trackMeta),
       mSource(source),
       mDstFormat(OMX_COLOR_Format16bitRGB565),
