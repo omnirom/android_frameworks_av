@@ -10,14 +10,15 @@ cc_library_static {
         "libcutils",
         "libutils",
     ],
+    header_libs:[
+        "media_plugin_headers",
+        "libbase_headers",
+    ],
+
     include_dirs: [
-        "frameworks/av/include/media",
         "frameworks/av/media/libavextensions",
-        "frameworks/native/include/media/hardware",
-        "frameworks/native/include/media/openmax",
         "external/flac/include",
         "hardware/qcom/media/mm-core/inc",
-        "system/core/base/include/",
     ],
     cflags: [
         "-Wno-multichar",
@@ -49,18 +50,17 @@ cc_library_static {
          "android.hidl.allocator@1.0",
          "android.hidl.memory@1.0",
     ],
+    header_libs:[
+        "media_plugin_headers",
+        "libbase_headers",
+        "libstagefright_headers",
+    ],
     include_dirs: [
-        "frameworks/av/include/media",
-        "frameworks/av/media/libstagefright",
         "frameworks/av/media/libmediaextractor",
         "frameworks/av/media/libstagefright/mpeg2ts",
         "frameworks/av/media/libavextensions",
-        "frameworks/native/include/media/hardware",
-        "frameworks/native/include/media/openmax",
         "external/flac/include",
-        "system/core/base/include",
         "hardware/qcom/media/mm-core/inc",
-        "frameworks/av/media/libstagefright/include",
         "frameworks/av/media/libstagefright/omx/include/media/stagefright",
     ],
     cflags: [
@@ -90,17 +90,17 @@ cc_library_static {
         "libmediaextractor",
         "android.hardware.media.omx@1.0",
     ],
+    header_libs:[
+        "media_plugin_headers",
+        "libbase_headers",
+        "libstagefright_headers",
+    ],
     include_dirs: [
-        "frameworks/av/include/media",
         "frameworks/av/media/libstagefright/rtsp",
         "frameworks/av/media/libmediaplayerservice",
         "frameworks/av/media/libmediaextractor",
-        "frameworks/av/media/libstagefright/include",
         "frameworks/av/media/libavextensions",
-        "frameworks/native/include/media/hardware",
-        "frameworks/native/include/media/openmax",
         "external/flac/include",
-        "system/core/base/include",
         "hardware/qcom/media/mm-core/inc",
     ],
     cflags: [
