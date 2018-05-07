@@ -1792,6 +1792,11 @@ status_t StagefrightRecorder::setupVideoEncoder(
         format->setInt32("android._input-metadata-buffer-type", mMetaDataStoredInVideoBuffers);
     }
 
+    if (mOutputFormat == OUTPUT_FORMAT_MPEG_4) {
+        format->setInt32("mpeg4-writer", 1);
+        format->setInt32("nal-length", 4);
+    }
+
     uint32_t flags = 0;
     if (cameraSource == NULL) {
         flags |= MediaCodecSource::FLAG_USE_SURFACE_INPUT;
