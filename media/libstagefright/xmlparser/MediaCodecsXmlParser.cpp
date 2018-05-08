@@ -15,6 +15,7 @@
  */
 
 //#define LOG_NDEBUG 0
+#define PROP_VALUE_MAX 92
 #define LOG_TAG "MediaCodecsXmlParser"
 
 #include <media/stagefright/xmlparser/MediaCodecsXmlParser.h>
@@ -27,6 +28,7 @@
 
 #include <cctype>
 #include <algorithm>
+#include <cutils/properties.h>
 
 namespace android {
 
@@ -122,17 +124,56 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
     mUpdate(false),
     mCodecCounter(0) {
     std::string path;
-
+    char value[PROP_VALUE_MAX] = {0};
+    char platform[PROP_VALUE_MAX] = {0};
+    char file_path[PROP_VALUE_MAX] = {0};
     if (findFileInDirs(searchDirs, vendorMediaCodecsAudioXmlName, &path)) {
         parseTopLevelXMLFile(path.c_str(), true);
     }
     if (findFileInDirs(searchDirs, mainXmlName, &path)) {
+        if (!strncmp(path.c_str(), "/vendor/etc", strlen("/vendor/etc"))){
+            strlcpy(file_path, path.c_str(), PROP_VALUE_MAX);
+            property_get("ro.board.platform", platform, NULL);
+            if (!strcmp(platform, "sdm710") ||
+                   !strcmp(platform, "msmpeafowl")) {
+                if (property_get("vendor.media.sdm710.version", value, "0") &&
+                    (atoi(value) == 0)) {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_sdm710_v0.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs.xml",
+                                PROP_VALUE_MAX);
+                }
+            } else {
+               strlcpy(file_path, "/vendor/etc/media_codecs.xml",
+                            PROP_VALUE_MAX);
+            }
+            path = file_path;
+        }
         parseTopLevelXMLFile(path.c_str(), false);
     } else {
         ALOGE("Cannot find %s", mainXmlName);
         mParsingStatus = NAME_NOT_FOUND;
     }
     if (findFileInDirs(searchDirs, performanceXmlName, &path)) {
+        if (!strncmp(path.c_str(), "/vendor/etc", strlen("/vendor/etc"))){
+            property_get("ro.board.platform", platform, NULL);
+            if (!strcmp(platform, "sdm710") ||
+                   !strcmp(platform, "msmpeafowl")) {
+                if (property_get("vendor.media.sdm710.version", value, "0") &&
+                    (atoi(value) == 0)) {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance_sdm710_v0.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance.xml",
+                            PROP_VALUE_MAX);
+                }
+            } else {
+               strlcpy(file_path, "/vendor/etc/media_codecs_performance.xml",
+                            PROP_VALUE_MAX);
+           }
+           path = file_path;
+        }
         parseTopLevelXMLFile(path.c_str(), true);
     }
     if (profilingResultsXmlPath != nullptr) {

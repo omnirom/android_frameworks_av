@@ -17,7 +17,14 @@ cc_library_shared {
         "libexpat",
         "liblog",
         "libstagefright_omx_utils",
+        "libcutils"
     ],
+
+    target: {
+        vendor: {
+            cflags: ["-D__ANDROID_VNDK__"],
+        },
+    },
 
     cflags: [
         "-Werror",
