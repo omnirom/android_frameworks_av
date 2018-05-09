@@ -43,7 +43,7 @@
 #include <media/stagefright/Utils.h>
 #include "../../libstagefright/include/NuCachedSource2.h"
 #include "../../libstagefright/include/HTTPBase.h"
-
+#include "mediaplayerservice/AVNuExtensions.h"
 namespace android {
 
 static const int kInitialMarkMs        = 5000;  // 5secs
@@ -70,6 +70,7 @@ NuPlayer::GenericSource::GenericSource(
       mFetchTimedTextDataGeneration(0),
       mDurationUs(-1ll),
       mAudioIsVorbis(false),
+      mIsByteMode(false),
       mIsSecure(false),
       mIsStreaming(false),
       mUIDValid(uidValid),
@@ -302,11 +303,15 @@ status_t NuPlayer::GenericSource::startSources() {
     //
     // TODO: this logic may no longer be relevant after the removal of widevine
     // support
-    if (mAudioTrack.mSource != NULL && mAudioTrack.mSource->start() != OK) {
+    sp<MetaData> meta = new MetaData();
+    meta->setInt32(kKeyIsByteStreamMode, mIsStreaming ? 0 : AVNuUtils::get()->getFlags());
+    if (mAudioTrack.mSource != NULL && mAudioTrack.mSource->start(meta.get()) != OK) {
         ALOGE("failed to start audio track!");
         return UNKNOWN_ERROR;
     }
-
+    if ((meta->findInt32(kKeyIsByteStreamMode, &mIsByteMode) && mIsByteMode)) {
+        ALOGD("parser working in byteStreamMode %d", mIsByteMode);
+    }
     if (mVideoTrack.mSource != NULL && mVideoTrack.mSource->start() != OK) {
         ALOGE("failed to start video track!");
         return UNKNOWN_ERROR;
@@ -1310,6 +1315,12 @@ void NuPlayer::GenericSource::readBuffer(
         case MEDIA_TRACK_TYPE_AUDIO:
             track = &mAudioTrack;
             maxBuffers = 64;
+            if (mIsByteMode) {
+                // byte stream mode is enabled only for mp3 & aac
+                // and the parser gives a huge chunk of data per read,
+                // so reading one buffer is sufficient.
+                maxBuffers = 1;
+            }
             break;
         case MEDIA_TRACK_TYPE_SUBTITLE:
             track = &mSubtitleTrack;

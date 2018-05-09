@@ -85,6 +85,9 @@ public:
             ALOGW("input:");
             params->dumpToLog();
             sp<MetaData> meta = MetaData::createFromParcel(reply);
+            int32_t byteMode= 0;
+            if (meta->findInt32(kKeyIsByteStreamMode, &byteMode))
+                params->setInt32(kKeyIsByteStreamMode, byteMode);
             ALOGW("output:");
             meta->dumpToLog();
         }
