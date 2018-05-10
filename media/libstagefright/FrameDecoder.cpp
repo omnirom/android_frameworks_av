@@ -296,6 +296,7 @@ status_t FrameDecoder::extractInternal() {
                 mHaveMoreInputs = false;
                 if (!mFirstSample && err == ERROR_END_OF_STREAM) {
                     err = OK;
+                    flags |= MediaCodec::BUFFER_FLAG_EOS;
                     mHaveMoreInputs = true;
                 }
                 break;
@@ -616,6 +617,7 @@ sp<AMessage> ImageDecoder::onGetFormatAndSeekOptions(
     if ((mGridRows == 1) && (mGridCols == 1)) {
         videoFormat->setInt32("android._num-input-buffers", 1);
         videoFormat->setInt32("android._num-output-buffers", 1);
+        videoFormat->setInt32("thumbnail-mode", 1);
     }
     return videoFormat;
 }
