@@ -123,7 +123,7 @@ public:
     bool isHeic() const { return mIsHeic; }
     bool isAudio() const { return mIsAudio; }
     bool isMPEG4() const { return mIsMPEG4; }
-    bool usePrefix() const { return mIsAvc || mIsHevc || mIsHeic; }
+    bool usePrefix() const { return (mIsAvc || mIsHevc || mIsHeic) && !mSkipStartCodeSearch; }
     void addChunkOffset(off64_t offset);
     void addItemOffsetAndSize(off64_t offset, size_t size);
     int32_t getTrackId() const { return mTrackId; }
@@ -295,6 +295,7 @@ private:
     int64_t mTrackDurationUs;
     int64_t mMaxChunkDurationUs;
     int64_t mLastDecodingTimeUs;
+    int32_t mSkipStartCodeSearch;
 
     int64_t mEstimatedTrackSizeBytes;
     int64_t mMdatSizeBytes;
@@ -1756,6 +1757,7 @@ MPEG4Writer::Track::Track(
       mIsMalformed(false),
       mTrackId(trackId),
       mTrackDurationUs(0),
+      mSkipStartCodeSearch(0),
       mEstimatedTrackSizeBytes(0),
       mSamplesHaveSameSize(true),
       mStszTableEntries(new ListTableEntries<uint32_t, 1>(1000)),
@@ -1794,6 +1796,8 @@ MPEG4Writer::Track::Track(
     mIsHeic = !strcasecmp(mime, MEDIA_MIMETYPE_IMAGE_ANDROID_HEIC);
     mIsMPEG4 = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_MPEG4) ||
                !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AAC);
+
+    mMeta->findInt32(kKeySkipStartCodeSearch, &mSkipStartCodeSearch);
 
     // store temporal layer count
     if (mIsVideo) {
