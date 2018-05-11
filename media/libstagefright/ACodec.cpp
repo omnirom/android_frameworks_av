@@ -140,6 +140,10 @@ static OMX_VIDEO_CONTROLRATETYPE getVideoBitrateMode(const sp<AMessage> &msg) {
             case 1: return OMX_Video_ControlRateVariable;
             //BITRATE_MODE_CBR
             case 2: return OMX_Video_ControlRateConstant;
+            //BITRATE_MODE_VBR_VFR
+            case 3: return OMX_Video_ControlRateVariableSkipFrames;
+            //BITRATE_MODE_CBR_VFR
+            case 4: return OMX_Video_ControlRateConstantSkipFrames;
             default: break;
         }
     }
