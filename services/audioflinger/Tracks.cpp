@@ -1571,11 +1571,19 @@ status_t AudioFlinger::PlaybackThread::PatchTrack::obtainBuffer(Proxy::Buffer* b
     status_t status = NO_ERROR;
     static const int32_t kMaxTries = 5;
     int32_t tryCounter = kMaxTries;
+<<<<<<< HEAD
     size_t  frameCount = buffer->mFrameCount;
     do {
         if (status == NOT_ENOUGH_DATA) {
             restartIfDisabled();
             buffer->mFrameCount = frameCount;
+=======
+    const size_t originalFrameCount = buffer->mFrameCount;
+    do {
+        if (status == NOT_ENOUGH_DATA) {
+            restartIfDisabled();
+            buffer->mFrameCount = originalFrameCount; // cleared on error, must be restored.
+>>>>>>> p-fs-release
         }
         status = mProxy->obtainBuffer(buffer, timeOut);
     } while ((status == NOT_ENOUGH_DATA) && (tryCounter-- > 0));
