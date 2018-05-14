@@ -37,6 +37,7 @@
 #include <media/stagefright/MediaCodecList.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/ACodec.h>
+#include <media/stagefright/MediaFilter.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/CameraSourceTimeLapse.h>
 #include <media/stagefright/MPEG4Writer.h>
@@ -46,6 +47,10 @@
 #include "stagefright/AVExtensions.h"
 
 namespace android {
+
+sp<CodecBase> AVFactory::createMediaFilter() {
+    return new MediaFilter;
+}
 
 sp<ACodec> AVFactory::createACodec() {
     return new ACodec;

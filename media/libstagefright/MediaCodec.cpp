@@ -862,7 +862,7 @@ sp<CodecBase> MediaCodec::GetCodecBase(const AString &name) {
         // at this time only ACodec specifies a mime type.
         return AVFactory::get()->createACodec();
     } else if (name.startsWithIgnoreCase("android.filter.")) {
-        return new MediaFilter;
+        return AVFactory::get()->createMediaFilter();
     } else {
         return NULL;
     }
