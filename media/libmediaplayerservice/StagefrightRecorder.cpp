@@ -1622,10 +1622,11 @@ status_t StagefrightRecorder::setupCameraSource(
                 std::llround(1e6 / mCaptureFps));
         *cameraSource = mCameraSourceTimeLapse;
     } else {
-        *cameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
+        mCameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid, mClientPid,
                 videoSize, mFrameRate,
                 mPreviewSurface);
+        *cameraSource = mCameraSource;
     }
     AVUtils::get()->cacheCaptureBuffers(mCamera, mVideoEncoder);
     mCamera.clear();
@@ -2070,6 +2071,14 @@ status_t StagefrightRecorder::stop() {
         }
     }
 
+    if (mVideoEncoderSource != NULL) {
+        mVideoEncoderSource->notifyPerformanceMode();
+    }
+
+    if (mCameraSource != NULL) {
+        mCameraSource->notifyPerformanceMode();
+    }
+
     if (mWriter != NULL) {
         err = mWriter->stop();
         mWriter.clear();
@@ -2182,6 +2191,8 @@ status_t StagefrightRecorder::reset() {
     mNPauses = 0;
 
     mOutputFd = -1;
+
+    mCameraSource = NULL;
 
     return OK;
 }

@@ -73,6 +73,7 @@ static const uint8_t kNalUnitTypeSeqParamSet = 0x07;
 static const uint8_t kNalUnitTypePicParamSet = 0x08;
 static const int64_t kInitialDelayTimeUs     = 700000LL;
 static const int64_t kMaxMetadataSize = 0x4000000LL;   // 64MB max per-frame metadata size
+static const nsecs_t kWaitDuration = 500000000LL; //500msec   ~15frames delay
 
 static const char kMetaKey_Version[]    = "com.android.version";
 static const char kMetaKey_Manufacturer[]      = "com.android.manufacturer";
@@ -446,6 +447,10 @@ private:
 
     Track(const Track &);
     Track &operator=(const Track &);
+
+    bool mIsStopping;
+    Mutex mTrackCompletionLock;
+    Condition mTrackCompletionSignal;
 };
 
 MPEG4Writer::MPEG4Writer(int fd) {
@@ -516,6 +521,7 @@ void MPEG4Writer::initInternal(int fd, bool isFirstSession) {
         mIsFileSizeLimitExplicitlyRequested = false;
     }
 
+    mLastAudioTimeStampUs = 0;
     // Verify mFd is seekable
     off64_t off = lseek64(mFd, 0, SEEK_SET);
     if (off < 0) {
@@ -1078,8 +1084,9 @@ status_t MPEG4Writer::reset(bool stopSource) {
     int64_t maxDurationUs = 0;
     int64_t minDurationUs = 0x7fffffffffffffffLL;
     int32_t nonImageTrackCount = 0;
-    for (List<Track *>::iterator it = mTracks.begin();
-        it != mTracks.end(); ++it) {
+    List<Track *>::iterator it = mTracks.end();
+    do{
+        --it;
         status_t status = (*it)->stop(stopSource);
         if (err == OK && status != OK) {
             err = status;
@@ -1096,7 +1103,7 @@ status_t MPEG4Writer::reset(bool stopSource) {
         if (durationUs < minDurationUs) {
             minDurationUs = durationUs;
         }
-    }
+    } while (it != mTracks.begin());
 
     if (nonImageTrackCount > 1) {
         ALOGD("Duration from tracks range is [%" PRId64 ", %" PRId64 "] us",
@@ -1824,6 +1831,7 @@ MPEG4Writer::Track::Track(
             mIsPrimary = false;
         }
     }
+    mIsStopping = false;
 }
 
 // Clear all the internal states except the CSD data.
@@ -2396,6 +2404,16 @@ status_t MPEG4Writer::Track::stop(bool stopSource) {
     if (!mStarted) {
         ALOGE("Stop() called but track is not started");
         return ERROR_END_OF_STREAM;
+    }
+
+    if (!mIsAudio && mOwner->getLastAudioTimeStamp() &&
+        !mOwner->exceedsFileDurationLimit() &&
+        !mIsMalformed) {
+        Mutex::Autolock lock(mTrackCompletionLock);
+        mIsStopping = true;
+        if (mTrackCompletionSignal.waitRelative(mTrackCompletionLock, kWaitDuration)) {
+            ALOGW("Timed-out waiting for video track to reach final audio timestamp !");
+        }
     }
 
     if (mDone) {
@@ -3259,6 +3277,16 @@ status_t MPEG4Writer::Track::threadEntry() {
                 }
             }
         }
+
+    if (mIsAudio) {
+        mOwner->setLastAudioTimeStamp(lastTimestampUs);
+    } else if (mIsStopping && timestampUs >= mOwner->getLastAudioTimeStamp()) {
+        ALOGI("Video time (%lld) reached last audio time (%lld)", (long long)timestampUs, (long
+        long)mOwner->getLastAudioTimeStamp());
+        Mutex::Autolock lock(mTrackCompletionLock);
+        mTrackCompletionSignal.signal();
+        break;
+    }
 
     }
 
