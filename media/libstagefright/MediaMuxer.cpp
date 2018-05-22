@@ -50,7 +50,7 @@ MediaMuxer::MediaMuxer(int fd, OutputFormat format)
     : mFormat(format),
       mState(UNINITIALIZED) {
     if (isMp4Format(format)) {
-        mWriter = AVFactory::get()->CreateMPEG4Writer(fd);
+        mWriter = new MPEG4Writer(fd);
     } else if (format == OUTPUT_FORMAT_WEBM) {
         mWriter = new WebmWriter(fd);
     }
