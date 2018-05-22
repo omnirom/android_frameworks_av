@@ -70,6 +70,7 @@ enum {
     kKeyWantsNALFragments = 'NALf',
     kKeyIsSyncFrame       = 'sync',  // int32_t (bool)
     kKeyIsCodecConfig     = 'conf',  // int32_t (bool)
+    kKeyIsMuxerData       = 'muxd',  // int32_t (bool)
     kKeyTime              = 'time',  // int64_t (usecs)
     kKeyDecodingTime      = 'decT',  // int64_t (decoding timestamp in usecs)
     kKeyNTPTime           = 'ntpT',  // uint64_t (ntp-timestamp)
@@ -224,6 +225,7 @@ enum {
     kKeyExifOffset       = 'exof', // int64_t, Exif data offset
     kKeyExifSize         = 'exsz', // int64_t, Exif data size
     kKeySkipStartCodeSearch = 'sscs', // int32_t key to check to avoid start code search in writer
+    kKeyIsExif           = 'exif', // bool (int32_t) buffer contains exif data block
 };
 
 enum {

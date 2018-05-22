@@ -133,7 +133,7 @@ protected:
     status_t startTracks(MetaData *params);
     size_t numTracks();
     int64_t estimateMoovBoxSize(int32_t bitRate);
-    int64_t estimateFileLevelMetaSize();
+    int64_t estimateFileLevelMetaSize(MetaData *params);
     void writeCachedBoxToFile(const char *type);
 
     struct Chunk {
@@ -168,8 +168,10 @@ protected:
     Condition       mChunkReadyCondition;   // Signal that chunks are available
 
     // HEIF writing
+    typedef key_value_pair_t< const char *, Vector<uint16_t> > ItemRefs;
     typedef struct _ItemInfo {
         bool isGrid() const { return !strcmp("grid", itemType); }
+        bool isImage() const { return !strcmp("hvc1", itemType) || isGrid(); }
         const char *itemType;
         uint16_t itemId;
         bool isPrimary;
@@ -189,7 +191,7 @@ protected:
             };
         };
         Vector<uint16_t> properties;
-        Vector<uint16_t> dimgRefs;
+        Vector<ItemRefs> refsList;
     } ItemInfo;
 
     typedef struct _ItemProperty {
@@ -205,6 +207,7 @@ protected:
     uint32_t mPrimaryItemId;
     uint32_t mAssociationEntryCount;
     uint32_t mNumGrids;
+    bool mHasRefs;
     Vector<ItemInfo> mItems;
     Vector<ItemProperty> mProperties;
 
@@ -253,12 +256,13 @@ protected:
     void initInternal(int fd, bool isFirstSession);
 
     // Acquire lock before calling these methods
-    off64_t addSample_l(MediaBuffer *buffer, bool usePrefix, size_t *bytesWritten);
+    off64_t addSample_l(MediaBuffer *buffer, bool usePrefix, bool isExif, size_t *bytesWritten);
     static void StripStartcode(MediaBuffer *buffer);
     virtual void addLengthPrefixedSample_l(MediaBuffer *buffer);
     void addMultipleLengthPrefixedSamples_l(MediaBuffer *buffer);
     uint16_t addProperty_l(const ItemProperty &);
     uint16_t addItem_l(const ItemInfo &);
+    void addRefs_l(uint16_t itemId, const ItemRefs &);
 
     bool exceedsFileSizeLimit();
     bool use32BitFileOffset() const;
