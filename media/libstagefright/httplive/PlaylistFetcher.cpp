@@ -162,6 +162,8 @@ PlaylistFetcher::PlaylistFetcher(
       mNumRetries(0),
       mStartup(true),
       mIDRFound(false),
+      mLastIDRFound(false),
+      mLastIDRTimeUs(-1),
       mSeekMode(LiveSession::kSeekModeExactPosition),
       mTimeChangeSignaled(false),
       mNextPTSTimeUs(-1ll),
@@ -172,6 +174,7 @@ PlaylistFetcher::PlaylistFetcher(
       mFirstPTSValid(false),
       mFirstTimeUs(-1ll),
       mVideoBuffer(new AnotherPacketSource(NULL)),
+      mAudioBuffer(new AnotherPacketSource(NULL)),
       mSampleAesKeyItemChanged(false),
       mThresholdRatio(-1.0f),
       mDownloadState(new DownloadState()),
@@ -767,7 +770,9 @@ status_t PlaylistFetcher::onStart(const sp<AMessage> &msg) {
     if (startTimeUs >= 0 || mSeekMode == LiveSession::kSeekModeNextSample) {
         mStartup = true;
         mIDRFound = false;
+        mLastIDRFound = false;
         mVideoBuffer->clear();
+        mAudioBuffer->clear();
     }
 
     if (startTimeUs >= 0) {
@@ -1206,6 +1211,7 @@ bool PlaylistFetcher::initDownloadState(
                     // properties in extractAndQueueAccessUnitsFromTs.
                     sp<ABuffer> buffer = new ABuffer(0);
                     mSeqNumber = lastSeqNumberInPlaylist;
+                    mLastIDRTimeUs = -1;
                     extractAndQueueAccessUnitsFromTs(buffer);
                 }
                 notifyError(ERROR_END_OF_STREAM);
@@ -1304,7 +1310,9 @@ bool PlaylistFetcher::initDownloadState(
             mStartTimeUs = 0;
             mFirstPTSValid = false;
             mIDRFound = false;
+            mLastIDRFound = false;
             mVideoBuffer->clear();
+            mAudioBuffer->clear();
         }
     }
 
@@ -1353,6 +1361,7 @@ void PlaylistFetcher::onDownloadNext() {
     // block-wise download
     bool shouldPause = false;
     ssize_t bytesRead;
+    mLastIDRTimeUs = -1;
     do {
         int64_t startUs = ALooper::GetNowUs();
         bytesRead = mHTTPDownloader->fetchBlock(
@@ -1794,6 +1803,7 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                 mStartTimeUsNotify->setInt32("what", kWhatStartedAt);
                 mStartTimeUsNotify->setString("uri", mURI);
                 mIDRFound = false;
+                mLastIDRFound = false;
                 mSegmentStartTimeUs = -1;
                 return -EAGAIN;
             }
@@ -1801,14 +1811,19 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
     }
 
     status_t err = OK;
+    mLastIDRFound = false;
+    bool hasAvcSource = false;
     for (size_t i = mPacketSources.size(); i > 0;) {
         i--;
+        bool isAudio = false;
         sp<AnotherPacketSource> packetSource = mPacketSources.valueAt(i);
 
         const LiveSession::StreamType stream = mPacketSources.keyAt(i);
         if (stream == LiveSession::STREAMTYPE_SUBTITLES) {
             ALOGE("MPEG2 Transport streams do not contain subtitles.");
             return ERROR_MALFORMED;
+        } else if (stream == LiveSession::STREAMTYPE_AUDIO) {
+            isAudio = true;
         }
 
         const char *key = LiveSession::getKeyForStream(stream);
@@ -1828,6 +1843,10 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                 && (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC) ||
                     !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC));
 
+        if (isAvc) {
+            hasAvcSource = true;
+        }
+
         sp<ABuffer> accessUnit;
         status_t finalResult;
         while (source->hasBufferAvailable(&finalResult)
@@ -1839,7 +1858,7 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
             if (mStartup) {
                 bool startTimeReached = isStartTimeReached(timeUs);
 
-                if (!startTimeReached || (isAvc && !mIDRFound)) {
+                if (!startTimeReached) {
                     // buffer up to the closest preceding IDR frame in the next segement,
                     // or the closest succeeding IDR frame after the exact position
                     FSLOGV(stream, "timeUs(%lld)-mStartTimeUs(%lld)=%lld, mIDRFound=%d",
@@ -1847,20 +1866,50 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                             (long long)mStartTimeUs,
                             (long long)timeUs - mStartTimeUs,
                             mIDRFound);
+                    // finding video last preceding IRD, caching video buffers from last
+                    // preceding IDR to seek time
                     if (isAvc) {
                         if (IsIDR(accessUnit->data(), accessUnit->size()) ||
                                 AVUtils::get()->IsHevcIDR(accessUnit)) {
                             mVideoBuffer->clear();
-                            FSLOGV(stream, "found IDR, clear mVideoBuffer");
+                            FSLOGV(stream, "found IDR, clear mVideoBuffer, save IDR timestamp");
                             mIDRFound = true;
+                            mLastIDRTimeUs = timeUs;
                         }
                         if (mIDRFound && mStartTimeUsRelative && !startTimeReached) {
                             mVideoBuffer->queueAccessUnit(accessUnit);
                             FSLOGV(stream, "saving AVC video AccessUnit");
                         }
-                    }
-                    if (!startTimeReached || (isAvc && !mIDRFound)) {
                         continue;
+                    }
+
+                    // only when current ts segment contains avc/hevc source, IDR frame can be found
+                    // caching audio buffers from last video preceding IDR to seek time. If video
+                    // last IDR is found before audio reached this IDR position, will clear audio
+                    // buffers and start from IDR pisition (new start time). If audio reached seek
+                    // time before last preceding IDR is found, the redundant audio buffers will be
+                    // discared when queuing buffers to LiveSession
+                    if (isAudio && hasAvcSource) {
+                        if (!mLastIDRFound) {
+                            mAudioBuffer->queueAccessUnit(accessUnit);
+                            FSLOGV(stream, "saving audio AccessUnit");
+                        } else if (timeUs < mLastIDRTimeUs) {
+                            FSLOGV(stream, "found last preceding IDR, but audio still didn't \
+                                    reach IDR time, clear mAudioBuffer");
+                            mAudioBuffer->clear();
+                        }
+                        continue;
+                    }
+                } else {
+                    if (isAvc && mIDRFound) {
+                        mLastIDRFound = true;
+                        // last preceding IDR found, set mStartTimeUs to this IDR time, the new
+                        // start time will affect audio stream checking if it has reached start time
+                        if (mStartTimeUsRelative) {
+                            mStartTimeUs = mLastIDRTimeUs - mFirstTimeUs;
+                        } else {
+                            mStartTimeUs = mLastIDRTimeUs;
+                        }
                     }
                 }
             }
@@ -1898,7 +1947,7 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
             }
 
             if (stream == LiveSession::STREAMTYPE_VIDEO) {
-                const bool discard = true;
+                const bool discard = false;
                 status_t status;
                 while (mVideoBuffer->hasBufferAvailable(&status)) {
                     sp<ABuffer> videoBuffer;
@@ -1909,6 +1958,21 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                     CHECK(videoBuffer->meta()->findInt64("timeUs", &bufferTimeUs));
                     FSLOGV(stream, "queueAccessUnit (saved), timeUs=%lld",
                             (long long)bufferTimeUs);
+                }
+            } else if (stream == LiveSession::STREAMTYPE_AUDIO) {
+                const bool discard = false;
+                status_t status;
+                while (mAudioBuffer->hasBufferAvailable(&status)) {
+                    sp<ABuffer> audioBuffer;
+                    mAudioBuffer->dequeueAccessUnit(&audioBuffer);
+                    int64_t bufferTimeUs;
+                    CHECK(audioBuffer->meta()->findInt64("timeUs", &bufferTimeUs));
+                    if (bufferTimeUs >= mLastIDRTimeUs) {
+                        setAccessUnitProperties(audioBuffer, source, discard);
+                        packetSource->queueAccessUnit(audioBuffer);
+                        FSLOGV(stream, "queueAccessUnit (saved), timeUs=%lld",
+                                (long long)bufferTimeUs);
+                    }
                 }
             } else if (stream == LiveSession::STREAMTYPE_METADATA && !mHasMetadata) {
                 mHasMetadata = true;
