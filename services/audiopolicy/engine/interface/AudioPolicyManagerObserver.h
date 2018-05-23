@@ -55,7 +55,7 @@ public:
 
     virtual const sp<DeviceDescriptor> &getDefaultOutputDevice() const = 0;
 
-    virtual const bool &getA2dpSuspended() const = 0;
+
 
 protected:
     virtual ~AudioPolicyManagerObserver() {}
