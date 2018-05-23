@@ -1108,7 +1108,8 @@ status_t OMXNodeInstance::useBuffer(
 
         case OMXBuffer::kBufferTypeHidlMemory: {
                 if (mPortMode[portIndex] != IOMX::kPortModePresetByteBuffer
-                        && mPortMode[portIndex] != IOMX::kPortModeDynamicANWBuffer) {
+                        && mPortMode[portIndex] != IOMX::kPortModeDynamicANWBuffer
+                        && mPortMode[portIndex] != IOMX::kPortModeDynamicNativeHandle) {
                     break;
                 }
                 sp<IHidlMemory> hidlMemory = mapMemory(omxBuffer.mHidlMemory);
