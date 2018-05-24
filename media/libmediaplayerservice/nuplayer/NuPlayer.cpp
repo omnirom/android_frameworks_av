@@ -1123,18 +1123,30 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 ALOGV("%s shutdown completed", audio ? "audio" : "video");
                 if (audio) {
                     mAudioDecoder.clear();
-                    mAudioDecoderError = false;
                     ++mAudioDecoderGeneration;
 
                     CHECK_EQ((int)mFlushingAudio, (int)SHUTTING_DOWN_DECODER);
                     mFlushingAudio = SHUT_DOWN;
+                    // if this shutdown is called due to audio decoder encountered error
+                    // and stream contains video source and video already reached EOS
+                    // notify NuPlayerDriver to complete playback
+                    if (mAudioDecoderError && mVideoEOS) {
+                        notifyListener(MEDIA_PLAYBACK_COMPLETE, 0, 0);
+                    }
+                    mAudioDecoderError = false;
                 } else {
                     mVideoDecoder.clear();
-                    mVideoDecoderError = false;
                     ++mVideoDecoderGeneration;
 
                     CHECK_EQ((int)mFlushingVideo, (int)SHUTTING_DOWN_DECODER);
                     mFlushingVideo = SHUT_DOWN;
+                    // if this shutdown is called due to video decoder encountered error
+                    // and stream contains audio source and audio already reached EOS
+                    // notify NuPlayerDriver to complete playback
+                    if (mVideoDecoderError && mAudioEOS) {
+                        notifyListener(MEDIA_PLAYBACK_COMPLETE, 0, 0);
+                    }
+                    mVideoDecoderError = false;
                 }
 
                 finishFlushIfPossible();
@@ -1192,6 +1204,14 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                             // When both audio and video have error, or this stream has only audio
                             // which has error, notify client of error.
                             notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
+                        } else if (mVideoEOS) {
+                            // if stream has video source and video already reached EOS, then
+                            // notify MEDIA_PLAYBACK_COMPLETE
+                            // NOTE: call audio flush and shutdown is asynchronized, video eos may
+                            // reached after this check and before audio decoder shutdown, need to
+                            // check this state again after audio decoder shutdown
+                            ALOGV("Audio encountered error, while video already reached EOS");
+                            notifyListener(MEDIA_PLAYBACK_COMPLETE, 0, 0);
                         } else {
                             // Only audio track has error. Video track could be still good to play.
                             notifyListener(MEDIA_INFO, MEDIA_INFO_PLAY_AUDIO_ERROR, err);
@@ -1203,6 +1223,14 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                             // When both audio and video have error, or this stream has only video
                             // which has error, notify client of error.
                             notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
+                        } else if (mAudioEOS) {
+                            // if stream has audio source and audio already reached EOS, then
+                            // notify MEDIA_PLAYBACK_COMPLETE
+                            // NOTE: call video flush and shutdown is asynchronized, audio eos may
+                            // reached after this check and before video decoder shutdown, need to
+                            // check this state again after video decoder shutdown
+                            ALOGV("Video encountered error, while audio already reached EOS");
+                            notifyListener(MEDIA_PLAYBACK_COMPLETE, 0, 0);
                         } else {
                             // Only video track has error. Audio track could be still good to play.
                             notifyListener(MEDIA_INFO, MEDIA_INFO_PLAY_VIDEO_ERROR, err);
