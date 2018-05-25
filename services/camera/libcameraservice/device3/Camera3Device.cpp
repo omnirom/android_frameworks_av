@@ -77,8 +77,7 @@ Camera3Device::Camera3Device(const String8 &id):
         mNextShutterFrameNumber(0),
         mNextReprocessShutterFrameNumber(0),
         mListener(NULL),
-        mVendorTagId(CAMERA_METADATA_INVALID_VENDOR_ID),
-        mLastTemplateId(-1)
+        mVendorTagId(CAMERA_METADATA_INVALID_VENDOR_ID)
 {
     ATRACE_CALL();
     camera3_callback_ops::notify = &sNotify;
@@ -1595,18 +1594,6 @@ status_t Camera3Device::configureStreams(const CameraMetadata& sessionParams, in
     Mutex::Autolock il(mInterfaceLock);
     Mutex::Autolock l(mLock);
 
-    // In case the client doesn't include any session parameter, try a
-    // speculative configuration using the values from the last cached
-    // default request.
-    if (sessionParams.isEmpty() &&
-            ((mLastTemplateId > 0) && (mLastTemplateId < CAMERA3_TEMPLATE_COUNT)) &&
-            (!mRequestTemplateCache[mLastTemplateId].isEmpty())) {
-        ALOGV("%s: Speculative session param configuration with template id: %d", __func__,
-                mLastTemplateId);
-        return filterParamsAndConfigureLocked(mRequestTemplateCache[mLastTemplateId],
-                operatingMode);
-    }
-
     return filterParamsAndConfigureLocked(sessionParams, operatingMode);
 }
 
@@ -1683,7 +1670,6 @@ status_t Camera3Device::createDefaultRequest(int templateId,
 
         if (!mRequestTemplateCache[templateId].isEmpty()) {
             *request = mRequestTemplateCache[templateId];
-            mLastTemplateId = templateId;
             return OK;
         }
     }
@@ -1708,7 +1694,6 @@ status_t Camera3Device::createDefaultRequest(int templateId,
         mRequestTemplateCache[templateId].acquire(rawRequest);
 
         *request = mRequestTemplateCache[templateId];
-        mLastTemplateId = templateId;
     }
     return OK;
 }
