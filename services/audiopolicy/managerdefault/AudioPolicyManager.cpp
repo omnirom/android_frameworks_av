@@ -4787,9 +4787,8 @@ void AudioPolicyManager::checkOutputForAllStrategies()
 void AudioPolicyManager::checkA2dpSuspend()
 {
     audio_io_handle_t a2dpOutput = mOutputs.getA2dpOutput();
-    bool a2dpOnPrimary = mOutputs.isA2dpOnPrimary();
 
-    if ((a2dpOutput == 0 || mOutputs.isA2dpOffloadedOnPrimary()) && !a2dpOnPrimary) {
+    if (a2dpOutput == 0 || mOutputs.isA2dpOffloadedOnPrimary()) {
         mA2dpSuspended = false;
         return;
     }
@@ -4819,10 +4818,7 @@ void AudioPolicyManager::checkA2dpSuspend()
                       AUDIO_POLICY_FORCE_BT_SCO) &&
               (mEngine->getPhoneState() != AUDIO_MODE_IN_CALL) &&
               (mEngine->getPhoneState() != AUDIO_MODE_RINGTONE))) {
-
-            if ((a2dpOutput != 0) && !a2dpOnPrimary) {
                 mpClientInterface->restoreOutput(a2dpOutput);
-            }
             mA2dpSuspended = false;
         }
     } else {
@@ -4833,10 +4829,7 @@ void AudioPolicyManager::checkA2dpSuspend()
                       AUDIO_POLICY_FORCE_BT_SCO) ||
               (mEngine->getPhoneState() == AUDIO_MODE_IN_CALL) ||
               (mEngine->getPhoneState() == AUDIO_MODE_RINGTONE))) {
-
-            if ((a2dpOutput != 0) && !a2dpOnPrimary) {
                 mpClientInterface->suspendOutput(a2dpOutput);
-            }
             mA2dpSuspended = true;
         }
     }
