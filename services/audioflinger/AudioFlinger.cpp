@@ -1924,7 +1924,7 @@ status_t AudioFlinger::setLowRamDevice(bool isLowRamDevice, int64_t totalMemory)
 size_t AudioFlinger::getClientSharedHeapSize() const
 {
     size_t heapSizeInBytes = property_get_int32("ro.af.client_heap_size_kbyte", 0) * 1024;
-    if (heapSizeInBytes != 0) { // read-only property overrides all.
+    if (heapSizeInBytes > mClientSharedHeapSize) { // read-only property overrides all.
         return heapSizeInBytes;
     }
     return mClientSharedHeapSize;
