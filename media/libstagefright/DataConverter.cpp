@@ -99,6 +99,9 @@ static audio_format_t getAudioFormat(AudioEncoding e) {
        case kAudioEncodingPcm24bitPacked:
             format = AUDIO_FORMAT_PCM_24_BIT_PACKED;
             break;
+       case kAudioEncodingPcm32bit:
+            format = AUDIO_FORMAT_PCM_32_BIT;
+            break;
         default:
             ALOGE("Invalid AudioEncoding %d", e);
         }
@@ -111,6 +114,7 @@ static size_t getAudioSampleSize(AudioEncoding e) {
         case kAudioEncodingPcm8bit:
         case kAudioEncodingPcmFloat:
         case kAudioEncodingPcm24bitPacked:
+        case kAudioEncodingPcm32bit:
             return audio_bytes_per_sample(getAudioFormat(e));
         default: return 0;
     }
