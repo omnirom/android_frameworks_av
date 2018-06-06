@@ -378,6 +378,9 @@ OMXNodeInstance::OMXNodeInstance(
     mMetadataType[3] = kMetadataBufferTypeInvalid;
     mPortMode[0] = IOMX::kPortModePresetByteBuffer;
     mPortMode[1] = IOMX::kPortModePresetByteBuffer;
+    mPortMode[2] = IOMX::kPortModePresetByteBuffer;
+    mPortMode[3] = IOMX::kPortModePresetByteBuffer;
+
     mSecureBufferType[0] = kSecureBufferTypeUnknown;
     mSecureBufferType[1] = kSecureBufferTypeUnknown;
     mGraphicBufferEnabled[0] = false;
