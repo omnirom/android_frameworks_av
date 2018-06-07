@@ -3560,6 +3560,9 @@ status_t MediaCodec::amendOutputFormatWithCodecSpecificData(
     AString mime;
     CHECK(mOutputFormat->findString("mime", &mime));
 
+    int32_t nalLengthBistream = 0;
+    mOutputFormat->findInt32("feature-nal-length-bitstream", &nalLengthBistream);
+
     if (!strcasecmp(mime.c_str(), MEDIA_MIMETYPE_VIDEO_AVC)) {
         // Codec specific data should be SPS and PPS in a single buffer,
         // each prefixed by a startcode (0x00 0x00 0x00 0x01).
@@ -3571,17 +3574,36 @@ status_t MediaCodec::amendOutputFormatWithCodecSpecificData(
         const uint8_t *data = buffer->data();
         size_t size = buffer->size();
 
-        const uint8_t *nalStart;
-        size_t nalSize;
-        while (getNextNALUnit(&data, &size, &nalStart, &nalSize, true) == OK) {
-            sp<ABuffer> csd = new ABuffer(nalSize + 4);
-            memcpy(csd->data(), "\x00\x00\x00\x01", 4);
-            memcpy(csd->data() + 4, nalStart, nalSize);
+        if (!nalLengthBistream) {
+            const uint8_t *nalStart;
+            size_t nalSize;
+            while (getNextNALUnit(&data, &size, &nalStart, &nalSize, true) == OK) {
+                sp<ABuffer> csd = new ABuffer(nalSize + 4);
+                memcpy(csd->data(), "\x00\x00\x00\x01", 4);
+                memcpy(csd->data() + 4, nalStart, nalSize);
 
-            mOutputFormat->setBuffer(
-                    AStringPrintf("csd-%u", csdIndex).c_str(), csd);
+                mOutputFormat->setBuffer(
+                        AStringPrintf("csd-%u", csdIndex).c_str(), csd);
 
-            ++csdIndex;
+                ++csdIndex;
+            }
+        } else {
+            int32_t bytesLeft = size;
+            const uint8_t *tmp = data;
+            while (bytesLeft > 4) {
+                int32_t nalSize = 0;
+                std::copy(tmp, tmp+4, reinterpret_cast<uint8_t *>(&nalSize));
+                nalSize = ntohl(nalSize);
+                sp<ABuffer> csd = new ABuffer(nalSize + 4);
+                memcpy(csd->data(), tmp, nalSize + 4);
+
+                mOutputFormat->setBuffer(
+                        AStringPrintf("csd-%u", csdIndex).c_str(), csd);
+
+                tmp += nalSize + 4;
+                bytesLeft -= (nalSize + 4);
+                ++csdIndex;
+            }
         }
 
         if (csdIndex != 2) {

@@ -227,8 +227,8 @@ enum {
     kKeyFrameCount       = 'nfrm', // int32_t, total number of frame in video track
     kKeyExifOffset       = 'exof', // int64_t, Exif data offset
     kKeyExifSize         = 'exsz', // int64_t, Exif data size
-    kKeySkipStartCodeSearch = 'sscs', // int32_t key to check to avoid start code search in writer
     kKeyIsExif           = 'exif', // bool (int32_t) buffer contains exif data block
+    kKeyFeatureNalLengthBitstream = 'nlbs', // int32_t key to check nal length bistream
 };
 
 enum {
