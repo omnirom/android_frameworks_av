@@ -2,6 +2,18 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
 
+#QTI Resampler
+ifeq ($(call is-vendor-board-platform,QCOM), true)
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_RESAMPLER)), true)
+LOCAL_SRC_FILES_$(TARGET_2ND_ARCH) += AudioResamplerQTI.cpp.arm
+LOCAL_HEADER_LIBRARIES_$(TARGET_2ND_ARCH) := libqti_resampler_headers \
+                                             libmedia_headers
+LOCAL_SHARED_LIBRARIES_$(TARGET_2ND_ARCH) += libqct_resampler
+LOCAL_CFLAGS_$(TARGET_2ND_ARCH) += -DQTI_RESAMPLER
+endif
+endif
+#QTI Resampler
+
 LOCAL_SRC_FILES := \
     AudioMixer.cpp.arm \
     AudioResampler.cpp.arm \
