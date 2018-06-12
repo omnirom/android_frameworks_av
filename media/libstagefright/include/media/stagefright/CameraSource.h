@@ -129,6 +129,8 @@ public:
 
     virtual void signalBufferReturned(MediaBufferBase* buffer);
 
+    virtual void notifyPerformanceMode() {}
+
 protected:
 
     /**
