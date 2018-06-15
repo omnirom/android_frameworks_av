@@ -4279,9 +4279,8 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
     if (msg->findInt32("intra-refresh-mode", &intraRefreshMode)) {
         err = setCyclicIntraMacroblockRefresh(msg, intraRefreshMode);
         if (err != OK) {
-            ALOGE("Setting intra macroblock refresh mode (%d) failed: 0x%x",
-                    err, intraRefreshMode);
-            return err;
+            ALOGE("setupAVCEncoderParameters(): set intra-refresh-mode failed, ignoring..");
+            //return err;
         }
     }
 
