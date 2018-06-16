@@ -79,6 +79,10 @@ aaudio_result_t AudioStreamTrack::open(const AudioStreamBuilder& builder)
             break;
 
         case AAUDIO_PERFORMANCE_MODE_NONE:
+            // Use primary output to avoid AAudio using direct output
+            flags = AUDIO_OUTPUT_FLAG_PRIMARY;
+            break;
+
         default:
             // No flags. Use a normal mixer in front of the FAST mixer.
             break;
