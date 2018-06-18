@@ -26,7 +26,9 @@
 #include <media/stagefright/MediaErrors.h>
 #include <media/hardware/HardwareAPI.h>
 #include <system/graphics-base.h>
+#ifdef __ANDROID_VNDK_EXT__
 #include <media/stagefright/ExtendedMediaDefs.h>
+#endif
 
 namespace android {
 
@@ -118,6 +120,7 @@ const char *GetComponentRole(bool isEncoder, const char *mime) {
     };
 
     static const MimeToRole kMimeToRole[] = {
+#ifdef __ANDROID_VNDK_EXT__
         { MEDIA_MIMETYPE_AUDIO_EVRC,
           "audio_decoder.evrchw", "audio_encoder.evrc" },
         { MEDIA_MIMETYPE_AUDIO_QCELP,
@@ -152,6 +155,7 @@ const char *GetComponentRole(bool isEncoder, const char *mime) {
             "video_decoder.mpeg4", NULL },
         { MEDIA_MIMETYPE_VIDEO_TME,
           NULL, "video_encoder.tme" },
+#endif
         { MEDIA_MIMETYPE_AUDIO_MPEG,
             "audio_decoder.mp3", "audio_encoder.mp3" },
         { MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_I,
@@ -189,14 +193,18 @@ const char *GetComponentRole(bool isEncoder, const char *mime) {
         { MEDIA_MIMETYPE_VIDEO_DOLBY_VISION,
             "video_decoder.dolby-vision", "video_encoder.dolby-vision" },
 #ifdef QTI_FLAC_DECODER
+#ifdef __ANDROID_VNDK_EXT__
         { MEDIA_MIMETYPE_AUDIO_FLAC,
             "audio_decoder.flac", NULL },
+#endif
 #else
         { MEDIA_MIMETYPE_AUDIO_FLAC,
             "audio_decoder.flac", "audio_encoder.flac" },
 #endif
+#ifdef __ANDROID_VNDK_EXT__
         { MEDIA_MIMETYPE_AUDIO_DSD,
             "audio_decoder.dsd", NULL },
+#endif
         { MEDIA_MIMETYPE_AUDIO_MSGSM,
             "audio_decoder.gsm", "audio_encoder.gsm" },
         { MEDIA_MIMETYPE_VIDEO_MPEG2,
