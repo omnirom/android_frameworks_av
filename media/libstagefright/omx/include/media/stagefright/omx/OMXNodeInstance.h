@@ -152,16 +152,16 @@ private:
     KeyedVector<OMX_BUFFERHEADERTYPE *, IOMX::buffer_id> mBufferHeaderToBufferID;
 
     bool mLegacyAdaptiveExperiment;
-    IOMX::PortMode mPortMode[4];
+    IOMX::PortMode mPortMode[2];
     // metadata and secure buffer type tracking
-    MetadataBufferType mMetadataType[4];
+    MetadataBufferType mMetadataType[2];
     enum SecureBufferType {
         kSecureBufferTypeUnknown,
         kSecureBufferTypeOpaque,
         kSecureBufferTypeNativeHandle,
     };
     SecureBufferType mSecureBufferType[2];
-    bool mGraphicBufferEnabled[4];
+    bool mGraphicBufferEnabled[2];
 
     // Following are OMX parameters managed by us (instead of the component)
     // OMX_IndexParamMaxFrameDurationForBitrateControl
@@ -174,7 +174,7 @@ private:
     // For debug support
     char *mName;
     int DEBUG;
-    size_t mNumPortBuffers[4];  // modified under mLock, read outside for debug
+    size_t mNumPortBuffers[2];  // modified under mLock, read outside for debug
     Mutex mDebugLock;
     // following are modified and read under mDebugLock
     int DEBUG_BUMP;
