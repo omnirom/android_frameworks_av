@@ -368,25 +368,17 @@ OMXNodeInstance::OMXNodeInstance(
     DEBUG_BUMP = DEBUG;
     mNumPortBuffers[0] = 0;
     mNumPortBuffers[1] = 0;
-    mNumPortBuffers[2] = 0;
-    mNumPortBuffers[3] = 0;
     mDebugLevelBumpPendingBuffers[0] = 0;
     mDebugLevelBumpPendingBuffers[1] = 0;
     mMetadataType[0] = kMetadataBufferTypeInvalid;
     mMetadataType[1] = kMetadataBufferTypeInvalid;
-    mMetadataType[2] = kMetadataBufferTypeInvalid;
-    mMetadataType[3] = kMetadataBufferTypeInvalid;
     mPortMode[0] = IOMX::kPortModePresetByteBuffer;
     mPortMode[1] = IOMX::kPortModePresetByteBuffer;
-    mPortMode[2] = IOMX::kPortModePresetByteBuffer;
-    mPortMode[3] = IOMX::kPortModePresetByteBuffer;
 
     mSecureBufferType[0] = kSecureBufferTypeUnknown;
     mSecureBufferType[1] = kSecureBufferTypeUnknown;
     mGraphicBufferEnabled[0] = false;
     mGraphicBufferEnabled[1] = false;
-    mGraphicBufferEnabled[2] = false;
-    mGraphicBufferEnabled[3] = false;
     mIsSecure = AString(name).endsWith(".secure");
     mLegacyAdaptiveExperiment = ADebug::isExperimentEnabled("legacy-adaptive");
     if (!strcmp(mName, "qcom.encoder.tme")) {
@@ -1075,7 +1067,9 @@ status_t OMXNodeInstance::useBuffer(
         return BAD_VALUE;
     }
 
-    if (portIndex >= NELEM(mNumPortBuffers)) {
+    if (portIndex == kPortIndexInputExtradata || portIndex == kPortIndexOutputExtradata) {
+        // Allow extradata ports
+    } else if (portIndex >= NELEM(mNumPortBuffers)) {
         return BAD_VALUE;
     }
 
@@ -1111,7 +1105,9 @@ status_t OMXNodeInstance::useBuffer(
         }
 
         case OMXBuffer::kBufferTypeHidlMemory: {
-                if (mPortMode[portIndex] != IOMX::kPortModePresetByteBuffer
+                if (portIndex == kPortIndexInputExtradata || portIndex == kPortIndexOutputExtradata) {
+                // Allow extradata ports
+                } else if (mPortMode[portIndex] != IOMX::kPortModePresetByteBuffer
                         && mPortMode[portIndex] != IOMX::kPortModeDynamicANWBuffer
                         && mPortMode[portIndex] != IOMX::kPortModeDynamicNativeHandle) {
                     break;
@@ -1140,9 +1136,16 @@ status_t OMXNodeInstance::useBuffer_l(
     BufferMeta *buffer_meta;
     OMX_BUFFERHEADERTYPE *header;
     OMX_ERRORTYPE err = OMX_ErrorNone;
-    bool isMetadata = mMetadataType[portIndex] != kMetadataBufferTypeInvalid;
+     bool isMetadata;
+    if (portIndex == kPortIndexInputExtradata || portIndex == kPortIndexOutputExtradata) {
+        isMetadata = false;
+    } else {
+        isMetadata = mMetadataType[portIndex] != kMetadataBufferTypeInvalid;
+    }
 
-    if (!isMetadata && mGraphicBufferEnabled[portIndex]) {
+    if (portIndex == kPortIndexInputExtradata || portIndex == kPortIndexOutputExtradata) {
+        // Allow extradata ports
+    } else if (!isMetadata && mGraphicBufferEnabled[portIndex]) {
         ALOGE("b/62948670");
         android_errorWriteLog(0x534e4554, "62948670");
         return INVALID_OPERATION;
@@ -1183,9 +1186,14 @@ status_t OMXNodeInstance::useBuffer_l(
         allottedSize = paramsSize;
     }
 
-    bool isOutputGraphicMetadata = (portIndex == kPortIndexOutput) &&
-            (mMetadataType[portIndex] == kMetadataBufferTypeGrallocSource ||
-                    mMetadataType[portIndex] == kMetadataBufferTypeANWBuffer);
+    bool isOutputGraphicMetadata;
+    if (portIndex == kPortIndexInputExtradata || portIndex == kPortIndexOutputExtradata) {
+        isOutputGraphicMetadata = false;
+    } else {
+        isOutputGraphicMetadata = (portIndex == kPortIndexOutput) &&
+                (mMetadataType[portIndex] == kMetadataBufferTypeGrallocSource ||
+                        mMetadataType[portIndex] == kMetadataBufferTypeANWBuffer);
+    }
 
     uint32_t requiresAllocateBufferBit =
         (portIndex == kPortIndexInput)
@@ -2364,7 +2372,9 @@ void OMXNodeInstance::addActiveBuffer(OMX_U32 portIndex, IOMX::buffer_id id) {
     active.mID = id;
     mActiveBuffers.push(active);
 
-    if (portIndex < NELEM(mNumPortBuffers)) {
+    if (portIndex == kPortIndexInputExtradata || portIndex == kPortIndexOutputExtradata) {
+        // Allow extradata ports
+    } else if (portIndex < NELEM(mNumPortBuffers)) {
         ++mNumPortBuffers[portIndex];
     }
 }
@@ -2376,7 +2386,9 @@ void OMXNodeInstance::removeActiveBuffer(
                 && mActiveBuffers[i].mID == id) {
             mActiveBuffers.removeItemsAt(i);
 
-            if (portIndex < NELEM(mNumPortBuffers)) {
+            if (portIndex == kPortIndexInputExtradata || portIndex == kPortIndexOutputExtradata) {
+                // Allow extradata ports
+            } else if (portIndex < NELEM(mNumPortBuffers)) {
                 --mNumPortBuffers[portIndex];
             }
             return;
