@@ -113,7 +113,7 @@ constexpr char const* MediaCodecsXmlParser::defaultSearchDirs[];
 constexpr char const* MediaCodecsXmlParser::defaultMainXmlName;
 constexpr char const* MediaCodecsXmlParser::defaultPerformanceXmlName;
 constexpr char const* MediaCodecsXmlParser::defaultProfilingResultsXmlPath;
-constexpr char const* MediaCodecsXmlParser::vendorMediaCodecsAudioXmlName;
+constexpr char const* vendorMediaCodecsAudioXmlName = "media_codecs_vendor_audio.xml";
 
 MediaCodecsXmlParser::MediaCodecsXmlParser(
         const char* const* searchDirs,
