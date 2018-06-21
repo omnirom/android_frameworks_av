@@ -2532,8 +2532,13 @@ const uint8_t *MPEG4Writer::Track::parseParamSet(
     CHECK(type == kNalUnitTypeSeqParamSet ||
           type == kNalUnitTypePicParamSet);
 
+    int32_t nalLengthBistream = mNalLengthBitstream;
+    if (!memcmp("\x00\x00\x00\x01", data, 4)) {
+        nalLengthBistream = 0;
+    }
+
     const uint8_t *nextStartCode = NULL;
-    if (mNalLengthBitstream) {
+    if (nalLengthBistream) {
         uint32_t nalSize = 0;
         std::copy(data, data + 4, reinterpret_cast<uint8_t *>(&nalSize));
         nalSize = ntohl(nalSize);
@@ -2790,7 +2795,12 @@ status_t MPEG4Writer::Track::parseHEVCCodecSpecificData(
     const uint8_t *tmp = data;
     const uint8_t *nextStartCode = data;
     size_t bytesLeft = size;
-    if (mNalLengthBitstream) {
+    int32_t nalLengthBistream = mNalLengthBitstream;
+    if (!memcmp("\x00\x00\x00\x01", tmp, 4)) {
+        nalLengthBistream = 0;
+    }
+
+    if (nalLengthBistream) {
         while  (bytesLeft > 4) {
             uint32_t nalSize = 0;
             std::copy(tmp, tmp+4, reinterpret_cast<uint8_t *>(&nalSize));
