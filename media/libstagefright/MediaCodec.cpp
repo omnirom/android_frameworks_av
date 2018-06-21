@@ -3574,6 +3574,9 @@ status_t MediaCodec::amendOutputFormatWithCodecSpecificData(
         const uint8_t *data = buffer->data();
         size_t size = buffer->size();
 
+        if (!memcmp(data, "\x00\x00\x00\x01", 4)) {
+            nalLengthBistream = 0;
+        }
         if (!nalLengthBistream) {
             const uint8_t *nalStart;
             size_t nalSize;
