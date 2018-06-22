@@ -42,7 +42,7 @@ LOCAL_SHARED_LIBRARIES := \
     libcutils \
     libhwbinder \
     libhidltransport \
-    libstagefright_omx \
+    libstagefright_omx_ext \
     libstagefright_xmlparser \
     android.hardware.media.omx@1.0 \
     android.hidl.memory@1.0
