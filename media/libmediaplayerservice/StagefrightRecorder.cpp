@@ -2023,7 +2023,7 @@ status_t StagefrightRecorder::resume() {
             mPauseStartTimeUs = bufferStartTimeUs;
         }
         // 30 ms buffer to avoid timestamp overlap
-        mTotalPausedDurationUs += resumeStartTimeUs - mPauseStartTimeUs - 3000;
+        mTotalPausedDurationUs += resumeStartTimeUs - mPauseStartTimeUs - 30000;
     }
     double timeOffset = -mTotalPausedDurationUs;
     if (mCaptureFpsEnable) {
