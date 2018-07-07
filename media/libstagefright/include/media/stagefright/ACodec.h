@@ -320,7 +320,7 @@ protected:
             OMX_U32 *nBufferCount, OMX_U32 *nBufferSize,
             OMX_U32 *nMinUndequeuedBuffers, bool preregister);
     status_t allocateOutputMetadataBuffers();
-    status_t submitOutputMetadataBuffer();
+    virtual status_t submitOutputMetadataBuffer();
     void signalSubmitOutputMetadataBufferIfEOS_workaround();
     status_t allocateOutputBuffersFromNativeWindow();
     status_t cancelBufferToNativeWindow(BufferInfo *info);
