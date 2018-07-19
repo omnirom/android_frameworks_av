@@ -2476,7 +2476,7 @@ status_t MPEG4Writer::Track::stop(bool stopSource) {
 
     if (!mIsAudio && mOwner->getLastAudioTimeStamp() &&
         !mOwner->exceedsFileDurationLimit() &&
-        !mIsMalformed) {
+        !mIsMalformed && !mIsStopping) {
         Mutex::Autolock lock(mTrackCompletionLock);
         mIsStopping = true;
         if (mTrackCompletionSignal.waitRelative(mTrackCompletionLock, kWaitDuration)) {
