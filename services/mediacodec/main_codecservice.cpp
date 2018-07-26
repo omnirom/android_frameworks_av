@@ -27,6 +27,8 @@
 
 #include <media/CodecServiceRegistrant.h>
 #include <dlfcn.h>
+#include <hwbinder/ProcessState.h>
+#include <cutils/properties.h>
 
 using namespace android;
 
@@ -36,8 +38,31 @@ static const char kSystemSeccompPolicyPath[] =
 static const char kVendorSeccompPolicyPath[] =
         "/vendor/etc/seccomp_policy/mediacodec.policy";
 
+#if ENABLE_BINDER_BUFFER_TUNING_FOR_32_BIT
+size_t getHWBinderMmapSize(){
+
+    int32_t value = 1;
+    char property_value[PROPERTY_VALUE_MAX] = {0};
+    property_get("vendor.mediacodec.binder.size",property_value,"0");
+    if (atoi(property_value)) {
+        value = atoi(property_value);
+    }
+
+    if (value == 1) {
+        ALOGD("Init with default binder size of 4K");
+    } else {
+        ALOGD("Init with binder size 4k * %d ", value);
+    }
+
+    return (size_t)(4096 * value);
+}
+#endif
+
 int main(int argc __unused, char** argv)
 {
+#if ENABLE_BINDER_BUFFER_TUNING_FOR_32_BIT
+    android::hardware::ProcessState::initWithMmapSize(getHWBinderMmapSize());
+#endif
     strcpy(argv[0], "media.codec");
     LOG(INFO) << "mediacodecservice starting";
     signal(SIGPIPE, SIG_IGN);
