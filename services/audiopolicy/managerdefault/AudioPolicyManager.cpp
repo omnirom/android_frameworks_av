@@ -786,8 +786,15 @@ audio_io_handle_t AudioPolicyManager::getOutput(audio_stream_type_t stream)
     // and AudioSystem::getOutputSamplingRate().
 
     SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device, mOutputs);
-    audio_io_handle_t output = selectOutput(outputs, AUDIO_OUTPUT_FLAG_NONE, AUDIO_FORMAT_INVALID);
-
+    audio_io_handle_t output;
+    if (stream == AUDIO_STREAM_MUSIC  &&
+            property_get_bool("audio.deep_buffer.media", false /* default_value */)) {
+        // use DEEP_BUFFER as default output for music stream type
+         output = selectOutput(outputs, AUDIO_OUTPUT_FLAG_DEEP_BUFFER, AUDIO_FORMAT_INVALID);
+    }
+    else{
+          output = selectOutput(outputs, AUDIO_OUTPUT_FLAG_NONE, AUDIO_FORMAT_INVALID);
+    }
     ALOGV("getOutput() stream %d selected device %08x, output %d", stream, device, output);
     return output;
 }
