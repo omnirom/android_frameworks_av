@@ -149,6 +149,15 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                 } else {
                     parseTopLevelXMLFile(path.c_str(), false);
                 }
+            } else if (!strcmp(platform, "msm8953")) {
+                if (property_get("vendor.media.msm8953.version", value, "0") &&
+                    (atoi(value) == 1)){
+                    strlcpy(file_path, "/vendor/etc/media_codecs_8953_v1.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_8953.xml",
+                            PROP_VALUE_MAX);
+                }
             } else {
                 parseTopLevelXMLFile(path.c_str(), false);
             }
@@ -168,6 +177,15 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                             PROP_VALUE_MAX);
                 } else {
                     strlcpy(file_path, "/vendor/etc/media_codecs_performance.xml",
+                            PROP_VALUE_MAX);
+                }
+            } else if (!strcmp(platform, "msm8953")) {
+                if (property_get("vendor.media.msm8953.version", value, "0") &&
+                    (atoi(value) == 1)){
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance_8953_v1.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance_8953.xml",
                             PROP_VALUE_MAX);
                 }
             } else {
