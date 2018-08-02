@@ -17,13 +17,13 @@
 #define LOG_TAG "AudioPolicyIntefaceImpl"
 //#define LOG_NDEBUG 0
 
-#include <utils/Log.h>
-#include <cutils/properties.h>
-#include <media/MediaAnalyticsItem.h>
-
 #include "AudioPolicyService.h"
-#include "ServiceUtilities.h"
 #include "TypeConverter.h"
+#include <cutils/properties.h>
+#include <media/AudioPolicyHelper.h>
+#include <media/MediaAnalyticsItem.h>
+#include <mediautils/ServiceUtilities.h>
+#include <utils/Log.h>
 
 namespace android {
 
@@ -184,7 +184,7 @@ status_t AudioPolicyService::getOutputForAttr(const audio_attributes_t *attr,
     Mutex::Autolock _l(mLock);
 
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
-    if (!isTrustedCallingUid(callingUid) || uid == (uid_t)-1) {
+    if (!isAudioServerOrMediaServerUid(callingUid) || uid == (uid_t)-1) {
         ALOGW_IF(uid != (uid_t)-1 && uid != callingUid,
                 "%s uid %d tried to pass itself off as %d", __FUNCTION__, callingUid, uid);
         uid = callingUid;
@@ -209,16 +209,17 @@ status_t AudioPolicyService::getOutputForAttr(const audio_attributes_t *attr,
                                                  config,
                                                  &flags, selectedDeviceId, portId);
     }
+
+    if (result == NO_ERROR) {
+        sp <AudioPlaybackClient> client =
+            new AudioPlaybackClient(*attr, *output, uid, pid, session, *selectedDeviceId, *stream);
+        mAudioPlaybackClients.add(*portId, client);
+    }
     return result;
 }
 
-status_t AudioPolicyService::startOutput(audio_io_handle_t output,
-                                         audio_stream_type_t stream,
-                                         audio_session_t session)
+status_t AudioPolicyService::startOutput(audio_port_handle_t portId)
 {
-    if (uint32_t(stream) >= AUDIO_STREAM_CNT) {
-        return BAD_VALUE;
-    }
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
@@ -237,79 +238,113 @@ status_t AudioPolicyService::doStartOutput(audio_io_handle_t output,
         return NO_INIT;
     }
     ALOGV("doStartOutput()");
+    sp<AudioPlaybackClient> client;
     sp<AudioPolicyEffects>audioPolicyEffects;
     {
         Mutex::Autolock _l(mLock);
+        const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
+        if (index < 0) {
+            ALOGE("%s AudioTrack client not found for portId %d", __FUNCTION__, portId);
+            return INVALID_OPERATION;
+        }
+        client = mAudioPlaybackClients.valueAt(index);
         audioPolicyEffects = mAudioPolicyEffects;
     }
     if (audioPolicyEffects != 0) {
         // create audio processors according to stream
-        status_t status = audioPolicyEffects->addOutputSessionEffects(output, stream, session);
+        status_t status = audioPolicyEffects->addOutputSessionEffects(
+            client->io, client->stream, client->session);
         if (status != NO_ERROR && status != ALREADY_EXISTS) {
-            ALOGW("Failed to add effects on session %d", session);
+            ALOGW("Failed to add effects on session %d", client->session);
         }
     }
     Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
-    return mAudioPolicyManager->startOutput(output, stream, session);
+    status_t status = mAudioPolicyManager->startOutput(
+        client->io, client->stream, client->session);
+    if (status == NO_ERROR) {
+        client->active = true;
+    }
+    return status;
 }
 
-status_t AudioPolicyService::stopOutput(audio_io_handle_t output,
-                                        audio_stream_type_t stream,
-                                        audio_session_t session)
+status_t AudioPolicyService::stopOutput(audio_port_handle_t portId)
 {
-    if (uint32_t(stream) >= AUDIO_STREAM_CNT) {
-        return BAD_VALUE;
+    {
+        Mutex::Autolock _l(mLock);
+
+        const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
+        if (index < 0) {
+            ALOGE("%s AudioTrack client not found for portId %d", __FUNCTION__, portId);
+            return INVALID_OPERATION;
+        }
     }
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
     ALOGV("stopOutput()");
-    mOutputCommandThread->stopOutputCommand(output, stream, session);
+    mOutputCommandThread->stopOutputCommand(portId);
     return NO_ERROR;
 }
 
-status_t  AudioPolicyService::doStopOutput(audio_io_handle_t output,
-                                      audio_stream_type_t stream,
-                                      audio_session_t session)
+status_t  AudioPolicyService::doStopOutput(audio_port_handle_t portId)
 {
-    ALOGV("doStopOutput from tid %d", gettid());
+    ALOGV("doStopOutput");
+    sp<AudioPlaybackClient> client;
     sp<AudioPolicyEffects>audioPolicyEffects;
     {
         Mutex::Autolock _l(mLock);
+
+        const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
+        if (index < 0) {
+            ALOGE("%s AudioTrack client not found for portId %d", __FUNCTION__, portId);
+            return INVALID_OPERATION;
+        }
+        client = mAudioPlaybackClients.valueAt(index);
         audioPolicyEffects = mAudioPolicyEffects;
     }
     if (audioPolicyEffects != 0) {
         // release audio processors from the stream
-        status_t status = audioPolicyEffects->releaseOutputSessionEffects(output, stream, session);
+        status_t status = audioPolicyEffects->releaseOutputSessionEffects(
+            client->io, client->stream, client->session);
         if (status != NO_ERROR && status != ALREADY_EXISTS) {
-            ALOGW("Failed to release effects on session %d", session);
+            ALOGW("Failed to release effects on session %d", client->session);
         }
     }
     Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
-    return mAudioPolicyManager->stopOutput(output, stream, session);
+    status_t status = mAudioPolicyManager->stopOutput(
+        client->io, client->stream, client->session);
+    if (status == NO_ERROR) {
+        client->active = false;
+    }
+    return status;
 }
 
-void AudioPolicyService::releaseOutput(audio_io_handle_t output,
-                                       audio_stream_type_t stream,
-                                       audio_session_t session)
+void AudioPolicyService::releaseOutput(audio_port_handle_t portId)
 {
     if (mAudioPolicyManager == NULL) {
         return;
     }
     ALOGV("releaseOutput()");
-    mOutputCommandThread->releaseOutputCommand(output, stream, session);
+    mOutputCommandThread->releaseOutputCommand(portId);
 }
 
-void AudioPolicyService::doReleaseOutput(audio_io_handle_t output,
-                                         audio_stream_type_t stream,
-                                         audio_session_t session)
+void AudioPolicyService::doReleaseOutput(audio_port_handle_t portId)
 {
     ALOGV("doReleaseOutput from tid %d", gettid());
     Mutex::Autolock _l(mLock);
+    const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
+    if (index < 0) {
+        ALOGE("%s AudioTrack client not found for portId %d", __FUNCTION__, portId);
+        return;
+    }
+    sp<AudioPlaybackClient> client = mAudioPlaybackClients.valueAt(index);
+    mAudioRecordClients.removeItem(portId);
+
     // called from internal thread: no need to clear caller identity
-    mAudioPolicyManager->releaseOutput(output, stream, session);
+    mAudioPolicyManager->releaseOutput(
+        client->io, client->stream, client->session);
 }
 
 status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
@@ -335,7 +370,7 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
 
     bool updatePid = (pid == -1);
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
-    if (!isTrustedCallingUid(callingUid)) {
+    if (!isAudioServerOrMediaServerUid(callingUid)) {
         ALOGW_IF(uid != (uid_t)-1 && uid != callingUid,
                 "%s uid %d tried to pass itself off as %d", __FUNCTION__, callingUid, uid);
         uid = callingUid;
@@ -426,12 +461,8 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
             return status;
         }
 
-        sp<AudioRecordClient> client =
-                new AudioRecordClient(*attr, *input, uid, pid, opPackageName, session);
-        client->active = false;
-        client->isConcurrent = false;
-        client->isVirtualDevice = false; //TODO : update from APM->getInputForAttr()
-        client->deviceId = *selectedDeviceId;
+        sp<AudioRecordClient> client = new AudioRecordClient(*attr, *input, uid, pid, session,
+                                                             *selectedDeviceId, opPackageName);
         mAudioRecordClients.add(*portId, client);
     }
 
@@ -520,7 +551,7 @@ status_t AudioPolicyService::startInput(audio_port_handle_t portId, bool *silenc
     {
         AutoCallerClear acc;
         status = mAudioPolicyManager->startInput(
-                    client->input, client->session, *silenced, &concurrency);
+                    client->io, client->session, *silenced, &concurrency);
 
     }
 
@@ -551,10 +582,13 @@ status_t AudioPolicyService::startInput(audio_port_handle_t portId, bool *silenc
 
             item->setCString(kAudioPolicyRqstSrc,
                              audioSourceString(client->attributes.source).c_str());
-            item->setCString(kAudioPolicyRqstPkg,
-                             std::string(String8(client->opPackageName).string()).c_str());
             item->setInt32(kAudioPolicyRqstSession, client->session);
-
+            if (client->opPackageName.size() != 0) {
+                item->setCString(kAudioPolicyRqstPkg,
+                                 std::string(String8(client->opPackageName).string()).c_str());
+            } else {
+                item->setCString(kAudioPolicyRqstPkg, std::to_string(client->uid).c_str());
+            }
             item->setCString(
                     kAudioPolicyRqstDevice, getDeviceTypeStrForPortId(client->deviceId).c_str());
 
@@ -573,9 +607,14 @@ status_t AudioPolicyService::startInput(audio_port_handle_t portId, bool *silenc
                         // keeps the last of the clients marked active
                         item->setCString(kAudioPolicyActiveSrc,
                                          audioSourceString(other->attributes.source).c_str());
-                        item->setCString(kAudioPolicyActivePkg,
-                                     std::string(String8(other->opPackageName).string()).c_str());
                         item->setInt32(kAudioPolicyActiveSession, other->session);
+                        if (other->opPackageName.size() != 0) {
+                            item->setCString(kAudioPolicyActivePkg,
+                                 std::string(String8(other->opPackageName).string()).c_str());
+                        } else {
+                            item->setCString(kAudioPolicyRqstPkg,
+                                             std::to_string(other->uid).c_str());
+                        }
                         item->setCString(kAudioPolicyActiveDevice,
                                          getDeviceTypeStrForPortId(other->deviceId).c_str());
                     }
@@ -625,7 +664,7 @@ status_t AudioPolicyService::stopInput(audio_port_handle_t portId)
     // finish the recording app op
     finishRecording(client->opPackageName, client->uid);
     AutoCallerClear acc;
-    return mAudioPolicyManager->stopInput(client->input, client->session);
+    return mAudioPolicyManager->stopInput(client->io, client->session);
 }
 
 void AudioPolicyService::releaseInput(audio_port_handle_t portId)
@@ -650,15 +689,15 @@ void AudioPolicyService::releaseInput(audio_port_handle_t portId)
     }
     if (audioPolicyEffects != 0) {
         // release audio processors from the input
-        status_t status = audioPolicyEffects->releaseInputEffects(client->input, client->session);
+        status_t status = audioPolicyEffects->releaseInputEffects(client->io, client->session);
         if(status != NO_ERROR) {
-            ALOGW("Failed to release effects on input %d", client->input);
+            ALOGW("Failed to release effects on input %d", client->io);
         }
     }
     {
         Mutex::Autolock _l(mLock);
         AutoCallerClear acc;
-        mAudioPolicyManager->releaseInput(client->input, client->session);
+        mAudioPolicyManager->releaseInput(client->io, client->session);
     }
 }
 

@@ -281,7 +281,7 @@ public:
     virtual     status_t    createAudioPatch_l(const struct audio_patch *patch,
                                                audio_patch_handle_t *handle) = 0;
     virtual     status_t    releaseAudioPatch_l(const audio_patch_handle_t handle) = 0;
-    virtual     void        getAudioPortConfig(struct audio_port_config *config) = 0;
+    virtual     void        toAudioPortConfig(struct audio_port_config *config) = 0;
 
 
                 // see note at declaration of mStandby, mOutDevice and mInDevice
@@ -434,6 +434,12 @@ protected:
     virtual     void        setMasterMono_l(bool mono __unused) { }
     virtual     bool        requireMonoBlend() { return false; }
 
+                            // called within the threadLoop to obtain timestamp from the HAL.
+    virtual     status_t    threadloop_getHalTimestamp_l(
+                                    ExtendedTimestamp *timestamp __unused) const {
+                                return INVALID_OPERATION;
+                            }
+
     friend class AudioFlinger;      // for mEffectChains
 
                 const type_t            mType;
@@ -493,10 +499,16 @@ protected:
                 sp<NBLog::Writer>       mNBLogWriter;
                 bool                    mSystemReady;
                 ExtendedTimestamp       mTimestamp;
+                TimestampVerifier< // For timestamp statistics.
+                        int64_t /* frame count */, int64_t /* time ns */> mTimestampVerifier;
+
                 // A condition that must be evaluated by the thread loop has changed and
                 // we must not wait for async write callback in the thread loop before evaluating it
                 bool                    mSignalPending;
 
+#ifdef TEE_SINK
+                NBAIO_Tee               mTee;
+#endif
                 // ActiveTracks is a sorted vector of track type T representing the
                 // active tracks of threadLoop() to be considered by the locked prepare portion.
                 // ActiveTracks should be accessed with the ThreadBase lock held.
@@ -783,7 +795,7 @@ public:
                 void        addPatchTrack(const sp<PatchTrack>& track);
                 void        deletePatchTrack(const sp<PatchTrack>& track);
 
-    virtual     void        getAudioPortConfig(struct audio_port_config *config);
+    virtual     void        toAudioPortConfig(struct audio_port_config *config);
 
                 // Return the asynchronous signal wait time.
     virtual     int64_t     computeWaitTimeNs_l() const { return INT64_MAX; }
@@ -1055,11 +1067,6 @@ private:
     sp<NBAIO_Sink>          mPipeSink;
     // The current sink for the normal mixer to write it's (sub)mix, mOutputSink or mPipeSink
     sp<NBAIO_Sink>          mNormalSink;
-#ifdef TEE_SINK
-    // For dumpsys
-    sp<NBAIO_Sink>          mTeeSink;
-    sp<NBAIO_Source>        mTeeSource;
-#endif
     uint32_t                mScreenState;   // cached copy of gScreenState
     // TODO: add comment and adjust size as needed
     static const size_t     kFastMixerLogSize = 8 * 1024;
@@ -1156,6 +1163,14 @@ public:
                               return mFastMixerDumpState.mTracks[fastIndex].mUnderruns;
                             }
 
+                status_t    threadloop_getHalTimestamp_l(
+                                    ExtendedTimestamp *timestamp) const override {
+                                if (mNormalSink.get() != nullptr) {
+                                    return mNormalSink->getTimestamp(*timestamp);
+                                }
+                                return INVALID_OPERATION;
+                            }
+
 protected:
     virtual     void       setMasterMono_l(bool mono) {
                                mMasterMono.store(mono);
@@ -1218,6 +1233,22 @@ public:
 
     virtual     int64_t     computeWaitTimeNs_l() const override;
 
+    status_t    threadloop_getHalTimestamp_l(ExtendedTimestamp *timestamp) const override {
+                    // For DIRECT and OFFLOAD threads, query the output sink directly.
+                    if (mOutput != nullptr) {
+                        uint64_t uposition64;
+                        struct timespec time;
+                        if (mOutput->getPresentationPosition(
+                                &uposition64, &time) == OK) {
+                            timestamp->mPosition[ExtendedTimestamp::LOCATION_KERNEL]
+                                    = (int64_t)uposition64;
+                            timestamp->mTimeNs[ExtendedTimestamp::LOCATION_KERNEL]
+                                    = audio_utils_ns_from_timespec(&time);
+                            return NO_ERROR;
+                        }
+                    }
+                    return INVALID_OPERATION;
+                }
     virtual     status_t    getTimestamp_l(AudioTimestamp& timestamp) override;
 };
 
@@ -1326,6 +1357,22 @@ private:
     SortedVector < sp<OutputTrack> >  mOutputTracks;
 public:
     virtual     bool        hasFastMixer() const { return false; }
+                status_t    threadloop_getHalTimestamp_l(
+                                    ExtendedTimestamp *timestamp) const override {
+        if (mOutputTracks.size() > 0) {
+            // forward the first OutputTrack's kernel information for timestamp.
+            const ExtendedTimestamp trackTimestamp =
+                    mOutputTracks[0]->getClientProxyTimestamp();
+            if (trackTimestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL] > 0) {
+                timestamp->mTimeNs[ExtendedTimestamp::LOCATION_KERNEL] =
+                        trackTimestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL];
+                timestamp->mPosition[ExtendedTimestamp::LOCATION_KERNEL] =
+                        trackTimestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL];
+                return OK;  // discard server timestamp - that's ignored.
+            }
+        }
+        return INVALID_OPERATION;
+    }
 };
 
 // record thread
@@ -1384,9 +1431,6 @@ public:
                     audio_devices_t outDevice,
                     audio_devices_t inDevice,
                     bool systemReady
-#ifdef TEE_SINK
-                    , const sp<NBAIO_Sink>& teeSink
-#endif
                     );
             virtual     ~RecordThread();
 
@@ -1447,8 +1491,8 @@ public:
                                            audio_patch_handle_t *handle);
     virtual status_t    releaseAudioPatch_l(const audio_patch_handle_t handle);
 
-            void        addPatchRecord(const sp<PatchRecord>& record);
-            void        deletePatchRecord(const sp<PatchRecord>& record);
+            void        addPatchTrack(const sp<PatchRecord>& record);
+            void        deletePatchTrack(const sp<PatchRecord>& record);
 
             void        readInputParameters_l();
     virtual uint32_t    getInputFramesLost();
@@ -1469,7 +1513,7 @@ public:
 
     virtual size_t      frameCount() const { return mFrameCount; }
             bool        hasFastCapture() const { return mFastCapture != 0; }
-    virtual void        getAudioPortConfig(struct audio_port_config *config);
+    virtual void        toAudioPortConfig(struct audio_port_config *config);
 
     virtual status_t    checkEffectCompatibility_l(const effect_descriptor_t *desc,
                                                    audio_session_t sessionId);
@@ -1516,8 +1560,6 @@ private:
             int32_t                             mRsmpInRear;    // last filled frame + 1
 
             // For dumpsys
-            const sp<NBAIO_Sink>                mTeeSink;
-
             const sp<MemoryDealer>              mReadOnlyHeap;
 
             // one-time initialization, no locks required
@@ -1612,7 +1654,7 @@ class MmapThread : public ThreadBase
     virtual     status_t    createAudioPatch_l(const struct audio_patch *patch,
                                                audio_patch_handle_t *handle);
     virtual     status_t    releaseAudioPatch_l(const audio_patch_handle_t handle);
-    virtual     void        getAudioPortConfig(struct audio_port_config *config);
+    virtual     void        toAudioPortConfig(struct audio_port_config *config);
 
     virtual     sp<StreamHalInterface> stream() const { return mHalStream; }
     virtual     status_t    addEffectChain_l(const sp<EffectChain>& chain);
@@ -1696,6 +1738,8 @@ public:
 
                 void        updateMetadata_l() override;
 
+    virtual     void        toAudioPortConfig(struct audio_port_config *config);
+
 protected:
 
                 audio_stream_type_t         mStreamType;
@@ -1723,6 +1767,8 @@ public:
                 void           updateMetadata_l() override;
                 void           processVolume_l() override;
                 void           setRecordSilenced(uid_t uid, bool silenced) override;
+
+    virtual     void           toAudioPortConfig(struct audio_port_config *config);
 
 protected:
 

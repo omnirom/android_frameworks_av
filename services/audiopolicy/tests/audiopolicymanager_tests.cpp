@@ -16,8 +16,14 @@
 
 #include <memory>
 #include <set>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <gtest/gtest.h>
+
+#define LOG_TAG "APM_Test"
+#include <log/log.h>
+#include <media/PatchBuilder.h>
 
 #include "AudioPolicyTestClient.h"
 #include "AudioPolicyTestManager.h"
@@ -132,6 +138,36 @@ TEST_F(AudioPolicyManagerTest, InitSuccess) {
     // SetUp must finish with no assertions.
 }
 
+TEST_F(AudioPolicyManagerTest, Dump) {
+    int pipefd[2];
+    ASSERT_NE(-1, pipe(pipefd));
+    pid_t cpid = fork();
+    ASSERT_NE(-1, cpid);
+    if (cpid == 0) {
+        // Child process reads from the pipe and logs.
+        close(pipefd[1]);
+        std::string line;
+        char buf;
+        while (read(pipefd[0], &buf, sizeof(buf)) > 0) {
+            if (buf != '\n') {
+                line += buf;
+            } else {
+                ALOGI("%s", line.c_str());
+                line = "";
+            }
+        }
+        if (!line.empty()) ALOGI("%s", line.c_str());
+        close(pipefd[0]);
+        _exit(EXIT_SUCCESS);
+    } else {
+        // Parent does the dump and checks the status code.
+        close(pipefd[0]);
+        ASSERT_EQ(NO_ERROR, mManager->dump(pipefd[1]));
+        close(pipefd[1]);
+        wait(NULL);  // Wait for the child to exit.
+    }
+}
+
 TEST_F(AudioPolicyManagerTest, CreateAudioPatchFailure) {
     audio_patch patch{};
     audio_patch_handle_t handle = AUDIO_PATCH_HANDLE_NONE;
@@ -166,29 +202,14 @@ TEST_F(AudioPolicyManagerTest, CreateAudioPatchFailure) {
 }
 
 TEST_F(AudioPolicyManagerTest, CreateAudioPatchFromMix) {
-    audio_patch patch{};
     audio_patch_handle_t handle = AUDIO_PATCH_HANDLE_NONE;
     uid_t uid = 42;
     const size_t patchCountBefore = mClient->getActivePatchesCount();
-    patch.num_sources = 1;
-    {
-        auto& src = patch.sources[0];
-        src.role = AUDIO_PORT_ROLE_SOURCE;
-        src.type = AUDIO_PORT_TYPE_MIX;
-        src.id = mManager->getConfig().getAvailableInputDevices()[0]->getId();
-        // Note: these are the parameters of the output device.
-        src.sample_rate = 44100;
-        src.format = AUDIO_FORMAT_PCM_16_BIT;
-        src.channel_mask = AUDIO_CHANNEL_OUT_STEREO;
-    }
-    patch.num_sinks = 1;
-    {
-        auto& sink = patch.sinks[0];
-        sink.role = AUDIO_PORT_ROLE_SINK;
-        sink.type = AUDIO_PORT_TYPE_DEVICE;
-        sink.id = mManager->getConfig().getDefaultOutputDevice()->getId();
-    }
-    ASSERT_EQ(NO_ERROR, mManager->createAudioPatch(&patch, &handle, uid));
+    ASSERT_FALSE(mManager->getConfig().getAvailableInputDevices().isEmpty());
+    PatchBuilder patchBuilder;
+    patchBuilder.addSource(mManager->getConfig().getAvailableInputDevices()[0]).
+            addSink(mManager->getConfig().getDefaultOutputDevice());
+    ASSERT_EQ(NO_ERROR, mManager->createAudioPatch(patchBuilder.patch(), &handle, uid));
     ASSERT_NE(AUDIO_PATCH_HANDLE_NONE, handle);
     ASSERT_EQ(patchCountBefore + 1, mClient->getActivePatchesCount());
 }

@@ -51,7 +51,7 @@ public:
             bool        setOverflow() { bool tmp = mOverflow; mOverflow = true;
                                                 return tmp; }
 
-    static  void        appendDumpHeader(String8& result);
+            void        appendDumpHeader(String8& result);
             void        appendDump(String8& result, bool active);
 
             void        handleSyncStartEvent(const sp<SyncEvent>& event);
@@ -63,6 +63,8 @@ public:
                                              const ExtendedTimestamp &timestamp);
 
     virtual bool        isFastTrack() const { return (mFlags & AUDIO_INPUT_FLAG_FAST) != 0; }
+            bool        isDirect() const override
+                                { return (mFlags & AUDIO_INPUT_FLAG_DIRECT) != 0; }
 
             void        setSilenced(bool silenced) { if (!isPatchTrack()) mSilenced = silenced; }
             bool        isSilenced() const { return mSilenced; }

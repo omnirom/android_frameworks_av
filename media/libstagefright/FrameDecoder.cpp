@@ -302,12 +302,15 @@ status_t FrameDecoder::extractInternal() {
             err = mSource->read(&mediaBuffer, &mReadOptions);
             mReadOptions.clearSeekTo();
             if (err != OK) {
-                ALOGW("Input Error or EOS");
                 mHaveMoreInputs = false;
                 if (!mFirstSample && err == ERROR_END_OF_STREAM) {
+                    (void)mDecoder->queueInputBuffer(
+                            index, 0, 0, 0, MediaCodec::BUFFER_FLAG_EOS);
                     err = OK;
                     flags |= MediaCodec::BUFFER_FLAG_EOS;
                     mHaveMoreInputs = true;
+                } else {
+                    ALOGW("Input Error: err=%d", err);
                 }
                 break;
             }
@@ -537,8 +540,7 @@ status_t VideoFrameDecoder::onOutputReceived(
                 stride, slice_height,
                 crop_left, crop_top, crop_right, crop_bottom,
                 frame->getFlattenedData(),
-                frame->mWidth,
-                frame->mHeight,
+                frame->mWidth, frame->mHeight, frame->mRowBytes,
                 crop_left, crop_top, crop_right, crop_bottom);
         return OK;
     }
@@ -737,8 +739,7 @@ status_t ImageDecoder::onOutputReceived(
                 stride, slice_height,
                 crop_left, crop_top, crop_right, crop_bottom,
                 mFrame->getFlattenedData(),
-                mFrame->mWidth,
-                mFrame->mHeight,
+                mFrame->mWidth, mFrame->mHeight, mFrame->mRowBytes,
                 dstLeft, dstTop, dstRight, dstBottom);
         return OK;
     }

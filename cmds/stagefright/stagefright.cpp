@@ -78,6 +78,7 @@ static bool gForceToUseHardwareCodec;
 static bool gPlaybackAudio;
 static bool gWriteMP4;
 static bool gDisplayHistogram;
+static bool gVerbose = false;
 static bool showProgress = true;
 static String8 gWriteMP4Filename;
 static String8 gComponentNameOverride;
@@ -157,6 +158,11 @@ static void dumpSource(const sp<MediaSource> &source, const String8 &filename) {
             continue;
         } else if (err != OK) {
             break;
+        }
+
+        if (gVerbose) {
+            MetaDataBase &meta = mbuf->meta_data();
+            fprintf(stdout, "sample format: %s\n", meta.toString().c_str());
         }
 
         CHECK_EQ(
@@ -348,7 +354,10 @@ static void playSource(sp<MediaSource> &source) {
                     decodeTimesUs.push(delayDecodeUs);
                 }
 
-                if (showProgress && (n++ % 16) == 0) {
+                if (gVerbose) {
+                    MetaDataBase &meta = buffer->meta_data();
+                    fprintf(stdout, "%ld sample format: %s\n", numFrames, meta.toString().c_str());
+                } else if (showProgress && (n++ % 16) == 0) {
                     printf(".");
                     fflush(stdout);
                 }
@@ -579,11 +588,11 @@ static void performSeekTest(const sp<MediaSource> &source) {
                 break;
             }
 
+            CHECK(buffer != NULL);
+
             if (buffer->range_length() > 0) {
                 break;
             }
-
-            CHECK(buffer != NULL);
 
             buffer->release();
             buffer = NULL;
@@ -630,6 +639,7 @@ static void usage(const char *me) {
     fprintf(stderr, "       -T allocate buffers from a surface texture\n");
     fprintf(stderr, "       -d(ump) output_filename (raw stream data to a file)\n");
     fprintf(stderr, "       -D(ump) output_filename (decoded PCM data to a file)\n");
+    fprintf(stderr, "       -v be more verbose\n");
 }
 
 static void dumpCodecProfiles(bool queryDecoders) {
@@ -640,7 +650,7 @@ static void dumpCodecProfiles(bool queryDecoders) {
         MEDIA_MIMETYPE_AUDIO_MPEG, MEDIA_MIMETYPE_AUDIO_G711_MLAW,
         MEDIA_MIMETYPE_AUDIO_G711_ALAW, MEDIA_MIMETYPE_AUDIO_VORBIS,
         MEDIA_MIMETYPE_VIDEO_VP8, MEDIA_MIMETYPE_VIDEO_VP9,
-        MEDIA_MIMETYPE_VIDEO_DOLBY_VISION
+        MEDIA_MIMETYPE_VIDEO_DOLBY_VISION, MEDIA_MIMETYPE_AUDIO_AC4
     };
 
     const char *codecType = queryDecoders? "decoder" : "encoder";
@@ -708,7 +718,7 @@ int main(int argc, char **argv) {
     sp<ALooper> looper;
 
     int res;
-    while ((res = getopt(argc, argv, "haqn:lm:b:ptsrow:kN:xSTd:D:")) >= 0) {
+    while ((res = getopt(argc, argv, "vhaqn:lm:b:ptsrow:kN:xSTd:D:")) >= 0) {
         switch (res) {
             case 'a':
             {
@@ -829,6 +839,12 @@ int main(int argc, char **argv) {
             case 'T':
             {
                 useSurfaceTexAlloc = true;
+                break;
+            }
+
+            case 'v':
+            {
+                gVerbose = true;
                 break;
             }
 

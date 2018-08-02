@@ -38,8 +38,6 @@
 
 namespace android {
 
-using namespace std;
-
 // ----------------------------------------------------------------------------
 
 class AudioPolicyService :
@@ -83,15 +81,9 @@ public:
                                       audio_output_flags_t flags,
                                       audio_port_handle_t *selectedDeviceId,
                                       audio_port_handle_t *portId);
-    virtual status_t startOutput(audio_io_handle_t output,
-                                 audio_stream_type_t stream,
-                                 audio_session_t session);
-    virtual status_t stopOutput(audio_io_handle_t output,
-                                audio_stream_type_t stream,
-                                audio_session_t session);
-    virtual void releaseOutput(audio_io_handle_t output,
-                               audio_stream_type_t stream,
-                               audio_session_t session);
+    virtual status_t startOutput(audio_port_handle_t portId);
+    virtual status_t stopOutput(audio_port_handle_t portId);
+    virtual void releaseOutput(audio_port_handle_t portId);
     virtual status_t getInputForAttr(const audio_attributes_t *attr,
                                      audio_io_handle_t *input,
                                      audio_session_t session,
@@ -159,8 +151,6 @@ public:
                                      float volume,
                                      audio_io_handle_t output,
                                      int delayMs = 0);
-    virtual status_t startTone(audio_policy_tone_t tone, audio_stream_type_t stream);
-    virtual status_t stopTone();
     virtual status_t setVoiceVolume(float volume, int delayMs = 0);
     virtual bool isOffloadSupported(const audio_offload_info_t &config);
 
@@ -213,12 +203,8 @@ public:
                                    audio_stream_type_t stream,
                                    audio_session_t session);
                                    
-            status_t doStopOutput(audio_io_handle_t output,
-                                  audio_stream_type_t stream,
-                                  audio_session_t session);
-            void doReleaseOutput(audio_io_handle_t output,
-                                 audio_stream_type_t stream,
-                                 audio_session_t session);
+            status_t doStopOutput(audio_port_handle_t portId);
+            void doReleaseOutput(audio_port_handle_t portId);
 
             status_t clientCreateAudioPatch(const struct audio_patch *patch,
                                       audio_patch_handle_t *handle,
@@ -228,7 +214,7 @@ public:
             virtual status_t clientSetAudioPortConfig(const struct audio_port_config *config,
                                                       int delayMs);
 
-            void removeNotificationClient(uid_t uid);
+            void removeNotificationClient(uid_t uid, pid_t pid);
             void onAudioPortListUpdate();
             void doOnAudioPortListUpdate();
             void onAudioPatchListUpdate();
@@ -297,7 +283,6 @@ private:
         void removeOverrideUid(uid_t uid) { updateOverrideUid(uid, false, false); }
 
     private:
-        bool isServiceUid(uid_t uid) const;
         void notifyService(uid_t uid, bool active);
         void updateOverrideUid(uid_t uid, bool active, bool insert);
         void updateUidCache(uid_t uid, bool active, bool insert);
@@ -311,10 +296,7 @@ private:
         std::unordered_map<uid_t, bool> mCachedUids;
     };
 
-    // Thread used for tone playback and to send audio config commands to audio flinger
-    // For tone playback, using a separate thread is necessary to avoid deadlock with mLock because
-    // startTone() and stopTone() are normally called with mLock locked and requesting a tone start
-    // or stop will cause calls to AudioPolicyService and an attempt to lock mLock.
+    // Thread used to send audio config commands to audio flinger
     // For audio config commands, it is necessary because audio flinger requires that the calling
     // process (user) has permission to modify audio settings.
     class AudioCommandThread : public Thread {
@@ -323,8 +305,6 @@ private:
 
         // commands for tone AudioCommand
         enum {
-            START_TONE,
-            STOP_TONE,
             SET_VOLUME,
             SET_PARAMETERS,
             SET_VOICE_VOLUME,
@@ -350,9 +330,6 @@ private:
         virtual     bool        threadLoop();
 
                     void        exit();
-                    void        startToneCommand(ToneGenerator::tone_type type,
-                                                 audio_stream_type_t stream);
-                    void        stopToneCommand();
                     status_t    volumeCommand(audio_stream_type_t stream, float volume,
                                             audio_io_handle_t output, int delayMs = 0);
                     status_t    parametersCommand(audio_io_handle_t ioHandle,
@@ -361,12 +338,8 @@ private:
                     status_t    startOutputCommand(audio_io_handle_t output,
                                                    audio_stream_type_t stream,
                                                    audio_session_t session);
-                    void        stopOutputCommand(audio_io_handle_t output,
-                                                  audio_stream_type_t stream,
-                                                  audio_session_t session);
-                    void        releaseOutputCommand(audio_io_handle_t output,
-                                                     audio_stream_type_t stream,
-                                                     audio_session_t session);
+                    void        stopOutputCommand(audio_port_handle_t portId);
+                    void        releaseOutputCommand(audio_port_handle_t portId);
                     status_t    sendCommand(sp<AudioCommand>& command, int delayMs = 0);
                     void        insertCommand_l(sp<AudioCommand>& command, int delayMs = 0);
                     status_t    createAudioPatchCommand(const struct audio_patch *patch,
@@ -398,7 +371,7 @@ private:
 
             void dump(char* buffer, size_t size);
 
-            int mCommand;   // START_TONE, STOP_TONE ...
+            int mCommand;   // SET_VOLUME, SET_PARAMETERS...
             nsecs_t mTime;  // time stamp
             Mutex mLock;    // mutex associated to mCond
             Condition mCond; // condition for status return
@@ -412,12 +385,6 @@ private:
             virtual ~AudioCommandData() {}
         protected:
             AudioCommandData() {}
-        };
-
-        class ToneData : public AudioCommandData {
-        public:
-            ToneGenerator::tone_type mType; // tone type (START_TONE only)
-            audio_stream_type_t mStream;    // stream type (START_TONE only)
         };
 
         class VolumeData : public AudioCommandData {
@@ -447,16 +414,12 @@ private:
 
         class StopOutputData : public AudioCommandData {
         public:
-            audio_io_handle_t mIO;
-            audio_stream_type_t mStream;
-            audio_session_t mSession;
+            audio_port_handle_t mPortId;
         };
 
         class ReleaseOutputData : public AudioCommandData {
         public:
-            audio_io_handle_t mIO;
-            audio_stream_type_t mStream;
-            audio_session_t mSession;
+            audio_port_handle_t mPortId;
         };
 
         class CreateAudioPatchData : public AudioCommandData {
@@ -493,7 +456,6 @@ private:
         Mutex   mLock;
         Condition mWaitWorkCV;
         Vector < sp<AudioCommand> > mAudioCommands; // list of pending commands
-        ToneGenerator *mpToneGenerator;     // the tone generator
         sp<AudioCommand> mLastCommand;      // last processed command (used by dump)
         String8 mName;                      // string used by wake lock fo delayed commands
         wp<AudioPolicyService> mService;
@@ -568,11 +530,6 @@ private:
         // function enabling to receive proprietary informations directly from audio hardware interface to audio policy manager.
         virtual String8 getParameters(audio_io_handle_t ioHandle, const String8& keys);
 
-        // request the playback of a tone on the specified stream: used for instance to replace notification sounds when playing
-        // over a telephony device during a phone call.
-        virtual status_t startTone(audio_policy_tone_t tone, audio_stream_type_t stream);
-        virtual status_t stopTone();
-
         // set down link audio volume.
         virtual status_t setVoiceVolume(float volume, int delayMs = 0);
 
@@ -612,7 +569,7 @@ private:
     public:
                             NotificationClient(const sp<AudioPolicyService>& service,
                                                 const sp<IAudioPolicyServiceClient>& client,
-                                                uid_t uid);
+                                                uid_t uid, pid_t pid);
         virtual             ~NotificationClient();
 
                             void      onAudioPortListUpdate();
@@ -625,6 +582,10 @@ private:
                                         audio_patch_handle_t patchHandle);
                             void      setAudioPortCallbacksEnabled(bool enabled);
 
+                            uid_t uid() {
+                                return mUid;
+                            }
+
                 // IBinder::DeathRecipient
                 virtual     void        binderDied(const wp<IBinder>& who);
 
@@ -634,34 +595,61 @@ private:
 
         const wp<AudioPolicyService>        mService;
         const uid_t                         mUid;
+        const pid_t                         mPid;
         const sp<IAudioPolicyServiceClient> mAudioPolicyServiceClient;
               bool                          mAudioPortCallbacksEnabled;
+    };
+
+    class AudioClient : public virtual RefBase {
+    public:
+                AudioClient(const audio_attributes_t attributes,
+                            const audio_io_handle_t io, uid_t uid, pid_t pid,
+                            const audio_session_t session, const audio_port_handle_t deviceId) :
+                                attributes(attributes), io(io), uid(uid), pid(pid),
+                                session(session), deviceId(deviceId), active(false) {}
+                ~AudioClient() override = default;
+
+
+        const audio_attributes_t attributes; // source, flags ...
+        const audio_io_handle_t io;          // audio HAL stream IO handle
+        const uid_t uid;                     // client UID
+        const pid_t pid;                     // client PID
+        const audio_session_t session;       // audio session ID
+        const audio_port_handle_t deviceId;  // selected input device port ID
+              bool active;                   // Playback/Capture is active or inactive
     };
 
     // --- AudioRecordClient ---
     // Information about each registered AudioRecord client
     // (between calls to getInputForAttr() and releaseInput())
-    class AudioRecordClient : public RefBase {
+    class AudioRecordClient : public AudioClient {
     public:
                 AudioRecordClient(const audio_attributes_t attributes,
-                                  const audio_io_handle_t input, uid_t uid, pid_t pid,
-                                  const String16& opPackageName, const audio_session_t session) :
-                                      attributes(attributes),
-                                      input(input), uid(uid), pid(pid),
-                                      opPackageName(opPackageName), session(session),
-                                      active(false), isConcurrent(false), isVirtualDevice(false) {}
-        virtual ~AudioRecordClient() {}
+                          const audio_io_handle_t io, uid_t uid, pid_t pid,
+                          const audio_session_t session, const audio_port_handle_t deviceId,
+                          const String16& opPackageName) :
+                    AudioClient(attributes, io, uid, pid, session, deviceId),
+                    opPackageName(opPackageName), isConcurrent(false), isVirtualDevice(false) {}
+                ~AudioRecordClient() override = default;
 
-        const audio_attributes_t attributes; // source, flags ...
-        const audio_io_handle_t input;       // audio HAL input IO handle
-        const uid_t uid;                     // client UID
-        const pid_t pid;                     // client PID
         const String16 opPackageName;        // client package name
-        const audio_session_t session;       // audio session ID
-        bool active;                   // Capture is active or inactive
         bool isConcurrent;             // is allowed to concurrent capture
         bool isVirtualDevice;          // uses virtual device: updated by APM::getInputForAttr()
-        audio_port_handle_t deviceId;  // selected input device port ID
+    };
+
+    // --- AudioPlaybackClient ---
+    // Information about each registered AudioTrack client
+    // (between calls to getOutputForAttr() and releaseOutput())
+    class AudioPlaybackClient : public AudioClient {
+    public:
+                AudioPlaybackClient(const audio_attributes_t attributes,
+                      const audio_io_handle_t io, uid_t uid, pid_t pid,
+                            const audio_session_t session, audio_port_handle_t deviceId,
+                            audio_stream_type_t stream) :
+                    AudioClient(attributes, io, uid, pid, session, deviceId), stream(stream) {}
+                ~AudioPlaybackClient() override = default;
+
+        const audio_stream_type_t stream;
     };
 
     // A class automatically clearing and restoring binder caller identity inside
@@ -691,14 +679,13 @@ private:
     // mLock protects AudioPolicyManager methods that can call into audio flinger
     // and possibly back in to audio policy service and acquire mEffectsLock.
     sp<AudioCommandThread> mAudioCommandThread;     // audio commands thread
-    sp<AudioCommandThread> mTonePlaybackThread;     // tone playback thread
     sp<AudioCommandThread> mOutputCommandThread;    // process stop and release output
     struct audio_policy_device *mpAudioPolicyDev;
     struct audio_policy *mpAudioPolicy;
     AudioPolicyInterface *mAudioPolicyManager;
     AudioPolicyClient *mAudioPolicyClient;
 
-    DefaultKeyedVector< uid_t, sp<NotificationClient> >    mNotificationClients;
+    DefaultKeyedVector< int64_t, sp<NotificationClient> >    mNotificationClients;
     Mutex mNotificationClientsLock;  // protects mNotificationClients
     // Manage all effects configured in audio_effects.conf
     sp<AudioPolicyEffects> mAudioPolicyEffects;
@@ -706,6 +693,7 @@ private:
 
     sp<UidPolicy> mUidPolicy;
     DefaultKeyedVector< audio_port_handle_t, sp<AudioRecordClient> >   mAudioRecordClients;
+    DefaultKeyedVector< audio_port_handle_t, sp<AudioPlaybackClient> >   mAudioPlaybackClients;
 };
 
 } // namespace android

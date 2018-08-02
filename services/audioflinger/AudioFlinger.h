@@ -62,7 +62,9 @@
 #include <media/LinearMap.h>
 #include <media/VolumeShaper.h>
 
+#include <audio_utils/clock.h>
 #include <audio_utils/SimpleLog.h>
+#include <audio_utils/TimestampVerifier.h>
 
 #include "FastCapture.h"
 #include "FastMixer.h"
@@ -71,6 +73,7 @@
 #include "AudioStreamOut.h"
 #include "SpdifStreamOut.h"
 #include "AudioHwDevice.h"
+#include "NBAIO_Tee.h"
 
 #include <powermanager/IPowerManager.h>
 
@@ -675,6 +678,9 @@ using effect_buffer_t = int16_t;
                 bool            updateOrphanEffectChains(const sp<EffectModule>& effect);
 
                 void broacastParametersToRecordThreads_l(const String8& keyValuePairs);
+                void forwardParametersToDownstreamPatches_l(
+                        audio_io_handle_t upStream, const String8& keyValuePairs,
+                        std::function<bool(const sp<PlaybackThread>&)> useThread = nullptr);
 
     // AudioStreamIn is immutable, so their fields are const.
     // For emphasis, we could also make all pointers to them be "const *",
@@ -791,44 +797,16 @@ private:
 
     // for use from destructor
     status_t    closeOutput_nonvirtual(audio_io_handle_t output);
-    void        closeOutputInternal_l(const sp<PlaybackThread>& thread);
+    void        closeThreadInternal_l(const sp<PlaybackThread>& thread);
     status_t    closeInput_nonvirtual(audio_io_handle_t input);
-    void        closeInputInternal_l(const sp<RecordThread>& thread);
+    void        closeThreadInternal_l(const sp<RecordThread>& thread);
     void        setAudioHwSyncForSession_l(PlaybackThread *thread, audio_session_t sessionId);
 
     status_t    checkStreamType(audio_stream_type_t stream) const;
 
     void        filterReservedParameters(String8& keyValuePairs, uid_t callingUid);
 
-#ifdef TEE_SINK
-    // all record threads serially share a common tee sink, which is re-created on format change
-    sp<NBAIO_Sink>   mRecordTeeSink;
-    sp<NBAIO_Source> mRecordTeeSource;
-#endif
-
 public:
-
-#ifdef TEE_SINK
-    // tee sink, if enabled by property, allows dumpsys to write most recent audio to .wav file
-    static void dumpTee(int fd, const sp<NBAIO_Source>& source, audio_io_handle_t id, char suffix);
-
-    // whether tee sink is enabled by property
-    static bool mTeeSinkInputEnabled;
-    static bool mTeeSinkOutputEnabled;
-    static bool mTeeSinkTrackEnabled;
-
-    // runtime configured size of each tee sink pipe, in frames
-    static size_t mTeeSinkInputFrames;
-    static size_t mTeeSinkOutputFrames;
-    static size_t mTeeSinkTrackFrames;
-
-    // compile-time default size of tee sink pipes, in frames
-    // 0x200000 stereo 16-bit PCM frames = 47.5 seconds at 44.1 kHz, 8 megabytes
-    static const size_t kTeeSinkInputFramesDefault = 0x200000;
-    static const size_t kTeeSinkOutputFramesDefault = 0x200000;
-    static const size_t kTeeSinkTrackFramesDefault = 0x200000;
-#endif
-
     // These methods read variables atomically without mLock,
     // though the variables are updated with mLock.
     bool    isLowRamDevice() const { return mIsLowRamDevice; }
@@ -843,7 +821,8 @@ private:
 
     nsecs_t mGlobalEffectEnableTime;  // when a global effect was last enabled
 
-    sp<PatchPanel> mPatchPanel;
+    // protected by mLock
+    PatchPanel mPatchPanel;
     sp<EffectsFactoryHalInterface> mEffectsFactoryHal;
 
     bool        mSystemReady;

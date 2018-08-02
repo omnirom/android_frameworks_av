@@ -28,7 +28,6 @@
 
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
-#include <cutils/multiuser.h>
 #include <utils/Log.h>
 #include <utils/Trace.h>
 #include <binder/Parcel.h>
@@ -47,7 +46,7 @@
 #include <system/audio.h>
 
 #include "AudioFlinger.h"
-#include "ServiceUtilities.h"
+#include "NBAIO_Tee.h"
 
 #include <media/AudioResamplerPublic.h>
 
@@ -56,7 +55,6 @@
 #include <system/audio_effects/effect_aec.h>
 
 #include <audio_utils/primitives.h>
-#include <audio_utils/string.h>
 
 #include <powermanager/PowerManager.h>
 
@@ -66,6 +64,7 @@
 #include <media/nbaio/PipeReader.h>
 #include <media/AudioParameter.h>
 #include <mediautils/BatteryNotifier.h>
+#include <mediautils/ServiceUtilities.h>
 #include <private/android_filesystem_config.h>
 
 //#define BUFLOG_NDEBUG 0
@@ -99,17 +98,6 @@ static const char kNoEffectsFactory[] = "Effects Factory is absent\n";
 nsecs_t AudioFlinger::mStandbyTimeInNsecs = kDefaultStandbyTimeInNsecs;
 
 uint32_t AudioFlinger::mScreenState;
-
-
-#ifdef TEE_SINK
-bool AudioFlinger::mTeeSinkInputEnabled = false;
-bool AudioFlinger::mTeeSinkOutputEnabled = false;
-bool AudioFlinger::mTeeSinkTrackEnabled = false;
-
-size_t AudioFlinger::mTeeSinkInputFrames = kTeeSinkInputFramesDefault;
-size_t AudioFlinger::mTeeSinkOutputFrames = kTeeSinkOutputFramesDefault;
-size_t AudioFlinger::mTeeSinkTrackFrames = kTeeSinkTrackFramesDefault;
-#endif
 
 // In order to avoid invalidating offloaded tracks each time a Visualizer is turned on and off
 // we define a minimum time during which a global effect is considered enabled.
@@ -160,6 +148,7 @@ AudioFlinger::AudioFlinger()
       mTotalMemory(0),
       mClientSharedHeapSize(kMinimumClientSharedHeapSizeBytes),
       mGlobalEffectEnableTime(0),
+      mPatchPanel(this),
       mSystemReady(false)
 {
     // unsigned instead of audio_unique_id_use_t, because ++ operator is unavailable for enum
@@ -168,7 +157,6 @@ AudioFlinger::AudioFlinger()
         mNextUniqueIds[use] = AUDIO_UNIQUE_ID_USE_MAX;
     }
 
-    getpid_cached = getpid();
     const bool doLog = property_get_bool("ro.test_harness", false);
     if (doLog) {
         mLogMemoryDealer = new MemoryDealer(kLogMemorySize, "LogWriters",
@@ -185,27 +173,6 @@ AudioFlinger::AudioFlinger()
     mEffectsFactoryHal = EffectsFactoryHalInterface::create();
 
     mMediaLogNotifier->run("MediaLogNotifier");
-
-#ifdef TEE_SINK
-    char value[PROPERTY_VALUE_MAX];
-    (void) property_get("ro.debuggable", value, "0");
-    int debuggable = atoi(value);
-    int teeEnabled = 0;
-    if (debuggable) {
-        (void) property_get("af.tee", value, "0");
-        teeEnabled = atoi(value);
-    }
-    // FIXME symbolic constants here
-    if (teeEnabled & 1) {
-        mTeeSinkInputEnabled = true;
-    }
-    if (teeEnabled & 2) {
-        mTeeSinkOutputEnabled = true;
-    }
-    if (teeEnabled & 4) {
-        mTeeSinkTrackEnabled = true;
-    }
-#endif
 }
 
 void AudioFlinger::onFirstRef()
@@ -225,8 +192,6 @@ void AudioFlinger::onFirstRef()
                     (uint32_t)(mStandbyTimeInNsecs / 1000000));
         }
     }
-
-    mPatchPanel = new PatchPanel(this);
 
     mMode = AUDIO_MODE_NORMAL;
 
@@ -341,7 +306,7 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
         *sessionId = actualSessionId;
     } else {
         if (direction == MmapStreamInterface::DIRECTION_OUTPUT) {
-            AudioSystem::releaseOutput(io, streamType, actualSessionId);
+            AudioSystem::releaseOutput(portId);
         } else {
             AudioSystem::releaseInput(portId);
         }
@@ -534,12 +499,7 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
             dev->dump(fd);
         }
 
-#ifdef TEE_SINK
-        // dump the serially shared record tee sink
-        if (mRecordTeeSource != 0) {
-            dumpTee(fd, mRecordTeeSource, AUDIO_IO_HANDLE_NONE, 'C');
-        }
-#endif
+        mPatchPanel.dump(fd);
 
         BUFLOG_RESET;
 
@@ -547,6 +507,10 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
             mLock.unlock();
         }
 
+#ifdef TEE_SINK
+        // NBAIO_Tee dump is safe to call outside of AF lock.
+        NBAIO_Tee::dumpAll(fd, "_DUMP");
+#endif
         // append a copy of media.log here by forwarding fd to it, but don't attempt
         // to lookup the service if it's not running, as it will block for a second
         if (sMediaLogServiceAsBinder != 0) {
@@ -666,7 +630,7 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
     bool updatePid = (input.clientInfo.clientPid == -1);
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
     uid_t clientUid = input.clientInfo.clientUid;
-    if (!isTrustedCallingUid(callingUid)) {
+    if (!isAudioServerOrMediaServerUid(callingUid)) {
         ALOGW_IF(clientUid != callingUid,
                 "%s uid %d tried to pass itself off as %d",
                 __FUNCTION__, callingUid, clientUid);
@@ -813,7 +777,7 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
 
 Exit:
     if (lStatus != NO_ERROR && output.outputId != AUDIO_IO_HANDLE_NONE) {
-        AudioSystem::releaseOutput(output.outputId, streamType, sessionId);
+        AudioSystem::releaseOutput(portId);
     }
     *status = lStatus;
     return trackHandle;
@@ -1078,9 +1042,9 @@ status_t AudioFlinger::checkStreamType(audio_stream_type_t stream) const
         ALOGW("checkStreamType() invalid stream %d", stream);
         return BAD_VALUE;
     }
-    pid_t caller = IPCThreadState::self()->getCallingPid();
-    if (uint32_t(stream) >= AUDIO_STREAM_PUBLIC_CNT && caller != getpid_cached) {
-        ALOGW("checkStreamType() pid %d cannot use internal stream type %d", caller, stream);
+    const uid_t callerUid = IPCThreadState::self()->getCallingUid();
+    if (uint32_t(stream) >= AUDIO_STREAM_PUBLIC_CNT && !isAudioServerUid(callerUid)) {
+        ALOGW("checkStreamType() uid %d cannot use internal stream type %d", callerUid, stream);
         return PERMISSION_DENIED;
     }
 
@@ -1180,6 +1144,23 @@ void AudioFlinger::broacastParametersToRecordThreads_l(const String8& keyValuePa
     }
 }
 
+// forwardAudioHwSyncToDownstreamPatches_l() must be called with AudioFlinger::mLock held
+void AudioFlinger::forwardParametersToDownstreamPatches_l(
+        audio_io_handle_t upStream, const String8& keyValuePairs,
+        std::function<bool(const sp<PlaybackThread>&)> useThread)
+{
+    std::vector<PatchPanel::SoftwarePatch> swPatches;
+    if (mPatchPanel.getDownstreamSoftwarePatches(upStream, &swPatches) != OK) return;
+    ALOGV_IF(!swPatches.empty(), "%s found %zu downstream patches for stream ID %d",
+            __func__, swPatches.size(), upStream);
+    for (const auto& swPatch : swPatches) {
+        sp<PlaybackThread> downStream = checkPlaybackThread_l(swPatch.getPlaybackThreadHandle());
+        if (downStream != NULL && (useThread == nullptr || useThread(downStream))) {
+            downStream->setParameters(keyValuePairs);
+        }
+    }
+}
+
 // Filter reserved keys from setParameters() before forwarding to audio HAL or acting upon.
 // Some keys are used for audio routing and audio path configuration and should be reserved for use
 // by audio policy and audio flinger for functional, privacy and security reasons.
@@ -1200,9 +1181,8 @@ void AudioFlinger::filterReservedParameters(String8& keyValuePairs, uid_t callin
         String8(AudioParameter::keyStreamSupportedSamplingRates),
     };
 
-    // multiuser friendly app ID check for requests coming from audioserver
-    if (multiuser_get_app_id(callingUid) == AID_AUDIOSERVER) {
-        return;
+    if (isAudioServerUid(callingUid)) {
+        return; // no need to filter if audioserver.
     }
 
     AudioParameter param = AudioParameter(keyValuePairs);
@@ -1296,7 +1276,9 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
         }
     }
     if (thread != 0) {
-        return thread->setParameters(filteredKeyValuePairs);
+        status_t result = thread->setParameters(filteredKeyValuePairs);
+        forwardParametersToDownstreamPatches_l(thread->id(), filteredKeyValuePairs);
+        return result;
     }
     return BAD_VALUE;
 }
@@ -1636,7 +1618,7 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
     bool updatePid = (input.clientInfo.clientPid == -1);
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
     uid_t clientUid = input.clientInfo.clientUid;
-    if (!isTrustedCallingUid(callingUid)) {
+    if (!isAudioServerOrMediaServerUid(callingUid)) {
         ALOGW_IF(clientUid != callingUid,
                 "%s uid %d tried to pass itself off as %d",
                 __FUNCTION__, callingUid, clientUid);
@@ -1854,6 +1836,10 @@ audio_module_handle_t AudioFlinger::loadHwModule_l(const char *name)
 
         mHardwareStatus = AUDIO_HW_IDLE;
     }
+    if (strcmp(name, AUDIO_HAL_SERVICE_NAME_MSD) == 0) {
+        // An MSD module is inserted before hardware modules in order to mix encoded streams.
+        flags = static_cast<AudioHwDevice::Flags>(flags | AudioHwDevice::AHWD_IS_INSERT);
+    }
 
     audio_module_handle_t handle = (audio_module_handle_t) nextUniqueId(AUDIO_UNIQUE_ID_USE_MODULE);
     mAudioHwDevs.add(handle, new AudioHwDevice(handle, name, dev, flags));
@@ -1885,7 +1871,7 @@ size_t AudioFlinger::getPrimaryOutputFrameCount()
 status_t AudioFlinger::setLowRamDevice(bool isLowRamDevice, int64_t totalMemory)
 {
     uid_t uid = IPCThreadState::self()->getCallingUid();
-    if (uid != AID_SYSTEM) {
+    if (!isAudioServerOrSystemServerUid(uid)) {
         return PERMISSION_DENIED;
     }
     Mutex::Autolock _l(mLock);
@@ -1928,6 +1914,28 @@ size_t AudioFlinger::getClientSharedHeapSize() const
         return heapSizeInBytes;
     }
     return mClientSharedHeapSize;
+}
+
+status_t AudioFlinger::setAudioPortConfig(const struct audio_port_config *config)
+{
+    ALOGV(__func__);
+
+    audio_module_handle_t module;
+    if (config->type == AUDIO_PORT_TYPE_DEVICE) {
+        module = config->ext.device.hw_module;
+    } else {
+        module = config->ext.mix.hw_module;
+    }
+
+    Mutex::Autolock _l(mLock);
+    ssize_t index = mAudioHwDevs.indexOfKey(module);
+    if (index < 0) {
+        ALOGW("%s() bad hw module %d", __func__, module);
+        return BAD_VALUE;
+    }
+
+    AudioHwDevice *audioHwDevice = mAudioHwDevs.valueAt(index);
+    return audioHwDevice->hwDevice()->setAudioPortConfig(config);
 }
 
 audio_hw_sync_t AudioFlinger::getAudioHwSyncForSession(audio_session_t sessionId)
@@ -1975,7 +1983,10 @@ audio_hw_sync_t AudioFlinger::getAudioHwSyncForSession(audio_session_t sessionId
         if (sessions & ThreadBase::TRACK_SESSION) {
             AudioParameter param = AudioParameter();
             param.addInt(String8(AudioParameter::keyStreamHwAvSync), value);
-            thread->setParameters(param.toString());
+            String8 keyValuePairs = param.toString();
+            thread->setParameters(keyValuePairs);
+            forwardParametersToDownstreamPatches_l(thread->id(), keyValuePairs,
+                    [](const sp<PlaybackThread>& thread) { return thread->usesHwAvSync(); });
             break;
         }
     }
@@ -2021,7 +2032,10 @@ void AudioFlinger::setAudioHwSyncForSession_l(PlaybackThread *thread, audio_sess
         ALOGV("setAudioHwSyncForSession_l found ID %d for session %d", syncId, sessionId);
         AudioParameter param = AudioParameter();
         param.addInt(String8(AudioParameter::keyStreamHwAvSync), syncId);
-        thread->setParameters(param.toString());
+        String8 keyValuePairs = param.toString();
+        thread->setParameters(keyValuePairs);
+        forwardParametersToDownstreamPatches_l(thread->id(), keyValuePairs,
+                [](const sp<PlaybackThread>& thread) { return thread->usesHwAvSync(); });
     }
 }
 
@@ -2111,6 +2125,7 @@ sp<AudioFlinger::ThreadBase> AudioFlinger::openOutput_l(audio_module_handle_t mo
                       *output, thread.get());
             }
             mPlaybackThreads.add(*output, thread);
+            mPatchPanel.notifyStreamOpened(outHwDev, *output);
             return thread;
         }
     }
@@ -2246,6 +2261,7 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
         const sp<AudioIoDescriptor> ioDesc = new AudioIoDescriptor();
         ioDesc->mIoHandle = output;
         ioConfigChanged(AUDIO_OUTPUT_CLOSED, ioDesc);
+        mPatchPanel.notifyStreamClosed(output);
     }
     // The thread entity (active unit of execution) is no longer running here,
     // but the ThreadBase container still exists.
@@ -2274,7 +2290,7 @@ void AudioFlinger::closeOutputFinish(const sp<PlaybackThread>& thread)
     delete out;
 }
 
-void AudioFlinger::closeOutputInternal_l(const sp<PlaybackThread>& thread)
+void AudioFlinger::closeThreadInternal_l(const sp<PlaybackThread>& thread)
 {
     mPlaybackThreads.removeItem(thread->mId);
     thread->exit();
@@ -2350,6 +2366,9 @@ sp<AudioFlinger::ThreadBase> AudioFlinger::openInput_l(audio_module_handle_t mod
         return 0;
     }
 
+    // Some flags are specific to framework and must not leak to the HAL.
+    flags = static_cast<audio_input_flags_t>(flags & ~AUDIO_INPUT_FRAMEWORK_FLAGS);
+
     // Audio Policy can request a specific handle for hardware hotword.
     // The goal here is not to re-open an already opened input.
     // It is to use a pre-assigned I/O handle.
@@ -2407,55 +2426,6 @@ sp<AudioFlinger::ThreadBase> AudioFlinger::openInput_l(audio_module_handle_t mod
                     thread.get());
             return thread;
         } else {
-#ifdef TEE_SINK
-            // Try to re-use most recently used Pipe to archive a copy of input for dumpsys,
-            // or (re-)create if current Pipe is idle and does not match the new format
-            sp<NBAIO_Sink> teeSink;
-            enum {
-                TEE_SINK_NO,    // don't copy input
-                TEE_SINK_NEW,   // copy input using a new pipe
-                TEE_SINK_OLD,   // copy input using an existing pipe
-            } kind;
-            NBAIO_Format format = Format_from_SR_C(halconfig.sample_rate,
-                    audio_channel_count_from_in_mask(halconfig.channel_mask), halconfig.format);
-            if (!mTeeSinkInputEnabled) {
-                kind = TEE_SINK_NO;
-            } else if (!Format_isValid(format)) {
-                kind = TEE_SINK_NO;
-            } else if (mRecordTeeSink == 0) {
-                kind = TEE_SINK_NEW;
-            } else if (mRecordTeeSink->getStrongCount() != 1) {
-                kind = TEE_SINK_NO;
-            } else if (Format_isEqual(format, mRecordTeeSink->format())) {
-                kind = TEE_SINK_OLD;
-            } else {
-                kind = TEE_SINK_NEW;
-            }
-            switch (kind) {
-            case TEE_SINK_NEW: {
-                Pipe *pipe = new Pipe(mTeeSinkInputFrames, format);
-                size_t numCounterOffers = 0;
-                const NBAIO_Format offers[1] = {format};
-                ssize_t index = pipe->negotiate(offers, 1, NULL, numCounterOffers);
-                ALOG_ASSERT(index == 0);
-                PipeReader *pipeReader = new PipeReader(*pipe);
-                numCounterOffers = 0;
-                index = pipeReader->negotiate(offers, 1, NULL, numCounterOffers);
-                ALOG_ASSERT(index == 0);
-                mRecordTeeSink = pipe;
-                mRecordTeeSource = pipeReader;
-                teeSink = pipe;
-                }
-                break;
-            case TEE_SINK_OLD:
-                teeSink = mRecordTeeSink;
-                break;
-            case TEE_SINK_NO:
-            default:
-                break;
-            }
-#endif
-
             // Start record thread
             // RecordThread requires both input and output device indication to forward to audio
             // pre processing modules
@@ -2465,9 +2435,6 @@ sp<AudioFlinger::ThreadBase> AudioFlinger::openInput_l(audio_module_handle_t mod
                                       primaryOutputDevice_l(),
                                       devices,
                                       mSystemReady
-#ifdef TEE_SINK
-                                      , teeSink
-#endif
                                       );
             mRecordThreads.add(*input, thread);
             ALOGV("openInput_l() created record thread: ID %d thread %p", *input, thread.get());
@@ -2567,7 +2534,7 @@ void AudioFlinger::closeInputFinish(const sp<RecordThread>& thread)
     delete in;
 }
 
-void AudioFlinger::closeInputInternal_l(const sp<RecordThread>& thread)
+void AudioFlinger::closeThreadInternal_l(const sp<RecordThread>& thread)
 {
     mRecordThreads.removeItem(thread->mId);
     closeInputFinish(thread);
@@ -2605,7 +2572,8 @@ void AudioFlinger::acquireAudioSessionId(audio_session_t audioSession, pid_t pid
     Mutex::Autolock _l(mLock);
     pid_t caller = IPCThreadState::self()->getCallingPid();
     ALOGV("acquiring %d from %d, for %d", audioSession, caller, pid);
-    if (pid != -1 && (caller == getpid_cached)) {
+    const uid_t callerUid = IPCThreadState::self()->getCallingUid();
+    if (pid != -1 && isAudioServerUid(callerUid)) { // check must match releaseAudioSessionId()
         caller = pid;
     }
 
@@ -2639,7 +2607,8 @@ void AudioFlinger::releaseAudioSessionId(audio_session_t audioSession, pid_t pid
     Mutex::Autolock _l(mLock);
     pid_t caller = IPCThreadState::self()->getCallingPid();
     ALOGV("releasing %d from %d for %d", audioSession, caller, pid);
-    if (pid != -1 && (caller == getpid_cached)) {
+    const uid_t callerUid = IPCThreadState::self()->getCallingUid();
+    if (pid != -1 && isAudioServerUid(callerUid)) { // check must match acquireAudioSessionId()
         caller = pid;
     }
     size_t num = mAudioSessionRefs.size();
@@ -2656,9 +2625,10 @@ void AudioFlinger::releaseAudioSessionId(audio_session_t audioSession, pid_t pid
             return;
         }
     }
-    // If the caller is mediaserver it is likely that the session being released was acquired
+    // If the caller is audioserver it is likely that the session being released was acquired
     // on behalf of a process not in notification clients and we ignore the warning.
-    ALOGW_IF(caller != getpid_cached, "session id %d not found for pid %d", audioSession, caller);
+    ALOGW_IF(!isAudioServerUid(callerUid),
+            "session id %d not found for pid %d", audioSession, caller);
 }
 
 bool AudioFlinger::isSessionAcquired_l(audio_session_t audioSession)
@@ -2966,7 +2936,7 @@ sp<IEffect> AudioFlinger::createEffect(
     effect_descriptor_t desc;
 
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
-    if (pid == -1 || !isTrustedCallingUid(callingUid)) {
+    if (pid == -1 || !isAudioServerOrMediaServerUid(callingUid)) {
         const pid_t callingPid = IPCThreadState::self()->getCallingPid();
         ALOGW_IF(pid != -1 && pid != callingPid,
                  "%s uid %d pid %d tried to pass itself off as pid %d",
@@ -2989,8 +2959,8 @@ sp<IEffect> AudioFlinger::createEffect(
     }
 
     // Session AUDIO_SESSION_OUTPUT_STAGE is reserved for output stage effects
-    // that can only be created by audio policy manager (running in same process)
-    if (sessionId == AUDIO_SESSION_OUTPUT_STAGE && getpid_cached != pid) {
+    // that can only be created by audio policy manager
+    if (sessionId == AUDIO_SESSION_OUTPUT_STAGE && !isAudioServerUid(callingUid)) {
         lStatus = PERMISSION_DENIED;
         goto Exit;
     }
@@ -3373,136 +3343,6 @@ bool AudioFlinger::updateOrphanEffectChains(const sp<AudioFlinger::EffectModule>
     return false;
 }
 
-
-struct Entry {
-#define TEE_MAX_FILENAME 32 // %Y%m%d%H%M%S_%d.wav = 4+2+2+2+2+2+1+1+4+1 = 21
-    char mFileName[TEE_MAX_FILENAME];
-};
-
-int comparEntry(const void *p1, const void *p2)
-{
-    return strcmp(((const Entry *) p1)->mFileName, ((const Entry *) p2)->mFileName);
-}
-
-#ifdef TEE_SINK
-void AudioFlinger::dumpTee(int fd, const sp<NBAIO_Source>& source, audio_io_handle_t id, char suffix)
-{
-    NBAIO_Source *teeSource = source.get();
-    if (teeSource != NULL) {
-        // .wav rotation
-        // There is a benign race condition if 2 threads call this simultaneously.
-        // They would both traverse the directory, but the result would simply be
-        // failures at unlink() which are ignored.  It's also unlikely since
-        // normally dumpsys is only done by bugreport or from the command line.
-        char teePath[PATH_MAX] = "/data/misc/audioserver";
-        size_t teePathLen = strlen(teePath);
-        DIR *dir = opendir(teePath);
-        teePath[teePathLen++] = '/';
-        if (dir != NULL) {
-#define TEE_MAX_SORT 20 // number of entries to sort
-#define TEE_MAX_KEEP 10 // number of entries to keep
-            struct Entry entries[TEE_MAX_SORT];
-            size_t entryCount = 0;
-            while (entryCount < TEE_MAX_SORT) {
-                errno = 0; // clear errno before readdir() to track potential errors.
-                const struct dirent *result = readdir(dir);
-                if (result == nullptr) {
-                    ALOGW_IF(errno != 0, "tee readdir() failure %s", strerror(errno));
-                    break;
-                }
-                // ignore non .wav file entries
-                const size_t nameLen = strlen(result->d_name);
-                if (nameLen <= 4 || nameLen >= TEE_MAX_FILENAME ||
-                        strcmp(&result->d_name[nameLen - 4], ".wav")) {
-                    continue;
-                }
-                (void)audio_utils_strlcpy(entries[entryCount++].mFileName, result->d_name);
-            }
-            (void) closedir(dir);
-            if (entryCount > TEE_MAX_KEEP) {
-                qsort(entries, entryCount, sizeof(Entry), comparEntry);
-                for (size_t i = 0; i < entryCount - TEE_MAX_KEEP; ++i) {
-                    strcpy(&teePath[teePathLen], entries[i].mFileName);
-                    (void) unlink(teePath);
-                }
-            }
-        } else {
-            if (fd >= 0) {
-                dprintf(fd, "unable to rotate tees in %.*s: %s\n", (int) teePathLen, teePath,
-                        strerror(errno));
-            }
-        }
-        char teeTime[16];
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        struct tm tm;
-        localtime_r(&tv.tv_sec, &tm);
-        strftime(teeTime, sizeof(teeTime), "%Y%m%d%H%M%S", &tm);
-        snprintf(&teePath[teePathLen], sizeof(teePath) - teePathLen, "%s_%d_%c.wav", teeTime, id,
-                suffix);
-        // if 2 dumpsys are done within 1 second, and rotation didn't work, then discard 2nd
-        int teeFd = open(teePath, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
-        if (teeFd >= 0) {
-            // FIXME use libsndfile
-            char wavHeader[44];
-            memcpy(wavHeader,
-                "RIFF\0\0\0\0WAVEfmt \20\0\0\0\1\0\2\0\104\254\0\0\0\0\0\0\4\0\20\0data\0\0\0\0",
-                sizeof(wavHeader));
-            NBAIO_Format format = teeSource->format();
-            unsigned channelCount = Format_channelCount(format);
-            uint32_t sampleRate = Format_sampleRate(format);
-            size_t frameSize = Format_frameSize(format);
-            wavHeader[22] = channelCount;       // number of channels
-            wavHeader[24] = sampleRate;         // sample rate
-            wavHeader[25] = sampleRate >> 8;
-            wavHeader[32] = frameSize;          // block alignment
-            wavHeader[33] = frameSize >> 8;
-            write(teeFd, wavHeader, sizeof(wavHeader));
-            size_t total = 0;
-            bool firstRead = true;
-#define TEE_SINK_READ 1024                      // frames per I/O operation
-            void *buffer = malloc(TEE_SINK_READ * frameSize);
-            for (;;) {
-                size_t count = TEE_SINK_READ;
-                ssize_t actual = teeSource->read(buffer, count);
-                bool wasFirstRead = firstRead;
-                firstRead = false;
-                if (actual <= 0) {
-                    if (actual == (ssize_t) OVERRUN && wasFirstRead) {
-                        continue;
-                    }
-                    break;
-                }
-                ALOG_ASSERT(actual <= (ssize_t)count);
-                write(teeFd, buffer, actual * frameSize);
-                total += actual;
-            }
-            free(buffer);
-            lseek(teeFd, (off_t) 4, SEEK_SET);
-            uint32_t temp = 44 + total * frameSize - 8;
-            // FIXME not big-endian safe
-            write(teeFd, &temp, sizeof(temp));
-            lseek(teeFd, (off_t) 40, SEEK_SET);
-            temp =  total * frameSize;
-            // FIXME not big-endian safe
-            write(teeFd, &temp, sizeof(temp));
-            close(teeFd);
-            // TODO Should create file with temporary name and then rename to final if non-empty.
-            if (total > 0) {
-                if (fd >= 0) {
-                    dprintf(fd, "tee copied to %s\n", teePath);
-                }
-            } else {
-                unlink(teePath);
-            }
-        } else {
-            if (fd >= 0) {
-                dprintf(fd, "unable to create tee %s: %s\n", teePath, strerror(errno));
-            }
-        }
-    }
-}
-#endif
 
 // ----------------------------------------------------------------------------
 

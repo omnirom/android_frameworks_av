@@ -41,7 +41,7 @@ public:
     virtual             ~Track();
     virtual status_t    initCheck() const;
 
-    static  void        appendDumpHeader(String8& result);
+            void        appendDumpHeader(String8& result);
             void        appendDump(String8& result, bool active);
     virtual status_t    start(AudioSystem::sync_event_t event =
                                     AudioSystem::SYNC_EVENT_NONE,
@@ -56,6 +56,12 @@ public:
                 LOG_ALWAYS_FATAL_IF(mName >= 0 && name >= 0,
                         "%s both old name %d and new name %d are valid", __func__, mName, name);
                 mName = name;
+#ifdef TEE_SINK
+                mTee.setId(std::string("_") + std::to_string(mThreadIoHandle)
+                        + "_" + std::to_string(mId)
+                        + "_" + std::to_string(mName)
+                        + "_T");
+#endif
             }
 
     virtual uint32_t    sampleRate() const;
@@ -65,10 +71,12 @@ public:
             }
             bool        isOffloaded() const
                                 { return (mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0; }
-            bool        isDirect() const { return (mFlags & AUDIO_OUTPUT_FLAG_DIRECT) != 0; }
+            bool        isDirect() const override
+                                { return (mFlags & AUDIO_OUTPUT_FLAG_DIRECT) != 0; }
             bool        isOffloadedOrDirect() const { return (mFlags
                             & (AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD
                                     | AUDIO_OUTPUT_FLAG_DIRECT)) != 0; }
+            bool        isStatic() const { return  mSharedBuffer.get() != nullptr; }
 
             status_t    setParameters(const String8& keyValuePairs);
             status_t    attachAuxEffect(int EffectId);
@@ -86,6 +94,10 @@ public:
     virtual status_t    setSyncEvent(const sp<SyncEvent>& event);
 
     virtual bool        isFastTrack() const { return (mFlags & AUDIO_OUTPUT_FLAG_FAST) != 0; }
+
+            double      bufferLatencyMs() const override {
+                            return isStatic() ? 0. : TrackBase::bufferLatencyMs();
+                        }
 
 // implement volume handling.
     media::VolumeShaper::Status applyVolumeShaper(
@@ -140,7 +152,7 @@ protected:
     bool isResumePending();
     void resumeAck();
     void updateTrackFrameInfo(int64_t trackFramesReleased, int64_t sinkFramesWritten,
-            const ExtendedTimestamp &timeStamp);
+            uint32_t halSampleRate, const ExtendedTimestamp &timeStamp);
 
     sp<IMemory> sharedBuffer() const { return mSharedBuffer; }
 
@@ -233,7 +245,7 @@ public:
                                     AudioSystem::SYNC_EVENT_NONE,
                              audio_session_t triggerSession = AUDIO_SESSION_NONE);
     virtual void        stop();
-            bool        write(void* data, uint32_t frames);
+            ssize_t     write(void* data, uint32_t frames);
             bool        bufferQueueEmpty() const { return mBufferQueue.size() == 0; }
             bool        isActive() const { return mActive; }
     const wp<ThreadBase>& thread() const { return mThread; }
@@ -241,6 +253,18 @@ public:
             void        copyMetadataTo(MetadataInserter& backInserter) const override;
     /** Set the metadatas of the upstream tracks. Thread safe. */
             void        setMetadatas(const SourceMetadatas& metadatas);
+    /** returns client timestamp to the upstream duplicating thread. */
+    ExtendedTimestamp   getClientProxyTimestamp() const {
+                            // server - kernel difference is not true latency when drained
+                            // i.e. mServerProxy->isDrained().
+                            ExtendedTimestamp timestamp;
+                            (void) mClientProxy->getTimestamp(&timestamp);
+                            // On success, the timestamp LOCATION_SERVER and LOCATION_KERNEL
+                            // entries will be properly filled. If getTimestamp()
+                            // is unsuccessful, then a default initialized timestamp
+                            // (with mTimeNs[] filled with -1's) is returned.
+                            return timestamp;
+                        }
 
 private:
     status_t            obtainBuffer(AudioBufferProvider::Buffer* buffer,
@@ -257,6 +281,7 @@ private:
     bool                        mActive;
     DuplicatingThread* const    mSourceThread; // for waitTimeMs() in write()
     sp<AudioTrackClientProxy>   mClientProxy;
+
     /** Attributes of the source tracks.
      *
      * This member must be accessed with mTrackMetadatasMutex taken.

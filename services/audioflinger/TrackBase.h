@@ -91,6 +91,7 @@ public:
             void*       buffer() const { return mBuffer; }
             size_t      bufferSize() const { return mBufferSize; }
     virtual bool        isFastTrack() const = 0;
+    virtual bool        isDirect() const = 0;
             bool        isOutputTrack() const { return (mType == TYPE_OUTPUT); }
             bool        isPatchTrack() const { return (mType == TYPE_PATCH); }
             bool        isExternalTrack() const { return !isOutputTrack() && !isPatchTrack(); }
@@ -99,6 +100,92 @@ public:
             bool        isInvalid() const { return mIsInvalid; }
 
     audio_attributes_t  attributes() const { return mAttr; }
+
+#ifdef TEE_SINK
+           void         dumpTee(int fd, const std::string &reason) const {
+                                mTee.dump(fd, reason);
+                        }
+#endif
+
+            /** returns the buffer contents size converted to time in milliseconds
+             * for PCM Playback or Record streaming tracks. The return value is zero for
+             * PCM static tracks and not defined for non-PCM tracks.
+             *
+             * This may be called without the thread lock.
+             */
+    virtual double      bufferLatencyMs() const {
+                            return mServerProxy->framesReadySafe() * 1000 / sampleRate();
+                        }
+
+            /** returns whether the track supports server latency computation.
+             * This is set in the constructor and constant throughout the track lifetime.
+             */
+
+            bool        isServerLatencySupported() const { return mServerLatencySupported; }
+
+            /** computes the server latency for PCM Playback or Record track
+             * to the device sink/source.  This is the time for the next frame in the track buffer
+             * written or read from the server thread to the device source or sink.
+             *
+             * This may be called without the thread lock, but latencyMs and fromTrack
+             * may be not be synchronized. For example PatchPanel may not obtain the
+             * thread lock before calling.
+             *
+             * \param latencyMs on success is set to the latency in milliseconds of the
+             *        next frame written/read by the server thread to/from the track buffer
+             *        from the device source/sink.
+             * \param fromTrack on success is set to true if latency was computed directly
+             *        from the track timestamp; otherwise set to false if latency was
+             *        estimated from the server timestamp.
+             *        fromTrack may be nullptr or omitted if not required.
+             *
+             * \returns OK or INVALID_OPERATION on failure.
+             */
+            status_t    getServerLatencyMs(double *latencyMs, bool *fromTrack = nullptr) const {
+                            if (!isServerLatencySupported()) {
+                                return INVALID_OPERATION;
+                            }
+
+                            // if no thread lock is acquired, these atomics are not
+                            // synchronized with each other, considered a benign race.
+
+                            const double serverLatencyMs = mServerLatencyMs.load();
+                            if (serverLatencyMs == 0.) {
+                                return INVALID_OPERATION;
+                            }
+                            if (fromTrack != nullptr) {
+                                *fromTrack = mServerLatencyFromTrack.load();
+                            }
+                            *latencyMs = serverLatencyMs;
+                            return OK;
+                        }
+
+            /** computes the total client latency for PCM Playback or Record tracks
+             * for the next client app access to the device sink/source; i.e. the
+             * server latency plus the buffer latency.
+             *
+             * This may be called without the thread lock, but latencyMs and fromTrack
+             * may be not be synchronized. For example PatchPanel may not obtain the
+             * thread lock before calling.
+             *
+             * \param latencyMs on success is set to the latency in milliseconds of the
+             *        next frame written/read by the client app to/from the track buffer
+             *        from the device sink/source.
+             * \param fromTrack on success is set to true if latency was computed directly
+             *        from the track timestamp; otherwise set to false if latency was
+             *        estimated from the server timestamp.
+             *        fromTrack may be nullptr or omitted if not required.
+             *
+             * \returns OK or INVALID_OPERATION on failure.
+             */
+            status_t    getTrackLatencyMs(double *latencyMs, bool *fromTrack = nullptr) const {
+                            double serverLatencyMs;
+                            status_t status = getServerLatencyMs(&serverLatencyMs, fromTrack);
+                            if (status == OK) {
+                                *latencyMs = serverLatencyMs + bufferLatencyMs();
+                            }
+                            return status;
+                        }
 
 protected:
     DISALLOW_COPY_AND_ASSIGN(TrackBase);
@@ -208,13 +295,18 @@ protected:
     const bool          mIsOut;
     sp<ServerProxy>     mServerProxy;
     const int           mId;
-    sp<NBAIO_Sink>      mTeeSink;
-    sp<NBAIO_Source>    mTeeSource;
+#ifdef TEE_SINK
+    NBAIO_Tee           mTee;
+#endif
     bool                mTerminated;
     track_type          mType;      // must be one of TYPE_DEFAULT, TYPE_OUTPUT, TYPE_PATCH ...
     audio_io_handle_t   mThreadIoHandle; // I/O handle of the thread the track is attached to
     audio_port_handle_t mPortId; // unique ID for this track used by audio policy
     bool                mIsInvalid; // non-resettable latch, set by invalidate()
+
+    bool                mServerLatencySupported = false;
+    std::atomic<bool>   mServerLatencyFromTrack{}; // latency from track or server timestamp.
+    std::atomic<double> mServerLatencyMs{};        // last latency pushed from server thread.
 };
 
 // PatchProxyBufferProvider interface is implemented by PatchTrack and PatchRecord.

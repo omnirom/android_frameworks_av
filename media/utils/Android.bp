@@ -21,9 +21,11 @@ cc_library {
         "MemoryLeakTrackUtil.cpp",
         "ProcessInfo.cpp",
         "SchedulingPolicyService.cpp",
+        "ServiceUtilities.cpp",
     ],
     shared_libs: [
         "libbinder",
+        "libcutils",
         "liblog",
         "libutils",
         "libmemunreachable",

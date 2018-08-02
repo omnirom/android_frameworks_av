@@ -17,6 +17,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <unordered_set>
 
@@ -320,6 +321,10 @@ protected:
         bool isStrategyActive(const sp<AudioOutputDescriptor>& outputDesc, routing_strategy strategy,
                               uint32_t inPastMs = 0, nsecs_t sysTime = 0) const;
 
+        bool isStrategyActiveOnSameModule(const sp<AudioOutputDescriptor>& outputDesc,
+                                                  routing_strategy strategy, uint32_t inPastMs = 0,
+                                                  nsecs_t sysTime = 0) const;
+
         // change the route of the specified output. Returns the number of ms we have slept to
         // allow new routing to take effect in certain cases.
         virtual uint32_t setOutputDevice(const sp<AudioOutputDescriptor>& outputDesc,
@@ -348,6 +353,10 @@ protected:
                                     int index,
                                     audio_devices_t device);
 
+        // rescale volume index from srcStream within range of dstStream
+        int rescaleVolumeIndex(int srcIndex,
+                               audio_stream_type_t srcStream,
+                               audio_stream_type_t dstStream);
         // check that volume change is permitted, compute and send new volume to audio hardware
         virtual status_t checkAndSetVolume(audio_stream_type_t stream, int index,
                                            const sp<AudioOutputDescriptor>& outputDesc,
@@ -371,10 +380,6 @@ protected:
                            const sp<AudioOutputDescriptor>& outputDesc,
                            int delayMs = 0,
                            audio_devices_t device = (audio_devices_t)0);
-
-        // handle special cases for sonification strategy while in call: mute streams or replace by
-        // a special tone in the device used for communication
-        void handleIncallSonification(audio_stream_type_t stream, bool starting, bool stateChange);
 
         audio_mode_t getPhoneState();
 
@@ -404,6 +409,13 @@ protected:
 
         // close an input.
         void closeInput(audio_io_handle_t input);
+
+        // runs all the checks required for accomodating changes in devices and outputs
+        // if 'onOutputsChecked' callback is provided, it is executed after the outputs
+        // check via 'checkOutputForAllStrategies'. If the callback returns 'true',
+        // A2DP suspend status is rechecked.
+        void checkForDeviceAndOutputChanges();
+        void checkForDeviceAndOutputChanges(std::function<bool()> onOutputsChecked);
 
         // checks and if necessary changes outputs used for all strategies.
         // must be called every time a condition that affects the output choice for a given strategy
@@ -501,8 +513,8 @@ protected:
 
         uint32_t updateCallRouting(audio_devices_t rxDevice, uint32_t delayMs = 0);
         sp<AudioPatch> createTelephonyPatch(bool isRx, audio_devices_t device, uint32_t delayMs);
-        sp<DeviceDescriptor> fillAudioPortConfigForDevice(
-                const DeviceVector& devices, audio_devices_t device, audio_port_config *config);
+        sp<DeviceDescriptor> findDevice(
+                const DeviceVector& devices, audio_devices_t device);
 
         // if argument "device" is different from AUDIO_DEVICE_NONE,  startSource() will force
         // the re-evaluation of the output device.
@@ -539,7 +551,7 @@ protected:
         static bool streamsMatchForvolume(audio_stream_type_t stream1,
                                           audio_stream_type_t stream2);
 
-        uid_t mUidCached;
+        const uid_t mUidCached;                         // AID_AUDIOSERVER
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         sp<SwAudioOutputDescriptor> mPrimaryOutput;     // primary output descriptor
         // list of descriptors for outputs currently opened
@@ -679,6 +691,18 @@ protected:
             param.addInt(String8(AudioParameter::keyMonoOutput), (int)mMasterMono);
             mpClientInterface->setParameters(output, param.toString());
         }
+        status_t installPatch(const char *caller,
+                audio_patch_handle_t *patchHandle,
+                AudioIODescriptorInterface *ioDescriptor,
+                const struct audio_patch *patch,
+                int delayMs);
+        status_t installPatch(const char *caller,
+                ssize_t index,
+                audio_patch_handle_t *patchHandle,
+                const struct audio_patch *patch,
+                int delayMs,
+                uid_t uid,
+                sp<AudioPatch> *patchDescPtr);
 
         bool soundTriggerSupportsConcurrentCapture();
         bool mSoundTriggerSupportsConcurrentCapture;

@@ -233,7 +233,11 @@ bool M3UParser::MediaGroup::getActiveURI(AString *uri) const {
         if (mSelectedIndex >= 0 && i == (size_t)mSelectedIndex) {
             const Media &item = mMediaItems.itemAt(i);
 
-            *uri = item.mURI;
+            if (item.mURI.empty()) {
+                *uri = "";
+            } else {
+                *uri = item.mURI;
+            }
             return true;
         }
     }
@@ -464,7 +468,7 @@ bool M3UParser::getTypeURI(size_t index, const char *key, AString *uri) const {
         }
 
         if ((*uri).empty()) {
-            *uri = mItems.itemAt(index).mURI;
+            *uri = mItems.itemAt(index).makeURL(mBaseURI.c_str());
         }
     }
 

@@ -36,14 +36,13 @@
 #ifndef _NDK_CAMERA_METADATA_H
 #define _NDK_CAMERA_METADATA_H
 
+#include <stdint.h>
 #include <sys/cdefs.h>
 
 #include "NdkCameraError.h"
 #include "NdkCameraMetadataTags.h"
 
 __BEGIN_DECLS
-
-#if __ANDROID_API__ >= 24
 
 /**
  * ACameraMetadata is opaque type that provides access to read-only camera metadata like camera
@@ -190,7 +189,8 @@ typedef struct ACameraMetadata_const_entry {
  *             of input tag value.</li></ul>
  */
 camera_status_t ACameraMetadata_getConstEntry(
-        const ACameraMetadata* metadata, uint32_t tag, /*out*/ACameraMetadata_const_entry* entry);
+        const ACameraMetadata* metadata,
+        uint32_t tag, /*out*/ACameraMetadata_const_entry* entry) __INTRODUCED_IN(24);
 
 /**
  * List all the entry tags in input {@link ACameraMetadata}.
@@ -207,7 +207,8 @@ camera_status_t ACameraMetadata_getConstEntry(
  *         <li>{@link ACAMERA_ERROR_UNKNOWN} if the method fails for some other reasons.</li></ul>
  */
 camera_status_t ACameraMetadata_getAllTags(
-        const ACameraMetadata* metadata, /*out*/int32_t* numEntries, /*out*/const uint32_t** tags);
+        const ACameraMetadata* metadata,
+        /*out*/int32_t* numEntries, /*out*/const uint32_t** tags) __INTRODUCED_IN(24);
 
 /**
  * Create a copy of input {@link ACameraMetadata}.
@@ -219,16 +220,14 @@ camera_status_t ACameraMetadata_getAllTags(
  *
  * @return a valid ACameraMetadata pointer or NULL if the input metadata cannot be copied.
  */
-ACameraMetadata* ACameraMetadata_copy(const ACameraMetadata* src);
+ACameraMetadata* ACameraMetadata_copy(const ACameraMetadata* src) __INTRODUCED_IN(24);
 
 /**
  * Free a {@link ACameraMetadata} structure.
  *
  * @param metadata the {@link ACameraMetadata} to be freed.
  */
-void ACameraMetadata_free(ACameraMetadata* metadata);
-
-#endif /* __ANDROID_API__ >= 24 */
+void ACameraMetadata_free(ACameraMetadata* metadata) __INTRODUCED_IN(24);
 
 __END_DECLS
 

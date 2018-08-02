@@ -38,15 +38,23 @@ public:
     AudioPolicyConfig(HwModuleCollection &hwModules,
                       DeviceVector &availableOutputDevices,
                       DeviceVector &availableInputDevices,
-                      sp<DeviceDescriptor> &defaultOutputDevices,
+                      sp<DeviceDescriptor> &defaultOutputDevice,
                       VolumeCurvesCollection *volumes = nullptr)
         : mHwModules(hwModules),
           mAvailableOutputDevices(availableOutputDevices),
           mAvailableInputDevices(availableInputDevices),
-          mDefaultOutputDevices(defaultOutputDevices),
+          mDefaultOutputDevice(defaultOutputDevice),
           mVolumeCurves(volumes),
           mIsSpeakerDrcEnabled(false)
     {}
+
+    const std::string& getSource() const {
+        return mSource;
+    }
+
+    void setSource(const std::string& file) {
+        mSource = file;
+    }
 
     void setVolumes(const VolumeCurvesCollection &volumes)
     {
@@ -100,46 +108,52 @@ public:
 
     void setDefaultOutputDevice(const sp<DeviceDescriptor> &defaultDevice)
     {
-        mDefaultOutputDevices = defaultDevice;
+        mDefaultOutputDevice = defaultDevice;
     }
 
-    const sp<DeviceDescriptor> &getDefaultOutputDevice() const { return mDefaultOutputDevices; }
+    const sp<DeviceDescriptor> &getDefaultOutputDevice() const { return mDefaultOutputDevice; }
 
     void setDefault(void)
     {
-        mDefaultOutputDevices = new DeviceDescriptor(AUDIO_DEVICE_OUT_SPEAKER);
-        sp<HwModule> module;
+        mSource = "AudioPolicyConfig::setDefault";
+        mDefaultOutputDevice = new DeviceDescriptor(AUDIO_DEVICE_OUT_SPEAKER);
+        mDefaultOutputDevice->addAudioProfile(AudioProfile::createFullDynamic());
         sp<DeviceDescriptor> defaultInputDevice = new DeviceDescriptor(AUDIO_DEVICE_IN_BUILTIN_MIC);
-        mAvailableOutputDevices.add(mDefaultOutputDevices);
+        defaultInputDevice->addAudioProfile(AudioProfile::createFullDynamic());
+        sp<AudioProfile> micProfile = new AudioProfile(
+                AUDIO_FORMAT_PCM_16_BIT, AUDIO_CHANNEL_IN_MONO, 8000);
+        defaultInputDevice->addAudioProfile(micProfile);
+        mAvailableOutputDevices.add(mDefaultOutputDevice);
         mAvailableInputDevices.add(defaultInputDevice);
 
-        module = new HwModule(AUDIO_HARDWARE_MODULE_ID_PRIMARY);
+        sp<HwModule> module = new HwModule(AUDIO_HARDWARE_MODULE_ID_PRIMARY, 2 /*halVersionMajor*/);
+        mHwModules.add(module);
+        mDefaultOutputDevice->attach(module);
+        defaultInputDevice->attach(module);
 
         sp<OutputProfile> outProfile;
         outProfile = new OutputProfile(String8("primary"));
         outProfile->attach(module);
         outProfile->addAudioProfile(
                 new AudioProfile(AUDIO_FORMAT_PCM_16_BIT, AUDIO_CHANNEL_OUT_STEREO, 44100));
-        outProfile->addSupportedDevice(mDefaultOutputDevices);
+        outProfile->addSupportedDevice(mDefaultOutputDevice);
         outProfile->setFlags(AUDIO_OUTPUT_FLAG_PRIMARY);
         module->addOutputProfile(outProfile);
 
         sp<InputProfile> inProfile;
         inProfile = new InputProfile(String8("primary"));
         inProfile->attach(module);
-        inProfile->addAudioProfile(
-                new AudioProfile(AUDIO_FORMAT_PCM_16_BIT, AUDIO_CHANNEL_IN_MONO, 8000));
+        inProfile->addAudioProfile(micProfile);
         inProfile->addSupportedDevice(defaultInputDevice);
         module->addInputProfile(inProfile);
-
-        mHwModules.add(module);
     }
 
 private:
+    std::string mSource;
     HwModuleCollection &mHwModules; /**< Collection of Module, with Profiles, i.e. Mix Ports. */
     DeviceVector &mAvailableOutputDevices;
     DeviceVector &mAvailableInputDevices;
-    sp<DeviceDescriptor> &mDefaultOutputDevices;
+    sp<DeviceDescriptor> &mDefaultOutputDevice;
     VolumeCurvesCollection *mVolumeCurves;
     // TODO: remove when legacy conf file is removed. true on devices that use DRC on the
     // DEVICE_CATEGORY_SPEAKER path to boost soft sounds, used to adjust volume curves accordingly.

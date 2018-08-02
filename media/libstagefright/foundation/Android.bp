@@ -6,6 +6,7 @@ cc_library_headers {
 
 cc_defaults {
     name: "libstagefright_foundation_defaults",
+    double_loadable: true,
     include_dirs: [
         "frameworks/av/include",
         "frameworks/native/include",

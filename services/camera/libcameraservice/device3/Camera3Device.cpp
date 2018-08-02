@@ -121,9 +121,23 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
 
     res = manager->getCameraCharacteristics(mId.string(), &mDeviceInfo);
     if (res != OK) {
-        SET_ERR_L("Could not retrive camera characteristics: %s (%d)", strerror(-res), res);
+        SET_ERR_L("Could not retrieve camera characteristics: %s (%d)", strerror(-res), res);
         session->close();
         return res;
+    }
+
+    std::vector<std::string> physicalCameraIds;
+    bool isLogical = CameraProviderManager::isLogicalCamera(mDeviceInfo, &physicalCameraIds);
+    if (isLogical) {
+        for (auto& physicalId : physicalCameraIds) {
+            res = manager->getCameraCharacteristics(physicalId, &mPhysicalDeviceInfoMap[physicalId]);
+            if (res != OK) {
+                SET_ERR_L("Could not retrieve camera %s characteristics: %s (%d)",
+                        physicalId.c_str(), strerror(-res), res);
+                session->close();
+                return res;
+            }
+        }
     }
 
     std::shared_ptr<RequestMetadataQueue> queue;
@@ -716,7 +730,7 @@ status_t Camera3Device::dump(int fd, const Vector<String16> &args) {
     return OK;
 }
 
-const CameraMetadata& Camera3Device::info() const {
+const CameraMetadata& Camera3Device::info(const String8& physicalId) const {
     ALOGVV("%s: E", __FUNCTION__);
     if (CC_UNLIKELY(mStatus == STATUS_UNINITIALIZED ||
                     mStatus == STATUS_ERROR)) {
@@ -724,7 +738,22 @@ const CameraMetadata& Camera3Device::info() const {
                 mStatus == STATUS_ERROR ?
                 "when in error state" : "before init");
     }
-    return mDeviceInfo;
+    if (physicalId.isEmpty()) {
+        return mDeviceInfo;
+    } else {
+        std::string id(physicalId.c_str());
+        if (mPhysicalDeviceInfoMap.find(id) != mPhysicalDeviceInfoMap.end()) {
+            return mPhysicalDeviceInfoMap.at(id);
+        } else {
+            ALOGE("%s: Invalid physical camera id %s", __FUNCTION__, physicalId.c_str());
+            return mDeviceInfo;
+        }
+    }
+}
+
+const CameraMetadata& Camera3Device::info() const {
+    String8 emptyId;
+    return info(emptyId);
 }
 
 status_t Camera3Device::checkStatusOkToCaptureLocked() {
@@ -4707,6 +4736,7 @@ bool Camera3Device::RequestThread::threadLoop() {
 status_t Camera3Device::RequestThread::prepareHalRequests() {
     ATRACE_CALL();
 
+    bool batchedRequest = mNextRequests[0].captureRequest->mBatchSize > 1;
     for (size_t i = 0; i < mNextRequests.size(); i++) {
         auto& nextRequest = mNextRequests.editItemAt(i);
         sp<CaptureRequest> captureRequest = nextRequest.captureRequest;
@@ -4730,7 +4760,10 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
         mPrevTriggers = triggerCount;
 
         // If the request is the same as last, or we had triggers last time
-        bool newRequest = mPrevRequest != captureRequest || triggersMixedIn;
+        bool newRequest = (mPrevRequest != captureRequest || triggersMixedIn) &&
+                // Request settings are all the same within one batch, so only treat the first
+                // request in a batch as new
+                !(batchedRequest && i >= 0);
         if (newRequest) {
             /**
              * HAL workaround:
@@ -4879,7 +4912,7 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
         // preview), and the current request is not the last one in the batch,
         // do not send callback to the app.
         bool hasCallback = true;
-        if (mNextRequests[0].captureRequest->mBatchSize > 1 && i != mNextRequests.size()-1) {
+        if (batchedRequest && i != mNextRequests.size()-1) {
             hasCallback = false;
         }
         res = parent->registerInFlight(halRequest->frame_number,

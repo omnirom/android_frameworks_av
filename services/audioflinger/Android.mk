@@ -2,24 +2,6 @@ LOCAL_PATH:= $(call my-dir)
 
 include $(CLEAR_VARS)
 
-LOCAL_SRC_FILES := \
-    ServiceUtilities.cpp
-
-# FIXME Move this library to frameworks/native
-LOCAL_MODULE := libserviceutility
-
-LOCAL_SHARED_LIBRARIES := \
-    libcutils \
-    libutils \
-    liblog \
-    libbinder
-
-LOCAL_CFLAGS := -Wall -Werror
-
-include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-
 LOCAL_SRC_FILES:=               \
     AudioFlinger.cpp            \
     Threads.cpp                 \
@@ -31,7 +13,8 @@ LOCAL_SRC_FILES:=               \
     PatchPanel.cpp              \
     StateQueue.cpp              \
     BufLog.cpp                  \
-    TypedLogger.cpp
+    TypedLogger.cpp             \
+    NBAIO_Tee.cpp               \
 
 LOCAL_C_INCLUDES := \
     frameworks/av/services/audiopolicy \
@@ -53,13 +36,13 @@ LOCAL_SHARED_LIBRARIES := \
     libnbaio \
     libnblog \
     libpowermanager \
-    libserviceutility \
     libmediautils \
     libmemunreachable \
     libmedia_helper
 
 LOCAL_STATIC_LIBRARIES := \
     libcpustats \
+    libsndfile \
 
 LOCAL_MULTILIB := $(AUDIOSERVER_MULTILIB)
 
@@ -82,6 +65,7 @@ LOCAL_CFLAGS += -DSTATE_QUEUE_INSTANTIATIONS='"StateQueueInstantiations.cpp"'
 LOCAL_CFLAGS += -fvisibility=hidden
 
 LOCAL_CFLAGS += -Werror -Wall
+LOCAL_SANITIZE := integer_overflow
 
 include $(BUILD_SHARED_LIBRARY)
 

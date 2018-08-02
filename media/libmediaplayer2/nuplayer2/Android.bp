@@ -60,8 +60,6 @@ cc_library_static {
 
     name: "libstagefright_nuplayer2",
 
-    tags: ["eng"],
-
     sanitize: {
         cfi: true,
         diag: {

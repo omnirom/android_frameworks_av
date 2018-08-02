@@ -108,7 +108,7 @@ public:
     sp<DeviceDescriptor> getDeviceDescriptor(const audio_devices_t device,
                                              const char *device_address,
                                              const char *device_name,
-                                             bool matchAdress = true) const;
+                                             bool matchAddress = true) const;
 
     status_t dump(int fd) const;
 };

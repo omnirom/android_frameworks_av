@@ -24,11 +24,10 @@
 
 #include <binder/IPCThreadState.h>
 #include <binder/Parcel.h>
-#include <cutils/multiuser.h>
 #include <media/AudioEffect.h>
 #include <media/IAudioPolicyService.h>
 #include <media/TimeCheck.h>
-#include <private/android_filesystem_config.h>
+#include <mediautils/ServiceUtilities.h>
 #include <system/audio.h>
 
 namespace android {
@@ -245,41 +244,29 @@ public:
             return status;
         }
 
-    virtual status_t startOutput(audio_io_handle_t output,
-                                 audio_stream_type_t stream,
-                                 audio_session_t session)
+    virtual status_t startOutput(audio_port_handle_t portId)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
-        data.writeInt32(output);
-        data.writeInt32((int32_t) stream);
-        data.writeInt32((int32_t) session);
+        data.writeInt32((int32_t)portId);
         remote()->transact(START_OUTPUT, data, &reply);
         return static_cast <status_t> (reply.readInt32());
     }
 
-    virtual status_t stopOutput(audio_io_handle_t output,
-                                audio_stream_type_t stream,
-                                audio_session_t session)
+    virtual status_t stopOutput(audio_port_handle_t portId)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
-        data.writeInt32(output);
-        data.writeInt32((int32_t) stream);
-        data.writeInt32((int32_t) session);
+        data.writeInt32((int32_t)portId);
         remote()->transact(STOP_OUTPUT, data, &reply);
         return static_cast <status_t> (reply.readInt32());
     }
 
-    virtual void releaseOutput(audio_io_handle_t output,
-                               audio_stream_type_t stream,
-                               audio_session_t session)
+    virtual void releaseOutput(audio_port_handle_t portId)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
-        data.writeInt32(output);
-        data.writeInt32((int32_t)stream);
-        data.writeInt32((int32_t)session);
+        data.writeInt32((int32_t)portId);
         remote()->transact(RELEASE_OUTPUT, data, &reply);
     }
 
@@ -936,7 +923,7 @@ status_t BnAudioPolicyService::onTransact(
         case STOP_AUDIO_SOURCE:
         case GET_SURROUND_FORMATS:
         case SET_SURROUND_FORMAT_ENABLED: {
-            if (multiuser_get_app_id(IPCThreadState::self()->getCallingUid()) >= AID_APP_START) {
+            if (!isServiceUid(IPCThreadState::self()->getCallingUid())) {
                 ALOGW("%s: transaction %d received from PID %d unauthorized UID %d",
                       __func__, code, IPCThreadState::self()->getCallingPid(),
                       IPCThreadState::self()->getCallingUid());
@@ -1075,34 +1062,22 @@ status_t BnAudioPolicyService::onTransact(
 
         case START_OUTPUT: {
             CHECK_INTERFACE(IAudioPolicyService, data, reply);
-            audio_io_handle_t output = static_cast <audio_io_handle_t>(data.readInt32());
-            audio_stream_type_t stream =
-                                static_cast <audio_stream_type_t>(data.readInt32());
-            audio_session_t session = (audio_session_t)data.readInt32();
-            reply->writeInt32(static_cast <uint32_t>(startOutput(output,
-                                                                 stream,
-                                                                 session)));
+            const audio_port_handle_t portId = static_cast <audio_port_handle_t>(data.readInt32());
+            reply->writeInt32(static_cast <uint32_t>(startOutput(portId)));
             return NO_ERROR;
         } break;
 
         case STOP_OUTPUT: {
             CHECK_INTERFACE(IAudioPolicyService, data, reply);
-            audio_io_handle_t output = static_cast <audio_io_handle_t>(data.readInt32());
-            audio_stream_type_t stream =
-                                static_cast <audio_stream_type_t>(data.readInt32());
-            audio_session_t session = (audio_session_t)data.readInt32();
-            reply->writeInt32(static_cast <uint32_t>(stopOutput(output,
-                                                                stream,
-                                                                session)));
+            const audio_port_handle_t portId = static_cast <audio_port_handle_t>(data.readInt32());
+            reply->writeInt32(static_cast <uint32_t>(stopOutput(portId)));
             return NO_ERROR;
         } break;
 
         case RELEASE_OUTPUT: {
             CHECK_INTERFACE(IAudioPolicyService, data, reply);
-            audio_io_handle_t output = static_cast <audio_io_handle_t>(data.readInt32());
-            audio_stream_type_t stream = (audio_stream_type_t)data.readInt32();
-            audio_session_t session = (audio_session_t)data.readInt32();
-            releaseOutput(output, stream, session);
+            const audio_port_handle_t portId = static_cast <audio_port_handle_t>(data.readInt32());
+            releaseOutput(portId);
             return NO_ERROR;
         } break;
 

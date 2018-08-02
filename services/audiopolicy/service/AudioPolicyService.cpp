@@ -26,7 +26,6 @@
 #include <sys/time.h>
 #include <binder/IServiceManager.h>
 #include <utils/Log.h>
-#include <cutils/multiuser.h>
 #include <cutils/properties.h>
 #include <binder/IPCThreadState.h>
 #include <binder/ActivityManager.h>
@@ -35,15 +34,13 @@
 #include <utils/String16.h>
 #include <utils/threads.h>
 #include "AudioPolicyService.h"
-#include "ServiceUtilities.h"
 #include <hardware_legacy/power.h>
 #include <media/AudioEffect.h>
 #include <media/AudioParameter.h>
+#include <mediautils/ServiceUtilities.h>
 
 #include <system/audio.h>
 #include <system/audio_policy.h>
-
-#include <private/android_filesystem_config.h>
 
 namespace android {
 
@@ -70,8 +67,6 @@ void AudioPolicyService::onFirstRef()
     {
         Mutex::Autolock _l(mLock);
 
-        // start tone playback thread
-        mTonePlaybackThread = new AudioCommandThread(String8("ApmTone"), this);
         // start audio commands thread
         mAudioCommandThread = new AudioCommandThread(String8("ApmAudio"), this);
         // start output activity command thread
@@ -93,7 +88,6 @@ void AudioPolicyService::onFirstRef()
 
 AudioPolicyService::~AudioPolicyService()
 {
-    mTonePlaybackThread->exit();
     mAudioCommandThread->exit();
     mOutputCommandThread->exit();
 
@@ -118,13 +112,17 @@ void AudioPolicyService::registerClient(const sp<IAudioPolicyServiceClient>& cli
     Mutex::Autolock _l(mNotificationClientsLock);
 
     uid_t uid = IPCThreadState::self()->getCallingUid();
-    if (mNotificationClients.indexOfKey(uid) < 0) {
+    pid_t pid = IPCThreadState::self()->getCallingPid();
+    int64_t token = ((int64_t)uid<<32) | pid;
+
+    if (mNotificationClients.indexOfKey(token) < 0) {
         sp<NotificationClient> notificationClient = new NotificationClient(this,
                                                                            client,
-                                                                           uid);
-        ALOGV("registerClient() client %p, uid %d", client.get(), uid);
+                                                                           uid,
+                                                                           pid);
+        ALOGV("registerClient() client %p, uid %d pid %d", client.get(), uid, pid);
 
-        mNotificationClients.add(uid, notificationClient);
+        mNotificationClients.add(token, notificationClient);
 
         sp<IBinder> binder = IInterface::asBinder(client);
         binder->linkToDeath(notificationClient);
@@ -136,22 +134,33 @@ void AudioPolicyService::setAudioPortCallbacksEnabled(bool enabled)
     Mutex::Autolock _l(mNotificationClientsLock);
 
     uid_t uid = IPCThreadState::self()->getCallingUid();
-    if (mNotificationClients.indexOfKey(uid) < 0) {
+    pid_t pid = IPCThreadState::self()->getCallingPid();
+    int64_t token = ((int64_t)uid<<32) | pid;
+
+    if (mNotificationClients.indexOfKey(token) < 0) {
         return;
     }
-    mNotificationClients.valueFor(uid)->setAudioPortCallbacksEnabled(enabled);
+    mNotificationClients.valueFor(token)->setAudioPortCallbacksEnabled(enabled);
 }
 
 // removeNotificationClient() is called when the client process dies.
-void AudioPolicyService::removeNotificationClient(uid_t uid)
+void AudioPolicyService::removeNotificationClient(uid_t uid, pid_t pid)
 {
     {
         Mutex::Autolock _l(mNotificationClientsLock);
-        mNotificationClients.removeItem(uid);
+        int64_t token = ((int64_t)uid<<32) | pid;
+        mNotificationClients.removeItem(token);
     }
     {
         Mutex::Autolock _l(mLock);
-        if (mAudioPolicyManager) {
+        bool hasSameUid = false;
+        for (size_t i = 0; i < mNotificationClients.size(); i++) {
+            if (mNotificationClients.valueAt(i)->uid() == uid) {
+                hasSameUid = true;
+                break;
+            }
+        }
+        if (mAudioPolicyManager && !hasSameUid) {
             // called from binder death notification: no need to clear caller identity
             mAudioPolicyManager->releaseResourcesForUid(uid);
         }
@@ -239,8 +248,9 @@ status_t AudioPolicyService::clientSetAudioPortConfig(const struct audio_port_co
 
 AudioPolicyService::NotificationClient::NotificationClient(const sp<AudioPolicyService>& service,
                                                      const sp<IAudioPolicyServiceClient>& client,
-                                                     uid_t uid)
-    : mService(service), mUid(uid), mAudioPolicyServiceClient(client),
+                                                     uid_t uid,
+                                                     pid_t pid)
+    : mService(service), mUid(uid), mPid(pid), mAudioPolicyServiceClient(client),
       mAudioPortCallbacksEnabled(false)
 {
 }
@@ -254,7 +264,7 @@ void AudioPolicyService::NotificationClient::binderDied(const wp<IBinder>& who _
     sp<NotificationClient> keep(this);
     sp<AudioPolicyService> service = mService.promote();
     if (service != 0) {
-        service->removeNotificationClient(mUid);
+        service->removeNotificationClient(mUid, mPid);
     }
 }
 
@@ -275,7 +285,7 @@ void AudioPolicyService::NotificationClient::onAudioPatchListUpdate()
 void AudioPolicyService::NotificationClient::onDynamicPolicyMixStateUpdate(
         const String8& regId, int32_t state)
 {
-    if (mAudioPolicyServiceClient != 0 && multiuser_get_app_id(mUid) < AID_APP_START) {
+    if (mAudioPolicyServiceClient != 0 && isServiceUid(mUid)) {
         mAudioPolicyServiceClient->onDynamicPolicyMixStateUpdate(regId, state);
     }
 }
@@ -285,7 +295,7 @@ void AudioPolicyService::NotificationClient::onRecordingConfigurationUpdate(
         const audio_config_base_t *clientConfig, const audio_config_base_t *deviceConfig,
         audio_patch_handle_t patchHandle)
 {
-    if (mAudioPolicyServiceClient != 0 && multiuser_get_app_id(mUid) < AID_APP_START) {
+    if (mAudioPolicyServiceClient != 0 && isServiceUid(mUid)) {
         mAudioPolicyServiceClient->onRecordingConfigurationUpdate(event, clientInfo,
                 clientConfig, deviceConfig, patchHandle);
     }
@@ -325,8 +335,6 @@ status_t AudioPolicyService::dumpInternals(int fd)
     result.append(buffer);
     snprintf(buffer, SIZE, "Command Thread: %p\n", mAudioCommandThread.get());
     result.append(buffer);
-    snprintf(buffer, SIZE, "Tones Thread: %p\n", mTonePlaybackThread.get());
-    result.append(buffer);
 
     write(fd, result.string(), result.size());
     return NO_ERROR;
@@ -361,9 +369,6 @@ status_t AudioPolicyService::dump(int fd, const Vector<String16>& args __unused)
         dumpInternals(fd);
         if (mAudioCommandThread != 0) {
             mAudioCommandThread->dump(fd);
-        }
-        if (mTonePlaybackThread != 0) {
-            mTonePlaybackThread->dump(fd);
         }
 
         if (mAudioPolicyManager) {
@@ -577,10 +582,6 @@ void AudioPolicyService::UidPolicy::onUidIdle(uid_t uid, __unused bool disabled)
     updateUidCache(uid, false, true);
 }
 
-bool AudioPolicyService::UidPolicy::isServiceUid(uid_t uid) const {
-    return multiuser_get_app_id(uid) < AID_APP_START;
-}
-
 void AudioPolicyService::UidPolicy::notifyService(uid_t uid, bool active) {
     sp<AudioPolicyService> service = mService.promote();
     if (service != nullptr) {
@@ -639,7 +640,6 @@ AudioPolicyService::AudioCommandThread::AudioCommandThread(String8 name,
                                                            const wp<AudioPolicyService>& service)
     : Thread(false), mName(name), mService(service)
 {
-    mpToneGenerator = NULL;
 }
 
 
@@ -649,7 +649,6 @@ AudioPolicyService::AudioCommandThread::~AudioCommandThread()
         release_wake_lock(mName.string());
     }
     mAudioCommands.clear();
-    delete mpToneGenerator;
 }
 
 void AudioPolicyService::AudioCommandThread::onFirstRef()
@@ -674,26 +673,6 @@ bool AudioPolicyService::AudioCommandThread::threadLoop()
                 mLastCommand = command;
 
                 switch (command->mCommand) {
-                case START_TONE: {
-                    mLock.unlock();
-                    ToneData *data = (ToneData *)command->mParam.get();
-                    ALOGV("AudioCommandThread() processing start tone %d on stream %d",
-                            data->mType, data->mStream);
-                    delete mpToneGenerator;
-                    mpToneGenerator = new ToneGenerator(data->mStream, 1.0);
-                    mpToneGenerator->startTone(data->mType);
-                    mLock.lock();
-                    }break;
-                case STOP_TONE: {
-                    mLock.unlock();
-                    ALOGV("AudioCommandThread() processing stop tone");
-                    if (mpToneGenerator != NULL) {
-                        mpToneGenerator->stopTone();
-                        delete mpToneGenerator;
-                        mpToneGenerator = NULL;
-                    }
-                    mLock.lock();
-                    }break;
                 case SET_VOLUME: {
                     VolumeData *data = (VolumeData *)command->mParam.get();
                     ALOGV("AudioCommandThread() processing set volume stream %d, \
@@ -729,26 +708,26 @@ bool AudioPolicyService::AudioCommandThread::threadLoop()
                     }break;
                 case STOP_OUTPUT: {
                     StopOutputData *data = (StopOutputData *)command->mParam.get();
-                    ALOGV("AudioCommandThread() processing stop output %d",
-                            data->mIO);
+                    ALOGV("AudioCommandThread() processing stop output portId %d",
+                            data->mPortId);
                     svc = mService.promote();
                     if (svc == 0) {
                         break;
                     }
                     mLock.unlock();
-                    svc->doStopOutput(data->mIO, data->mStream, data->mSession);
+                    svc->doStopOutput(data->mPortId);
                     mLock.lock();
                     }break;
                 case RELEASE_OUTPUT: {
                     ReleaseOutputData *data = (ReleaseOutputData *)command->mParam.get();
-                    ALOGV("AudioCommandThread() processing release output %d",
-                            data->mIO);
+                    ALOGV("AudioCommandThread() processing release output portId %d",
+                            data->mPortId);
                     svc = mService.promote();
                     if (svc == 0) {
                         break;
                     }
                     mLock.unlock();
-                    svc->doReleaseOutput(data->mIO, data->mStream, data->mSession);
+                    svc->doReleaseOutput(data->mPortId);
                     mLock.lock();
                     }break;
                 case CREATE_AUDIO_PATCH: {
@@ -913,27 +892,6 @@ status_t AudioPolicyService::AudioCommandThread::dump(int fd)
     return NO_ERROR;
 }
 
-void AudioPolicyService::AudioCommandThread::startToneCommand(ToneGenerator::tone_type type,
-        audio_stream_type_t stream)
-{
-    sp<AudioCommand> command = new AudioCommand();
-    command->mCommand = START_TONE;
-    sp<ToneData> data = new ToneData();
-    data->mType = type;
-    data->mStream = stream;
-    command->mParam = data;
-    ALOGV("AudioCommandThread() adding tone start type %d, stream %d", type, stream);
-    sendCommand(command);
-}
-
-void AudioPolicyService::AudioCommandThread::stopToneCommand()
-{
-    sp<AudioCommand> command = new AudioCommand();
-    command->mCommand = STOP_TONE;
-    ALOGV("AudioCommandThread() adding tone stop");
-    sendCommand(command);
-}
-
 status_t AudioPolicyService::AudioCommandThread::volumeCommand(audio_stream_type_t stream,
                                                                float volume,
                                                                audio_io_handle_t output,
@@ -1003,26 +961,20 @@ void AudioPolicyService::AudioCommandThread::stopOutputCommand(audio_io_handle_t
     sp<AudioCommand> command = new AudioCommand();
     command->mCommand = STOP_OUTPUT;
     sp<StopOutputData> data = new StopOutputData();
-    data->mIO = output;
-    data->mStream = stream;
-    data->mSession = session;
+    data->mPortId = portId;
     command->mParam = data;
-    ALOGV("AudioCommandThread() adding stop output %d", output);
+    ALOGV("AudioCommandThread() adding stop output portId %d", portId);
     sendCommand(command);
 }
 
-void AudioPolicyService::AudioCommandThread::releaseOutputCommand(audio_io_handle_t output,
-                                                                  audio_stream_type_t stream,
-                                                                  audio_session_t session)
+void AudioPolicyService::AudioCommandThread::releaseOutputCommand(audio_port_handle_t portId)
 {
     sp<AudioCommand> command = new AudioCommand();
     command->mCommand = RELEASE_OUTPUT;
     sp<ReleaseOutputData> data = new ReleaseOutputData();
-    data->mIO = output;
-    data->mStream = stream;
-    data->mSession = session;
+    data->mPortId = portId;
     command->mParam = data;
-    ALOGV("AudioCommandThread() adding release output %d", output);
+    ALOGV("AudioCommandThread() adding release output portId %d", portId);
     sendCommand(command);
 }
 
@@ -1241,6 +1193,7 @@ void AudioPolicyService::AudioCommandThread::insertCommand_l(sp<AudioCommand>& c
                 patch = ((CreateAudioPatchData *)command->mParam.get())->mPatch;
             } else {
                 handle = ((ReleaseAudioPatchData *)command->mParam.get())->mHandle;
+                memset(&patch, 0, sizeof(patch));
             }
             audio_patch_handle_t handle2;
             struct audio_patch patch2;
@@ -1285,8 +1238,6 @@ void AudioPolicyService::AudioCommandThread::insertCommand_l(sp<AudioCommand>& c
 
         } break;
 
-        case START_TONE:
-        case STOP_TONE:
         default:
             break;
         }
@@ -1359,27 +1310,6 @@ int AudioPolicyService::setStreamVolume(audio_stream_type_t stream,
                                                    output, delayMs);
 }
 
-int AudioPolicyService::startTone(audio_policy_tone_t tone,
-                                  audio_stream_type_t stream)
-{
-    if (tone != AUDIO_POLICY_TONE_IN_CALL_NOTIFICATION) {
-        ALOGE("startTone: illegal tone requested (%d)", tone);
-    }
-    if (stream != AUDIO_STREAM_VOICE_CALL) {
-        ALOGE("startTone: illegal stream (%d) requested for tone %d", stream,
-            tone);
-    }
-    mTonePlaybackThread->startToneCommand(ToneGenerator::TONE_SUP_CALL_WAITING,
-                                          AUDIO_STREAM_VOICE_CALL);
-    return 0;
-}
-
-int AudioPolicyService::stopTone()
-{
-    mTonePlaybackThread->stopToneCommand();
-    return 0;
-}
-
 int AudioPolicyService::setVoiceVolume(float volume, int delayMs)
 {
     return (int)mAudioCommandThread->voiceVolumeCommand(volume, delayMs);
@@ -1435,9 +1365,6 @@ void aps_set_parameters(void *service, audio_io_handle_t io_handle,
 int aps_set_stream_volume(void *service, audio_stream_type_t stream,
                                      float volume, audio_io_handle_t output,
                                      int delay_ms);
-int aps_start_tone(void *service, audio_policy_tone_t tone,
-                              audio_stream_type_t stream);
-int aps_stop_tone(void *service);
 int aps_set_voice_volume(void *service, float volume, int delay_ms);
 };
 
