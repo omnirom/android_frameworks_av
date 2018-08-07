@@ -182,6 +182,8 @@ cc_library_shared {
 
     export_include_dirs: ["."],
 
+    defaults: ["camera_client_info_defaults"],
+
     cflags: [
         "-Wall",
         "-Wextra",
