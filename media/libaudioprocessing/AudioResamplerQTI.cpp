@@ -17,7 +17,6 @@
  */
 
 #include "AudioResamplerQTI.h"
-#include "QCT_Resampler.h"
 #include <sys/time.h>
 #include <audio_utils/primitives.h>
 
