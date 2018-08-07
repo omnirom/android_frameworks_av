@@ -125,6 +125,7 @@ cc_library {
 
     defaults: [
         "libcameraservice_deps",
+        "camera_client_info_defaults",
     ],
     // Camera service source
 
