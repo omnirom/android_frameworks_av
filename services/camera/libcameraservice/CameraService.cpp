@@ -24,6 +24,8 @@
 #include <cstring>
 #include <ctime>
 #include <string>
+#include <iostream>
+#include <fstream>
 #include <sys/types.h>
 #include <inttypes.h>
 #include <pthread.h>
@@ -1214,7 +1216,6 @@ Status CameraService::connect(
                 ret.toString8());
         return ret;
     }
-
     *device = client;
     return ret;
 }
@@ -2219,6 +2220,15 @@ status_t CameraService::BasicClient::startCameraOps() {
     sCameraService->updateProxyDeviceState(ICameraServiceProxy::CAMERA_STATE_OPEN,
             mCameraIdStr, mCameraFacing, mClientPackageName);
 
+#ifdef TARGET_NEEDS_CLIENT_INFO
+    std::ofstream cpf("/data/misc/camera/client_package_name");
+    std::string cpn = String8(mClientPackageName).string();
+    if (cpn.compare("com.oneplus.camera") == 0) {
+        cpf << "com.oneplus.camera";
+    } else {
+        cpf << "";
+    }
+#endif
     return OK;
 }
 
