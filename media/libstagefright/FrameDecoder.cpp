@@ -537,7 +537,7 @@ status_t VideoFrameDecoder::onOutputReceived(
     if (converter.isValid()) {
         converter.convert(
                 (const uint8_t *)videoFrameBuffer->data(),
-                stride, slice_height,
+                width, height, stride,
                 crop_left, crop_top, crop_right, crop_bottom,
                 frame->getFlattenedData(),
                 frame->mWidth, frame->mHeight, frame->mRowBytes,
@@ -736,7 +736,7 @@ status_t ImageDecoder::onOutputReceived(
     if (converter.isValid()) {
         converter.convert(
                 (const uint8_t *)videoFrameBuffer->data(),
-                stride, slice_height,
+                width, height, stride,
                 crop_left, crop_top, crop_right, crop_bottom,
                 mFrame->getFlattenedData(),
                 mFrame->mWidth, mFrame->mHeight, mFrame->mRowBytes,
