@@ -695,15 +695,15 @@ bool AudioPolicyService::AudioCommandThread::threadLoop()
                     }break;
                 case START_OUTPUT: {
                     StartOutputData *data = (StartOutputData *)command->mParam.get();
-                    ALOGV("AudioCommandThread() processing start output %d",
-                            data->mIO);
+                    ALOGV("AudioCommandThread() processing start output portId %d",
+                            data->mPortId);
                     svc = mService.promote();
                     if (svc == 0) {
                         command->mStatus = UNKNOWN_ERROR;
                         break;
                     }
                     mLock.unlock();
-                    command->mStatus = svc->doStartOutput(data->mIO, data->mStream, data->mSession);
+                    command->mStatus = svc->doStartOutput(data->mPortId);
                     mLock.lock();
                     }break;
                 case STOP_OUTPUT: {
@@ -938,25 +938,19 @@ status_t AudioPolicyService::AudioCommandThread::voiceVolumeCommand(float volume
     return sendCommand(command, delayMs);
 }
 
-status_t AudioPolicyService::AudioCommandThread::startOutputCommand(audio_io_handle_t output,
-                                                                    audio_stream_type_t stream,
-                                                                    audio_session_t session)
+status_t AudioPolicyService::AudioCommandThread::startOutputCommand(audio_port_handle_t portId)
 {
     sp<AudioCommand> command = new AudioCommand();
     command->mCommand = START_OUTPUT;
     sp<StartOutputData> data = new StartOutputData();
-    data->mIO = output;
-    data->mStream = stream;
-    data->mSession = session;
+    data->mPortId = portId;
     command->mParam = data;
     command->mWaitStatus = true;
-    ALOGV("AudioCommandThread() adding start output %d", output);
+    ALOGV("AudioCommandThread() adding start output portId %d", portId);
     return sendCommand(command);
 }
 
-void AudioPolicyService::AudioCommandThread::stopOutputCommand(audio_io_handle_t output,
-                                                               audio_stream_type_t stream,
-                                                               audio_session_t session)
+void AudioPolicyService::AudioCommandThread::stopOutputCommand(audio_port_handle_t portId)
 {
     sp<AudioCommand> command = new AudioCommand();
     command->mCommand = STOP_OUTPUT;

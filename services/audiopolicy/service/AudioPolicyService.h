@@ -199,10 +199,7 @@ public:
                                         bool reported);
     virtual status_t setSurroundFormatEnabled(audio_format_t audioFormat, bool enabled);
 
-            status_t doStartOutput(audio_io_handle_t output,
-                                   audio_stream_type_t stream,
-                                   audio_session_t session);
-                                   
+            status_t doStartOutput(audio_port_handle_t portId);
             status_t doStopOutput(audio_port_handle_t portId);
             void doReleaseOutput(audio_port_handle_t portId);
 
@@ -335,9 +332,7 @@ private:
                     status_t    parametersCommand(audio_io_handle_t ioHandle,
                                             const char *keyValuePairs, int delayMs = 0);
                     status_t    voiceVolumeCommand(float volume, int delayMs = 0);
-                    status_t    startOutputCommand(audio_io_handle_t output,
-                                                   audio_stream_type_t stream,
-                                                   audio_session_t session);
+                    status_t    startOutputCommand(audio_port_handle_t portId);
                     void        stopOutputCommand(audio_port_handle_t portId);
                     void        releaseOutputCommand(audio_port_handle_t portId);
                     status_t    sendCommand(sp<AudioCommand>& command, int delayMs = 0);
@@ -407,9 +402,7 @@ private:
 
         class StartOutputData : public AudioCommandData {
         public:
-            audio_io_handle_t mIO;
-            audio_stream_type_t mStream;
-            audio_session_t mSession;
+            audio_port_handle_t mPortId;
         };
 
         class StopOutputData : public AudioCommandData {
