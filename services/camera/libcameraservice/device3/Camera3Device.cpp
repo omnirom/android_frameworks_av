@@ -1752,6 +1752,15 @@ status_t Camera3Device::waitUntilDrainedLocked(nsecs_t maxExpectedDuration) {
     if (res != OK) {
         SET_ERR_L("Error waiting for HAL to drain: %s (%d)", strerror(-res),
                 res);
+        if (res == TIMED_OUT) {
+            for (size_t i = 0; i < mInFlightMap.size(); i++) {
+                InFlightRequest r = mInFlightMap.valueAt(i);
+                ALOGE("%s: Timed out Frame %d Timestamp: %" PRId64 ",  metadata"
+                    " arrived: %s, buffers left: %d\n", __FUNCTION__, mInFlightMap.keyAt(i),
+                        r.shutterTimestamp, r.haveResultMetadata ? "true" : "false",
+                        r.numBuffersLeft);
+            }
+        }
     }
     return res;
 }
