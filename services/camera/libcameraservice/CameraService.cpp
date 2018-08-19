@@ -218,7 +218,7 @@ void CameraService::onNewProviderRegistered() {
 }
 
 void CameraService::updateCameraNumAndIds() {
-    Mutex::Autolock l(mServiceLock);
+    //Mutex::Autolock l(mServiceLock);
     mNumberOfCameras = mCameraProviderManager->getCameraCount();
     mNormalDeviceIds =
             mCameraProviderManager->getAPI1CompatibleCameraDeviceIds();
