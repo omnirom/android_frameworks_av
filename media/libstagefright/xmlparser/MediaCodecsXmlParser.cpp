@@ -158,6 +158,8 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                     strlcpy(file_path, "/vendor/etc/media_codecs_8953.xml",
                             PROP_VALUE_MAX);
                 }
+                path = file_path;
+                parseTopLevelXMLFile(path.c_str(), false);
             } else {
                 parseTopLevelXMLFile(path.c_str(), false);
             }
