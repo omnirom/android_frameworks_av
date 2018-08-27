@@ -6097,6 +6097,12 @@ void AudioFlinger::MixerThread::onIdleMixer()
         state->mColdFutexAddr = &mFastMixerFutex;
         state->mColdGen++;
         mFastMixerFutex = 0;
+
+        // cold idle fastmixer only after draining a whole pipe sink
+        uint32_t delayMs =
+            (uint32_t)((mNormalFrameCount + mFrameCount) * 1000 / mSampleRate);
+        usleep(delayMs * 1000);
+
         sq->end();
         sq->push(FastMixerStateQueue::BLOCK_UNTIL_ACKED);
     } else {
