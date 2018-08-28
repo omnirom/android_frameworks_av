@@ -21,18 +21,19 @@
 #include <sys/types.h>
 #include <stdint.h>
 
+#include <media/MediaExtractorPluginHelper.h>
 #include <media/stagefright/MediaErrors.h>
 #include <utils/RefBase.h>
 #include <utils/threads.h>
 
 namespace android {
 
-class DataSourceBase;
+class DataSourceHelper;
 struct SampleIterator;
 
 class SampleTable : public RefBase {
 public:
-    explicit SampleTable(DataSourceBase *source);
+    explicit SampleTable(DataSourceHelper *source);
 
     bool isValid() const;
 
@@ -69,6 +70,9 @@ public:
             bool *isSyncSample = NULL,
             uint32_t *sampleDuration = NULL);
 
+    // call only after getMetaDataForSample has been called successfully.
+    uint32_t getLastSampleIndexInChunk();
+
     enum {
         kFlagBefore,
         kFlagAfter,
@@ -99,7 +103,7 @@ private:
     // Limit the total size of all internal tables to 200MiB.
     static const size_t kMaxTotalSize = 200 * (1 << 20);
 
-    DataSourceBase *mDataSource;
+    DataSourceHelper *mDataSource;
     Mutex mLock;
 
     off64_t mChunkOffsetOffset;

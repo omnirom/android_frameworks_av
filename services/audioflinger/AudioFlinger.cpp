@@ -20,9 +20,11 @@
 //#define LOG_NDEBUG 0
 
 #include "Configuration.h"
+#include <algorithm>    // std::any_of
 #include <dirent.h>
 #include <math.h>
 #include <signal.h>
+#include <string>
 #include <sys/time.h>
 #include <sys/resource.h>
 
@@ -56,13 +58,14 @@
 
 #include <audio_utils/primitives.h>
 
+#include <json/json.h>
+
 #include <powermanager/PowerManager.h>
 
 #include <media/IMediaLogService.h>
 #include <media/MemoryLeakTrackUtil.h>
 #include <media/nbaio/Pipe.h>
 #include <media/nbaio/PipeReader.h>
-#include <media/AudioParameter.h>
 #include <mediautils/BatteryNotifier.h>
 #include <mediautils/ServiceUtilities.h>
 #include <private/android_filesystem_config.h>
@@ -434,6 +437,18 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
     if (!dumpAllowed()) {
         dumpPermissionDenial(fd, args);
     } else {
+        // XXX This is sort of hacky for now.
+        const bool formatJson = std::any_of(args.begin(), args.end(),
+                [](const String16 &arg) { return arg == String16("--json"); });
+        if (formatJson) {
+            Json::Value root = getJsonDump();
+            Json::FastWriter writer;
+            std::string rootStr = writer.write(root);
+            // XXX consider buffering if the string happens to be too long.
+            dprintf(fd, "%s", rootStr.c_str());
+            return NO_ERROR;
+        }
+
         // get state of hardware lock
         bool hardwareLocked = dumpTryLock(mHardwareLock);
         if (!hardwareLocked) {
@@ -443,7 +458,7 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
             mHardwareLock.unlock();
         }
 
-        bool locked = dumpTryLock(mLock);
+        const bool locked = dumpTryLock(mLock);
 
         // failed to lock - AudioFlinger is probably deadlocked
         if (!locked) {
@@ -501,6 +516,15 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
 
         mPatchPanel.dump(fd);
 
+        // dump external setParameters
+        auto dumpLogger = [fd](SimpleLog& logger, const char* name) {
+            dprintf(fd, "\n%s setParameters:\n", name);
+            logger.dump(fd, "    " /* prefix */);
+        };
+        dumpLogger(mRejectedSetParameterLog, "Rejected");
+        dumpLogger(mAppSetParameterLog, "App");
+        dumpLogger(mSystemSetParameterLog, "System");
+
         BUFLOG_RESET;
 
         if (locked) {
@@ -543,6 +567,32 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
         }
     }
     return NO_ERROR;
+}
+
+Json::Value AudioFlinger::getJsonDump()
+{
+    Json::Value root(Json::objectValue);
+    const bool locked = dumpTryLock(mLock);
+
+    // failed to lock - AudioFlinger is probably deadlocked
+    if (!locked) {
+        root["deadlock_message"] = kDeadlockedString;
+    }
+    // FIXME risky to access data structures without a lock held?
+
+    Json::Value playbackThreads = Json::arrayValue;
+    // dump playback threads
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        playbackThreads.append(mPlaybackThreads.valueAt(i)->getJsonDump());
+    }
+
+    if (locked) {
+        mLock.unlock();
+    }
+
+    root["playback_threads"] = playbackThreads;
+
+    return root;
 }
 
 sp<AudioFlinger::Client> AudioFlinger::registerPid(pid_t pid)
@@ -1187,14 +1237,31 @@ void AudioFlinger::filterReservedParameters(String8& keyValuePairs, uid_t callin
 
     AudioParameter param = AudioParameter(keyValuePairs);
     String8 value;
+    AudioParameter rejectedParam;
     for (auto& key : kReservedParameters) {
         if (param.get(key, value) == NO_ERROR) {
-            ALOGW("%s: filtering key %s value %s from uid %d",
-                  __func__, key.string(), value.string(), callingUid);
+            rejectedParam.add(key, value);
             param.remove(key);
         }
     }
+    logFilteredParameters(param.size() + rejectedParam.size(), keyValuePairs,
+                          rejectedParam.size(), rejectedParam.toString(), callingUid);
     keyValuePairs = param.toString();
+}
+
+void AudioFlinger::logFilteredParameters(size_t originalKVPSize, const String8& originalKVPs,
+                                         size_t rejectedKVPSize, const String8& rejectedKVPs,
+                                         uid_t callingUid) {
+    auto prefix = String8::format("UID %5d", callingUid);
+    auto suffix = String8::format("%zu KVP received: %s", originalKVPSize, originalKVPs.c_str());
+    if (rejectedKVPSize != 0) {
+        auto error = String8::format("%zu KVP rejected: %s", rejectedKVPSize, rejectedKVPs.c_str());
+        ALOGW("%s: %s, %s, %s", __func__, prefix.c_str(), error.c_str(), suffix.c_str());
+        mRejectedSetParameterLog.log("%s, %s, %s", prefix.c_str(), error.c_str(), suffix.c_str());
+    } else {
+        auto& logger = (isServiceUid(callingUid) ? mSystemSetParameterLog : mAppSetParameterLog);
+        logger.log("%s, %s", prefix.c_str(), suffix.c_str());
+    }
 }
 
 status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& keyValuePairs)
@@ -1836,7 +1903,7 @@ audio_module_handle_t AudioFlinger::loadHwModule_l(const char *name)
 
         mHardwareStatus = AUDIO_HW_IDLE;
     }
-    if (strcmp(name, AUDIO_HAL_SERVICE_NAME_MSD) == 0) {
+    if (strcmp(name, AUDIO_HARDWARE_MODULE_ID_MSD) == 0) {
         // An MSD module is inserted before hardware modules in order to mix encoded streams.
         flags = static_cast<AudioHwDevice::Flags>(flags | AudioHwDevice::AHWD_IS_INSERT);
     }
@@ -2908,16 +2975,74 @@ status_t AudioFlinger::queryEffect(uint32_t index, effect_descriptor_t *descript
 }
 
 status_t AudioFlinger::getEffectDescriptor(const effect_uuid_t *pUuid,
-        effect_descriptor_t *descriptor) const
+                                           const effect_uuid_t *pTypeUuid,
+                                           uint32_t preferredTypeFlag,
+                                           effect_descriptor_t *descriptor) const
 {
+    if (pUuid == NULL || pTypeUuid == NULL || descriptor == NULL) {
+        return BAD_VALUE;
+    }
+
     Mutex::Autolock _l(mLock);
-    if (mEffectsFactoryHal.get()) {
-        return mEffectsFactoryHal->getDescriptor(pUuid, descriptor);
-    } else {
+
+    if (!mEffectsFactoryHal.get()) {
         return -ENODEV;
     }
-}
 
+    status_t status = NO_ERROR;
+    if (!EffectsFactoryHalInterface::isNullUuid(pUuid)) {
+        // If uuid is specified, request effect descriptor from that.
+        status = mEffectsFactoryHal->getDescriptor(pUuid, descriptor);
+    } else if (!EffectsFactoryHalInterface::isNullUuid(pTypeUuid)) {
+        // If uuid is not specified, look for an available implementation
+        // of the required type instead.
+
+        // Use a temporary descriptor to avoid modifying |descriptor| in the failure case.
+        effect_descriptor_t desc;
+        desc.flags = 0; // prevent compiler warning
+
+        uint32_t numEffects = 0;
+        status = mEffectsFactoryHal->queryNumberEffects(&numEffects);
+        if (status < 0) {
+            ALOGW("getEffectDescriptor() error %d from FactoryHal queryNumberEffects", status);
+            return status;
+        }
+
+        bool found = false;
+        for (uint32_t i = 0; i < numEffects; i++) {
+            status = mEffectsFactoryHal->getDescriptor(i, &desc);
+            if (status < 0) {
+                ALOGW("getEffectDescriptor() error %d from FactoryHal getDescriptor", status);
+                continue;
+            }
+            if (memcmp(&desc.type, pTypeUuid, sizeof(effect_uuid_t)) == 0) {
+                // If matching type found save effect descriptor.
+                found = true;
+                *descriptor = desc;
+
+                // If there's no preferred flag or this descriptor matches the preferred
+                // flag, success! If this descriptor doesn't match the preferred
+                // flag, continue enumeration in case a better matching version of this
+                // effect type is available. Note that this means if no effect with a
+                // correct flag is found, the descriptor returned will correspond to the
+                // last effect that at least had a matching type uuid (if any).
+                if (preferredTypeFlag == EFFECT_FLAG_TYPE_MASK ||
+                    (desc.flags & EFFECT_FLAG_TYPE_MASK) == preferredTypeFlag) {
+                    break;
+                }
+            }
+        }
+
+        if (!found) {
+            status = NAME_NOT_FOUND;
+            ALOGW("getEffectDescriptor(): Effect not found by type.");
+        }
+    } else {
+        status = BAD_VALUE;
+        ALOGE("getEffectDescriptor(): Either uuid or type uuid must be non-null UUIDs.");
+    }
+    return status;
+}
 
 sp<IEffect> AudioFlinger::createEffect(
         effect_descriptor_t *pDesc,
@@ -2971,60 +3096,15 @@ sp<IEffect> AudioFlinger::createEffect(
     }
 
     {
-        if (!EffectsFactoryHalInterface::isNullUuid(&pDesc->uuid)) {
-            // if uuid is specified, request effect descriptor
-            lStatus = mEffectsFactoryHal->getDescriptor(&pDesc->uuid, &desc);
-            if (lStatus < 0) {
-                ALOGW("createEffect() error %d from EffectGetDescriptor", lStatus);
-                goto Exit;
-            }
-        } else {
-            // if uuid is not specified, look for an available implementation
-            // of the required type in effect factory
-            if (EffectsFactoryHalInterface::isNullUuid(&pDesc->type)) {
-                ALOGW("createEffect() no effect type");
-                lStatus = BAD_VALUE;
-                goto Exit;
-            }
-            uint32_t numEffects = 0;
-            effect_descriptor_t d;
-            d.flags = 0; // prevent compiler warning
-            bool found = false;
-
-            lStatus = mEffectsFactoryHal->queryNumberEffects(&numEffects);
-            if (lStatus < 0) {
-                ALOGW("createEffect() error %d from EffectQueryNumberEffects", lStatus);
-                goto Exit;
-            }
-            for (uint32_t i = 0; i < numEffects; i++) {
-                lStatus = mEffectsFactoryHal->getDescriptor(i, &desc);
-                if (lStatus < 0) {
-                    ALOGW("createEffect() error %d from EffectQueryEffect", lStatus);
-                    continue;
-                }
-                if (memcmp(&desc.type, &pDesc->type, sizeof(effect_uuid_t)) == 0) {
-                    // If matching type found save effect descriptor. If the session is
-                    // 0 and the effect is not auxiliary, continue enumeration in case
-                    // an auxiliary version of this effect type is available
-                    found = true;
-                    d = desc;
-                    if (sessionId != AUDIO_SESSION_OUTPUT_MIX ||
-                            (desc.flags & EFFECT_FLAG_TYPE_MASK) == EFFECT_FLAG_TYPE_AUXILIARY) {
-                        break;
-                    }
-                }
-            }
-            if (!found) {
-                lStatus = BAD_VALUE;
-                ALOGW("createEffect() effect not found");
-                goto Exit;
-            }
-            // For same effect type, chose auxiliary version over insert version if
-            // connect to output mix (Compliance to OpenSL ES)
-            if (sessionId == AUDIO_SESSION_OUTPUT_MIX &&
-                    (d.flags & EFFECT_FLAG_TYPE_MASK) != EFFECT_FLAG_TYPE_AUXILIARY) {
-                desc = d;
-            }
+        // Get the full effect descriptor from the uuid/type.
+        // If the session is the output mix, prefer an auxiliary effect,
+        // otherwise no preference.
+        uint32_t preferredType = (sessionId == AUDIO_SESSION_OUTPUT_MIX ?
+                                  EFFECT_FLAG_TYPE_AUXILIARY : EFFECT_FLAG_TYPE_MASK);
+        lStatus = getEffectDescriptor(&pDesc->uuid, &pDesc->type, preferredType, &desc);
+        if (lStatus < 0) {
+            ALOGW("createEffect() error %d from getEffectDescriptor", lStatus);
+            goto Exit;
         }
 
         // Do not allow auxiliary effects on a session different from 0 (output mix)

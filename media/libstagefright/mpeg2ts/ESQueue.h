@@ -42,6 +42,7 @@ struct ElementaryStreamQueue {
         H265,
         AAC,
         AC3,
+        EAC3,
         AC4,
         MPEG_AUDIO,
         MPEG_VIDEO,
@@ -65,6 +66,7 @@ struct ElementaryStreamQueue {
 
     void appendScrambledData(
             const void *data, size_t size,
+            size_t leadingClearBytes,
             int32_t keyId, bool isSync,
             sp<ABuffer> clearSizes, sp<ABuffer> encSizes);
 
@@ -90,8 +92,8 @@ protected:
     };
 
     struct ScrambledRangeInfo {
-        //int64_t mTimestampUs;
         size_t mLength;
+        size_t mLeadingClearBytes;
         int32_t mKeyId;
         int32_t mIsSync;
         sp<ABuffer> mClearSizes;
@@ -121,7 +123,7 @@ protected:
 
     sp<ABuffer> dequeueAccessUnitH264();
     sp<ABuffer> dequeueAccessUnitAAC();
-    sp<ABuffer> dequeueAccessUnitAC3();
+    sp<ABuffer> dequeueAccessUnitEAC3();
     sp<ABuffer> dequeueAccessUnitAC4();
     sp<ABuffer> dequeueAccessUnitMPEGAudio();
     sp<ABuffer> dequeueAccessUnitMPEGVideo();

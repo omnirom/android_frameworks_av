@@ -224,6 +224,13 @@ status_t AudioOutputDescriptor::dump(int fd)
                  i, mCurVolume[i], mRefCount[i], mMuteCount[i]);
         result.append(buffer);
     }
+
+    result.append(" AudioTrack clients:\n");
+    size_t index = 0;
+    for (const auto& client : mClients) {
+        client.second->dump(result, 2, index++);
+    }
+    result.append(" \n");
     write(fd, result.string(), result.size());
 
     return NO_ERROR;
@@ -551,9 +558,9 @@ status_t SwAudioOutputDescriptor::openDuplicating(const sp<SwAudioOutputDescript
 }
 
 // HwAudioOutputDescriptor implementation
-HwAudioOutputDescriptor::HwAudioOutputDescriptor(const sp<AudioSourceDescriptor>& source,
+HwAudioOutputDescriptor::HwAudioOutputDescriptor(const sp<SourceClientDescriptor>& source,
                                                  AudioPolicyClientInterface *clientInterface)
-    : AudioOutputDescriptor(source->mDevice, clientInterface),
+    : AudioOutputDescriptor(source->srcDevice(), clientInterface),
       mSource(source)
 {
 }
@@ -569,7 +576,7 @@ status_t HwAudioOutputDescriptor::dump(int fd)
     snprintf(buffer, SIZE, "Source:\n");
     result.append(buffer);
     write(fd, result.string(), result.size());
-    mSource->dump(fd);
+    mSource->dump(fd, 0, 0);
 
     return NO_ERROR;
 }
@@ -583,13 +590,13 @@ void HwAudioOutputDescriptor::toAudioPortConfig(
                                                  struct audio_port_config *dstConfig,
                                                  const struct audio_port_config *srcConfig) const
 {
-    mSource->mDevice->toAudioPortConfig(dstConfig, srcConfig);
+    mSource->srcDevice()->toAudioPortConfig(dstConfig, srcConfig);
 }
 
 void HwAudioOutputDescriptor::toAudioPort(
                                                     struct audio_port *port) const
 {
-    mSource->mDevice->toAudioPort(port);
+    mSource->srcDevice()->toAudioPort(port);
 }
 
 
@@ -748,6 +755,18 @@ audio_devices_t SwAudioOutputCollection::getSupportedDevices(audio_io_handle_t h
     return devices;
 }
 
+sp<SwAudioOutputDescriptor> SwAudioOutputCollection::getOutputForClient(audio_port_handle_t portId)
+{
+    for (size_t i = 0; i < size(); i++) {
+        sp<SwAudioOutputDescriptor> outputDesc = valueAt(i);
+        for (const auto& client : outputDesc->clients()) {
+            if (client.second->portId() == portId) {
+                return outputDesc;
+            }
+        }
+    }
+    return 0;
+}
 
 status_t SwAudioOutputCollection::dump(int fd) const
 {

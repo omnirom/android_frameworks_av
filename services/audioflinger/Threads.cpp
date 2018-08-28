@@ -23,6 +23,8 @@
 #include "Configuration.h"
 #include <math.h>
 #include <fcntl.h>
+#include <memory>
+#include <string>
 #include <linux/futex.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -40,6 +42,7 @@
 #include <audio_utils/primitives.h>
 #include <audio_utils/format.h>
 #include <audio_utils/minifloat.h>
+#include <json/json.h>
 #include <system/audio_effects/effect_ns.h>
 #include <system/audio_effects/effect_aec.h>
 #include <system/audio.h>
@@ -71,7 +74,7 @@
 #endif
 
 #ifdef DEBUG_CPU_USAGE
-#include <cpustats/CentralTendencyStatistics.h>
+#include <audio_utils/Statistics.h>
 #include <cpustats/ThreadCpuUsage.h>
 #endif
 
@@ -333,9 +336,9 @@ public:
 #ifdef DEBUG_CPU_USAGE
 private:
     ThreadCpuUsage mCpuUsage;           // instantaneous thread CPU usage in wall clock ns
-    CentralTendencyStatistics mWcStats; // statistics on thread CPU usage in wall clock ns
+    audio_utils::Statistics<double> mWcStats; // statistics on thread CPU usage in wall clock ns
 
-    CentralTendencyStatistics mHzStats; // statistics on thread CPU usage in cycles
+    audio_utils::Statistics<double> mHzStats; // statistics on thread CPU usage in cycles
 
     int mCpuNum;                        // thread's current CPU number
     int mCpukHz;                        // frequency of thread's current CPU in kHz
@@ -361,7 +364,7 @@ void CpuStats::sample(const String8 &title
 
     // record sample for wall clock statistics
     if (valid) {
-        mWcStats.sample(wcNs);
+        mWcStats.add(wcNs);
     }
 
     // get the current CPU number
@@ -380,26 +383,26 @@ void CpuStats::sample(const String8 &title
 
     // if no change in CPU number or frequency, then record sample for cycle statistics
     if (valid && mCpukHz > 0) {
-        double cycles = wcNs * cpukHz * 0.000001;
-        mHzStats.sample(cycles);
+        const double cycles = wcNs * cpukHz * 0.000001;
+        mHzStats.add(cycles);
     }
 
-    unsigned n = mWcStats.n();
+    const unsigned n = mWcStats.getN();
     // mCpuUsage.elapsed() is expensive, so don't call it every loop
     if ((n & 127) == 1) {
-        long long elapsed = mCpuUsage.elapsed();
+        const long long elapsed = mCpuUsage.elapsed();
         if (elapsed >= DEBUG_CPU_USAGE * 1000000000LL) {
-            double perLoop = elapsed / (double) n;
-            double perLoop100 = perLoop * 0.01;
-            double perLoop1k = perLoop * 0.001;
-            double mean = mWcStats.mean();
-            double stddev = mWcStats.stddev();
-            double minimum = mWcStats.minimum();
-            double maximum = mWcStats.maximum();
-            double meanCycles = mHzStats.mean();
-            double stddevCycles = mHzStats.stddev();
-            double minCycles = mHzStats.minimum();
-            double maxCycles = mHzStats.maximum();
+            const double perLoop = elapsed / (double) n;
+            const double perLoop100 = perLoop * 0.01;
+            const double perLoop1k = perLoop * 0.001;
+            const double mean = mWcStats.getMean();
+            const double stddev = mWcStats.getStdDev();
+            const double minimum = mWcStats.getMin();
+            const double maximum = mWcStats.getMax();
+            const double meanCycles = mHzStats.getMean();
+            const double stddevCycles = mHzStats.getStdDev();
+            const double minCycles = mHzStats.getMin();
+            const double maxCycles = mHzStats.getMax();
             mCpuUsage.resetElapsed();
             mWcStats.reset();
             mHzStats.reset();
@@ -860,6 +863,7 @@ void AudioFlinger::ThreadBase::dumpBase(int fd, const Vector<String16>& args __u
             || mType == DIRECT
             || mType == OFFLOAD) {
         dprintf(fd, "  Timestamp stats: %s\n", mTimestampVerifier.toString().c_str());
+        dprintf(fd, "  Timestamp corrected: %s\n", isTimestampCorrectionEnabled() ? "yes" : "no");
     }
 
     if (locked) {
@@ -1726,9 +1730,20 @@ AudioFlinger::PlaybackThread::PlaybackThread(const sp<AudioFlinger>& audioFlinge
         if (mOutput->audioHwDev->canSetMasterMute()) {
             mMasterMute = false;
         }
+        mIsMsdDevice = strcmp(
+                mOutput->audioHwDev->moduleName(), AUDIO_HARDWARE_MODULE_ID_MSD) == 0;
     }
 
     readOutputParameters_l();
+
+    // TODO: We may also match on address as well as device type for
+    // AUDIO_DEVICE_OUT_BUS, AUDIO_DEVICE_OUT_ALL_A2DP, AUDIO_DEVICE_OUT_REMOTE_SUBMIX
+    if (type == MIXER || type == DIRECT) {
+        mTimestampCorrectedDevices = (audio_devices_t)property_get_int64(
+                "audio.timestamp.corrected_output_devices",
+                (int64_t)(mIsMsdDevice ? AUDIO_DEVICE_OUT_BUS // turn on by default for MSD
+                                       : AUDIO_DEVICE_NONE));
+    }
 
     // ++ operator does not compile
     for (audio_stream_type_t stream = AUDIO_STREAM_MIN; stream < AUDIO_STREAM_FOR_POLICY_CNT;
@@ -1756,6 +1771,11 @@ void AudioFlinger::PlaybackThread::dump(int fd, const Vector<String16>& args)
     dumpEffectChains(fd, args);
     dprintf(fd, "  Local log:\n");
     mLocalLog.dump(fd, "   " /* prefix */, 40 /* lines */);
+}
+
+Json::Value AudioFlinger::PlaybackThread::getJsonDump() const
+{
+    return Json::Value(Json::objectValue);
 }
 
 void AudioFlinger::PlaybackThread::dumpTracks(int fd, const Vector<String16>& args __unused)
@@ -2307,6 +2327,11 @@ float AudioFlinger::PlaybackThread::streamVolume(audio_stream_type_t stream) con
 {
     Mutex::Autolock _l(mLock);
     return mStreamTypes[stream].volume;
+}
+
+void AudioFlinger::PlaybackThread::setVolumeForOutput_l(float left, float right) const
+{
+    mOutput->stream->setVolume(left, right);
 }
 
 // addTrack_l() must be called with ThreadBase::mLock held
@@ -3211,6 +3236,8 @@ bool AudioFlinger::PlaybackThread::threadLoop()
     if (mType == OFFLOAD || mType == DIRECT) {
         mTimestampVerifier.setDiscontinuityMode(mTimestampVerifier.DISCONTINUITY_MODE_ZERO);
     }
+    audio_utils::Statistics<double> downstreamLatencyStatMs(0.999 /* alpha */);
+    audio_patch_handle_t lastDownstreamPatchHandle = AUDIO_PATCH_HANDLE_NONE;
 
     while (!exitPending())
     {
@@ -3221,6 +3248,46 @@ bool AudioFlinger::PlaybackThread::threadLoop()
         cpuStats.sample(myName);
 
         Vector< sp<EffectChain> > effectChains;
+
+        // If the device is AUDIO_DEVICE_OUT_BUS, check for downstream latency.
+        //
+        // Note: we access outDevice() outside of mLock.
+        if (isMsdDevice() && (outDevice() & AUDIO_DEVICE_OUT_BUS) != 0) {
+            // Here, we try for the AF lock, but do not block on it as the latency
+            // is more informational.
+            if (mAudioFlinger->mLock.tryLock() == NO_ERROR) {
+                std::vector<PatchPanel::SoftwarePatch> swPatches;
+                double latencyMs;
+                status_t status = INVALID_OPERATION;
+                audio_patch_handle_t downstreamPatchHandle = AUDIO_PATCH_HANDLE_NONE;
+                if (mAudioFlinger->mPatchPanel.getDownstreamSoftwarePatches(id(), &swPatches) == OK
+                        && swPatches.size() > 0) {
+                        status = swPatches[0].getLatencyMs_l(&latencyMs);
+                        downstreamPatchHandle = swPatches[0].getPatchHandle();
+                }
+                if (downstreamPatchHandle != lastDownstreamPatchHandle) {
+                    downstreamLatencyStatMs.reset();
+                    lastDownstreamPatchHandle = downstreamPatchHandle;
+                }
+                if (status == OK) {
+                    // verify downstream latency (we assume a max reasonable
+                    // latency of 1 second).
+                    if (latencyMs >= 0. && latencyMs <= 1000.) {
+                        ALOGV("new downstream latency %lf ms", latencyMs);
+                        downstreamLatencyStatMs.add(latencyMs);
+                    } else {
+                        ALOGD("out of range downstream latency %lf ms", latencyMs);
+                    }
+                }
+                mAudioFlinger->mLock.unlock();
+            }
+        } else {
+            if (lastDownstreamPatchHandle != AUDIO_PATCH_HANDLE_NONE) {
+                // our device is no longer AUDIO_DEVICE_OUT_BUS, reset patch handle and stats.
+                downstreamLatencyStatMs.reset();
+                lastDownstreamPatchHandle = AUDIO_PATCH_HANDLE_NONE;
+            }
+        }
 
         { // scope for mLock
 
@@ -3251,6 +3318,33 @@ bool AudioFlinger::PlaybackThread::threadLoop()
                 mTimestampVerifier.add(timestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL],
                         timestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL],
                         mSampleRate);
+
+                if (isTimestampCorrectionEnabled()) {
+                    ALOGV("TS_BEFORE: %d %lld %lld", id(),
+                            (long long)timestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL],
+                            (long long)timestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL]);
+                    auto correctedTimestamp = mTimestampVerifier.getLastCorrectedTimestamp();
+                    timestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL]
+                            = correctedTimestamp.mFrames;
+                    timestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL]
+                            = correctedTimestamp.mTimeNs;
+                    ALOGV("TS_AFTER: %d %lld %lld", id(),
+                            (long long)timestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL],
+                            (long long)timestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL]);
+
+                    // Note: Downstream latency only added if timestamp correction enabled.
+                    if (downstreamLatencyStatMs.getN() > 0) { // we have latency info.
+                        const int64_t newPosition =
+                                timestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL]
+                                - int64_t(downstreamLatencyStatMs.getMean() * mSampleRate * 1e-3);
+                        // prevent retrograde
+                        timestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL] = max(
+                                newPosition,
+                                (mTimestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL]
+                                        - mSuspendedFrames));
+                    }
+                }
+
                 // We always fetch the timestamp here because often the downstream
                 // sink will block while writing.
 
@@ -3358,7 +3452,7 @@ bool AudioFlinger::PlaybackThread::threadLoop()
 
                 continue;
             }
-            if ((!mActiveTracks.size() && systemTime() > mStandbyTimeNs) ||
+            if ((mActiveTracks.isEmpty() && systemTime() > mStandbyTimeNs) ||
                                    isSuspended()) {
                 // put audio hardware into standby after short delay
                 if (shouldStandby_l()) {
@@ -3372,7 +3466,7 @@ bool AudioFlinger::PlaybackThread::threadLoop()
                     mStandby = true;
                 }
 
-                if (!mActiveTracks.size() && mConfigEvents.isEmpty()) {
+                if (mActiveTracks.isEmpty() && mConfigEvents.isEmpty()) {
                     // we're about to wait, flush the binder command buffer
                     IPCThreadState::self()->flushCommands();
 
@@ -5131,9 +5225,8 @@ void AudioFlinger::MixerThread::dumpInternals(int fd, const Vector<String16>& ar
         // while we are dumping it.  It may be inconsistent, but it won't mutate!
         // This is a large object so we place it on the heap.
         // FIXME 25972958: Need an intelligent copy constructor that does not touch unused pages.
-        const FastMixerDumpState *copy = new FastMixerDumpState(mFastMixerDumpState);
+        const std::unique_ptr<FastMixerDumpState> copy(new FastMixerDumpState(mFastMixerDumpState));
         copy->dump(fd);
-        delete copy;
 
 #ifdef STATE_QUEUE_DUMP
         // Similar for state queue
@@ -5154,6 +5247,22 @@ void AudioFlinger::MixerThread::dumpInternals(int fd, const Vector<String16>& ar
     } else {
         dprintf(fd, "  No FastMixer\n");
     }
+}
+
+Json::Value AudioFlinger::MixerThread::getJsonDump() const
+{
+    Json::Value root;
+    if (hasFastMixer()) {
+        // Make a non-atomic copy of fast mixer dump state so it won't change underneath us
+        // while we are dumping it.  It may be inconsistent, but it won't mutate!
+        // This is a large object so we place it on the heap.
+        // FIXME 25972958: Need an intelligent copy constructor that does not touch unused pages.
+        const std::unique_ptr<FastMixerDumpState> copy(new FastMixerDumpState(mFastMixerDumpState));
+        root["fastmixer_stats"] = copy->getJsonDump();
+    } else {
+        root["fastmixer_stats"] = "no_fastmixer";
+    }
+    return root;
 }
 
 uint32_t AudioFlinger::MixerThread::idleSleepTimeUs() const
@@ -5239,20 +5348,20 @@ void AudioFlinger::DirectOutputThread::processVolume_l(Track *track, bool lastTr
             mLeftVolFloat = left;
             mRightVolFloat = right;
 
-            // Convert volumes from float to 8.24
-            uint32_t vl = (uint32_t)(left * (1 << 24));
-            uint32_t vr = (uint32_t)(right * (1 << 24));
-
             // Delegate volume control to effect in track effect chain if needed
             // only one effect chain can be present on DirectOutputThread, so if
             // there is one, the track is connected to it
             if (!mEffectChains.isEmpty()) {
-                mEffectChains[0]->setVolume_l(&vl, &vr);
-                left = (float)vl / (1 << 24);
-                right = (float)vr / (1 << 24);
+                // if effect chain exists, volume is handled by it.
+                // Convert volumes from float to 8.24
+                uint32_t vl = (uint32_t)(left * (1 << 24));
+                uint32_t vr = (uint32_t)(right * (1 << 24));
+                // Direct/Offload effect chains set output volume in setVolume_l().
+                (void)mEffectChains[0]->setVolume_l(&vl, &vr);
+            } else {
+                // otherwise we directly set the volume.
+                setVolumeForOutput_l(left, right);
             }
-            status_t result = mOutput->stream->setVolume(left, right);
-            ALOGE_IF(result != OK, "Error when setting output stream volume: %d", result);
         }
     }
 
@@ -6446,7 +6555,19 @@ AudioFlinger::RecordThread::RecordThread(const sp<AudioFlinger>& audioFlinger,
     snprintf(mThreadName, kThreadNameLength, "AudioIn_%X", id);
     mNBLogWriter = audioFlinger->newWriter_l(kLogSize, mThreadName);
 
+    if (mInput != nullptr && mInput->audioHwDev != nullptr) {
+        mIsMsdDevice = strcmp(
+                mInput->audioHwDev->moduleName(), AUDIO_HARDWARE_MODULE_ID_MSD) == 0;
+    }
+
     readInputParameters_l();
+
+    // TODO: We may also match on address as well as device type for
+    // AUDIO_DEVICE_IN_BUS, AUDIO_DEVICE_IN_BLUETOOTH_A2DP, AUDIO_DEVICE_IN_REMOTE_SUBMIX
+    mTimestampCorrectedDevices = (audio_devices_t)property_get_int64(
+            "audio.timestamp.corrected_input_devices",
+            (int64_t)(mIsMsdDevice ? AUDIO_DEVICE_IN_BUS // turn on by default for MSD
+                                   : AUDIO_DEVICE_NONE));
 
     // create an NBAIO source for the HAL input stream, and negotiate
     mInputSource = new AudioStreamInSource(input->stream);
@@ -6734,7 +6855,7 @@ reacquire_wakelock:
             }
 
             // sleep if there are no active tracks to process
-            if (activeTracks.size() == 0) {
+            if (activeTracks.isEmpty()) {
                 if (sleepUs == 0) {
                     sleepUs = kRecordThreadSleepUs;
                 }
@@ -6785,6 +6906,14 @@ reacquire_wakelock:
                 }
                 didModify = true;
             }
+            AudioBufferProvider* abp = (fastTrack != 0 && fastTrack->isPatchTrack()) ?
+                    reinterpret_cast<AudioBufferProvider*>(fastTrack.get()) : nullptr;
+            if (state->mFastPatchRecordBufferProvider != abp) {
+                state->mFastPatchRecordBufferProvider = abp;
+                state->mFastPatchRecordFormat = fastTrack == 0 ?
+                        AUDIO_FORMAT_INVALID : fastTrack->format();
+                didModify = true;
+            }
             sq->end(didModify);
             if (didModify) {
                 sq->push(block);
@@ -6810,8 +6939,7 @@ reacquire_wakelock:
 
         // If an NBAIO source is present, use it to read the normal capture's data
         if (mPipeSource != 0) {
-            size_t framesToRead = mBufferSize / mFrameSize;
-            framesToRead = min(mRsmpInFramesOA - rear, mRsmpInFramesP2 / 2);
+            size_t framesToRead = min(mRsmpInFramesOA - rear, mRsmpInFramesP2 / 2);
 
             // The audio fifo read() returns OVERRUN on overflow, and advances the read pointer
             // to the full buffer point (clearing the overflow condition).  Upon OVERRUN error,
@@ -6875,7 +7003,22 @@ reacquire_wakelock:
             int64_t position, time;
             if (mStandby) {
                 mTimestampVerifier.discontinuity();
-            } else if (mInput->stream->getCapturePosition(&position, &time) == NO_ERROR) {
+            } else if (mInput->stream->getCapturePosition(&position, &time) == NO_ERROR
+                    && time > mTimestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL]) {
+
+                mTimestampVerifier.add(position, time, mSampleRate);
+
+                // Correct timestamps
+                if (isTimestampCorrectionEnabled()) {
+                    ALOGV("TS_BEFORE: %d %lld %lld",
+                            id(), (long long)time, (long long)position);
+                    auto correctedTimestamp = mTimestampVerifier.getLastCorrectedTimestamp();
+                    position = correctedTimestamp.mFrames;
+                    time = correctedTimestamp.mTimeNs;
+                    ALOGV("TS_AFTER: %d %lld %lld",
+                            id(), (long long)time, (long long)position);
+                }
+
                 mTimestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL] = position;
                 mTimestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL] = time;
                 // Note: In general record buffers should tend to be empty in
@@ -6883,10 +7026,6 @@ reacquire_wakelock:
                 //
                 // Also, it is not advantageous to call get_presentation_position during the read
                 // as the read obtains a lock, preventing the timestamp call from executing.
-
-                mTimestampVerifier.add(mTimestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL],
-                        mTimestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL],
-                        mSampleRate);
             } else {
                 mTimestampVerifier.error();
             }
@@ -6904,6 +7043,7 @@ reacquire_wakelock:
             goto unlock;
         }
         ALOG_ASSERT(framesRead > 0);
+        mFramesRead += framesRead;
 
 #ifdef TEE_SINK
         (void)mTee.write((uint8_t*)mRsmpInBuffer + rear * mFrameSize, framesRead);
@@ -7528,7 +7668,8 @@ void AudioFlinger::RecordThread::dumpInternals(int fd, const Vector<String16>& a
     audio_input_flags_t flags = input != NULL ? input->flags : AUDIO_INPUT_FLAG_NONE;
     dprintf(fd, "  AudioStreamIn: %p flags %#x (%s)\n",
             input, flags, inputFlagsToString(flags).c_str());
-    if (mActiveTracks.size() == 0) {
+    dprintf(fd, "  Frames read: %lld\n", (long long)mFramesRead);
+    if (mActiveTracks.isEmpty()) {
         dprintf(fd, "  No active record clients\n");
     }
 
@@ -7537,7 +7678,8 @@ void AudioFlinger::RecordThread::dumpInternals(int fd, const Vector<String16>& a
         (void)input->stream->dump(fd);
     }
 
-    const double latencyMs = - mTimestamp.getOutputServerLatencyMs(mSampleRate);
+    const double latencyMs = audio_is_linear_pcm(mFormat)
+            ? - mTimestamp.getOutputServerLatencyMs(mSampleRate) : 0.;
     if (latencyMs != 0.) {
         dprintf(fd, "  NormalRecord latency ms: %.2lf\n", latencyMs);
     } else {
@@ -7551,9 +7693,8 @@ void AudioFlinger::RecordThread::dumpInternals(int fd, const Vector<String16>& a
     // while we are dumping it.  It may be inconsistent, but it won't mutate!
     // This is a large object so we place it on the heap.
     // FIXME 25972958: Need an intelligent copy constructor that does not touch unused pages.
-    const FastCaptureDumpState *copy = new FastCaptureDumpState(mFastCaptureDumpState);
+    std::unique_ptr<FastCaptureDumpState> copy(new FastCaptureDumpState(mFastCaptureDumpState));
     copy->dump(fd);
-    delete copy;
 }
 
 void AudioFlinger::RecordThread::dumpTracks(int fd, const Vector<String16>& args __unused)
@@ -7995,7 +8136,7 @@ sp<StreamHalInterface> AudioFlinger::RecordThread::stream() const
 status_t AudioFlinger::RecordThread::addEffectChain_l(const sp<EffectChain>& chain)
 {
     // only one chain per input thread
-    if (mEffectChains.size() != 0) {
+    if (!mEffectChains.isEmpty()) {
         ALOGW("addEffectChain_l() already one chain %p on thread %p", chain.get(), this);
         return INVALID_OPERATION;
     }
@@ -8331,7 +8472,7 @@ status_t AudioFlinger::MmapThread::start(const AudioClient& client,
     // abort if start is rejected by audio policy manager
     if (ret != NO_ERROR) {
         ALOGE("%s: error start rejected by AudioPolicyManager = %d", __FUNCTION__, ret);
-        if (mActiveTracks.size() != 0) {
+        if (!mActiveTracks.isEmpty()) {
             mLock.unlock();
             if (isOutput()) {
                 AudioSystem::releaseOutput(portId);
@@ -8432,7 +8573,7 @@ status_t AudioFlinger::MmapThread::standby()
     if (mHalStream == 0) {
         return NO_INIT;
     }
-    if (mActiveTracks.size() != 0) {
+    if (!mActiveTracks.isEmpty()) {
         return INVALID_OPERATION;
     }
     mHalStream->standby();
@@ -8870,7 +9011,7 @@ void AudioFlinger::MmapThread::dumpInternals(int fd, const Vector<String16>& arg
     dprintf(fd, "  Attributes: content type %d usage %d source %d\n",
             mAttr.content_type, mAttr.usage, mAttr.source);
     dprintf(fd, "  Session: %d port Id: %d\n", mSessionId, mPortId);
-    if (mActiveTracks.size() == 0) {
+    if (mActiveTracks.isEmpty()) {
         dprintf(fd, "  No active clients\n");
     }
 }
