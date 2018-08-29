@@ -4354,7 +4354,6 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
         h264type.eLevel = static_cast<OMX_VIDEO_AVCLEVELTYPE>(level);
     } else {
         h264type.eProfile = OMX_VIDEO_AVCProfileBaseline;
-#if 0   /* DON'T YET DEFAULT TO HIGHEST PROFILE */
         // Use largest supported profile for AVC recording if profile is not specified.
         for (OMX_VIDEO_AVCPROFILETYPE profile : {
                 OMX_VIDEO_AVCProfileHigh, OMX_VIDEO_AVCProfileMain }) {
@@ -4363,7 +4362,6 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
                 break;
             }
         }
-#endif
     }
 
     ALOGI("setupAVCEncoderParameters with [profile: %s] [level: %s]",
@@ -4410,7 +4408,6 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
         h264type.nCabacInitIdc = 1;
     }
 
-    setBFrames(&h264type, iFrameInterval, frameRate);
     if (h264type.nBFrames != 0) {
         h264type.nAllowedPictureTypes |= OMX_VIDEO_PictureTypeB;
     }
@@ -4561,7 +4558,6 @@ status_t ACodec::setupHEVCEncoderParameters(
             }
             frameRate = (float)tmp;
         }
-        AVUtils::get()->setIntraPeriod(setPFramesSpacing(iFrameInterval, frameRate), 0, mOMXNode);
 
         hevcType.nKeyFrameInterval =
                 setPFramesSpacing(iFrameInterval, frameRate) + 1;
