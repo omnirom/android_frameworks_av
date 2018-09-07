@@ -74,6 +74,25 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(Action);
 };
 
+struct NuPlayer::InstantiateDecoderAction : public Action {
+    explicit InstantiateDecoderAction(bool audio, sp<DecoderBase> (*decoder), bool checkAudioModeChange)
+        : mAudio(audio),
+          mDecoder(*decoder),
+          mCheckAudioModeChange(checkAudioModeChange) {
+    }
+
+    virtual void execute(NuPlayer *player) {
+        player->instantiateDecoder(mAudio, &mDecoder, mCheckAudioModeChange);
+    }
+
+private:
+    bool mAudio;
+    sp<DecoderBase> (&mDecoder);
+    bool mCheckAudioModeChange;
+
+    DISALLOW_EVIL_CONSTRUCTORS(InstantiateDecoderAction);
+};
+
 struct NuPlayer::SeekAction : public Action {
     explicit SeekAction(int64_t seekTimeUs, MediaPlayerSeekMode mode)
         : mSeekTimeUs(seekTimeUs),
@@ -1890,9 +1909,13 @@ void NuPlayer::restartAudio(
         mRenderer->signalDisableOffloadAudio();
         mOffloadAudio = false;
     }
+
     if (needsToCreateAudioDecoder) {
-        instantiateDecoder(true /* audio */, &mAudioDecoder, !forceNonOffload);
+         mDeferredActions.push_back(
+            new InstantiateDecoderAction(true /* audio */, &mAudioDecoder, !forceNonOffload));
     }
+    processDeferredActions();
+
 }
 
 void NuPlayer::determineAudioModeChange(const sp<AMessage> &audioFormat) {

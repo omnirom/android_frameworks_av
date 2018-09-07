@@ -124,6 +124,7 @@ public:
     struct RTSPSource;
     struct StreamingSource;
     struct Action;
+    struct InstantiateDecoderAction;
     struct SeekAction;
     struct SetSurfaceAction;
     struct ResumeDecoderAction;
