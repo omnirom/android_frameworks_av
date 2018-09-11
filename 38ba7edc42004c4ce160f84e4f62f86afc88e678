@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "e4313f5b_3b212469",
+        "filename": "services/camera/libcameraservice/Android.mk",
+        "patchSetId": 1
+      },
+      "lineNbr": 82,
+      "author": {
+        "id": 1000026
+      },
+      "writtenOn": "2018-09-11T10:16:01Z",
+      "side": 1,
+      "message": "double whopper",
+      "revId": "38ba7edc42004c4ce160f84e4f62f86afc88e678",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55",
+      "unresolved": false
+    }
+  ]
+}
