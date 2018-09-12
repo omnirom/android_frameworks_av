@@ -86,6 +86,8 @@ LOCAL_SHARED_LIBRARIES:= \
 ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
 LOCAL_SHARED_LIBRARIES += \
     vendor.qti.hardware.camera.device@1.0
+
+LOCAL_CFLAGS += -DQCOM_HARDWARE
 endif
 
 LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := libbinder libcamera_client libfmq
