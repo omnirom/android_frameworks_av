@@ -56,6 +56,7 @@
 #include <system/audio_effects/effect_ns.h>
 #include <system/audio_effects/effect_aec.h>
 
+#include <audio_utils/FdToString.h>
 #include <audio_utils/primitives.h>
 
 #include <json/json.h>
@@ -525,6 +526,12 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
         dumpLogger(mAppSetParameterLog, "App");
         dumpLogger(mSystemSetParameterLog, "System");
 
+        // dump historical threads in the last 10 seconds
+        const std::string threadLog = mThreadLog.dumpToString(
+                "Historical Thread Log ", 0 /* lines */,
+                audio_utils_get_real_time_ns() - 10 * 60 * NANOS_PER_SECOND);
+        write(fd, threadLog.c_str(), threadLog.size());
+
         BUFLOG_RESET;
 
         if (locked) {
@@ -781,6 +788,7 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
         output.afFrameCount = thread->frameCount();
         output.afSampleRate = thread->sampleRate();
         output.afLatencyMs = thread->latency();
+        output.trackId = track->id();
 
         // move effect chain to this output thread if an effect on same session was waiting
         // for a track to be created
@@ -1800,6 +1808,7 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
 
     output.cblk = recordTrack->getCblk();
     output.buffers = recordTrack->getBuffers();
+    output.trackId = recordTrack->id();
 
     // return handle to client
     recordHandle = new RecordHandle(recordTrack);
@@ -2290,6 +2299,16 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
         playbackThread = checkPlaybackThread_l(output);
         if (playbackThread != NULL) {
             ALOGV("closeOutput() %d", output);
+
+            {
+                // Dump thread before deleting for history
+                audio_utils::FdToString fdToString;
+                const int fd = fdToString.fd();
+                if (fd >= 0) {
+                    playbackThread->dump(fd, {} /* args */);
+                    mThreadLog.logs(-1 /* time */, fdToString.getStringAndClose());
+                }
+            }
 
             if (playbackThread->type() == ThreadBase::MIXER) {
                 for (size_t i = 0; i < mPlaybackThreads.size(); i++) {

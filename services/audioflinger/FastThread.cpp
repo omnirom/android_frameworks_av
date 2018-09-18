@@ -22,6 +22,7 @@
 #include "Configuration.h"
 #include <linux/futex.h>
 #include <sys/syscall.h>
+#include <audio_utils/clock.h>
 #include <cutils/atomic.h>
 #include <utils/Log.h>
 #include <utils/Trace.h>
@@ -260,6 +261,9 @@ bool FastThread::threadLoop()
                         mIsWarm = true;
                         mDumpState->mMeasuredWarmupTs = mMeasuredWarmupTs;
                         mDumpState->mWarmupCycles = mWarmupCycles;
+                        const double measuredWarmupMs = (mMeasuredWarmupTs.tv_sec * 1e3) +
+                                (mMeasuredWarmupTs.tv_nsec * 1e-6);
+                        LOG_WARMUP_TIME(measuredWarmupMs);
                     }
                 }
                 mSleepNs = -1;
@@ -270,6 +274,7 @@ bool FastThread::threadLoop()
                         ALOGV("underrun: time since last cycle %d.%03ld sec",
                                 (int) sec, nsec / 1000000L);
                         mDumpState->mUnderruns++;
+                        LOG_UNDERRUN(audio_utils_ns_from_timespec(&newTs));
                         mIgnoreNextOverrun = true;
                     } else if (nsec < mOverrunNs) {
                         if (mIgnoreNextOverrun) {
@@ -279,6 +284,7 @@ bool FastThread::threadLoop()
                             ALOGV("overrun: time since last cycle %d.%03ld sec",
                                     (int) sec, nsec / 1000000L);
                             mDumpState->mOverruns++;
+                            LOG_OVERRUN(audio_utils_ns_from_timespec(&newTs));
                         }
                         // This forces a minimum cycle time. It:
                         //  - compensates for an audio HAL with jitter due to sample rate conversion
@@ -339,7 +345,7 @@ bool FastThread::threadLoop()
                     // these stores #1, #2, #3 are not atomic with respect to each other,
                     // or with respect to store #4 below
                     mDumpState->mMonotonicNs[i] = monotonicNs;
-                    LOG_MONOTONIC_CYCLE_TIME(monotonicNs);
+                    LOG_WORK_TIME(monotonicNs);
                     mDumpState->mLoadNs[i] = loadNs;
 #ifdef CPU_FREQUENCY_STATISTICS
                     mDumpState->mCpukHz[i] = kHz;

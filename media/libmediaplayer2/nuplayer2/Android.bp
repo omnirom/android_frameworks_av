@@ -16,6 +16,7 @@ cc_library_static {
     ],
 
     header_libs: [
+        "libbase_headers",
         "libmediaplayer2_headers",
         "media_plugin_headers",
     ],
@@ -56,6 +57,7 @@ cc_library_static {
 
     static_libs: [
         "libmedia_helper",
+        "libmediaplayer2-protos",
     ],
 
     name: "libstagefright_nuplayer2",

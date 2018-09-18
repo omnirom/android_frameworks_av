@@ -33,7 +33,7 @@
 #include "NuPlayer2Source.h"
 #include "RTSPSource2.h"
 #include "GenericSource2.h"
-#include "TextDescriptions.h"
+#include "TextDescriptions2.h"
 
 #include "ATSParser.h"
 
@@ -584,9 +584,8 @@ void NuPlayer2::seekToAsync(int64_t seekTimeUs, MediaPlayer2SeekMode mode, bool 
     msg->post();
 }
 
-
 void NuPlayer2::writeTrackInfo(
-        Parcel* reply, const sp<AMessage>& format) const {
+        PlayerMessage* reply, const sp<AMessage>& format) const {
     if (format == NULL) {
         ALOGE("NULL format");
         return;
@@ -619,10 +618,9 @@ void NuPlayer2::writeTrackInfo(
         return;
     }
 
-    reply->writeInt32(2); // write something non-zero
-    reply->writeInt32(trackType);
-    reply->writeString16(String16(mime.c_str()));
-    reply->writeString16(String16(lang.c_str()));
+    reply->add_values()->set_int32_value(trackType);
+    reply->add_values()->set_string_value(mime.c_str());
+    reply->add_values()->set_string_value(lang.c_str());
 
     if (trackType == MEDIA_TRACK_TYPE_SUBTITLE) {
         int32_t isAuto, isDefault, isForced;
@@ -630,9 +628,9 @@ void NuPlayer2::writeTrackInfo(
         CHECK(format->findInt32("default", &isDefault));
         CHECK(format->findInt32("forced", &isForced));
 
-        reply->writeInt32(isAuto);
-        reply->writeInt32(isDefault);
-        reply->writeInt32(isForced);
+        reply->add_values()->set_int32_value(isAuto);
+        reply->add_values()->set_int32_value(isDefault);
+        reply->add_values()->set_int32_value(isForced);
     }
 }
 
@@ -764,7 +762,7 @@ void NuPlayer2::onMessageReceived(const sp<AMessage> &msg) {
             sp<AReplyToken> replyID;
             CHECK(msg->senderAwaitsResponse(&replyID));
 
-            Parcel* reply;
+            PlayerMessage* reply;
             CHECK(msg->findPointer("reply", (void**)&reply));
 
             size_t inbandTracks = 0;
@@ -778,7 +776,7 @@ void NuPlayer2::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             // total track count
-            reply->writeInt32(inbandTracks + ccTracks);
+            reply->add_values()->set_int32_value(inbandTracks + ccTracks);
 
             // write inband tracks
             for (size_t i = 0; i < inbandTracks; ++i) {
@@ -806,9 +804,9 @@ void NuPlayer2::onMessageReceived(const sp<AMessage> &msg) {
                 media_track_type type = (media_track_type)type32;
                 ssize_t selectedTrack = mSource->getSelectedTrack(type);
 
-                Parcel* reply;
+                PlayerMessage* reply;
                 CHECK(msg->findPointer("reply", (void**)&reply));
-                reply->writeInt32(selectedTrack);
+                reply->add_values()->set_int32_value(selectedTrack);
             }
 
             sp<AMessage> response = new AMessage;
@@ -1684,6 +1682,7 @@ void NuPlayer2::onStart() {
     }
 
     startPlaybackTimer("onstart");
+    notifyListener(mSrcId, MEDIA2_INFO, MEDIA2_INFO_DATA_SOURCE_START, 0);
 
     postScanSources();
 }
@@ -2146,7 +2145,8 @@ void NuPlayer2::updateVideoSize(
             displayHeight);
 }
 
-void NuPlayer2::notifyListener(int64_t srcId, int msg, int ext1, int ext2, const Parcel *in) {
+void NuPlayer2::notifyListener(
+        int64_t srcId, int msg, int ext1, int ext2, const PlayerMessage *in) {
     if (mDriver == NULL) {
         return;
     }
@@ -2230,7 +2230,7 @@ status_t NuPlayer2::setVideoScalingMode(int32_t mode) {
     return OK;
 }
 
-status_t NuPlayer2::getTrackInfo(Parcel* reply) const {
+status_t NuPlayer2::getTrackInfo(PlayerMessage* reply) const {
     sp<AMessage> msg = new AMessage(kWhatGetTrackInfo, this);
     msg->setPointer("reply", reply);
 
@@ -2239,7 +2239,7 @@ status_t NuPlayer2::getTrackInfo(Parcel* reply) const {
     return err;
 }
 
-status_t NuPlayer2::getSelectedTrack(int32_t type, Parcel* reply) const {
+status_t NuPlayer2::getSelectedTrack(int32_t type, PlayerMessage* reply) const {
     sp<AMessage> msg = new AMessage(kWhatGetSelectedTrack, this);
     msg->setPointer("reply", reply);
     msg->setInt32("type", type);
@@ -2617,15 +2617,15 @@ void NuPlayer2::onSourceNotify(const sp<AMessage> &msg) {
         // Modular DRM
         case Source::kWhatDrmInfo:
         {
-            Parcel parcel;
+            PlayerMessage playerMsg;
             sp<ABuffer> drmInfo;
             CHECK(msg->findBuffer("drmInfo", &drmInfo));
-            parcel.setData(drmInfo->data(), drmInfo->size());
+            playerMsg.ParseFromArray(drmInfo->data(), drmInfo->size());
 
-            ALOGV("onSourceNotify() kWhatDrmInfo MEDIA2_DRM_INFO drmInfo: %p  parcel size: %zu",
-                    drmInfo.get(), parcel.dataSize());
+            ALOGV("onSourceNotify() kWhatDrmInfo MEDIA2_DRM_INFO drmInfo: %p  playerMsg size: %d",
+                    drmInfo.get(), playerMsg.ByteSize());
 
-            notifyListener(srcId, MEDIA2_DRM_INFO, 0 /* ext1 */, 0 /* ext2 */, &parcel);
+            notifyListener(srcId, MEDIA2_DRM_INFO, 0 /* ext1 */, 0 /* ext2 */, &playerMsg);
 
             break;
         }
@@ -2846,35 +2846,31 @@ void NuPlayer2::sendSubtitleData(const sp<ABuffer> &buffer, int32_t baseIndex) {
     CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
     CHECK(buffer->meta()->findInt64("durationUs", &durationUs));
 
-    Parcel in;
-    in.writeInt32(trackIndex + baseIndex);
-    in.writeInt64(timeUs);
-    in.writeInt64(durationUs);
-    in.writeInt32(buffer->size());
-    in.writeInt32(buffer->size());
-    in.write(buffer->data(), buffer->size());
+    PlayerMessage playerMsg;
+    playerMsg.add_values()->set_int32_value(trackIndex + baseIndex);
+    playerMsg.add_values()->set_int64_value(timeUs);
+    playerMsg.add_values()->set_int64_value(durationUs);
+    playerMsg.add_values()->set_bytes_value(buffer->data(), buffer->size());
 
-    notifyListener(mSrcId, MEDIA2_SUBTITLE_DATA, 0, 0, &in);
+    notifyListener(mSrcId, MEDIA2_SUBTITLE_DATA, 0, 0, &playerMsg);
 }
 
 void NuPlayer2::sendTimedMetaData(const sp<ABuffer> &buffer) {
     int64_t timeUs;
     CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
 
-    Parcel in;
-    in.writeInt64(timeUs);
-    in.writeInt32(buffer->size());
-    in.writeInt32(buffer->size());
-    in.write(buffer->data(), buffer->size());
+    PlayerMessage playerMsg;
+    playerMsg.add_values()->set_int64_value(timeUs);
+    playerMsg.add_values()->set_bytes_value(buffer->data(), buffer->size());
 
-    notifyListener(mSrcId, MEDIA2_META_DATA, 0, 0, &in);
+    notifyListener(mSrcId, MEDIA2_META_DATA, 0, 0, &playerMsg);
 }
 
 void NuPlayer2::sendTimedTextData(const sp<ABuffer> &buffer) {
     const void *data;
     size_t size = 0;
     int64_t timeUs;
-    int32_t flag = TextDescriptions::IN_BAND_TEXT_3GPP;
+    int32_t flag = TextDescriptions2::IN_BAND_TEXT_3GPP;
 
     AString mime;
     CHECK(buffer->meta()->findString("mime", &mime));
@@ -2883,21 +2879,21 @@ void NuPlayer2::sendTimedTextData(const sp<ABuffer> &buffer) {
     data = buffer->data();
     size = buffer->size();
 
-    Parcel parcel;
+    PlayerMessage playerMsg;
     if (size > 0) {
         CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
         int32_t global = 0;
         if (buffer->meta()->findInt32("global", &global) && global) {
-            flag |= TextDescriptions::GLOBAL_DESCRIPTIONS;
+            flag |= TextDescriptions2::GLOBAL_DESCRIPTIONS;
         } else {
-            flag |= TextDescriptions::LOCAL_DESCRIPTIONS;
+            flag |= TextDescriptions2::LOCAL_DESCRIPTIONS;
         }
-        TextDescriptions::getParcelOfDescriptions(
-                (const uint8_t *)data, size, flag, timeUs / 1000, &parcel);
+        TextDescriptions2::getPlayerMessageOfDescriptions(
+                (const uint8_t *)data, size, flag, timeUs / 1000, &playerMsg);
     }
 
-    if ((parcel.dataSize() > 0)) {
-        notifyListener(mSrcId, MEDIA2_TIMED_TEXT, 0, 0, &parcel);
+    if (playerMsg.values_size() > 0) {
+        notifyListener(mSrcId, MEDIA2_TIMED_TEXT, 0, 0, &playerMsg);
     } else {  // send an empty timed text
         notifyListener(mSrcId, MEDIA2_TIMED_TEXT, 0, 0);
     }

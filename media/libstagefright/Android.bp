@@ -90,9 +90,10 @@ cc_library_shared {
     name: "libstagefright",
 
     srcs: [
+        "AACWriter.cpp",
         "ACodec.cpp",
         "ACodecBufferChannel.cpp",
-        "AACWriter.cpp",
+        "AHierarchicalStateMachine.cpp",
         "AMRWriter.cpp",
         "AudioPlayer.cpp",
         "AudioPresentationInfo.cpp",
@@ -120,6 +121,7 @@ cc_library_shared {
         "MediaCodecList.cpp",
         "MediaCodecListOverrides.cpp",
         "MediaCodecSource.cpp",
+        "MediaExtractor.cpp",
         "MediaExtractorFactory.cpp",
         "MediaSync.cpp",
         "http/ClearMediaHTTP.cpp",
@@ -254,6 +256,7 @@ cc_library {
         "HevcUtils.cpp",
         "InterfaceUtils.cpp",
         "MediaClock.cpp",
+        "MediaExtractor.cpp",
         "MediaExtractorFactory.cpp",
         "NdkUtils.cpp",
         "NuCachedSource2.cpp",

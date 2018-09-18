@@ -15,9 +15,11 @@
  */
 
 #define LOG_TAG "ReportPerformance"
+//#define LOG_NDEBUG 0
 
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <queue>
 #include <stdarg.h>
 #include <stdint.h>
@@ -27,23 +29,99 @@
 #include <sys/prctl.h>
 #include <sys/time.h>
 #include <utility>
-#include <media/nblog/NBLog.h>
+#include <json/json.h>
+#include <media/MediaAnalyticsItem.h>
+#include <media/nblog/Events.h>
 #include <media/nblog/PerformanceAnalysis.h>
 #include <media/nblog/ReportPerformance.h>
 #include <utils/Log.h>
 #include <utils/String8.h>
 
 namespace android {
-
 namespace ReportPerformance {
 
+std::unique_ptr<Json::Value> dumpToJson(const PerformanceData& data)
+{
+    std::unique_ptr<Json::Value> rootPtr = std::make_unique<Json::Value>(Json::objectValue);
+    Json::Value& root = *rootPtr;
+    root["type"] = (Json::Value::Int)data.threadInfo.type;
+    root["frameCount"] = (Json::Value::Int)data.threadInfo.frameCount;
+    root["sampleRate"] = (Json::Value::Int)data.threadInfo.sampleRate;
+    root["workMsHist"] = data.workHist.toString();
+    root["latencyMsHist"] = data.latencyHist.toString();
+    root["warmupMsHist"] = data.warmupHist.toString();
+    root["underruns"] = (Json::Value::Int64)data.underruns;
+    root["overruns"] = (Json::Value::Int64)data.overruns;
+    root["activeMs"] = (Json::Value::Int64)ns2ms(data.active);
+    root["durationMs"] = (Json::Value::Int64)ns2ms(systemTime() - data.start);
+    return rootPtr;
+}
+
+bool sendToMediaMetrics(const PerformanceData& data)
+{
+    // See documentation for these metrics here:
+    // docs.google.com/document/d/11--6dyOXVOpacYQLZiaOY5QVtQjUyqNx2zT9cCzLKYE/edit?usp=sharing
+    static constexpr char kThreadType[] = "android.media.audiothread.type";
+    static constexpr char kThreadFrameCount[] = "android.media.audiothread.framecount";
+    static constexpr char kThreadSampleRate[] = "android.media.audiothread.samplerate";
+    static constexpr char kThreadWorkHist[] = "android.media.audiothread.workMs.hist";
+    static constexpr char kThreadLatencyHist[] = "android.media.audiothread.latencyMs.hist";
+    static constexpr char kThreadWarmupHist[] = "android.media.audiothread.warmupMs.hist";
+    static constexpr char kThreadUnderruns[] = "android.media.audiothread.underruns";
+    static constexpr char kThreadOverruns[] = "android.media.audiothread.overruns";
+    static constexpr char kThreadActive[] = "android.media.audiothread.activeMs";
+    static constexpr char kThreadDuration[] = "android.media.audiothread.durationMs";
+
+    std::unique_ptr<MediaAnalyticsItem> item(new MediaAnalyticsItem("audiothread"));
+
+    const Histogram &workHist = data.workHist;
+    if (workHist.totalCount() > 0) {
+        item->setCString(kThreadWorkHist, workHist.toString().c_str());
+    }
+
+    const Histogram &latencyHist = data.latencyHist;
+    if (latencyHist.totalCount() > 0) {
+        item->setCString(kThreadLatencyHist, latencyHist.toString().c_str());
+    }
+
+    const Histogram &warmupHist = data.warmupHist;
+    if (warmupHist.totalCount() > 0) {
+        item->setCString(kThreadWarmupHist, warmupHist.toString().c_str());
+    }
+
+    if (data.underruns > 0) {
+        item->setInt64(kThreadUnderruns, data.underruns);
+    }
+
+    if (data.overruns > 0) {
+        item->setInt64(kThreadOverruns, data.overruns);
+    }
+
+    // Send to Media Metrics if the record is not empty.
+    // The thread and time info are added inside the if statement because
+    // we want to send them only if there are performance metrics to send.
+    if (item->count() > 0) {
+        // Add thread info fields.
+        const char * const typeString = NBLog::threadTypeToString(data.threadInfo.type);
+        item->setCString(kThreadType, typeString);
+        item->setInt32(kThreadFrameCount, data.threadInfo.frameCount);
+        item->setInt32(kThreadSampleRate, data.threadInfo.sampleRate);
+        // Add time info fields.
+        item->setInt64(kThreadActive, data.active / 1000000);
+        item->setInt64(kThreadDuration, (systemTime() - data.start) / 1000000);
+        return item->selfrecord();
+    }
+    return false;
+}
+
+//------------------------------------------------------------------------------
 
 // TODO: use a function like this to extract logic from writeToFile
 // https://stackoverflow.com/a/9279620
 
 // Writes outlier intervals, timestamps, and histograms spanning long time intervals to file.
 // TODO: write data in binary format
-void writeToFile(const std::deque<std::pair<timestamp, Histogram>> &hists,
+void writeToFile(const std::deque<std::pair<timestamp, Hist>> &hists,
                  const std::deque<std::pair<msInterval, timestamp>> &outlierData,
                  const std::deque<timestamp> &peakTimestamps,
                  const char * directory, bool append, int author, log_hash_t hash) {
@@ -128,6 +206,5 @@ void writeToFile(const std::deque<std::pair<timestamp, Histogram>> &hists,
     pfs.close();
 }
 
-} // namespace ReportPerformance
-
+}   // namespace ReportPerformance
 }   // namespace android
