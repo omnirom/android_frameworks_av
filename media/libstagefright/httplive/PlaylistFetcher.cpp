@@ -1813,7 +1813,7 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
 
     status_t err = OK;
     mLastIDRFound = false;
-    bool hasAvcSource = false;
+    bool hasAvcOrHevcSource = false;
     for (size_t i = mPacketSources.size(); i > 0;) {
         i--;
         bool isAudio = false;
@@ -1840,12 +1840,15 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
 
         const char *mime;
         sp<MetaData> format  = source->getFormat();
-        bool isAvc = format != NULL && format->findCString(kKeyMIMEType, &mime)
-                && (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC) ||
-                    !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC));
+        bool isAvc = false;
+        bool isHevc = false;
+        if (format != NULL && format->findCString(kKeyMIMEType, &mime)) {
+            isAvc = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC);
+            isHevc = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC);
+        }
 
-        if (isAvc) {
-            hasAvcSource = true;
+        if (isAvc || isHevc) {
+            hasAvcOrHevcSource = true;
         }
 
         sp<ABuffer> accessUnit;
@@ -1869,9 +1872,9 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                             mIDRFound);
                     // finding video last preceding IRD, caching video buffers from last
                     // preceding IDR to seek time
-                    if (isAvc) {
-                        if (IsIDR(accessUnit->data(), accessUnit->size()) ||
-                                AVUtils::get()->IsHevcIDR(accessUnit)) {
+                    if (isAvc || isHevc) {
+                        if ((isAvc && IsIDR(accessUnit->data(), accessUnit->size())) ||
+                                (isHevc && AVUtils::get()->IsHevcIDR(accessUnit))) {
                             mVideoBuffer->clear();
                             FSLOGV(stream, "found IDR, clear mVideoBuffer, save IDR timestamp");
                             mIDRFound = true;
@@ -1890,7 +1893,7 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                     // buffers and start from IDR pisition (new start time). If audio reached seek
                     // time before last preceding IDR is found, the redundant audio buffers will be
                     // discared when queuing buffers to LiveSession
-                    if (isAudio && hasAvcSource) {
+                    if (isAudio && hasAvcOrHevcSource) {
                         if (!mLastIDRFound) {
                             mAudioBuffer->queueAccessUnit(accessUnit);
                             FSLOGV(stream, "saving audio AccessUnit");
@@ -1900,9 +1903,21 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                             mAudioBuffer->clear();
                         }
                         continue;
+                    } else if (isAudio) {
+                        continue;
                     }
                 } else {
-                    if (isAvc && mIDRFound) {
+                    if ((isAvc || isHevc) && !mIDRFound) {
+                        if (isAvc && !IsIDR(accessUnit->data(), accessUnit->size())) {
+                            continue;
+                        }
+                        if (isHevc && !AVUtils::get()->IsHevcIDR(accessUnit)) {
+                            continue;
+                        }
+                        mIDRFound = true;
+                        mLastIDRTimeUs = timeUs;
+                    }
+                    if ((isAvc || isHevc) && mIDRFound) {
                         mLastIDRFound = true;
                         // last preceding IDR found, set mStartTimeUs to this IDR time, the new
                         // start time will affect audio stream checking if it has reached start time
