@@ -160,6 +160,18 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                 }
                 path = file_path;
                 parseTopLevelXMLFile(path.c_str(), false);
+            } else if (!strcmp(platform, "msm8937")) {
+                if (property_get("vendor.media.msm8937.version", value, "0") &&
+                    (atoi(value) == 1)){
+                    strlcpy(file_path, "/vendor/etc/media_codecs_8937_v1.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_vendor.xml",
+                            PROP_VALUE_MAX);
+                }
+                ALOGE("SDM429 prop_value = %s, file_path = %s", value, file_path);
+                path = file_path;
+                parseTopLevelXMLFile(path.c_str(), false);
             } else {
                 parseTopLevelXMLFile(path.c_str(), false);
             }
