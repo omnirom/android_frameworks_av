@@ -17,15 +17,14 @@
 #pragma once
 
 #include <sys/types.h>
-
-#include "AudioPort.h"
-#include <RoutingStrategy.h>
 #include <utils/Errors.h>
 #include <utils/Timers.h>
 #include <utils/KeyedVector.h>
 #include <system/audio.h>
+#include <RoutingStrategy.h>
 #include "AudioIODescriptorInterface.h"
-#include "AudioSourceDescriptor.h"
+#include "AudioPort.h"
+#include "ClientDescriptor.h"
 
 namespace android {
 
@@ -79,7 +78,9 @@ public:
     audio_patch_handle_t getPatchHandle() const override;
     void setPatchHandle(audio_patch_handle_t handle) override;
 
-    sp<AudioPort>       mPort;
+    TrackClientMap& clients() { return mClients; }
+
+    sp<AudioPort> mPort;
     audio_devices_t mDevice;                   // current device this output is routed to
     audio_io_handle_t mIoHandle;           // output handle
     uint32_t mRefCount[AUDIO_STREAM_CNT]; // number of streams of each type using this output
@@ -93,6 +94,7 @@ public:
 protected:
     audio_patch_handle_t mPatchHandle;
     audio_port_handle_t mId;
+    TrackClientMap mClients;
 };
 
 // Audio output driven by a software mixer in audio flinger.
@@ -156,7 +158,7 @@ public:
 class HwAudioOutputDescriptor: public AudioOutputDescriptor
 {
 public:
-    HwAudioOutputDescriptor(const sp<AudioSourceDescriptor>& source,
+    HwAudioOutputDescriptor(const sp<SourceClientDescriptor>& source,
                             AudioPolicyClientInterface *clientInterface);
     virtual ~HwAudioOutputDescriptor() {}
 
@@ -173,7 +175,7 @@ public:
                            const struct audio_port_config *srcConfig = NULL) const;
     virtual void toAudioPort(struct audio_port *port) const;
 
-    const sp<AudioSourceDescriptor> mSource;
+    const sp<SourceClientDescriptor> mSource;
 
 };
 
@@ -231,6 +233,8 @@ public:
     bool isAnyOutputActive(audio_stream_type_t streamToIgnore) const;
 
     audio_devices_t getSupportedDevices(audio_io_handle_t handle) const;
+
+    sp<SwAudioOutputDescriptor> getOutputForClient(audio_port_handle_t portId);
 
     status_t dump(int fd) const;
 };

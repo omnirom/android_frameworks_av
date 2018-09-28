@@ -32,6 +32,7 @@
 #include "ItemTable.h"
 #include "include/ESDS.h"
 
+#include <media/DataSourceBase.h>
 #include <media/ExtractorUtils.h>
 #include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ABitReader.h>
@@ -68,10 +69,11 @@ enum {
 };
 
 class MPEG4Source : public MediaTrack {
+static const size_t  kMaxPcmFrameSize = 8192;
 public:
     // Caller retains ownership of both "dataSource" and "sampleTable".
     MPEG4Source(MetaDataBase &format,
-                DataSourceBase *dataSource,
+                DataSourceHelper *dataSource,
                 int32_t timeScale,
                 const sp<SampleTable> &sampleTable,
                 Vector<SidxEntry> &sidx,
@@ -95,7 +97,7 @@ private:
     Mutex mLock;
 
     MetaDataBase &mFormat;
-    DataSourceBase *mDataSource;
+    DataSourceHelper *mDataSource;
     int32_t mTimescale;
     sp<SampleTable> mSampleTable;
     uint32_t mCurrentSampleIndex;
@@ -127,7 +129,7 @@ private:
     bool mIsAVC;
     bool mIsHEVC;
     bool mIsAC4;
-
+    bool mIsPcm;
     size_t mNALLengthSize;
 
     bool mStarted;
@@ -196,11 +198,10 @@ private:
 // possibly wrapping multiple times to cover all tracks, i.e.
 // Each CachedRangedDataSource caches the sampletable metadata for a single track.
 
-struct CachedRangedDataSource : public DataSourceBase {
-    explicit CachedRangedDataSource(DataSourceBase *source);
+struct CachedRangedDataSource : public DataSourceHelper {
+    explicit CachedRangedDataSource(DataSourceHelper *source);
     virtual ~CachedRangedDataSource();
 
-    virtual status_t initCheck() const;
     virtual ssize_t readAt(off64_t offset, void *data, size_t size);
     virtual status_t getSize(off64_t *size);
     virtual uint32_t flags();
@@ -211,7 +212,7 @@ struct CachedRangedDataSource : public DataSourceBase {
 private:
     Mutex mLock;
 
-    DataSourceBase *mSource;
+    DataSourceHelper *mSource;
     bool mOwnsDataSource;
     off64_t mCachedOffset;
     size_t mCachedSize;
@@ -223,8 +224,9 @@ private:
     CachedRangedDataSource &operator=(const CachedRangedDataSource &);
 };
 
-CachedRangedDataSource::CachedRangedDataSource(DataSourceBase *source)
-    : mSource(source),
+CachedRangedDataSource::CachedRangedDataSource(DataSourceHelper *source)
+    : DataSourceHelper(source),
+      mSource(source),
       mOwnsDataSource(false),
       mCachedOffset(0),
       mCachedSize(0),
@@ -246,10 +248,6 @@ void CachedRangedDataSource::clearCache() {
 
     mCachedOffset = 0;
     mCachedSize = 0;
-}
-
-status_t CachedRangedDataSource::initCheck() const {
-    return mSource->initCheck();
 }
 
 ssize_t CachedRangedDataSource::readAt(off64_t offset, void *data, size_t size) {
@@ -313,6 +311,9 @@ static const char *FourCC2MIME(uint32_t fourcc) {
         case FOURCC('s', 'a', 'w', 'b'):
             return MEDIA_MIMETYPE_AUDIO_AMR_WB;
 
+        case FOURCC('e', 'c', '-', '3'):
+            return MEDIA_MIMETYPE_AUDIO_EAC3;
+
         case FOURCC('m', 'p', '4', 'v'):
             return MEDIA_MIMETYPE_VIDEO_MPEG4;
 
@@ -329,6 +330,11 @@ static const char *FourCC2MIME(uint32_t fourcc) {
             return MEDIA_MIMETYPE_VIDEO_HEVC;
         case FOURCC('a', 'c', '-', '4'):
             return MEDIA_MIMETYPE_AUDIO_AC4;
+
+        case FOURCC('t', 'w', 'o', 's'):
+        case FOURCC('s', 'o', 'w', 't'):
+            return MEDIA_MIMETYPE_AUDIO_RAW;
+
         default:
             ALOGW("Unknown fourcc: %c%c%c%c",
                    (fourcc >> 24) & 0xff,
@@ -355,7 +361,7 @@ static bool AdjustChannelsAndRate(uint32_t fourcc, uint32_t *channels, uint32_t 
     return false;
 }
 
-MPEG4Extractor::MPEG4Extractor(DataSourceBase *source, const char *mime)
+MPEG4Extractor::MPEG4Extractor(DataSourceHelper *source, const char *mime)
     : mMoofOffset(0),
       mMoofFound(false),
       mMdatFound(false),
@@ -388,6 +394,7 @@ MPEG4Extractor::~MPEG4Extractor() {
     mPssh.clear();
 
     delete mCachedSource;
+    delete mDataSource;
 }
 
 uint32_t MPEG4Extractor::flags() const {
@@ -472,8 +479,15 @@ status_t MPEG4Extractor::getTrackMetaData(
             if (__builtin_mul_overflow(media_time, samplerate, &delay) ||
                     __builtin_add_overflow(delay, halfscale, &delay) ||
                     (delay /= mHeaderTimescale, false) ||
-                    delay > INT32_MAX ||
-                    delay < INT32_MIN) {
+                    /* the calculated delay should be small, but some apps
+                     * appear to write a bogus edit list that causes a really
+                     * large delay, resulting in playback problems.
+                     * Ignore such edit lists.
+                     * (4096 is enough to drop 4 full samples)
+                     */
+                    delay > 4096 ||
+                    delay < 0) {
+                ALOGW("ignoring edit list with bogus values");
                 return;
             }
             ALOGV("delay = %" PRId64, delay);
@@ -1478,6 +1492,8 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC('e', 'n', 'c', 'a'):
         case FOURCC('s', 'a', 'm', 'r'):
         case FOURCC('s', 'a', 'w', 'b'):
+        case FOURCC('t', 'w', 'o', 's'):
+        case FOURCC('s', 'o', 'w', 't'):
         {
             if (mIsQT && chunk_type == FOURCC('m', 'p', '4', 'a')
                     && depth >= 1 && mPath[depth - 1] == FOURCC('w', 'a', 'v', 'e')) {
@@ -1547,6 +1563,13 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 // if the chunk type is enca, we'll get the type from the frma box later
                 mLastTrack->meta.setCString(kKeyMIMEType, FourCC2MIME(chunk_type));
                 AdjustChannelsAndRate(chunk_type, &num_channels, &sample_rate);
+
+                if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_RAW, FourCC2MIME(chunk_type))) {
+                    mLastTrack->meta.setInt32(kKeyBitsPerSample, sample_size);
+                    if (chunk_type == FOURCC('t', 'w', 'o', 's')) {
+                        mLastTrack->meta.setInt32(kKeyPcmBigEndian, 1);
+                    }
+                }
             }
             ALOGV("*** coding='%s' %d channels, size %d, rate %d\n",
                    chunk, num_channels, sample_size, sample_rate);
@@ -2438,13 +2461,19 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC('a', 'c', '-', '3'):
         {
             *offset += chunk_size;
-            return parseAC3SampleEntry(data_offset);
+            return parseAC3SpecificBox(data_offset);
+        }
+
+        case FOURCC('e', 'c', '-', '3'):
+        {
+            *offset += chunk_size;
+            return parseEAC3SpecificBox(data_offset);
         }
 
         case FOURCC('a', 'c', '-', '4'):
         {
             *offset += chunk_size;
-            return parseAC4SampleEntry(data_offset);
+            return parseAC4SpecificBox(data_offset);
         }
 
         case FOURCC('f', 't', 'y', 'p'):
@@ -2518,43 +2547,43 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
     return OK;
 }
 
-status_t MPEG4Extractor::parseAC4SampleEntry(off64_t offset) {
+status_t MPEG4Extractor::parseChannelCountSampleRate(
+        off64_t *offset, uint16_t *channelCount, uint16_t *sampleRate) {
     // skip 16 bytes:
     //  + 6-byte reserved,
     //  + 2-byte data reference index,
     //  + 8-byte reserved
-    offset += 16;
-    uint16_t channelCount;
-    if (!mDataSource->getUInt16(offset, &channelCount)) {
-        ALOGE("MPEG4Extractor: error while reading ac-4 block: cannot read channel count");
+    *offset += 16;
+    if (!mDataSource->getUInt16(*offset, channelCount)) {
+        ALOGE("MPEG4Extractor: error while reading sample entry box: cannot read channel count");
         return ERROR_MALFORMED;
     }
     // skip 8 bytes:
     //  + 2-byte channelCount,
     //  + 2-byte sample size,
     //  + 4-byte reserved
-    offset += 8;
-    uint16_t sampleRate;
-    if (!mDataSource->getUInt16(offset, &sampleRate)) {
-        ALOGE("MPEG4Extractor: error while reading ac-4 block: cannot read sample rate");
+    *offset += 8;
+    if (!mDataSource->getUInt16(*offset, sampleRate)) {
+        ALOGE("MPEG4Extractor: error while reading sample entry box: cannot read sample rate");
         return ERROR_MALFORMED;
     }
-
     // skip 4 bytes:
     //  + 2-byte sampleRate,
     //  + 2-byte reserved
-    offset += 4;
-
-    if (mLastTrack == NULL) {
-        return ERROR_MALFORMED;
-    }
-    mLastTrack->meta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_AC4);
-    mLastTrack->meta.setInt32(kKeyChannelCount, channelCount);
-    mLastTrack->meta.setInt32(kKeySampleRate, sampleRate);
-    return parseAC4SpecificBox(offset);
+    *offset += 4;
+    return OK;
 }
 
 status_t MPEG4Extractor::parseAC4SpecificBox(off64_t offset) {
+    if (mLastTrack == NULL) {
+        return ERROR_MALFORMED;
+    }
+
+    uint16_t sampleRate, channelCount;
+    status_t status;
+    if ((status = parseChannelCountSampleRate(&offset, &channelCount, &sampleRate)) != OK) {
+        return status;
+    }
     uint32_t size;
     // + 4-byte size
     // + 4-byte type
@@ -2593,39 +2622,185 @@ status_t MPEG4Extractor::parseAC4SpecificBox(off64_t offset) {
         return ERROR_MALFORMED;
     }
 
+    mLastTrack->meta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_AC4);
+    mLastTrack->meta.setInt32(kKeyChannelCount, channelCount);
+    mLastTrack->meta.setInt32(kKeySampleRate, sampleRate);
     return OK;
 }
 
-status_t MPEG4Extractor::parseAC3SampleEntry(off64_t offset) {
-    // skip 16 bytes:
-    //  + 6-byte reserved,
-    //  + 2-byte data reference index,
-    //  + 8-byte reserved
-    offset += 16;
-    uint16_t channelCount;
-    if (!mDataSource->getUInt16(offset, &channelCount)) {
-        return ERROR_MALFORMED;
-    }
-    // skip 8 bytes:
-    //  + 2-byte channelCount,
-    //  + 2-byte sample size,
-    //  + 4-byte reserved
-    offset += 8;
-    uint16_t sampleRate;
-    if (!mDataSource->getUInt16(offset, &sampleRate)) {
-        ALOGE("MPEG4Extractor: error while reading ac-3 block: cannot read sample rate");
+status_t MPEG4Extractor::parseEAC3SpecificBox(off64_t offset) {
+    if (mLastTrack == NULL) {
         return ERROR_MALFORMED;
     }
 
-    // skip 4 bytes:
-    //  + 2-byte sampleRate,
-    //  + 2-byte reserved
+    uint16_t sampleRate, channels;
+    status_t status;
+    if ((status = parseChannelCountSampleRate(&offset, &channels, &sampleRate)) != OK) {
+        return status;
+    }
+    uint32_t size;
+    // + 4-byte size
+    // + 4-byte type
+    // + 3-byte payload
+    const uint32_t kEAC3SpecificBoxMinSize = 11;
+    // 13 + 3 + (8 * (2 + 5 + 5 + 3 + 1 + 3 + 4 + (14 * 9 + 1))) bits == 152 bytes theoretical max
+    // calculated from the required bits read below as well as the maximum number of independent
+    // and dependant sub streams you can have
+    const uint32_t kEAC3SpecificBoxMaxSize = 152;
+    if (!mDataSource->getUInt32(offset, &size) ||
+        size < kEAC3SpecificBoxMinSize ||
+        size > kEAC3SpecificBoxMaxSize) {
+        ALOGE("MPEG4Extractor: error while reading eac-3 block: cannot read specific box size");
+        return ERROR_MALFORMED;
+    }
+
     offset += 4;
-    return parseAC3SpecificBox(offset, sampleRate);
+    uint32_t type;
+    if (!mDataSource->getUInt32(offset, &type) || type != FOURCC('d', 'e', 'c', '3')) {
+        ALOGE("MPEG4Extractor: error while reading eac-3 specific block: header not dec3");
+        return ERROR_MALFORMED;
+    }
+
+    offset += 4;
+    uint8_t* chunk = new (std::nothrow) uint8_t[size];
+    if (chunk == NULL) {
+        return ERROR_MALFORMED;
+    }
+
+    if (mDataSource->readAt(offset, chunk, size) != (ssize_t)size) {
+        ALOGE("MPEG4Extractor: error while reading eac-3 specific block: bitstream fields");
+        delete[] chunk;
+        return ERROR_MALFORMED;
+    }
+
+    ABitReader br(chunk, size);
+    static const unsigned channelCountTable[] = {2, 1, 2, 3, 3, 4, 4, 5};
+    static const unsigned sampleRateTable[] = {48000, 44100, 32000};
+
+    if (br.numBitsLeft() < 16) {
+        delete[] chunk;
+        return ERROR_MALFORMED;
+    }
+    unsigned data_rate = br.getBits(13);
+    ALOGV("EAC3 data rate = %d", data_rate);
+
+    unsigned num_ind_sub = br.getBits(3) + 1;
+    ALOGV("EAC3 independant substreams = %d", num_ind_sub);
+    if (br.numBitsLeft() < (num_ind_sub * 23)) {
+        delete[] chunk;
+        return ERROR_MALFORMED;
+    }
+
+    unsigned channelCount = 0;
+    for (unsigned i = 0; i < num_ind_sub; i++) {
+        unsigned fscod = br.getBits(2);
+        if (fscod == 3) {
+            ALOGE("Incorrect fscod (3) in EAC3 header");
+            delete[] chunk;
+            return ERROR_MALFORMED;
+        }
+        unsigned boxSampleRate = sampleRateTable[fscod];
+        if (boxSampleRate != sampleRate) {
+            ALOGE("sample rate mismatch: boxSampleRate = %d, sampleRate = %d",
+                boxSampleRate, sampleRate);
+            delete[] chunk;
+            return ERROR_MALFORMED;
+        }
+
+        unsigned bsid = br.getBits(5);
+        if (bsid < 8) {
+            ALOGW("Incorrect bsid in EAC3 header. Possibly AC-3?");
+            delete[] chunk;
+            return ERROR_MALFORMED;
+        }
+
+        // skip
+        br.skipBits(2);
+        unsigned bsmod = br.getBits(3);
+        unsigned acmod = br.getBits(3);
+        unsigned lfeon = br.getBits(1);
+        // we currently only support the first stream
+        if (i == 0)
+            channelCount = channelCountTable[acmod] + lfeon;
+        ALOGV("bsmod = %d, acmod = %d, lfeon = %d", bsmod, acmod, lfeon);
+
+        br.skipBits(3);
+        unsigned num_dep_sub = br.getBits(4);
+        ALOGV("EAC3 dependant substreams = %d", num_dep_sub);
+        if (num_dep_sub != 0) {
+            if (br.numBitsLeft() < 9) {
+                delete[] chunk;
+                return ERROR_MALFORMED;
+            }
+            static const char* chan_loc_tbl[] = { "Lc/Rc","Lrs/Rrs","Cs","Ts","Lsd/Rsd",
+                "Lw/Rw","Lvh/Rvh","Cvh","Lfe2" };
+            unsigned chan_loc = br.getBits(9);
+            unsigned mask = 1;
+            for (unsigned j = 0; j < 9; j++, mask <<= 1) {
+                if ((chan_loc & mask) != 0) {
+                    // we currently only support the first stream
+                    if (i == 0) {
+                        channelCount++;
+                        // these are 2 channels in the mask
+                        if (j == 0 || j == 1 || j == 4 || j == 5 || j == 6) {
+                            channelCount++;
+                        }
+                    }
+                    ALOGV(" %s", chan_loc_tbl[j]);
+                }
+            }
+        } else {
+            if (br.numBitsLeft() == 0) {
+                delete[] chunk;
+                return ERROR_MALFORMED;
+            }
+            br.skipBits(1);
+        }
+    }
+
+    if (br.numBitsLeft() != 0) {
+        if (br.numBitsLeft() < 8) {
+            delete[] chunk;
+            return ERROR_MALFORMED;
+        }
+        unsigned mask = br.getBits(8);
+        for (unsigned i = 0; i < 8; i++) {
+            if (((0x1 << i) && mask) == 0)
+                continue;
+
+            if (br.numBitsLeft() < 8) {
+                delete[] chunk;
+                return ERROR_MALFORMED;
+            }
+            switch (i) {
+                case 0: {
+                    unsigned complexity = br.getBits(8);
+                    ALOGV("Found a JOC stream with complexity = %d", complexity);
+                }break;
+                default: {
+                    br.skipBits(8);
+                }break;
+            }
+        }
+    }
+    mLastTrack->meta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_EAC3);
+    mLastTrack->meta.setInt32(kKeyChannelCount, channelCount);
+    mLastTrack->meta.setInt32(kKeySampleRate, sampleRate);
+
+    delete[] chunk;
+    return OK;
 }
 
-status_t MPEG4Extractor::parseAC3SpecificBox(
-        off64_t offset, uint16_t sampleRate) {
+status_t MPEG4Extractor::parseAC3SpecificBox(off64_t offset) {
+    if (mLastTrack == NULL) {
+        return ERROR_MALFORMED;
+    }
+
+    uint16_t sampleRate, channels;
+    status_t status;
+    if ((status = parseChannelCountSampleRate(&offset, &channels, &sampleRate)) != OK) {
+        return status;
+    }
     uint32_t size;
     // + 4-byte size
     // + 4-byte type
@@ -2680,9 +2855,6 @@ status_t MPEG4Extractor::parseAC3SpecificBox(
     unsigned lfeon = br.getBits(1);
     unsigned channelCount = channelCountTable[acmod] + lfeon;
 
-    if (mLastTrack == NULL) {
-        return ERROR_MALFORMED;
-    }
     mLastTrack->meta.setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_AC3);
     mLastTrack->meta.setInt32(kKeyChannelCount, channelCount);
     mLastTrack->meta.setInt32(kKeySampleRate, sampleRate);
@@ -3919,7 +4091,7 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
 
 MPEG4Source::MPEG4Source(
         MetaDataBase &format,
-        DataSourceBase *dataSource,
+        DataSourceHelper *dataSource,
         int32_t timeScale,
         const sp<SampleTable> &sampleTable,
         Vector<SidxEntry> &sidx,
@@ -3947,6 +4119,7 @@ MPEG4Source::MPEG4Source(
       mIsAVC(false),
       mIsHEVC(false),
       mIsAC4(false),
+      mIsPcm(false),
       mNALLengthSize(0),
       mStarted(false),
       mGroup(NULL),
@@ -4007,6 +4180,27 @@ MPEG4Source::MPEG4Source(
         CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
 
         mNALLengthSize = 1 + (ptr[14 + 7] & 3);
+    }
+
+    mIsPcm = !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW);
+
+    if (mIsPcm) {
+        int32_t numChannels = 0;
+        int32_t bitsPerSample = 0;
+        CHECK(mFormat.findInt32(kKeyBitsPerSample, &bitsPerSample));
+        CHECK(mFormat.findInt32(kKeyChannelCount, &numChannels));
+
+        int32_t bytesPerSample = bitsPerSample >> 3;
+        int32_t pcmSampleSize = bytesPerSample * numChannels;
+
+        size_t maxSampleSize;
+        status_t err = mSampleTable->getMaxSampleSize(&maxSampleSize);
+        if (err != OK || maxSampleSize != static_cast<size_t>(pcmSampleSize) || bitsPerSample != 16) {
+            // Not supported
+            mIsPcm = false;
+        } else {
+            mFormat.setInt32(kKeyMaxInputSize, pcmSampleSize * kMaxPcmFrameSize);
+        }
     }
 
     CHECK(format.findInt32(kKeyTrackID, &mTrackId));
@@ -4923,34 +5117,78 @@ status_t MPEG4Source::read(
 
     if ((!mIsAVC && !mIsHEVC && !mIsAC4) || mWantsNALFragments) {
         if (newBuffer) {
-            ssize_t num_bytes_read =
-                mDataSource->readAt(offset, (uint8_t *)mBuffer->data(), size);
+            if (mIsPcm) {
+                // The twos' PCM block reader assumes that all samples has the same size.
 
-            if (num_bytes_read < (ssize_t)size) {
-                mBuffer->release();
-                mBuffer = NULL;
+                uint32_t samplesToRead = mSampleTable->getLastSampleIndexInChunk()
+                                                      - mCurrentSampleIndex + 1;
+                if (samplesToRead > kMaxPcmFrameSize) {
+                    samplesToRead = kMaxPcmFrameSize;
+                }
 
-                return ERROR_IO;
-            }
+                ALOGV("Reading %d PCM frames of size %zu at index %d to stop of chunk at %d",
+                      samplesToRead, size, mCurrentSampleIndex,
+                      mSampleTable->getLastSampleIndexInChunk());
 
-            CHECK(mBuffer != NULL);
-            mBuffer->set_range(0, size);
-            mBuffer->meta_data().clear();
-            mBuffer->meta_data().setInt64(
-                    kKeyTime, ((int64_t)cts * 1000000) / mTimescale);
-            mBuffer->meta_data().setInt64(
-                    kKeyDuration, ((int64_t)stts * 1000000) / mTimescale);
+               size_t totalSize = samplesToRead * size;
+                uint8_t* buf = (uint8_t *)mBuffer->data();
+                ssize_t bytesRead = mDataSource->readAt(offset, buf, totalSize);
+                if (bytesRead < (ssize_t)totalSize) {
+                    mBuffer->release();
+                    mBuffer = NULL;
 
-            if (targetSampleTimeUs >= 0) {
-                mBuffer->meta_data().setInt64(
-                        kKeyTargetTime, targetSampleTimeUs);
-            }
+                    return ERROR_IO;
+                }
 
-            if (isSyncSample) {
+                mBuffer->meta_data().clear();
+                mBuffer->meta_data().setInt64(kKeyTime, ((int64_t)cts * 1000000) / mTimescale);
                 mBuffer->meta_data().setInt32(kKeyIsSyncFrame, 1);
-            }
 
-            ++mCurrentSampleIndex;
+                int32_t byteOrder;
+                mFormat.findInt32(kKeyPcmBigEndian, &byteOrder);
+
+                if (byteOrder == 1) {
+                    // Big-endian -> little-endian
+                    uint16_t *dstData = (uint16_t *)buf;
+                    uint16_t *srcData = (uint16_t *)buf;
+
+                    for (size_t j = 0; j < bytesRead / sizeof(uint16_t); j++) {
+                         dstData[j] = ntohs(srcData[j]);
+                    }
+                }
+
+                mCurrentSampleIndex += samplesToRead;
+                mBuffer->set_range(0, totalSize);
+            } else {
+                ssize_t num_bytes_read =
+                    mDataSource->readAt(offset, (uint8_t *)mBuffer->data(), size);
+
+                if (num_bytes_read < (ssize_t)size) {
+                    mBuffer->release();
+                    mBuffer = NULL;
+
+                    return ERROR_IO;
+                }
+
+                CHECK(mBuffer != NULL);
+                mBuffer->set_range(0, size);
+                mBuffer->meta_data().clear();
+                mBuffer->meta_data().setInt64(
+                        kKeyTime, ((int64_t)cts * 1000000) / mTimescale);
+                mBuffer->meta_data().setInt64(
+                        kKeyDuration, ((int64_t)stts * 1000000) / mTimescale);
+
+                if (targetSampleTimeUs >= 0) {
+                    mBuffer->meta_data().setInt64(
+                            kKeyTargetTime, targetSampleTimeUs);
+                }
+
+                if (isSyncSample) {
+                    mBuffer->meta_data().setInt32(kKeyIsSyncFrame, 1);
+                }
+ 
+                ++mCurrentSampleIndex;
+            }
         }
 
         if (!mIsAVC && !mIsHEVC && !mIsAC4) {
@@ -5231,9 +5469,13 @@ status_t MPEG4Source::fragmentedRead(
     uint32_t cts = 0;
     bool isSyncSample = false;
     bool newBuffer = false;
-    if (mBuffer == NULL) {
+    if (mBuffer == NULL || mCurrentSampleIndex >= mCurrentSamples.size()) {
         newBuffer = true;
 
+        if (mBuffer != NULL) {
+            mBuffer->release();
+            mBuffer = NULL;
+        }
         if (mCurrentSampleIndex >= mCurrentSamples.size()) {
             // move to next fragment if there is one
             if (mNextMoofOffset <= mCurrentMoofOffset) {
@@ -5528,7 +5770,7 @@ MPEG4Extractor::Track *MPEG4Extractor::findTrackByMimePrefix(
     return NULL;
 }
 
-static bool LegacySniffMPEG4(DataSourceBase *source, float *confidence) {
+static bool LegacySniffMPEG4(DataSourceHelper *source, float *confidence) {
     uint8_t header[8];
 
     ssize_t n = source->readAt(4, header, sizeof(header));
@@ -5593,7 +5835,7 @@ static bool isCompatibleBrand(uint32_t fourcc) {
 // Also try to identify where this file's metadata ends
 // (end of the 'moov' atom) and report it to the caller as part of
 // the metadata.
-static bool BetterSniffMPEG4(DataSourceBase *source, float *confidence) {
+static bool BetterSniffMPEG4(DataSourceHelper *source, float *confidence) {
     // We scan up to 128 bytes to identify this file as an MP4.
     static const off64_t kMaxScanOffset = 128ll;
 
@@ -5700,18 +5942,19 @@ static bool BetterSniffMPEG4(DataSourceBase *source, float *confidence) {
     return true;
 }
 
-static MediaExtractor* CreateExtractor(DataSourceBase *source, void *) {
-    return new MPEG4Extractor(source);
+static CMediaExtractor* CreateExtractor(CDataSource *source, void *) {
+    return wrap(new MPEG4Extractor(new DataSourceHelper(source)));
 }
 
-static MediaExtractor::CreatorFunc Sniff(
-        DataSourceBase *source, float *confidence, void **,
-        MediaExtractor::FreeMetaFunc *) {
-    if (BetterSniffMPEG4(source, confidence)) {
+static CreatorFunc Sniff(
+        CDataSource *source, float *confidence, void **,
+        FreeMetaFunc *) {
+    DataSourceHelper helper(source);
+    if (BetterSniffMPEG4(&helper, confidence)) {
         return CreateExtractor;
     }
 
-    if (LegacySniffMPEG4(source, confidence)) {
+    if (LegacySniffMPEG4(&helper, confidence)) {
         ALOGW("Identified supported mpeg4 through LegacySniffMPEG4.");
         return CreateExtractor;
     }
@@ -5722,9 +5965,9 @@ static MediaExtractor::CreatorFunc Sniff(
 extern "C" {
 // This is the only symbol that needs to be exported
 __attribute__ ((visibility ("default")))
-MediaExtractor::ExtractorDef GETEXTRACTORDEF() {
+ExtractorDef GETEXTRACTORDEF() {
     return {
-        MediaExtractor::EXTRACTORDEF_VERSION,
+        EXTRACTORDEF_VERSION,
         UUID("27575c67-4417-4c54-8d3d-8e626985a164"),
         1, // version
         "MP4 Extractor",

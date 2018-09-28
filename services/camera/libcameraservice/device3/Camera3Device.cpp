@@ -90,7 +90,7 @@ Camera3Device::~Camera3Device()
 {
     ATRACE_CALL();
     ALOGV("%s: Tearing down for camera id %s", __FUNCTION__, mId.string());
-    disconnect();
+    disconnectImpl();
 }
 
 const String8& Camera3Device::getId() const {
@@ -275,8 +275,13 @@ status_t Camera3Device::initializeCommonLocked() {
 }
 
 status_t Camera3Device::disconnect() {
+    return disconnectImpl();
+}
+
+status_t Camera3Device::disconnectImpl() {
     ATRACE_CALL();
     Mutex::Autolock il(mInterfaceLock);
+    Mutex::Autolock stLock(mTrackerLock);
 
     ALOGI("%s: E", __FUNCTION__);
 
@@ -2169,8 +2174,14 @@ status_t Camera3Device::setConsumerSurfaces(int streamId,
 
         res = stream->finishConfiguration();
         if (res != OK) {
-            SET_ERR_L("Can't finish configuring output stream %d: %s (%d)",
-                   stream->getId(), strerror(-res), res);
+            // If finishConfiguration fails due to abandoned surface, do not set
+            // device to error state.
+            bool isSurfaceAbandoned =
+                    (res == NO_INIT || res == DEAD_OBJECT) && stream->isAbandoned();
+            if (!isSurfaceAbandoned) {
+                SET_ERR_L("Can't finish configuring output stream %d: %s (%d)",
+                        stream->getId(), strerror(-res), res);
+            }
             return res;
         }
     }
@@ -2387,9 +2398,16 @@ bool Camera3Device::reconfigureCamera(const CameraMetadata& sessionParams) {
             //present streams end up with outstanding buffers that will
             //not get drained.
             internalUpdateStatusLocked(STATUS_ACTIVE);
+        } else if (rc == DEAD_OBJECT) {
+            // DEAD_OBJECT can be returned if either the consumer surface is
+            // abandoned, or the HAL has died.
+            // - If the HAL has died, configureStreamsLocked call will set
+            // device to error state,
+            // - If surface is abandoned, we should not set device to error
+            // state.
+            ALOGE("Failed to re-configure camera due to abandoned surface");
         } else {
-            setErrorStateLocked("%s: Failed to re-configure camera: %d",
-                    __FUNCTION__, rc);
+            SET_ERR_L("Failed to re-configure camera: %d", rc);
         }
     } else {
         ALOGE("%s: Failed to pause streaming: %d", __FUNCTION__, rc);
@@ -2523,6 +2541,9 @@ status_t Camera3Device::configureStreamsLocked(int operatingMode,
             CLOGE("Can't finish configuring input stream %d: %s (%d)",
                     mInputStream->getId(), strerror(-res), res);
             cancelStreamsConfigurationLocked();
+            if ((res == NO_INIT || res == DEAD_OBJECT) && mInputStream->isAbandoned()) {
+                return DEAD_OBJECT;
+            }
             return BAD_VALUE;
         }
     }
@@ -2536,6 +2557,9 @@ status_t Camera3Device::configureStreamsLocked(int operatingMode,
                 CLOGE("Can't finish configuring output stream %d: %s (%d)",
                         outputStream->getId(), strerror(-res), res);
                 cancelStreamsConfigurationLocked();
+                if ((res == NO_INIT || res == DEAD_OBJECT) && outputStream->isAbandoned()) {
+                    return DEAD_OBJECT;
+                }
                 return BAD_VALUE;
             }
         }
@@ -2715,18 +2739,19 @@ void Camera3Device::setErrorStateLockedV(const char *fmt, va_list args) {
 status_t Camera3Device::registerInFlight(uint32_t frameNumber,
         int32_t numBuffers, CaptureResultExtras resultExtras, bool hasInput,
         bool hasAppCallback, nsecs_t maxExpectedDuration,
-        std::set<String8>& physicalCameraIds) {
+        std::set<String8>& physicalCameraIds, bool isStillCapture) {
     ATRACE_CALL();
     Mutex::Autolock l(mInFlightLock);
 
     ssize_t res;
     res = mInFlightMap.add(frameNumber, InFlightRequest(numBuffers, resultExtras, hasInput,
-            hasAppCallback, maxExpectedDuration, physicalCameraIds));
+            hasAppCallback, maxExpectedDuration, physicalCameraIds, isStillCapture));
     if (res < 0) return res;
 
     if (mInFlightMap.size() == 1) {
-        // hold mLock to prevent race with disconnect
-        Mutex::Autolock l(mLock);
+        // Hold a separate dedicated tracker lock to prevent race with disconnect and also
+        // avoid a deadlock during reprocess requests.
+        Mutex::Autolock l(mTrackerLock);
         if (mStatusTracker != nullptr) {
             mStatusTracker->markComponentActive(mInFlightStatusId);
         }
@@ -2759,8 +2784,9 @@ void Camera3Device::removeInFlightMapEntryLocked(int idx) {
 
     // Indicate idle inFlightMap to the status tracker
     if (mInFlightMap.size() == 0) {
-        // hold mLock to prevent race with disconnect
-        Mutex::Autolock l(mLock);
+        // Hold a separate dedicated tracker lock to prevent race with disconnect and also
+        // avoid a deadlock during reprocess requests.
+        Mutex::Autolock l(mTrackerLock);
         if (mStatusTracker != nullptr) {
             mStatusTracker->markComponentIdle(mInFlightStatusId, Fence::NO_FENCE);
         }
@@ -2785,6 +2811,10 @@ void Camera3Device::removeInFlightRequestIfReadyLocked(int idx) {
     if (request.numBuffersLeft == 0 &&
             (request.skipResultMetadata ||
             (request.haveResultMetadata && shutterTimestamp != 0))) {
+        if (request.stillCapture) {
+            ATRACE_ASYNC_END("still capture", frameNumber);
+        }
+
         ATRACE_ASYNC_END("frame capture", frameNumber);
 
         // Sanity check - if sensor timestamp matches shutter timestamp in the
@@ -3915,18 +3945,17 @@ status_t Camera3Device::HalInterface::processBatchCaptureRequests(
     }
 
     hardware::details::return_status err;
+    auto resultCallback =
+        [&status, &numRequestProcessed] (auto s, uint32_t n) {
+                status = s;
+                *numRequestProcessed = n;
+        };
     if (hidlSession_3_4 != nullptr) {
         err = hidlSession_3_4->processCaptureRequest_3_4(captureRequests_3_4, cachesToRemove,
-            [&status, &numRequestProcessed] (auto s, uint32_t n) {
-                status = s;
-                *numRequestProcessed = n;
-            });
+                                                         resultCallback);
     } else {
         err = mHidlSession->processCaptureRequest(captureRequests, cachesToRemove,
-            [&status, &numRequestProcessed] (auto s, uint32_t n) {
-                status = s;
-                *numRequestProcessed = n;
-            });
+                                                  resultCallback);
     }
     if (!err.isOk()) {
         ALOGE("%s: Transaction error: %s", __FUNCTION__, err.description().c_str());
@@ -4763,7 +4792,7 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
         bool newRequest = (mPrevRequest != captureRequest || triggersMixedIn) &&
                 // Request settings are all the same within one batch, so only treat the first
                 // request in a batch as new
-                !(batchedRequest && i >= 0);
+                !(batchedRequest && i > 0);
         if (newRequest) {
             /**
              * HAL workaround:
@@ -4915,12 +4944,21 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
         if (batchedRequest && i != mNextRequests.size()-1) {
             hasCallback = false;
         }
+        bool isStillCapture = false;
+        if (!mNextRequests[0].captureRequest->mSettingsList.begin()->metadata.isEmpty()) {
+            camera_metadata_ro_entry_t e = camera_metadata_ro_entry_t();
+            find_camera_metadata_ro_entry(halRequest->settings, ANDROID_CONTROL_CAPTURE_INTENT, &e);
+            if ((e.count > 0) && (e.data.u8[0] == ANDROID_CONTROL_CAPTURE_INTENT_STILL_CAPTURE)) {
+                isStillCapture = true;
+                ATRACE_ASYNC_BEGIN("still capture", mNextRequests[i].halRequest.frame_number);
+            }
+        }
         res = parent->registerInFlight(halRequest->frame_number,
                 totalNumBuffers, captureRequest->mResultExtras,
                 /*hasInput*/halRequest->input_buffer != NULL,
                 hasCallback,
                 calculateMaxExpectedDuration(halRequest->settings),
-                requestedPhysicalCameras);
+                requestedPhysicalCameras, isStillCapture);
         ALOGVV("%s: registered in flight requestId = %" PRId32 ", frameNumber = %" PRId64
                ", burstId = %" PRId32 ".",
                 __FUNCTION__,

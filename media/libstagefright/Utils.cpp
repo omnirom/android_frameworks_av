@@ -1595,6 +1595,7 @@ static const struct mime_conv_t mimeLookup[] = {
     { MEDIA_MIMETYPE_AUDIO_VORBIS,      AUDIO_FORMAT_VORBIS },
     { MEDIA_MIMETYPE_AUDIO_OPUS,        AUDIO_FORMAT_OPUS},
     { MEDIA_MIMETYPE_AUDIO_AC3,         AUDIO_FORMAT_AC3},
+    { MEDIA_MIMETYPE_AUDIO_EAC3,        AUDIO_FORMAT_E_AC3},
     { MEDIA_MIMETYPE_AUDIO_AC4,         AUDIO_FORMAT_AC4},
     { MEDIA_MIMETYPE_AUDIO_FLAC,        AUDIO_FORMAT_FLAC},
     { 0, AUDIO_FORMAT_INVALID }
@@ -1897,4 +1898,3 @@ AString nameForFd(int fd) {
 }
 
 }  // namespace android
-

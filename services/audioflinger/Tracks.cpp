@@ -1258,6 +1258,16 @@ void AudioFlinger::PlaybackThread::Track::resumeAck() {
 void AudioFlinger::PlaybackThread::Track::updateTrackFrameInfo(
         int64_t trackFramesReleased, int64_t sinkFramesWritten,
         uint32_t halSampleRate, const ExtendedTimestamp &timeStamp) {
+   // Make the kernel frametime available.
+    const FrameTime ft{
+            timeStamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL],
+            timeStamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL]};
+    // ALOGD("FrameTime: %lld %lld", (long long)ft.frames, (long long)ft.timeNs);
+    mKernelFrameTime.store(ft);
+    if (!audio_is_linear_pcm(mFormat)) {
+        return;
+    }
+
     //update frame map
     mFrameMap.push(trackFramesReleased, sinkFramesWritten);
 
@@ -1720,7 +1730,7 @@ AudioFlinger::RecordThread::RecordTrack::RecordTrack(
         thread->mFastTrackAvail = false;
     } else {
         // TODO: only Normal Record has timestamps (Fast Record does not).
-        mServerLatencySupported = true;
+        mServerLatencySupported = audio_is_linear_pcm(mFormat);
     }
 #ifdef TEE_SINK
     mTee.setId(std::string("_") + std::to_string(mThreadIoHandle)
@@ -1886,6 +1896,16 @@ void AudioFlinger::RecordThread::RecordTrack::updateTrackFrameInfo(
         int64_t trackFramesReleased, int64_t sourceFramesRead,
         uint32_t halSampleRate, const ExtendedTimestamp &timestamp)
 {
+   // Make the kernel frametime available.
+    const FrameTime ft{
+            timestamp.mPosition[ExtendedTimestamp::LOCATION_KERNEL],
+            timestamp.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL]};
+    // ALOGD("FrameTime: %lld %lld", (long long)ft.frames, (long long)ft.timeNs);
+    mKernelFrameTime.store(ft);
+    if (!audio_is_linear_pcm(mFormat)) {
+        return;
+    }
+
     ExtendedTimestamp local = timestamp;
 
     // Convert HAL frames to server-side track frames at track sample rate.

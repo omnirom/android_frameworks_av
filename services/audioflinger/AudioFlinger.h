@@ -23,6 +23,9 @@
 #include <mutex>
 #include <deque>
 #include <map>
+#include <memory>
+#include <set>
+#include <string>
 #include <vector>
 #include <stdint.h>
 #include <sys/types.h>
@@ -77,6 +80,7 @@
 
 #include <powermanager/IPowerManager.h>
 
+#include <json/json.h>
 #include <media/nblog/NBLog.h>
 #include <private/media/AudioEffectShared.h>
 #include <private/media/AudioTrackShared.h>
@@ -112,6 +116,7 @@ public:
     static const char* getServiceName() ANDROID_API { return "media.audio_flinger"; }
 
     virtual     status_t    dump(int fd, const Vector<String16>& args);
+                Json::Value getJsonDump();
 
     // IAudioFlinger interface, in binder opcode order
     virtual sp<IAudioTrack> createTrack(const CreateTrackInput& input,
@@ -205,6 +210,8 @@ public:
     virtual status_t queryEffect(uint32_t index, effect_descriptor_t *descriptor) const;
 
     virtual status_t getEffectDescriptor(const effect_uuid_t *pUuid,
+                                         const effect_uuid_t *pTypeUuid,
+                                         uint32_t preferredTypeFlag,
                                          effect_descriptor_t *descriptor) const;
 
     virtual sp<IEffect> createEffect(
@@ -805,6 +812,9 @@ private:
     status_t    checkStreamType(audio_stream_type_t stream) const;
 
     void        filterReservedParameters(String8& keyValuePairs, uid_t callingUid);
+    void        logFilteredParameters(size_t originalKVPSize, const String8& originalKVPs,
+                                      size_t rejectedKVPSize, const String8& rejectedKVPs,
+                                      uid_t callingUid);
 
 public:
     // These methods read variables atomically without mLock,
@@ -825,7 +835,11 @@ private:
     PatchPanel mPatchPanel;
     sp<EffectsFactoryHalInterface> mEffectsFactoryHal;
 
-    bool        mSystemReady;
+    bool       mSystemReady;
+
+    SimpleLog  mRejectedSetParameterLog;
+    SimpleLog  mAppSetParameterLog;
+    SimpleLog  mSystemSetParameterLog;
 };
 
 #undef INCLUDING_FROM_AUDIOFLINGER_H

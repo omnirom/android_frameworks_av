@@ -109,6 +109,20 @@ public:
     virtual status_t queryDefaultPreProcessing(audio_session_t audioSession,
                                               effect_descriptor_t *descriptors,
                                               uint32_t *count) = 0;
+    virtual status_t addSourceDefaultEffect(const effect_uuid_t *type,
+                                            const String16& opPackageName,
+                                            const effect_uuid_t *uuid,
+                                            int32_t priority,
+                                            audio_source_t source,
+                                            audio_unique_id_t* id) = 0;
+    virtual status_t addStreamDefaultEffect(const effect_uuid_t *type,
+                                            const String16& opPackageName,
+                                            const effect_uuid_t *uuid,
+                                            int32_t priority,
+                                            audio_usage_t usage,
+                                            audio_unique_id_t* id) = 0;
+    virtual status_t removeSourceDefaultEffect(audio_unique_id_t id) = 0;
+    virtual status_t removeStreamDefaultEffect(audio_unique_id_t id) = 0;
    // Check if offload is possible for given format, stream type, sample rate,
     // bit rate, duration, video and streaming or offload property is enabled
     virtual bool isOffloadSupported(const audio_offload_info_t& info) = 0;
@@ -153,8 +167,8 @@ public:
 
     virtual status_t startAudioSource(const struct audio_port_config *source,
                                       const audio_attributes_t *attributes,
-                                      audio_patch_handle_t *handle) = 0;
-    virtual status_t stopAudioSource(audio_patch_handle_t handle) = 0;
+                                      audio_port_handle_t *portId) = 0;
+    virtual status_t stopAudioSource(audio_port_handle_t portId) = 0;
 
     virtual status_t setMasterMono(bool mono) = 0;
     virtual status_t getMasterMono(bool *mono) = 0;

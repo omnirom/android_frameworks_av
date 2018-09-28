@@ -81,7 +81,11 @@ enum {
     GET_MASTER_MONO,
     GET_STREAM_VOLUME_DB,
     GET_SURROUND_FORMATS,
-    SET_SURROUND_FORMAT_ENABLED
+    SET_SURROUND_FORMAT_ENABLED,
+    ADD_STREAM_DEFAULT_EFFECT,
+    REMOVE_STREAM_DEFAULT_EFFECT,
+    ADD_SOURCE_DEFAULT_EFFECT,
+    REMOVE_SOURCE_DEFAULT_EFFECT
 };
 
 #define MAX_ITEMS_PER_LIST 1024
@@ -740,11 +744,11 @@ public:
 
     virtual status_t startAudioSource(const struct audio_port_config *source,
                                       const audio_attributes_t *attributes,
-                                      audio_patch_handle_t *handle)
+                                      audio_port_handle_t *portId)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
-        if (source == NULL || attributes == NULL || handle == NULL) {
+        if (source == NULL || attributes == NULL || portId == NULL) {
             return BAD_VALUE;
         }
         data.write(source, sizeof(struct audio_port_config));
@@ -757,15 +761,15 @@ public:
         if (status != NO_ERROR) {
             return status;
         }
-        *handle = (audio_patch_handle_t)reply.readInt32();
+        *portId = (audio_port_handle_t)reply.readInt32();
         return status;
     }
 
-    virtual status_t stopAudioSource(audio_patch_handle_t handle)
+    virtual status_t stopAudioSource(audio_port_handle_t portId)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
-        data.writeInt32(handle);
+        data.writeInt32(portId);
         status_t status = remote()->transact(STOP_AUDIO_SOURCE, data, &reply);
         if (status != NO_ERROR) {
             return status;
@@ -866,6 +870,77 @@ public:
         }
         return reply.readInt32();
     }
+
+    virtual status_t addStreamDefaultEffect(const effect_uuid_t *type,
+                                            const String16& opPackageName,
+                                            const effect_uuid_t *uuid,
+                                            int32_t priority,
+                                            audio_usage_t usage,
+                                            audio_unique_id_t* id)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
+        data.write(type, sizeof(effect_uuid_t));
+        data.writeString16(opPackageName);
+        data.write(uuid, sizeof(effect_uuid_t));
+        data.writeInt32(priority);
+        data.writeInt32((int32_t) usage);
+        status_t status = remote()->transact(ADD_STREAM_DEFAULT_EFFECT, data, &reply);
+        if (status != NO_ERROR) {
+            return status;
+        }
+        status = static_cast <status_t> (reply.readInt32());
+        *id = reply.readInt32();
+        return status;
+    }
+
+    virtual status_t removeStreamDefaultEffect(audio_unique_id_t id)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
+        data.writeInt32(id);
+        status_t status = remote()->transact(REMOVE_STREAM_DEFAULT_EFFECT, data, &reply);
+        if (status != NO_ERROR) {
+            return status;
+        }
+        return static_cast <status_t> (reply.readInt32());
+    }
+
+    virtual status_t addSourceDefaultEffect(const effect_uuid_t *type,
+                                            const String16& opPackageName,
+                                            const effect_uuid_t *uuid,
+                                            int32_t priority,
+                                            audio_source_t source,
+                                            audio_unique_id_t* id)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
+        data.write(type, sizeof(effect_uuid_t));
+        data.writeString16(opPackageName);
+        data.write(uuid, sizeof(effect_uuid_t));
+        data.writeInt32(priority);
+        data.writeInt32((int32_t) source);
+        status_t status = remote()->transact(ADD_SOURCE_DEFAULT_EFFECT, data, &reply);
+        if (status != NO_ERROR) {
+            return status;
+        }
+        status = static_cast <status_t> (reply.readInt32());
+        *id = reply.readInt32();
+        return status;
+    }
+
+    virtual status_t removeSourceDefaultEffect(audio_unique_id_t id)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
+        data.writeInt32(id);
+        status_t status = remote()->transact(REMOVE_SOURCE_DEFAULT_EFFECT, data, &reply);
+        if (status != NO_ERROR) {
+            return status;
+        }
+        return static_cast <status_t> (reply.readInt32());
+    }
+
 };
 
 IMPLEMENT_META_INTERFACE(AudioPolicyService, "android.media.IAudioPolicyService");
@@ -935,7 +1010,8 @@ status_t BnAudioPolicyService::onTransact(
             break;
     }
 
-    TimeCheck check("IAudioPolicyService");
+    std::string tag("IAudioPolicyService command " + std::to_string(code));
+    TimeCheck check(tag.c_str());
 
     switch (code) {
         case SET_DEVICE_CONNECTION_STATE: {
@@ -1471,17 +1547,17 @@ status_t BnAudioPolicyService::onTransact(
             audio_attributes_t attributes = {};
             data.read(&attributes, sizeof(audio_attributes_t));
             sanetizeAudioAttributes(&attributes);
-            audio_patch_handle_t handle = AUDIO_PATCH_HANDLE_NONE;
-            status_t status = startAudioSource(&source, &attributes, &handle);
+            audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE;
+            status_t status = startAudioSource(&source, &attributes, &portId);
             reply->writeInt32(status);
-            reply->writeInt32(handle);
+            reply->writeInt32(portId);
             return NO_ERROR;
         } break;
 
         case STOP_AUDIO_SOURCE: {
             CHECK_INTERFACE(IAudioPolicyService, data, reply);
-            audio_patch_handle_t handle = (audio_patch_handle_t) data.readInt32();
-            status_t status = stopAudioSource(handle);
+            audio_port_handle_t portId = (audio_port_handle_t) data.readInt32();
+            status_t status = stopAudioSource(portId);
             reply->writeInt32(status);
             return NO_ERROR;
         } break;
@@ -1557,6 +1633,80 @@ status_t BnAudioPolicyService::onTransact(
             bool enabled = data.readBool();
             status_t status = setSurroundFormatEnabled(audioFormat, enabled);
             reply->writeInt32(status);
+            return NO_ERROR;
+        }
+
+        case ADD_STREAM_DEFAULT_EFFECT: {
+            CHECK_INTERFACE(IAudioPolicyService, data, reply);
+            effect_uuid_t type;
+            status_t status = data.read(&type, sizeof(effect_uuid_t));
+            if (status != NO_ERROR) {
+                return status;
+            }
+            String16 opPackageName;
+            status = data.readString16(&opPackageName);
+            if (status != NO_ERROR) {
+                return status;
+            }
+            effect_uuid_t uuid;
+            status = data.read(&uuid, sizeof(effect_uuid_t));
+            if (status != NO_ERROR) {
+                return status;
+            }
+            int32_t priority = data.readInt32();
+            audio_usage_t usage = (audio_usage_t) data.readInt32();
+            audio_unique_id_t id = 0;
+            reply->writeInt32(static_cast <int32_t>(addStreamDefaultEffect(&type,
+                                                                           opPackageName,
+                                                                           &uuid,
+                                                                           priority,
+                                                                           usage,
+                                                                           &id)));
+            reply->writeInt32(id);
+            return NO_ERROR;
+        }
+
+        case REMOVE_STREAM_DEFAULT_EFFECT: {
+            CHECK_INTERFACE(IAudioPolicyService, data, reply);
+            audio_unique_id_t id = static_cast<audio_unique_id_t>(data.readInt32());
+            reply->writeInt32(static_cast <int32_t>(removeStreamDefaultEffect(id)));
+            return NO_ERROR;
+        }
+
+        case ADD_SOURCE_DEFAULT_EFFECT: {
+            CHECK_INTERFACE(IAudioPolicyService, data, reply);
+            effect_uuid_t type;
+            status_t status = data.read(&type, sizeof(effect_uuid_t));
+            if (status != NO_ERROR) {
+                return status;
+            }
+            String16 opPackageName;
+            status = data.readString16(&opPackageName);
+            if (status != NO_ERROR) {
+                return status;
+            }
+            effect_uuid_t uuid;
+            status = data.read(&uuid, sizeof(effect_uuid_t));
+            if (status != NO_ERROR) {
+                return status;
+            }
+            int32_t priority = data.readInt32();
+            audio_source_t source = (audio_source_t) data.readInt32();
+            audio_unique_id_t id = 0;
+            reply->writeInt32(static_cast <int32_t>(addSourceDefaultEffect(&type,
+                                                                           opPackageName,
+                                                                           &uuid,
+                                                                           priority,
+                                                                           source,
+                                                                           &id)));
+            reply->writeInt32(id);
+            return NO_ERROR;
+        }
+
+        case REMOVE_SOURCE_DEFAULT_EFFECT: {
+            CHECK_INTERFACE(IAudioPolicyService, data, reply);
+            audio_unique_id_t id = static_cast<audio_unique_id_t>(data.readInt32());
+            reply->writeInt32(static_cast <int32_t>(removeSourceDefaultEffect(id)));
             return NO_ERROR;
         }
 

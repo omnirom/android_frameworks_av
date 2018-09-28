@@ -22,6 +22,7 @@ cc_library {
         "ProcessInfo.cpp",
         "SchedulingPolicyService.cpp",
         "ServiceUtilities.cpp",
+        "TimeCheck.cpp",
     ],
     shared_libs: [
         "libbinder",
@@ -31,11 +32,19 @@ cc_library {
         "libmemunreachable",
     ],
 
+    logtags: ["EventLogTags.logtags"],
+
     cflags: [
         "-Wall",
         "-Wextra",
         "-Werror",
     ],
+
+    product_variables: {
+        product_is_iot: {
+            cflags: ["-DTARGET_ANDROID_THINGS"],
+        },
+    },
 
     local_include_dirs: ["include"],
     export_include_dirs: ["include"],

@@ -25,7 +25,7 @@
 
 #include <arpa/inet.h>
 
-#include <media/DataSourceBase.h>
+#include <media/MediaExtractorPluginApi.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/ByteUtils.h>
 
@@ -114,7 +114,7 @@ int32_t SampleTable::CompositionDeltaLookup::getCompositionTimeOffset(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-SampleTable::SampleTable(DataSourceBase *source)
+SampleTable::SampleTable(DataSourceHelper *source)
     : mDataSource(source),
       mChunkOffsetOffset(-1),
       mChunkOffsetType(0),
@@ -944,6 +944,11 @@ status_t SampleTable::getSampleSize_l(
         uint32_t sampleIndex, size_t *sampleSize) {
     return mSampleIterator->getSampleSizeDirect(
             sampleIndex, sampleSize);
+}
+
+uint32_t SampleTable::getLastSampleIndexInChunk() {
+    Mutex::Autolock autoLock(mLock);
+    return mSampleIterator->getLastSampleIndexInChunk();
 }
 
 status_t SampleTable::getMetaDataForSample(

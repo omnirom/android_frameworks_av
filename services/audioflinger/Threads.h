@@ -393,6 +393,10 @@ public:
 
                         void        broadcast_l();
 
+                virtual bool        isTimestampCorrectionEnabled() const { return false; }
+
+                bool                isMsdDevice() const { return mIsMsdDevice; }
+
     mutable     Mutex                   mLock;
 
 protected:
@@ -501,7 +505,8 @@ protected:
                 ExtendedTimestamp       mTimestamp;
                 TimestampVerifier< // For timestamp statistics.
                         int64_t /* frame count */, int64_t /* time ns */> mTimestampVerifier;
-
+                audio_devices_t         mTimestampCorrectedDevices = AUDIO_DEVICE_NONE;
+                bool                    mIsMsdDevice = false;
                 // A condition that must be evaluated by the thread loop has changed and
                 // we must not wait for async write callback in the thread loop before evaluating it
                 bool                    mSignalPending;
@@ -554,6 +559,9 @@ protected:
                     ssize_t         remove(const sp<T> &track);
                     size_t          size() const {
                         return mActiveTracks.size();
+                    }
+                    bool            isEmpty() const {
+                        return mActiveTracks.isEmpty();
                     }
                     ssize_t         indexOf(const sp<T>& item) {
                         return mActiveTracks.indexOf(item);
@@ -658,6 +666,8 @@ public:
     virtual             ~PlaybackThread();
 
                 void        dump(int fd, const Vector<String16>& args);
+                // returns a string of audio performance related data in JSON format.
+    virtual     Json::Value getJsonDump() const;
 
     // Thread virtuals
     virtual     bool        threadLoop();
@@ -724,6 +734,8 @@ public:
     virtual     void        setStreamVolume(audio_stream_type_t stream, float value);
     virtual     void        setStreamMute(audio_stream_type_t stream, bool muted);
     virtual     float       streamVolume(audio_stream_type_t stream) const;
+
+                void        setVolumeForOutput_l(float left, float right) const;
 
                 sp<Track>   createTrack_l(
                                 const sp<AudioFlinger::Client>& client,
@@ -812,6 +824,11 @@ public:
                                        && mTracks.size() < PlaybackThread::kMaxTracks;
                             }
 
+                bool        isTimestampCorrectionEnabled() const override {
+                                const audio_devices_t device =
+                                        mOutDevice & mTimestampCorrectedDevices;
+                                return audio_is_output_devices(device) && popcount(device) > 0;
+                            }
 protected:
     // updated by readOutputParameters_l()
     size_t                          mNormalFrameCount;  // normal mixer and effects
@@ -1105,6 +1122,7 @@ public:
     virtual     bool        checkForNewParameter_l(const String8& keyValuePair,
                                                    status_t& status);
     virtual     void        dumpInternals(int fd, const Vector<String16>& args);
+                Json::Value getJsonDump() const override;
 
     virtual     bool        isTrackAllowed_l(
                                     audio_channel_mask_t channelMask, audio_format_t format,
@@ -1533,6 +1551,13 @@ public:
 
             void        updateMetadata_l() override;
 
+            bool        fastTrackAvailable() const { return mFastTrackAvail; }
+
+            bool        isTimestampCorrectionEnabled() const override {
+                            // checks popcount for exactly one device.
+                            return audio_is_input_device(
+                                    mInDevice & mTimestampCorrectedDevices);
+                        }
 private:
             // Enter standby if not already in standby, and set mStandby flag
             void    standbyIfNotAlreadyInStandby();
@@ -1602,6 +1627,8 @@ private:
             bool                                mFastTrackAvail;    // true if fast track available
             // common state to all record threads
             std::atomic_bool                    mBtNrecSuspended;
+
+            int64_t                             mFramesRead = 0;    // continuous running counter.
 };
 
 class MmapThread : public ThreadBase

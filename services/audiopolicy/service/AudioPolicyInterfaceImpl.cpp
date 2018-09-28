@@ -201,7 +201,7 @@ status_t AudioPolicyService::getOutputForAttr(const audio_attributes_t *attr,
         !modifyPhoneStateAllowed(pid, uid)) {
         // If the app tries to play music through the telephony device and doesn't have permission
         // the fallback to the default output device.
-        mAudioPolicyManager->releaseOutput(*output, *stream, session);
+        mAudioPolicyManager->releaseOutput(*portId);
         flags = originalFlags;
         *selectedDeviceId = AUDIO_PORT_HANDLE_NONE;
         *portId = AUDIO_PORT_HANDLE_NONE;
@@ -255,8 +255,7 @@ status_t AudioPolicyService::doStartOutput(audio_port_handle_t portId)
     }
     Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
-    status_t status = mAudioPolicyManager->startOutput(
-        client->io, client->stream, client->session);
+    status_t status = mAudioPolicyManager->startOutput(portId);
     if (status == NO_ERROR) {
         client->active = true;
     }
@@ -265,15 +264,6 @@ status_t AudioPolicyService::doStartOutput(audio_port_handle_t portId)
 
 status_t AudioPolicyService::stopOutput(audio_port_handle_t portId)
 {
-    {
-        Mutex::Autolock _l(mLock);
-
-        const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
-        if (index < 0) {
-            ALOGE("%s AudioTrack client not found for portId %d", __FUNCTION__, portId);
-            return INVALID_OPERATION;
-        }
-    }
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
@@ -308,8 +298,7 @@ status_t  AudioPolicyService::doStopOutput(audio_port_handle_t portId)
     }
     Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
-    status_t status = mAudioPolicyManager->stopOutput(
-        client->io, client->stream, client->session);
+    status_t status = mAudioPolicyManager->stopOutput(portId);
     if (status == NO_ERROR) {
         client->active = false;
     }
@@ -338,8 +327,7 @@ void AudioPolicyService::doReleaseOutput(audio_port_handle_t portId)
     mAudioRecordClients.removeItem(portId);
 
     // called from internal thread: no need to clear caller identity
-    mAudioPolicyManager->releaseOutput(
-        client->io, client->stream, client->session);
+    mAudioPolicyManager->releaseOutput(portId);
 }
 
 status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
@@ -451,7 +439,7 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
         if (status != NO_ERROR) {
             if (status == PERMISSION_DENIED) {
                 AutoCallerClear acc;
-                mAudioPolicyManager->releaseInput(*input, session);
+                mAudioPolicyManager->releaseInput(*portId);
             }
             return status;
         }
@@ -545,8 +533,7 @@ status_t AudioPolicyService::startInput(audio_port_handle_t portId, bool *silenc
     status_t status;
     {
         AutoCallerClear acc;
-        status = mAudioPolicyManager->startInput(
-                    client->io, client->session, *silenced, &concurrency);
+        status = mAudioPolicyManager->startInput(portId, *silenced, &concurrency);
 
     }
 
@@ -659,7 +646,7 @@ status_t AudioPolicyService::stopInput(audio_port_handle_t portId)
     // finish the recording app op
     finishRecording(client->opPackageName, client->uid);
     AutoCallerClear acc;
-    return mAudioPolicyManager->stopInput(client->io, client->session);
+    return mAudioPolicyManager->stopInput(portId);
 }
 
 void AudioPolicyService::releaseInput(audio_port_handle_t portId)
@@ -692,7 +679,7 @@ void AudioPolicyService::releaseInput(audio_port_handle_t portId)
     {
         Mutex::Autolock _l(mLock);
         AutoCallerClear acc;
-        mAudioPolicyManager->releaseInput(client->io, client->session);
+        mAudioPolicyManager->releaseInput(portId);
     }
 }
 
@@ -860,25 +847,98 @@ bool AudioPolicyService::isSourceActive(audio_source_t source) const
     return mAudioPolicyManager->isSourceActive(source);
 }
 
-status_t AudioPolicyService::queryDefaultPreProcessing(audio_session_t audioSession,
-                                                       effect_descriptor_t *descriptors,
-                                                       uint32_t *count)
+status_t AudioPolicyService::getAudioPolicyEffects(sp<AudioPolicyEffects>& audioPolicyEffects)
 {
     if (mAudioPolicyManager == NULL) {
-        *count = 0;
         return NO_INIT;
     }
-    sp<AudioPolicyEffects>audioPolicyEffects;
     {
         Mutex::Autolock _l(mLock);
         audioPolicyEffects = mAudioPolicyEffects;
     }
     if (audioPolicyEffects == 0) {
-        *count = 0;
         return NO_INIT;
+    }
+
+    return OK;
+}
+
+status_t AudioPolicyService::queryDefaultPreProcessing(audio_session_t audioSession,
+                                                       effect_descriptor_t *descriptors,
+                                                       uint32_t *count)
+{
+    sp<AudioPolicyEffects>audioPolicyEffects;
+    status_t status = getAudioPolicyEffects(audioPolicyEffects);
+    if (status != OK) {
+        *count = 0;
+        return status;
     }
     return audioPolicyEffects->queryDefaultInputEffects(
             (audio_session_t)audioSession, descriptors, count);
+}
+
+status_t AudioPolicyService::addSourceDefaultEffect(const effect_uuid_t *type,
+                                                    const String16& opPackageName,
+                                                    const effect_uuid_t *uuid,
+                                                    int32_t priority,
+                                                    audio_source_t source,
+                                                    audio_unique_id_t* id)
+{
+    sp<AudioPolicyEffects>audioPolicyEffects;
+    status_t status = getAudioPolicyEffects(audioPolicyEffects);
+    if (status != OK) {
+        return status;
+    }
+    if (!modifyDefaultAudioEffectsAllowed()) {
+        return PERMISSION_DENIED;
+    }
+    return audioPolicyEffects->addSourceDefaultEffect(
+            type, opPackageName, uuid, priority, source, id);
+}
+
+status_t AudioPolicyService::addStreamDefaultEffect(const effect_uuid_t *type,
+                                                    const String16& opPackageName,
+                                                    const effect_uuid_t *uuid,
+                                                    int32_t priority,
+                                                    audio_usage_t usage,
+                                                    audio_unique_id_t* id)
+{
+    sp<AudioPolicyEffects>audioPolicyEffects;
+    status_t status = getAudioPolicyEffects(audioPolicyEffects);
+    if (status != OK) {
+        return status;
+    }
+    if (!modifyDefaultAudioEffectsAllowed()) {
+        return PERMISSION_DENIED;
+    }
+    return audioPolicyEffects->addStreamDefaultEffect(
+            type, opPackageName, uuid, priority, usage, id);
+}
+
+status_t AudioPolicyService::removeSourceDefaultEffect(audio_unique_id_t id)
+{
+    sp<AudioPolicyEffects>audioPolicyEffects;
+    status_t status = getAudioPolicyEffects(audioPolicyEffects);
+    if (status != OK) {
+        return status;
+    }
+    if (!modifyDefaultAudioEffectsAllowed()) {
+        return PERMISSION_DENIED;
+    }
+    return audioPolicyEffects->removeSourceDefaultEffect(id);
+}
+
+status_t AudioPolicyService::removeStreamDefaultEffect(audio_unique_id_t id)
+{
+    sp<AudioPolicyEffects>audioPolicyEffects;
+    status_t status = getAudioPolicyEffects(audioPolicyEffects);
+    if (status != OK) {
+        return status;
+    }
+    if (!modifyDefaultAudioEffectsAllowed()) {
+        return PERMISSION_DENIED;
+    }
+    return audioPolicyEffects->removeStreamDefaultEffect(id);
 }
 
 bool AudioPolicyService::isOffloadSupported(const audio_offload_info_t& info)
@@ -1012,26 +1072,26 @@ status_t AudioPolicyService::registerPolicyMixes(const Vector<AudioMix>& mixes, 
 }
 
 status_t AudioPolicyService::startAudioSource(const struct audio_port_config *source,
-                                  const audio_attributes_t *attributes,
-                                  audio_patch_handle_t *handle)
+                                              const audio_attributes_t *attributes,
+                                              audio_port_handle_t *portId)
 {
     Mutex::Autolock _l(mLock);
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
     AutoCallerClear acc;
-    return mAudioPolicyManager->startAudioSource(source, attributes, handle,
+    return mAudioPolicyManager->startAudioSource(source, attributes, portId,
                                                  IPCThreadState::self()->getCallingUid());
 }
 
-status_t AudioPolicyService::stopAudioSource(audio_patch_handle_t handle)
+status_t AudioPolicyService::stopAudioSource(audio_port_handle_t portId)
 {
     Mutex::Autolock _l(mLock);
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
     AutoCallerClear acc;
-    return mAudioPolicyManager->stopAudioSource(handle);
+    return mAudioPolicyManager->stopAudioSource(portId);
 }
 
 status_t AudioPolicyService::setMasterMono(bool mono)

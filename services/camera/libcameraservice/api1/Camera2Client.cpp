@@ -54,8 +54,7 @@ Camera2Client::Camera2Client(const sp<CameraService>& cameraService,
         int cameraFacing,
         int clientPid,
         uid_t clientUid,
-        int servicePid,
-        bool legacyMode):
+        int servicePid):
         Camera2ClientBase(cameraService, cameraClient, clientPackageName,
                 cameraDeviceId, api1CameraId, cameraFacing,
                 clientPid, clientUid, servicePid),
@@ -65,8 +64,6 @@ Camera2Client::Camera2Client(const sp<CameraService>& cameraService,
 
     SharedParameters::Lock l(mParameters);
     l.mParameters.state = Parameters::DISCONNECTED;
-
-    mLegacyMode = legacyMode;
 }
 
 status_t Camera2Client::initialize(sp<CameraProviderManager> manager, const String8& monitorTags) {
@@ -456,8 +453,6 @@ binder::Status Camera2Client::disconnect() {
 
     mDevice->disconnect();
 
-    mDevice.clear();
-
     CameraService::Client::disconnect();
 
     return res;
@@ -780,33 +775,35 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
     int lastJpegStreamId = mJpegProcessor->getStreamId();
     // If jpeg stream will slow down preview, make sure we remove it before starting preview
     if (params.slowJpegMode) {
-        // Pause preview if we are streaming
-        int32_t activeRequestId = mStreamingProcessor->getActiveRequestId();
-        if (activeRequestId != 0) {
-            res = mStreamingProcessor->togglePauseStream(/*pause*/true);
-            if (res != OK) {
-                ALOGE("%s: Camera %d: Can't pause streaming: %s (%d)",
-                        __FUNCTION__, mCameraId, strerror(-res), res);
+        if (lastJpegStreamId != NO_STREAM) {
+            // Pause preview if we are streaming
+            int32_t activeRequestId = mStreamingProcessor->getActiveRequestId();
+            if (activeRequestId != 0) {
+                res = mStreamingProcessor->togglePauseStream(/*pause*/true);
+                if (res != OK) {
+                    ALOGE("%s: Camera %d: Can't pause streaming: %s (%d)",
+                            __FUNCTION__, mCameraId, strerror(-res), res);
+                }
+                res = mDevice->waitUntilDrained();
+                if (res != OK) {
+                    ALOGE("%s: Camera %d: Waiting to stop streaming failed: %s (%d)",
+                            __FUNCTION__, mCameraId, strerror(-res), res);
+                }
             }
-            res = mDevice->waitUntilDrained();
+
+            res = mJpegProcessor->deleteStream();
+
             if (res != OK) {
-                ALOGE("%s: Camera %d: Waiting to stop streaming failed: %s (%d)",
-                        __FUNCTION__, mCameraId, strerror(-res), res);
+                ALOGE("%s: Camera %d: delete Jpeg stream failed: %s (%d)",
+                        __FUNCTION__, mCameraId,  strerror(-res), res);
             }
-        }
 
-        res = mJpegProcessor->deleteStream();
-
-        if (res != OK) {
-            ALOGE("%s: Camera %d: delete Jpeg stream failed: %s (%d)",
-                    __FUNCTION__, mCameraId,  strerror(-res), res);
-        }
-
-        if (activeRequestId != 0) {
-            res = mStreamingProcessor->togglePauseStream(/*pause*/false);
-            if (res != OK) {
-                ALOGE("%s: Camera %d: Can't unpause streaming: %s (%d)",
-                        __FUNCTION__, mCameraId, strerror(-res), res);
+            if (activeRequestId != 0) {
+                res = mStreamingProcessor->togglePauseStream(/*pause*/false);
+                if (res != OK) {
+                    ALOGE("%s: Camera %d: Can't unpause streaming: %s (%d)",
+                            __FUNCTION__, mCameraId, strerror(-res), res);
+                }
             }
         }
     } else {
@@ -1441,7 +1438,7 @@ status_t Camera2Client::cancelAutoFocus() {
     return OK;
 }
 
-status_t Camera2Client::takePicture(int msgType) {
+status_t Camera2Client::takePicture(int /*msgType*/) {
     ATRACE_CALL();
     Mutex::Autolock icl(mBinderSerializationLock);
     status_t res;
@@ -1540,7 +1537,7 @@ status_t Camera2Client::takePicture(int msgType) {
     // Need HAL to have correct settings before (possibly) triggering precapture
     syncWithDevice();
 
-    res = mCaptureSequencer->startCapture(msgType);
+    res = mCaptureSequencer->startCapture();
     if (res != OK) {
         ALOGE("%s: Camera %d: Unable to start capture: %s (%d)",
                 __FUNCTION__, mCameraId, strerror(-res), res);
@@ -1658,27 +1655,6 @@ status_t Camera2Client::commandEnableShutterSoundL(bool enable) {
     if (enable) {
         l.mParameters.playShutterSound = true;
         return OK;
-    }
-
-    // the camera2 api legacy mode can unconditionally disable the shutter sound
-    if (mLegacyMode) {
-        ALOGV("%s: Disable shutter sound in legacy mode", __FUNCTION__);
-        l.mParameters.playShutterSound = false;
-        return OK;
-    }
-
-    // Disabling shutter sound may not be allowed. In that case only
-    // allow the mediaserver process to disable the sound.
-    char value[PROPERTY_VALUE_MAX];
-    property_get("ro.camera.sound.forced", value, "0");
-    if (strncmp(value, "0", 2) != 0) {
-        // Disabling shutter sound is not allowed. Deny if the current
-        // process is not mediaserver.
-        if (getCallingPid() != getpid()) {
-            ALOGE("Failed to disable shutter sound. Permission denied (pid %d)",
-                    getCallingPid());
-            return PERMISSION_DENIED;
-        }
     }
 
     l.mParameters.playShutterSound = false;
