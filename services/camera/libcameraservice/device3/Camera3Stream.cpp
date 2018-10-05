@@ -61,12 +61,14 @@ Camera3Stream::Camera3Stream(int id,
     mOldUsage(0),
     mOldMaxBuffers(0),
     mPrepared(false),
+    mPrepareBlockRequest(true),
     mPreparedBufferIdx(0),
     mLastMaxCount(Camera3StreamInterface::ALLOCATE_PIPELINE_MAX),
     mBufferLimitLatency(kBufferLimitLatencyBinSize),
     mFormatOverridden(false),
     mOriginalFormat(-1),
-    mPhysicalCameraId(physicalCameraId) {
+    mPhysicalCameraId(physicalCameraId),
+    mLastTimestamp(0) {
 
     camera3_stream::stream_type = type;
     camera3_stream::width = width;
@@ -327,6 +329,7 @@ status_t Camera3Stream::finishConfiguration() {
     // Reset prepared state, since buffer config has changed, and existing
     // allocations are no longer valid
     mPrepared = false;
+    mPrepareBlockRequest = true;
     mStreamUnpreparable = false;
 
     status_t res;
@@ -388,7 +391,7 @@ bool Camera3Stream::isUnpreparable() {
     return mStreamUnpreparable;
 }
 
-status_t Camera3Stream::startPrepare(int maxCount) {
+status_t Camera3Stream::startPrepare(int maxCount, bool blockRequest) {
     ATRACE_CALL();
 
     Mutex::Autolock l(mLock);
@@ -420,8 +423,6 @@ status_t Camera3Stream::startPrepare(int maxCount) {
         return INVALID_OPERATION;
     }
 
-
-
     size_t pipelineMax = getBufferCountLocked();
     size_t clampedCount = (pipelineMax < static_cast<size_t>(maxCount)) ?
             pipelineMax : static_cast<size_t>(maxCount);
@@ -429,6 +430,7 @@ status_t Camera3Stream::startPrepare(int maxCount) {
             pipelineMax : clampedCount;
 
     mPrepared = bufferCount <= mLastMaxCount;
+    mPrepareBlockRequest = blockRequest;
 
     if (mPrepared) return OK;
 
@@ -442,9 +444,9 @@ status_t Camera3Stream::startPrepare(int maxCount) {
     return NOT_ENOUGH_DATA;
 }
 
-bool Camera3Stream::isPreparing() const {
+bool Camera3Stream::isBlockedByPrepare() const {
     Mutex::Autolock l(mLock);
-    return mState == STATE_PREPARING;
+    return mState == STATE_PREPARING && mPrepareBlockRequest;
 }
 
 bool Camera3Stream::isAbandoned() const {
@@ -576,6 +578,7 @@ status_t Camera3Stream::tearDown() {
 }
 
 status_t Camera3Stream::getBuffer(camera3_stream_buffer *buffer,
+        nsecs_t waitBufferTimeout,
         const std::vector<size_t>& surface_ids) {
     ATRACE_CALL();
     Mutex::Autolock l(mLock);
@@ -593,13 +596,16 @@ status_t Camera3Stream::getBuffer(camera3_stream_buffer *buffer,
         ALOGV("%s: Already dequeued max output buffers (%d), wait for next returned one.",
                         __FUNCTION__, camera3_stream::max_buffers);
         nsecs_t waitStart = systemTime(SYSTEM_TIME_MONOTONIC);
-        res = mOutputBufferReturnedSignal.waitRelative(mLock, kWaitForBufferDuration);
+        if (waitBufferTimeout < kWaitForBufferDuration) {
+            waitBufferTimeout = kWaitForBufferDuration;
+        }
+        res = mOutputBufferReturnedSignal.waitRelative(mLock, waitBufferTimeout);
         nsecs_t waitEnd = systemTime(SYSTEM_TIME_MONOTONIC);
         mBufferLimitLatency.add(waitStart, waitEnd);
         if (res != OK) {
             if (res == TIMED_OUT) {
                 ALOGE("%s: wait for output buffer return timed out after %lldms (max_buffers %d)",
-                        __FUNCTION__, kWaitForBufferDuration / 1000000LL,
+                        __FUNCTION__, waitBufferTimeout / 1000000LL,
                         camera3_stream::max_buffers);
             }
             return res;
@@ -649,7 +655,7 @@ void Camera3Stream::removeOutstandingBuffer(const camera3_stream_buffer &buffer)
 }
 
 status_t Camera3Stream::returnBuffer(const camera3_stream_buffer &buffer,
-        nsecs_t timestamp) {
+        nsecs_t timestamp, bool timestampIncreasing) {
     ATRACE_CALL();
     Mutex::Autolock l(mLock);
 
@@ -661,6 +667,15 @@ status_t Camera3Stream::returnBuffer(const camera3_stream_buffer &buffer,
 
     removeOutstandingBuffer(buffer);
 
+    // Buffer status may be changed, so make a copy of the stream_buffer struct.
+    camera3_stream_buffer b = buffer;
+    if (timestampIncreasing && timestamp != 0 && timestamp <= mLastTimestamp) {
+        ALOGE("%s: Stream %d: timestamp %" PRId64 " is not increasing. Prev timestamp %" PRId64,
+                __FUNCTION__, mId, timestamp, mLastTimestamp);
+        b.status = CAMERA3_BUFFER_STATUS_ERROR;
+    }
+    mLastTimestamp = timestamp;
+
     /**
      * TODO: Check that the state is valid first.
      *
@@ -669,9 +684,9 @@ status_t Camera3Stream::returnBuffer(const camera3_stream_buffer &buffer,
      *
      * Do this for getBuffer as well.
      */
-    status_t res = returnBufferLocked(buffer, timestamp);
+    status_t res = returnBufferLocked(b, timestamp);
     if (res == OK) {
-        fireBufferListenersLocked(buffer, /*acquired*/false, /*output*/true);
+        fireBufferListenersLocked(b, /*acquired*/false, /*output*/true);
     }
 
     // Even if returning the buffer failed, we still want to signal whoever is waiting for the

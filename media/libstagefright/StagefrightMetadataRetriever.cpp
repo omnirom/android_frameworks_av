@@ -20,6 +20,7 @@
 #include <inttypes.h>
 
 #include <utils/Log.h>
+#include <cutils/properties.h>
 
 #include "include/FrameDecoder.h"
 #include "include/StagefrightMetadataRetriever.h"
@@ -32,6 +33,7 @@
 #include <media/stagefright/MediaCodecList.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
+#include <media/stagefright/MediaExtractor.h>
 #include <media/stagefright/MediaExtractorFactory.h>
 #include <media/stagefright/MetaData.h>
 #include <media/CharacterEncodingDetector.h>
@@ -207,11 +209,14 @@ sp<IMemory> StagefrightMetadataRetriever::getImageInternal(
         trackMeta->setCString(kKeyMIMEType, mime);
     }
 
+    bool preferhw = property_get_bool(
+            "media.stagefright.thumbnail.prefer_hw_codecs", false);
+    uint32_t flags = preferhw ? 0 : MediaCodecList::kPreferSoftwareCodecs;
     Vector<AString> matchingCodecs;
     MediaCodecList::findMatchingCodecs(
             mime,
             false, /* encoder */
-            MediaCodecList::kPreferSoftwareCodecs,
+            flags,
             &matchingCodecs);
 
     for (size_t i = 0; i < matchingCodecs.size(); ++i) {
@@ -332,11 +337,14 @@ status_t StagefrightMetadataRetriever::getFrameInternal(
     const char *mime;
     CHECK(trackMeta->findCString(kKeyMIMEType, &mime));
 
+    bool preferhw = property_get_bool(
+            "media.stagefright.thumbnail.prefer_hw_codecs", false);
+    uint32_t flags = preferhw ? 0 : MediaCodecList::kPreferSoftwareCodecs;
     Vector<AString> matchingCodecs;
     MediaCodecList::findMatchingCodecs(
             mime,
             false, /* encoder */
-            0/*MediaCodecList::kPreferSoftwareCodecs*/,
+            flags,
             &matchingCodecs);
 
     for (size_t i = 0; i < matchingCodecs.size(); ++i) {

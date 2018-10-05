@@ -17,13 +17,15 @@
 
 #define LOG_TAG "PerformanceAnalysis"
 // #define LOG_NDEBUG 0
+// #define WRITE_TO_FILE
 
 #include <algorithm>
 #include <climits>
 #include <deque>
-#include <iostream>
 #include <math.h>
 #include <numeric>
+#include <sstream>
+#include <string>
 #include <vector>
 #include <stdarg.h>
 #include <stdint.h>
@@ -39,13 +41,72 @@
 #include <media/nblog/ReportPerformance.h>
 #include <utils/Log.h>
 #include <utils/String8.h>
+#include <utils/Timers.h>
 
 #include <queue>
 #include <utility>
 
 namespace android {
-
 namespace ReportPerformance {
+
+void Histogram::add(double value)
+{
+    // TODO Handle domain and range error exceptions?
+    const int binIndex = lround((value - mLow) / mBinSize);
+    if (binIndex < 0) {
+        mLowCount++;
+    } else if (binIndex >= mNumBins) {
+        mHighCount++;
+    } else {
+        mBins[binIndex]++;
+    }
+    mTotalCount++;
+}
+
+void Histogram::clear()
+{
+    std::fill(mBins.begin(), mBins.end(), 0);
+    mLowCount = 0;
+    mHighCount = 0;
+    mTotalCount = 0;
+}
+
+uint64_t Histogram::totalCount() const
+{
+    return mTotalCount;
+}
+
+std::string Histogram::toString() const {
+    std::stringstream ss;
+    static constexpr char kDivider = '|';
+    ss << kVersion << "," << mBinSize << "," << mNumBins << "," << mLow << ",{";
+    bool first = true;
+    if (mLowCount != 0) {
+        ss << "-1" << kDivider << mLowCount;
+        first = false;
+    }
+    for (size_t i = 0; i < mNumBins; i++) {
+        if (mBins[i] != 0) {
+            if (!first) {
+                ss << ",";
+            }
+            ss << i << kDivider << mBins[i];
+            first = false;
+        }
+    }
+    if (mHighCount != 0) {
+        if (!first) {
+            ss << ",";
+        }
+        ss << mNumBins << kDivider << mHighCount;
+        first = false;
+    }
+    ss << "}";
+
+    return ss.str();
+}
+
+//------------------------------------------------------------------------------
 
 // Given an audio processing wakeup timestamp, buckets the time interval
 // since the previous timestamp into a histogram, searches for
@@ -277,7 +338,9 @@ void PerformanceAnalysis::reportPerformance(String8 *body, int author, log_hash_
 // writes summary of performance into specified file descriptor
 void dump(int fd, int indent, PerformanceAnalysisMap &threadPerformanceAnalysis) {
     String8 body;
+#ifdef WRITE_TO_FILE
     const char* const kDirectory = "/data/misc/audioserver/";
+#endif
     for (auto & thread : threadPerformanceAnalysis) {
         for (auto & hash: thread.second) {
             PerformanceAnalysis& curr = hash.second;
@@ -287,9 +350,11 @@ void dump(int fd, int indent, PerformanceAnalysisMap &threadPerformanceAnalysis)
                 dumpLine(fd, indent, body);
                 body.clear();
             }
-            // write to file
+#ifdef WRITE_TO_FILE
+            // write to file. Enable by uncommenting macro at top of file.
             writeToFile(curr.mHists, curr.mOutlierData, curr.mPeakTimestamps,
                         kDirectory, false, thread.first, hash.first);
+#endif
         }
     }
 }
@@ -301,5 +366,4 @@ void dumpLine(int fd, int indent, const String8 &body) {
 }
 
 } // namespace ReportPerformance
-
 }   // namespace android

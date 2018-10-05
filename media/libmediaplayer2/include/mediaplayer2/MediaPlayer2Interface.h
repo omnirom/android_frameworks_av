@@ -33,6 +33,10 @@
 #include <media/stagefright/foundation/AHandler.h>
 #include <mediaplayer2/MediaPlayer2Types.h>
 
+#include "mediaplayer2.pb.h"
+
+using android::media::MediaPlayer2Proto::PlayerMessage;
+
 // Fwd decl to make sure everyone agrees that the scope of struct sockaddr_in is
 // global, and not in android::
 struct sockaddr_in;
@@ -56,7 +60,8 @@ struct ANativeWindowWrapper;
 class MediaPlayer2InterfaceListener: public RefBase
 {
 public:
-    virtual void notify(int64_t srcId, int msg, int ext1, int ext2, const Parcel *obj) = 0;
+    virtual void notify(int64_t srcId, int msg, int ext1, int ext2,
+           const PlayerMessage *obj) = 0;
 };
 
 class MediaPlayer2Interface : public AHandler {
@@ -171,7 +176,6 @@ public:
 
     virtual status_t prepareAsync() = 0;
     virtual status_t start() = 0;
-    virtual status_t stop() = 0;
     virtual status_t pause() = 0;
     virtual bool isPlaying() = 0;
     virtual status_t setPlaybackSettings(const AudioPlaybackRate& rate) {
@@ -218,7 +222,7 @@ public:
     //                data sent by the java layer.
     // @param[out] reply Parcel to hold the reply data. Cannot be null.
     // @return OK if the call was successful.
-    virtual status_t invoke(const Parcel& request, Parcel *reply) = 0;
+    virtual status_t invoke(const PlayerMessage &request, PlayerMessage *reply) = 0;
 
     // The Client in the MetadataPlayerService calls this method on
     // the native player to retrieve all or a subset of metadata.
@@ -237,7 +241,7 @@ public:
         mListener = listener;
     }
 
-    void sendEvent(int64_t srcId, int msg, int ext1=0, int ext2=0, const Parcel *obj=NULL) {
+    void sendEvent(int64_t srcId, int msg, int ext1=0, int ext2=0, const PlayerMessage *obj=NULL) {
         sp<MediaPlayer2InterfaceListener> listener;
         {
             Mutex::Autolock autoLock(mListenerLock);
