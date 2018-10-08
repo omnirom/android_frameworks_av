@@ -42,7 +42,6 @@
 #include <audio_utils/primitives.h>
 #include <audio_utils/format.h>
 #include <audio_utils/minifloat.h>
-#include <json/json.h>
 #include <system/audio_effects/effect_ns.h>
 #include <system/audio_effects/effect_aec.h>
 #include <system/audio.h>
@@ -1773,11 +1772,6 @@ void AudioFlinger::PlaybackThread::dump(int fd, const Vector<String16>& args)
     mLocalLog.dump(fd, "   " /* prefix */, 40 /* lines */);
 }
 
-Json::Value AudioFlinger::PlaybackThread::getJsonDump() const
-{
-    return Json::Value(Json::objectValue);
-}
-
 void AudioFlinger::PlaybackThread::dumpTracks(int fd, const Vector<String16>& args __unused)
 {
     String8 result;
@@ -2811,22 +2805,18 @@ bool AudioFlinger::PlaybackThread::isValidSyncEvent(const sp<SyncEvent>& event) 
 void AudioFlinger::PlaybackThread::threadLoop_removeTracks(
         const Vector< sp<Track> >& tracksToRemove)
 {
-    size_t count = tracksToRemove.size();
-    if (count > 0) {
-        for (size_t i = 0 ; i < count ; i++) {
-            const sp<Track>& track = tracksToRemove.itemAt(i);
-            if (track->isExternalTrack()) {
-                AudioSystem::stopOutput(track->portId());
+    // Miscellaneous track cleanup when removed from the active list,
+    // called without Thread lock but synchronized with threadLoop processing.
 #ifdef ADD_BATTERY_DATA
-                // to track the speaker usage
-                addBatteryData(IMediaPlayerService::kBatteryDataAudioFlingerStop);
-#endif
-                if (track->isTerminated()) {
-                    AudioSystem::releaseOutput(track->portId());
-                }
-            }
+    for (const auto& track : tracksToRemove) {
+        if (track->isExternalTrack()) {
+            // to track the speaker usage
+            addBatteryData(IMediaPlayerService::kBatteryDataAudioFlingerStop);
         }
     }
+#else
+    (void)tracksToRemove; // suppress unused warning
+#endif
 }
 
 void AudioFlinger::PlaybackThread::checkSilentMode_l()
@@ -3472,9 +3462,6 @@ bool AudioFlinger::PlaybackThread::threadLoop()
             mMixerStatus = prepareTracks_l(&tracksToRemove);
 
             mActiveTracks.updatePowerState(this);
-            if (mMixerStatus == MIXER_IDLE && !mActiveTracks.size()) {
-                onIdleMixer();
-            }
 
             updateMetadata_l();
 
@@ -3739,24 +3726,28 @@ bool AudioFlinger::PlaybackThread::threadLoop()
 // removeTracks_l() must be called with ThreadBase::mLock held
 void AudioFlinger::PlaybackThread::removeTracks_l(const Vector< sp<Track> >& tracksToRemove)
 {
-    size_t count = tracksToRemove.size();
-    if (count > 0) {
-        for (size_t i=0 ; i<count ; i++) {
-            const sp<Track>& track = tracksToRemove.itemAt(i);
-            mActiveTracks.remove(track);
-            ALOGV("removeTracks_l removing track on session %d", track->sessionId());
-            sp<EffectChain> chain = getEffectChain_l(track->sessionId());
-            if (chain != 0) {
-                ALOGV("stopping track on chain %p for session Id: %d", chain.get(),
-                        track->sessionId());
-                chain->decActiveTrackCnt();
-            }
+    for (const auto& track : tracksToRemove) {
+        mActiveTracks.remove(track);
+        ALOGV("%s(%d): removing track on session %d", __func__, track->id(), track->sessionId());
+        sp<EffectChain> chain = getEffectChain_l(track->sessionId());
+        if (chain != 0) {
+            ALOGV("%s(%d): stopping track on chain %p for session Id: %d",
+                    __func__, track->id(), chain.get(), track->sessionId());
+            chain->decActiveTrackCnt();
+        }
+        // If an external client track, inform APM we're no longer active, and remove if needed.
+        // We do this under lock so that the state is consistent if the Track is destroyed.
+        if (track->isExternalTrack()) {
+            AudioSystem::stopOutput(track->portId());
             if (track->isTerminated()) {
-                removeTrack_l(track);
+                AudioSystem::releaseOutput(track->portId());
             }
         }
+        if (track->isTerminated()) {
+            // remove from our tracks vector
+            removeTrack_l(track);
+        }
     }
-
 }
 
 status_t AudioFlinger::PlaybackThread::getTimestamp_l(AudioTimestamp& timestamp)
@@ -4049,6 +4040,11 @@ AudioFlinger::MixerThread::MixerThread(const sp<AudioFlinger>& audioFlinger, Aud
         sq->end();
         sq->push(FastMixerStateQueue::BLOCK_UNTIL_PUSHED);
 
+        NBLog::thread_info_t info;
+        info.id = mId;
+        info.type = NBLog::FASTMIXER;
+        mFastMixerNBLogWriter->log<NBLog::EVENT_THREAD_INFO>(info);
+
         // start the fast mixer
         mFastMixer->run("FastMixer", PRIORITY_URGENT_AUDIO);
         pid_t tid = mFastMixer->getTid();
@@ -4132,12 +4128,6 @@ uint32_t AudioFlinger::MixerThread::correctLatency_l(uint32_t latency) const
         latency += (pipe->getAvgFrames() * 1000) / mSampleRate;
     }
     return latency;
-}
-
-
-void AudioFlinger::MixerThread::threadLoop_removeTracks(const Vector< sp<Track> >& tracksToRemove)
-{
-    PlaybackThread::threadLoop_removeTracks(tracksToRemove);
 }
 
 ssize_t AudioFlinger::MixerThread::threadLoop_write()
@@ -5198,7 +5188,8 @@ void AudioFlinger::MixerThread::dumpInternals(int fd, const Vector<String16>& ar
         // while we are dumping it.  It may be inconsistent, but it won't mutate!
         // This is a large object so we place it on the heap.
         // FIXME 25972958: Need an intelligent copy constructor that does not touch unused pages.
-        const std::unique_ptr<FastMixerDumpState> copy(new FastMixerDumpState(mFastMixerDumpState));
+        const std::unique_ptr<FastMixerDumpState> copy =
+                std::make_unique<FastMixerDumpState>(mFastMixerDumpState);
         copy->dump(fd);
 
 #ifdef STATE_QUEUE_DUMP
@@ -5220,22 +5211,6 @@ void AudioFlinger::MixerThread::dumpInternals(int fd, const Vector<String16>& ar
     } else {
         dprintf(fd, "  No FastMixer\n");
     }
-}
-
-Json::Value AudioFlinger::MixerThread::getJsonDump() const
-{
-    Json::Value root;
-    if (hasFastMixer()) {
-        // Make a non-atomic copy of fast mixer dump state so it won't change underneath us
-        // while we are dumping it.  It may be inconsistent, but it won't mutate!
-        // This is a large object so we place it on the heap.
-        // FIXME 25972958: Need an intelligent copy constructor that does not touch unused pages.
-        const std::unique_ptr<FastMixerDumpState> copy(new FastMixerDumpState(mFastMixerDumpState));
-        root["fastmixer_stats"] = copy->getJsonDump();
-    } else {
-        root["fastmixer_stats"] = "no_fastmixer";
-    }
-    return root;
 }
 
 uint32_t AudioFlinger::MixerThread::idleSleepTimeUs() const
@@ -5338,11 +5313,6 @@ void AudioFlinger::DirectOutputThread::processVolume_l(Track *track, bool lastTr
         }
     }
 
-}
-
-void AudioFlinger::PlaybackThread::onIdleMixer()
-{
-    ALOGV("onIdleMixer");
 }
 
 void AudioFlinger::DirectOutputThread::onAddNewTrack_l()
@@ -6236,36 +6206,6 @@ void AudioFlinger::OffloadThread::invalidateTracks(audio_stream_type_t streamTyp
     }
 }
 
-void AudioFlinger::MixerThread::onIdleMixer()
-{
-    PlaybackThread::onIdleMixer();
-
-    if (mFastMixer == 0) {
-        return;
-    }
-
-    if (!mHwSupportsSuspend) {
-        return;
-    }
-
-    if (mStandbyDelayNs > seconds(1)) {
-        mIdleTimeOffsetUs = seconds(1)/1000LL - mIdleSleepTimeUs;
-    }
-
-    FastMixerStateQueue *sq = mFastMixer->sq();
-    FastMixerState *state = sq->begin();
-    if (!(state->mCommand & FastMixerState::IDLE)) {
-        state->mCommand = FastMixerState::COLD_IDLE;
-        state->mColdFutexAddr = &mFastMixerFutex;
-        state->mColdGen++;
-        mFastMixerFutex = 0;
-        sq->end();
-        sq->push(FastMixerStateQueue::BLOCK_UNTIL_ACKED);
-    } else {
-        sq->end(false /*didModify*/);
-    }
-}
-
 // ----------------------------------------------------------------------------
 
 AudioFlinger::DuplicatingThread::DuplicatingThread(const sp<AudioFlinger>& audioFlinger,
@@ -7080,7 +7020,7 @@ reacquire_wakelock:
                                 framesIn, mSampleRate, activeTrack->mSampleRate));
 
                 if (activeTrack->isDirect()) {
-                    // No RecordBufferConverter used for compressed formats. Pass
+                    // No RecordBufferConverter used for direct streams. Pass
                     // straight from RecordThread buffer to RecordTrack buffer.
                     AudioBufferProvider::Buffer buffer;
                     buffer.frameCount = framesOut;
@@ -7090,7 +7030,7 @@ reacquire_wakelock:
                                 "%s() read less than expected (%zu vs %zu)",
                                 __func__, buffer.frameCount, framesOut);
                         framesOut = buffer.frameCount;
-                        memcpy(activeTrack->mSink.raw, buffer.raw, buffer.frameCount);
+                        memcpy(activeTrack->mSink.raw, buffer.raw, buffer.frameCount * mFrameSize);
                         activeTrack->mResamplerBufferProvider->releaseBuffer(&buffer);
                     } else {
                         framesOut = 0;
@@ -7666,7 +7606,8 @@ void AudioFlinger::RecordThread::dumpInternals(int fd, const Vector<String16>& a
     // while we are dumping it.  It may be inconsistent, but it won't mutate!
     // This is a large object so we place it on the heap.
     // FIXME 25972958: Need an intelligent copy constructor that does not touch unused pages.
-    std::unique_ptr<FastCaptureDumpState> copy(new FastCaptureDumpState(mFastCaptureDumpState));
+    const std::unique_ptr<FastCaptureDumpState> copy =
+            std::make_unique<FastCaptureDumpState>(mFastCaptureDumpState);
     copy->dump(fd);
 }
 

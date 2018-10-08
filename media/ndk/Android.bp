@@ -39,6 +39,7 @@ cc_library_shared {
         "NdkMediaCrypto.cpp",
         "NdkMediaDataSource.cpp",
         "NdkMediaExtractor.cpp",
+        "NdkMediaError.cpp",
         "NdkMediaFormat.cpp",
         "NdkMediaMuxer.cpp",
         "NdkMediaDrm.cpp",
@@ -82,6 +83,8 @@ cc_library_shared {
         "libbinder",
         "libgui",
         "libui",
+        "libmedia2_jni_core",
+        "libmediandk_utils",
     ],
 
     export_include_dirs: ["include"],
@@ -97,4 +100,46 @@ llndk_library {
     name: "libmediandk",
     symbol_file: "libmediandk.map.txt",
     export_include_dirs: ["include"],
+}
+
+cc_library {
+    name: "libmediandk_utils",
+
+    srcs: [
+        "NdkMediaDataSourceCallbacks.cpp",
+        "NdkMediaError.cpp",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libstagefright/include",
+        "frameworks/av/media/ndk/include",
+    ],
+
+    export_include_dirs: [
+        "include",
+    ],
+
+    cflags: [
+        "-Werror",
+        "-Wno-error=deprecated-declarations",
+        "-Wall",
+    ],
+
+    shared_libs: [
+        "libstagefright_foundation",
+        "liblog",
+        "libutils",
+        "libcutils",
+    ],
+
+    sanitize: {
+        misc_undefined: [
+            "unsigned-integer-overflow",
+            "signed-integer-overflow",
+        ],
+        cfi: true,
+        diag: {
+            cfi: true,
+        },
+    },
 }

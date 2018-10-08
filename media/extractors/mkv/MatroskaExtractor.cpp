@@ -23,7 +23,6 @@
 
 #include <media/DataSourceBase.h>
 #include <media/ExtractorUtils.h>
-#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -124,10 +123,10 @@ private:
     BlockIterator &operator=(const BlockIterator &);
 };
 
-struct MatroskaSource : public MediaTrack {
+struct MatroskaSource : public MediaTrackHelper {
     MatroskaSource(MatroskaExtractor *extractor, size_t index);
 
-    virtual status_t start(MetaDataBase *params);
+    virtual status_t start();
     virtual status_t stop();
 
     virtual status_t getFormat(MetaDataBase &);
@@ -269,7 +268,7 @@ MatroskaSource::~MatroskaSource() {
     clearPendingFrames();
 }
 
-status_t MatroskaSource::start(MetaDataBase * /* params */) {
+status_t MatroskaSource::start() {
     if (mType == AVC && mNALSizeLen < 0) {
         return ERROR_MALFORMED;
     }
@@ -1002,7 +1001,7 @@ size_t MatroskaExtractor::countTracks() {
     return mTracks.size();
 }
 
-MediaTrack *MatroskaExtractor::getTrack(size_t index) {
+MediaTrackHelper *MatroskaExtractor::getTrack(size_t index) {
     if (index >= mTracks.size()) {
         return NULL;
     }
@@ -1646,19 +1645,21 @@ ExtractorDef GETEXTRACTORDEF() {
         UUID("abbedd92-38c4-4904-a4c1-b3f45f899980"),
         1,
         "Matroska Extractor",
-        [](
-                CDataSource *source,
-                float *confidence,
-                void **,
-                FreeMetaFunc *) -> CreatorFunc {
-            DataSourceHelper helper(source);
-            if (SniffMatroska(&helper, confidence)) {
-                return [](
-                        CDataSource *source,
-                        void *) -> CMediaExtractor* {
-                    return wrap(new MatroskaExtractor(new DataSourceHelper(source)));};
+        {
+            [](
+                    CDataSource *source,
+                    float *confidence,
+                    void **,
+                    FreeMetaFunc *) -> CreatorFunc {
+                DataSourceHelper helper(source);
+                if (SniffMatroska(&helper, confidence)) {
+                    return [](
+                            CDataSource *source,
+                            void *) -> CMediaExtractor* {
+                        return wrap(new MatroskaExtractor(new DataSourceHelper(source)));};
+                }
+                return NULL;
             }
-            return NULL;
         }
     };
 }

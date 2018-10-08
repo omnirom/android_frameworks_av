@@ -73,6 +73,7 @@ endif # ifeq ($(USE_CONFIGURABLE_AUDIO_POLICY), 1)
 LOCAL_C_INCLUDES += \
     frameworks/av/services/audiopolicy/common/include \
     frameworks/av/services/audiopolicy/engine/interface \
+    $(call include-path-for, audio-utils) \
 
 LOCAL_STATIC_LIBRARIES := \
     libaudiopolicycomponents
@@ -81,7 +82,7 @@ LOCAL_SHARED_LIBRARIES += libmedia_helper
 LOCAL_SHARED_LIBRARIES += libmediametrics
 
 ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
-LOCAL_SHARED_LIBRARIES += libicuuc libxml2
+LOCAL_SHARED_LIBRARIES += libhidlbase libicuuc libxml2
 
 LOCAL_CFLAGS += -DUSE_XML_AUDIO_POLICY_CONF
 endif #ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
@@ -109,7 +110,8 @@ LOCAL_STATIC_LIBRARIES := \
 
 LOCAL_C_INCLUDES += \
     frameworks/av/services/audiopolicy/common/include \
-    frameworks/av/services/audiopolicy/engine/interface
+    frameworks/av/services/audiopolicy/engine/interface \
+    $(call include-path-for, audio-utils) \
 
 LOCAL_CFLAGS := -Wall -Werror
 

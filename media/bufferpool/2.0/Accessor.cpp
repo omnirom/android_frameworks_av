@@ -114,7 +114,10 @@ sp<ConnectionDeathRecipient> Accessor::getConnectionDeathRecipient() {
 }
 
 // Methods from ::android::hardware::media::bufferpool::V2_0::IAccessor follow.
-Return<void> Accessor::connect(connect_cb _hidl_cb) {
+Return<void> Accessor::connect(
+        const sp<::android::hardware::media::bufferpool::V2_0::IObserver>& observer,
+        connect_cb _hidl_cb) {
+    (void)observer;
     sp<Connection> connection;
     ConnectionId connectionId;
     const StatusDescriptor* fmqDesc;
@@ -122,7 +125,7 @@ Return<void> Accessor::connect(connect_cb _hidl_cb) {
     ResultStatus status = connect(&connection, &connectionId, &fmqDesc, false);
     if (status == ResultStatus::OK) {
         _hidl_cb(status, connection, connectionId, *fmqDesc,
-                 android::hardware::MQDescriptorSync<BufferInvalidationMessage>(
+                 android::hardware::MQDescriptorUnsync<BufferInvalidationMessage>(
                          std::vector<android::hardware::GrantorDescriptor>(),
                          nullptr /* nhandle */, 0 /* size */));
     } else {
@@ -130,7 +133,7 @@ Return<void> Accessor::connect(connect_cb _hidl_cb) {
                  android::hardware::MQDescriptorSync<BufferStatusMessage>(
                          std::vector<android::hardware::GrantorDescriptor>(),
                          nullptr /* nhandle */, 0 /* size */),
-                 android::hardware::MQDescriptorSync<BufferInvalidationMessage>(
+                 android::hardware::MQDescriptorUnsync<BufferInvalidationMessage>(
                          std::vector<android::hardware::GrantorDescriptor>(),
                          nullptr /* nhandle */, 0 /* size */));
     }

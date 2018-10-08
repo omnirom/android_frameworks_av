@@ -56,6 +56,7 @@
 #include "device3/Camera3DummyStream.h"
 #include "device3/Camera3SharedOutputStream.h"
 #include "CameraService.h"
+#include "utils/CameraThreadState.h"
 
 using namespace android::camera3;
 using namespace android::hardware::camera;
@@ -281,7 +282,6 @@ status_t Camera3Device::disconnect() {
 status_t Camera3Device::disconnectImpl() {
     ATRACE_CALL();
     Mutex::Autolock il(mInterfaceLock);
-    Mutex::Autolock stLock(mTrackerLock);
 
     ALOGI("%s: E", __FUNCTION__);
 
@@ -346,6 +346,7 @@ status_t Camera3Device::disconnectImpl() {
     {
         Mutex::Autolock l(mLock);
         mRequestThread.clear();
+        Mutex::Autolock stLock(mTrackerLock);
         mStatusTracker.clear();
         interface = mInterface.get();
     }
@@ -1698,7 +1699,7 @@ status_t Camera3Device::createDefaultRequest(int templateId,
 
     if (templateId <= 0 || templateId >= CAMERA3_TEMPLATE_COUNT) {
         android_errorWriteWithInfoLog(CameraService::SN_EVENT_LOG_ID, "26866110",
-                IPCThreadState::self()->getCallingUid(), nullptr, 0);
+                CameraThreadState::getCallingUid(), nullptr, 0);
         return BAD_VALUE;
     }
 
@@ -2011,6 +2012,13 @@ status_t Camera3Device::flush(int64_t *frameNumber) {
 
     {
         Mutex::Autolock l(mLock);
+
+        // b/116514106 "disconnect()" can get called twice for the same device. The
+        // camera device will not be initialized during the second run.
+        if (mStatus == STATUS_UNINITIALIZED) {
+            return OK;
+        }
+
         mRequestThread->clear(/*out*/frameNumber);
     }
 

@@ -33,7 +33,6 @@ namespace android {
 struct AMessage;
 struct CDataSource;
 class DataSourceHelper;
-struct CachedRangedDataSource;
 class SampleTable;
 class String8;
 namespace heif {
@@ -59,7 +58,7 @@ public:
     explicit MPEG4Extractor(DataSourceHelper *source, const char *mime = NULL);
 
     virtual size_t countTracks();
-    virtual MediaTrack *getTrack(size_t index);
+    virtual MediaTrackHelper *getTrack(size_t index);
     virtual status_t getTrackMetaData(MetaDataBase& meta, size_t index, uint32_t flags);
 
     virtual status_t getMetaData(MetaDataBase& meta);
@@ -99,7 +98,6 @@ private:
     Vector<Trex> mTrex;
 
     DataSourceHelper *mDataSource;
-    CachedRangedDataSource *mCachedSource;
     status_t mInitCheck;
     uint32_t mHeaderTimescale;
     bool mIsQT;

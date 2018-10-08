@@ -1641,7 +1641,7 @@ status_t ACodec::freeBuffer(OMX_U32 portIndex, size_t i) {
             if (portIndex == kPortIndexOutput && mNativeWindow != NULL) {
                 (void)cancelBufferToNativeWindow(info);
             }
-            // fall through
+            FALLTHROUGH_INTENDED;
 
         case BufferInfo::OWNED_BY_NATIVE_WINDOW:
             err = mOMXNode->freeBuffer(portIndex, info->mBufferID);
@@ -5063,6 +5063,7 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                         }
                     }
                     // Fall through to set up mime.
+                    FALLTHROUGH_INTENDED;
                 }
 
                 default:
@@ -5173,6 +5174,7 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                     notify->setString("mime", MEDIA_MIMETYPE_AUDIO_AAC);
                     notify->setInt32("channel-count", params.nChannels);
                     notify->setInt32("sample-rate", params.nSampleRate);
+                    notify->setInt32("bitrate", params.nBitRate);
                     break;
                 }
 
@@ -7948,7 +7950,7 @@ bool ACodec::OutputPortSettingsChangedState::onMessageReceived(
                 msg->setInt32("generation", mCodec->mStateGeneration);
                 msg->post(3000000);
             }
-            // fall-through
+            FALLTHROUGH_INTENDED;
         }
         case kWhatResume:
         case kWhatSetParameters:
