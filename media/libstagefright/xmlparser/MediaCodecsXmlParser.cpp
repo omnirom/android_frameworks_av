@@ -149,6 +149,21 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                 } else {
                     parseTopLevelXMLFile(path.c_str(), false);
                 }
+            } else if (!strcmp(platform, "talos")) {
+                if (property_get("vendor.media.sm6150.version", value, "0") &&
+                    (atoi(value) == 1)) {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_vendor.xml",
+                            PROP_VALUE_MAX);
+                } else if (property_get("vendor.media.sm7150.version", value, "0") &&
+                    (atoi(value) == 1)) {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_vendor_sm7150_v1.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_vendor_sm7150_v0.xml",
+                            PROP_VALUE_MAX);
+                }
+                path = file_path;
+                parseTopLevelXMLFile(path.c_str(), false);
             } else if (!strcmp(platform, "msm8953")) {
                 if (property_get("vendor.media.msm8953.version", value, "0") &&
                     (atoi(value) == 1)){
@@ -191,6 +206,19 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                             PROP_VALUE_MAX);
                 } else {
                     strlcpy(file_path, "/vendor/etc/media_codecs_performance.xml",
+                            PROP_VALUE_MAX);
+                }
+            } else if (!strcmp(platform, "talos")) {
+                if (property_get("vendor.media.sm6150.version", value, "0") &&
+                    (atoi(value) == 1)) {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance.xml",
+                            PROP_VALUE_MAX);
+                } else if (property_get("vendor.media.sm7150.version", value, "0") &&
+                    (atoi(value) == 1)) {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance_sm7150_v1.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance_sm7150_v0.xml",
                             PROP_VALUE_MAX);
                 }
             } else if (!strcmp(platform, "msm8953")) {
