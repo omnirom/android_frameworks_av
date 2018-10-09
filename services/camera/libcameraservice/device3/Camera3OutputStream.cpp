@@ -57,6 +57,8 @@ Camera3OutputStream::Camera3OutputStream(int id,
     if (setId > CAMERA3_STREAM_SET_ID_INVALID) {
         mBufferReleasedListener = new BufferReleasedListener(this);
     }
+    
+    ALOGD("%s: 1 mTimestampOffset = %" PRId64, __FUNCTION__, mTimestampOffset);
 }
 
 Camera3OutputStream::Camera3OutputStream(int id,
@@ -90,6 +92,8 @@ Camera3OutputStream::Camera3OutputStream(int id,
     if (setId > CAMERA3_STREAM_SET_ID_INVALID) {
         mBufferReleasedListener = new BufferReleasedListener(this);
     }
+    ALOGD("%s: 2 mTimestampOffset = %" PRId64,__FUNCTION__,  mTimestampOffset);
+
 }
 
 Camera3OutputStream::Camera3OutputStream(int id,
@@ -127,6 +131,7 @@ Camera3OutputStream::Camera3OutputStream(int id,
     if (setId > CAMERA3_STREAM_SET_ID_INVALID) {
         mBufferReleasedListener = new BufferReleasedListener(this);
     }
+    ALOGD("%s: 3 mTimestampOffset = %" PRId64, __FUNCTION__, mTimestampOffset);
 
 }
 
@@ -154,6 +159,7 @@ Camera3OutputStream::Camera3OutputStream(int id, camera3_stream_type_t type,
     if (setId > CAMERA3_STREAM_SET_ID_INVALID) {
         mBufferReleasedListener = new BufferReleasedListener(this);
     }
+    ALOGD("%s: 4 mTimestampOffset = %" PRId64, __FUNCTION__, mTimestampOffset);
 
     // Subclasses expected to initialize mConsumer themselves
 }
@@ -271,6 +277,11 @@ status_t Camera3OutputStream::returnBufferCheckedLocked(
         /* Certain consumers (such as AudioSource or HardwareComposer) use
          * MONOTONIC time, causing time misalignment if camera timestamp is
          * in BOOTTIME. Do the conversion if necessary. */
+        ALOGD("%s: mUseMonoTimestamp = %d timstamp = %" PRId64 " mTimestampOffset = %" PRId64 " systemTime = %" PRId64 " bootTime = %" PRId64, __FUNCTION__, mUseMonoTimestamp, timestamp, mTimestampOffset, systemTime(SYSTEM_TIME_MONOTONIC), systemTime(SYSTEM_TIME_BOOTTIME));
+        if (mUseMonoTimestamp && mTimestampOffset == 0) {
+            mTimestampOffset = Math.abs(systemTime(SYSTEM_TIME_BOOTTIME) - systemTime(SYSTEM_TIME_MONOTONIC)));
+            ALOGD("%s: fake mTimestampOffset = %" PRId64, __FUNCTION__, mTimestampOffset);
+        }
         res = native_window_set_buffers_timestamp(mConsumer.get(),
                 mUseMonoTimestamp ? timestamp - mTimestampOffset : timestamp);
         if (res != OK) {
