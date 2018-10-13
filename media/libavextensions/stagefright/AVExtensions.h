@@ -111,6 +111,8 @@ struct AVFactory {
 struct AVUtils {
 
     virtual status_t convertMetaDataToMessage(
+            const MetaDataBase *meta, sp<AMessage> *format);
+    virtual status_t convertMetaDataToMessage(
             const sp<MetaData> &meta, sp<AMessage> *format);
     virtual status_t convertMessageToMetaData(
             const sp<AMessage> &msg, sp<MetaData> &meta);
