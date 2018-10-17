@@ -24,7 +24,6 @@
 #include "VBRISeeker.h"
 #include "XINGSeeker.h"
 
-#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/avc_utils.h>
@@ -208,14 +207,14 @@ static bool Resync(
     return valid;
 }
 
-class MP3Source : public MediaTrack {
+class MP3Source : public MediaTrackHelper {
 public:
     MP3Source(
             MetaDataBase &meta, DataSourceHelper *source,
             off64_t first_frame_pos, uint32_t fixed_header,
             MP3Seeker *seeker);
 
-    virtual status_t start(MetaDataBase *params = NULL);
+    virtual status_t start();
     virtual status_t stop();
 
     virtual status_t getFormat(MetaDataBase &meta);
@@ -411,7 +410,7 @@ size_t MP3Extractor::countTracks() {
     return mInitCheck != OK ? 0 : 1;
 }
 
-MediaTrack *MP3Extractor::getTrack(size_t index) {
+MediaTrackHelper *MP3Extractor::getTrack(size_t index) {
     if (mInitCheck != OK || index != 0) {
         return NULL;
     }
@@ -463,7 +462,7 @@ MP3Source::~MP3Source() {
     }
 }
 
-status_t MP3Source::start(MetaDataBase *) {
+status_t MP3Source::start() {
     CHECK(!mStarted);
 
     mGroup = new MediaBufferGroup;
@@ -719,7 +718,7 @@ ExtractorDef GETEXTRACTORDEF() {
         UUID("812a3f6c-c8cf-46de-b529-3774b14103d4"),
         1, // version
         "MP3 Extractor",
-        Sniff
+        { Sniff }
     };
 }
 

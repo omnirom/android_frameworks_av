@@ -34,8 +34,7 @@ enum media2_event_type {
     MEDIA2_SET_VIDEO_SIZE    = 5,
     MEDIA2_STARTED           = 6,
     MEDIA2_PAUSED            = 7,
-    MEDIA2_STOPPED           = 8,
-    MEDIA2_SKIPPED           = 9,
+    MEDIA2_SKIPPED           = 8,
     MEDIA2_NOTIFY_TIME       = 98,
     MEDIA2_TIMED_TEXT        = 99,
     MEDIA2_ERROR             = 100,
@@ -155,8 +154,8 @@ enum media2_info_type {
 enum mediaplayer2_states {
     MEDIAPLAYER2_STATE_IDLE         = 1001,
     MEDIAPLAYER2_STATE_PREPARED     = 1002,
-    MEDIAPLAYER2_STATE_PLAYING      = 1003,
-    MEDIAPLAYER2_STATE_PAUSED       = 1004,
+    MEDIAPLAYER2_STATE_PAUSED       = 1003,
+    MEDIAPLAYER2_STATE_PLAYING      = 1004,
     MEDIAPLAYER2_STATE_ERROR        = 1005,
 };
 

@@ -397,6 +397,8 @@ public:
 
                 bool                isMsdDevice() const { return mIsMsdDevice; }
 
+    virtual     void                dump(int fd, const Vector<String16>& args) = 0;
+
     mutable     Mutex                   mLock;
 
 protected:
@@ -665,9 +667,7 @@ public:
                    audio_io_handle_t id, audio_devices_t device, type_t type, bool systemReady);
     virtual             ~PlaybackThread();
 
-                void        dump(int fd, const Vector<String16>& args);
-                // returns a string of audio performance related data in JSON format.
-    virtual     Json::Value getJsonDump() const;
+                void        dump(int fd, const Vector<String16>& args) override;
 
     // Thread virtuals
     virtual     bool        threadLoop();
@@ -711,7 +711,6 @@ protected:
 
     // ThreadBase virtuals
     virtual     void        preExit();
-    virtual     void        onIdleMixer();
 
     virtual     bool        keepWakeLock() const { return true; }
     virtual     void        acquireWakeLock_l() {
@@ -1116,7 +1115,6 @@ public:
     virtual     bool        checkForNewParameter_l(const String8& keyValuePair,
                                                    status_t& status);
     virtual     void        dumpInternals(int fd, const Vector<String16>& args);
-                Json::Value getJsonDump() const override;
 
     virtual     bool        isTrackAllowed_l(
                                     audio_channel_mask_t channelMask, audio_format_t format,
@@ -1140,8 +1138,6 @@ protected:
     virtual     void        threadLoop_standby();
     virtual     void        threadLoop_mix();
     virtual     void        threadLoop_sleepTime();
-    virtual     void        threadLoop_removeTracks(const Vector< sp<Track> >& tracksToRemove);
-    virtual     void        onIdleMixer();
     virtual     uint32_t    correctLatency_l(uint32_t latency) const;
 
     virtual     status_t    createAudioPatch_l(const struct audio_patch *patch,
@@ -1489,7 +1485,7 @@ public:
             // return true if the caller should then do it's part of the stopping process
             bool        stop(RecordTrack* recordTrack);
 
-            void        dump(int fd, const Vector<String16>& args);
+            void        dump(int fd, const Vector<String16>& args) override;
             AudioStreamIn* clearInput();
             virtual sp<StreamHalInterface> stream() const;
 
@@ -1698,7 +1694,7 @@ class MmapThread : public ThreadBase
                 // Sets the UID records silence
     virtual     void        setRecordSilenced(uid_t uid __unused, bool silenced __unused) {}
 
-                void        dump(int fd, const Vector<String16>& args);
+                void        dump(int fd, const Vector<String16>& args) override;
     virtual     void        dumpInternals(int fd, const Vector<String16>& args);
                 void        dumpTracks(int fd, const Vector<String16>& args);
 

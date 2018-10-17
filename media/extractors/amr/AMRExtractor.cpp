@@ -20,7 +20,6 @@
 
 #include "AMRExtractor.h"
 
-#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/MediaBufferGroup.h>
 #include <media/stagefright/MediaDefs.h>
@@ -30,7 +29,7 @@
 
 namespace android {
 
-class AMRSource : public MediaTrack {
+class AMRSource : public MediaTrackHelper {
 public:
     AMRSource(
             DataSourceHelper *source,
@@ -39,7 +38,7 @@ public:
             const off64_t *offset_table,
             size_t offset_table_length);
 
-    virtual status_t start(MetaDataBase *params = NULL);
+    virtual status_t start();
     virtual status_t stop();
 
     virtual status_t getFormat(MetaDataBase &);
@@ -208,7 +207,7 @@ size_t AMRExtractor::countTracks() {
     return mInitCheck == OK ? 1 : 0;
 }
 
-MediaTrack *AMRExtractor::getTrack(size_t index) {
+MediaTrackHelper *AMRExtractor::getTrack(size_t index) {
     if (mInitCheck != OK || index != 0) {
         return NULL;
     }
@@ -250,7 +249,7 @@ AMRSource::~AMRSource() {
     }
 }
 
-status_t AMRSource::start(MetaDataBase * /* params */) {
+status_t AMRSource::start() {
     CHECK(!mStarted);
 
     mOffset = mIsWide ? 9 : 6;
@@ -371,19 +370,21 @@ ExtractorDef GETEXTRACTORDEF() {
         UUID("c86639c9-2f31-40ac-a715-fa01b4493aaf"),
         1,
         "AMR Extractor",
-        [](
-                CDataSource *source,
-                float *confidence,
-                void **,
-                FreeMetaFunc *) -> CreatorFunc {
-            DataSourceHelper helper(source);
-            if (SniffAMR(&helper, nullptr, confidence)) {
-                return [](
-                        CDataSource *source,
-                        void *) -> CMediaExtractor* {
-                    return wrap(new AMRExtractor(new DataSourceHelper(source)));};
+        {
+           [](
+                    CDataSource *source,
+                    float *confidence,
+                    void **,
+                    FreeMetaFunc *) -> CreatorFunc {
+                DataSourceHelper helper(source);
+                if (SniffAMR(&helper, nullptr, confidence)) {
+                    return [](
+                            CDataSource *source,
+                            void *) -> CMediaExtractor* {
+                        return wrap(new AMRExtractor(new DataSourceHelper(source)));};
+                }
+                return NULL;
             }
-            return NULL;
         }
     };
 }

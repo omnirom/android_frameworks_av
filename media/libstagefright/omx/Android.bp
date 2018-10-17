@@ -24,6 +24,7 @@ cc_defaults {
     ],
 
     header_libs: [
+        "libbase_headers",
         "media_plugin_headers",
     ],
 

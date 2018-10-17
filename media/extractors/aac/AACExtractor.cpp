@@ -20,7 +20,6 @@
 
 #include "AACExtractor.h"
 #include <media/MediaExtractorPluginApi.h>
-#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -33,7 +32,7 @@
 
 namespace android {
 
-class AACSource : public MediaTrack {
+class AACSource : public MediaTrackHelper {
 public:
     AACSource(
             DataSourceHelper *source,
@@ -41,7 +40,7 @@ public:
             const Vector<uint64_t> &offset_vector,
             int64_t frame_duration_us);
 
-    virtual status_t start(MetaDataBase *params = NULL);
+    virtual status_t start();
     virtual status_t stop();
 
     virtual status_t getFormat(MetaDataBase&);
@@ -196,7 +195,7 @@ size_t AACExtractor::countTracks() {
     return mInitCheck == OK ? 1 : 0;
 }
 
-MediaTrack *AACExtractor::getTrack(size_t index) {
+MediaTrackHelper *AACExtractor::getTrack(size_t index) {
     if (mInitCheck != OK || index != 0) {
         return NULL;
     }
@@ -239,7 +238,7 @@ AACSource::~AACSource() {
     }
 }
 
-status_t AACSource::start(MetaDataBase * /* params */) {
+status_t AACSource::start() {
     CHECK(!mStarted);
 
     if (mOffsetVector.empty()) {
@@ -394,7 +393,7 @@ ExtractorDef GETEXTRACTORDEF() {
         UUID("4fd80eae-03d2-4d72-9eb9-48fa6bb54613"),
         1, // version
         "AAC Extractor",
-        Sniff
+        { Sniff }
     };
 }
 

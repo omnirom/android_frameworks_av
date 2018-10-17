@@ -23,7 +23,6 @@
 #include <mutex>
 #include <deque>
 #include <map>
-#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -66,6 +65,7 @@
 #include <media/VolumeShaper.h>
 
 #include <audio_utils/clock.h>
+#include <audio_utils/FdToString.h>
 #include <audio_utils/SimpleLog.h>
 #include <audio_utils/TimestampVerifier.h>
 
@@ -80,7 +80,6 @@
 
 #include <powermanager/IPowerManager.h>
 
-#include <json/json.h>
 #include <media/nblog/NBLog.h>
 #include <private/media/AudioEffectShared.h>
 #include <private/media/AudioTrackShared.h>
@@ -116,7 +115,6 @@ public:
     static const char* getServiceName() ANDROID_API { return "media.audio_flinger"; }
 
     virtual     status_t    dump(int fd, const Vector<String16>& args);
-                Json::Value getJsonDump();
 
     // IAudioFlinger interface, in binder opcode order
     virtual sp<IAudioTrack> createTrack(const CreateTrackInput& input,
@@ -426,7 +424,10 @@ private:
     void dumpClients(int fd, const Vector<String16>& args);
     void dumpInternals(int fd, const Vector<String16>& args);
 
-    SimpleLog mThreadLog{10}; // 10 Thread history limit
+    SimpleLog mThreadLog{16}; // 16 Thread history limit
+
+    class ThreadBase;
+    void dumpToThreadLog_l(const sp<ThreadBase> &thread);
 
     // --- Client ---
     class Client : public RefBase {

@@ -66,8 +66,6 @@ FastThread::FastThread(const char *cycleMs, const char *loadUs) : Thread(false /
     /* mMeasuredWarmupTs({0, 0}), */
     mWarmupCycles(0),
     mWarmupConsecutiveInRangeCycles(0),
-    // mDummyNBLogWriter
-    mNBLogWriter(&mDummyNBLogWriter),
     mTimestampStatus(INVALID_OPERATION),
 
     mCommand(FastThreadState::INITIAL),
@@ -94,7 +92,7 @@ bool FastThread::threadLoop()
 {
     // LOGT now works even if tlNBLogWriter is nullptr, but we're considering changing that,
     // so this initialization permits a future change to remove the check for nullptr.
-    tlNBLogWriter = &mDummyNBLogWriter;
+    tlNBLogWriter = mDummyNBLogWriter.get();
     for (;;) {
 
         // either nanosleep, sched_yield, or busy wait
@@ -124,9 +122,9 @@ bool FastThread::threadLoop()
 
             // As soon as possible of learning of a new dump area, start using it
             mDumpState = next->mDumpState != NULL ? next->mDumpState : mDummyDumpState;
-            mNBLogWriter = next->mNBLogWriter != NULL ? next->mNBLogWriter : &mDummyNBLogWriter;
-            setNBLogWriter(mNBLogWriter);   // FastMixer informs its AudioMixer, FastCapture ignores
-            tlNBLogWriter = mNBLogWriter;
+            tlNBLogWriter = next->mNBLogWriter != NULL ?
+                    next->mNBLogWriter : mDummyNBLogWriter.get();
+            setNBLogWriter(tlNBLogWriter); // FastMixer informs its AudioMixer, FastCapture ignores
 
             // We want to always have a valid reference to the previous (non-idle) state.
             // However, the state queue only guarantees access to current and previous states.
