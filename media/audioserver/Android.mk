@@ -65,8 +65,9 @@ LOCAL_INIT_RC := audioserver.rc
 
 LOCAL_CFLAGS := -Werror -Wall
 
-ifeq ($(strip $(AUDIO_FEATURE_ENABLED_3D_AUDIO)), true)
+ifeq ($(strip $(SPATIAL_AUDIO_ENABLED)), true)
     LOCAL_CFLAGS += -DVRAUDIOSERVICE_ENABLE
+    LOCAL_C_INCLUDES += $(vr_audio_includes)
     LOCAL_SHARED_LIBRARIES += libvraudio
 endif
 
