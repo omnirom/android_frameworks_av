@@ -4371,7 +4371,8 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
             asString(h264type.eProfile), asString(h264type.eLevel));
 
     if (h264type.eProfile == OMX_VIDEO_AVCProfileBaseline ||
-        h264type.eProfile == OMX_VIDEO_AVCProfileConstrainedBaseline) {
+        h264type.eProfile == static_cast<OMX_VIDEO_AVCPROFILETYPE>(
+            OMX_VIDEO_AVCProfileConstrainedBaseline)) {
         h264type.nSliceHeaderSpacing = 0;
         h264type.bUseHadamard = OMX_TRUE;
         h264type.nRefFrames = 1;
@@ -4390,7 +4391,8 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
         h264type.nCabacInitIdc = 0;
     } else if (h264type.eProfile == OMX_VIDEO_AVCProfileMain ||
             h264type.eProfile == OMX_VIDEO_AVCProfileHigh ||
-            h264type.eProfile == OMX_VIDEO_AVCProfileConstrainedHigh) {
+            h264type.eProfile == static_cast<OMX_VIDEO_AVCPROFILETYPE>(
+                OMX_VIDEO_AVCProfileConstrainedHigh)) {
         h264type.nSliceHeaderSpacing = 0;
         h264type.bUseHadamard = OMX_TRUE;
         h264type.nRefFrames = 2;
