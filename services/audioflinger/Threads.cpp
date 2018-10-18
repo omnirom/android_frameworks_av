@@ -143,7 +143,7 @@ static const uint32_t kMaxNormalSinkBufferSizeMs = 24;
 static const uint32_t kMinNormalCaptureBufferSizeMs = 12;
 
 // Offloaded output thread standby delay: allows track transition without going to standby
-static const nsecs_t kOffloadStandbyDelayNs = seconds(1);
+static const nsecs_t kOffloadStandbyDelayNs = seconds(3);
 
 // Direct output thread minimum sleep time in idle or active(underrun) state
 static const nsecs_t kDirectMinSleepTimeUs = 10000;

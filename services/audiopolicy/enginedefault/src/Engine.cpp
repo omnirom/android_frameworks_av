@@ -268,14 +268,6 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
     uint32_t availableOutputDevicesType =
             availableOutputDevices.types() & ~outputDeviceTypesToIgnore;
 
-    bool isFmA2dpConcurrencyOn = property_get_bool("vendor.fm.a2dp.conc.disabled", false);
-
-    // Do not support a2dp device when FM is active based on concurrency property
-    if (isFmA2dpConcurrencyOn && (availableOutputDevicesType & AUDIO_DEVICE_OUT_FM)) {
-        ALOGV("FM a2dp concurrency is set, not considering a2dp for device selection");
-        availableOutputDevicesType = availableOutputDevicesType & ~AUDIO_DEVICE_OUT_ALL_A2DP;
-    }
-
     switch (strategy) {
 
     case STRATEGY_TRANSMITTED_THROUGH_SPEAKER:
