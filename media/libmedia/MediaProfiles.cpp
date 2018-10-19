@@ -606,6 +606,7 @@ void MediaProfiles::checkAndAddRequiredProfilesIfNecessary() {
 /*static*/ MediaProfiles*
 MediaProfiles::getInstance()
 {
+    char platform[PROPERTY_VALUE_MAX] = {0};
     ALOGV("getInstance");
     Mutex::Autolock lock(sLock);
     if (!sIsInitialized) {
@@ -626,6 +627,19 @@ MediaProfiles::getInstance()
                 sInstance = createInstanceFromXmlFile(xmlFile);
             }
         } else {
+                if (!strncmp(value, "/vendor/etc", strlen("/vendor/etc"))) {
+                    property_get("ro.board.platform", platform, NULL);
+                    if (!strcmp(platform, "msm8953")){
+                        if (property_get("vendor.media.msm8953.version", value, "0") &&
+                            (atoi(value) == 1)){
+                            strlcpy(value, "/vendor/etc/media_profiles_8953_v1.xml",
+                                    PROPERTY_VALUE_MAX);
+                        } else {
+                            strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",
+                                    PROPERTY_VALUE_MAX);
+                        }
+                    }
+                }
             sInstance = createInstanceFromXmlFile(value);
         }
         CHECK(sInstance != NULL);

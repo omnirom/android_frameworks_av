@@ -31,7 +31,8 @@ namespace android {
 class MediaBufferGroup;
 
 enum {
-    kKeyIsByteStreamMode = 'bytm'
+    kKeyIsByteStreamMode = 'bytm',
+    kKeyExtraFlags = 'extf'
 };
 
 class IMediaSource : public IInterface {
