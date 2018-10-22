@@ -867,8 +867,10 @@ sp<CodecBase> MediaCodec::GetCodecBase(const AString &name) {
     } else if (name.startsWithIgnoreCase("omx.")) {
         // at this time only ACodec specifies a mime type.
         return AVFactory::get()->createACodec();
-    } else if (name.startsWithIgnoreCase("android.filter.")) {
+    } else if (name.startsWithIgnoreCase("android.filter.qti")) {
         return AVFactory::get()->createMediaFilter();
+    } else if (name.startsWithIgnoreCase("android.filter")) {
+        return new MediaFilter;
     } else {
         return NULL;
     }
@@ -903,7 +905,7 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
     //as these components are not present in media_codecs.xml and MediaCodecList won't find
     //these component by findCodecByName
     //Video and Flac decoder are present in list so exclude them.
-    if (!(name.find("qcom", 0) > 0 || name.find("qti", 0) > 0)
+    if (!(name.find("qcom", 0) > 0 || name.find("qti", 0) > 0 || name.find("filter", 0) > 0)
           || name.find("video", 0) > 0 || name.find("flac", 0) > 0) {
         const sp<IMediaCodecList> mcl = MediaCodecList::getInstance();
         if (mcl == NULL) {
