@@ -52,6 +52,9 @@
 
 namespace android {
 
+static const effect_uuid_t IID_VISUALIZER = {0x1d0a1a53, 0x7d5d, 0x48f2, 0x8e71, {0x27,
+                                             0xfb, 0xd1, 0x0d, 0x84, 0x2c}};
+
 // ----------------------------------------------------------------------------
 //  EffectModule implementation
 // ----------------------------------------------------------------------------
@@ -1550,6 +1553,12 @@ status_t AudioFlinger::EffectHandle::enable()
                 if (effect->sessionId() == AUDIO_SESSION_OUTPUT_MIX) {
                     thread->mAudioFlinger->onNonOffloadableGlobalEffectEnable();
                 }
+            }
+            if ((thread->type() == ThreadBase::OFFLOAD) && (AudioSystem::getDeviceConnectionState(AUDIO_DEVICE_OUT_PROXY, "")
+                == AUDIO_POLICY_DEVICE_STATE_AVAILABLE) && (memcmp (&effect->mDescriptor.uuid, &IID_VISUALIZER,
+                sizeof (effect_uuid_t)) == 0)) {
+                PlaybackThread *t = (PlaybackThread *)thread.get();
+                t->invalidateTracks(AUDIO_STREAM_MUSIC);
             }
         }
     }
