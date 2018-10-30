@@ -50,6 +50,7 @@ cc_library_static {
          "android.hidl.memory@1.0",
     ],
     header_libs:[
+        "media_ndk_headers",
         "media_plugin_headers",
         "libbase_headers",
         "libstagefright_headers",
