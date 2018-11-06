@@ -2031,7 +2031,7 @@ status_t StagefrightRecorder::resume() {
         mTotalPausedDurationUs += resumeStartTimeUs - mPauseStartTimeUs - 30000;
     }
     double timeOffset = -mTotalPausedDurationUs;
-    if (mCaptureFpsEnable) {
+    if (mCaptureFpsEnable && mVideoSource != VIDEO_SOURCE_SURFACE) {
         timeOffset *= mCaptureFps / mFrameRate;
     }
     sp<MetaData> meta = new MetaData;
