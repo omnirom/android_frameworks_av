@@ -66,7 +66,9 @@ namespace android {
 
 static const float kTypicalDisplayRefreshingRate = 60.f;
 // display refresh rate drops on battery saver
-static const float kMinTypicalDisplayRefreshingRate = kTypicalDisplayRefreshingRate / 2;
+// 60 fps refreshing rate is the most common
+// upto 60 fps, it should be no layer encoding.
+static const float kMinTypicalDisplayRefreshingRate = kTypicalDisplayRefreshingRate;
 static const int kMaxNumVideoTemporalLayers = 8;
 
 // key for media statistics
