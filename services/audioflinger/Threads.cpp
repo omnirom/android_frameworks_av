@@ -5250,7 +5250,6 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                 doHwPause = true;
                 mHwPaused = true;
             }
-            tracksToRemove->add(track);
         } else if (track->isFlushPending()) {
             track->flushAck();
             if (last) {
@@ -5335,7 +5334,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                  }
             }
             if ((track->sharedBuffer() != 0) || track->isStopped() ||
-                    track->isStopping_2()) {
+                    track->isStopping_2() || track->isPaused()) {
                 // We have consumed all the buffers of this track.
                 // Remove it from the list of active tracks.
                 size_t audioHALFrames;
@@ -5348,7 +5347,7 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::DirectOutputThread::prep
                 int64_t framesWritten = mBytesWritten / mFrameSize;
                 if (mStandby || !last ||
                         track->presentationComplete(framesWritten, audioHALFrames) ||
-                        (track->isStopped() && mHwPaused) ) {
+                        (track->isStopped() && mHwPaused) || track->isPaused()) {
                     if (track->isStopping_2()) {
                         track->mState = TrackBase::STOPPED;
                     }
