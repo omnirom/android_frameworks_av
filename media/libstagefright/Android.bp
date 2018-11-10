@@ -200,6 +200,10 @@ cc_library_shared {
         "libavextensions"
     ],
 
+    header_libs:[
+        "media_ndk_headers",
+    ],
+
     export_shared_lib_headers: [
         "libmedia",
         "android.hidl.allocator@1.0",
