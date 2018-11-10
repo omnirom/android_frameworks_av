@@ -575,6 +575,62 @@ static void parseVp9ProfileLevelFromCsd(const sp<ABuffer> &csd, sp<AMessage> &fo
 }
 
 
+std::vector<std::pair<const char *, uint32_t>> tagMappings {
+    {
+        { "album", kKeyAlbum },
+        { "albumartist", kKeyAlbumArtist },
+        { "artist", kKeyArtist },
+        { "author", kKeyAuthor },
+        { "cdtracknum", kKeyCDTrackNumber },
+        { "compilation", kKeyCompilation },
+        { "composer", kKeyComposer },
+        { "date", kKeyDate },
+        { "discnum", kKeyDiscNumber },
+        { "genre", kKeyGenre },
+        { "lyricist", kKeyWriter },
+        { "title", kKeyTitle },
+        { "year", kKeyYear },
+    }
+};
+
+void convertMessageToMetaDataTags(const sp<AMessage> &msg, sp<MetaData> &meta) {
+    for (auto elem : tagMappings) {
+        AString value;
+        if (msg->findString(elem.first, &value)) {
+            meta->setCString(elem.second, value.c_str());
+        }
+    }
+    sp<ABuffer> buf;
+    if (msg->findBuffer("albumart", &buf)) {
+        meta->setData(kKeyAlbumArt, MetaDataBase::Type::TYPE_NONE, buf->data(), buf->size());
+    }
+
+    int32_t loop;
+    if (msg->findInt32("loop", &loop)) {
+        meta->setInt32(kKeyAutoLoop, loop);
+    }
+}
+
+void convertMetaDataToMessageTags(const MetaDataBase *meta, sp<AMessage> format) {
+    for (auto elem : tagMappings) {
+        const char *value;
+        if (meta->findCString(elem.second, &value)) {
+            format->setString(elem.first, value, strlen(value));
+        }
+    }
+    uint32_t type;
+    const void* data;
+    size_t size;
+    if (meta->findData(kKeyAlbumArt, &type, &data, &size)) {
+        sp<ABuffer> buf = ABuffer::CreateAsCopy(data, size);
+        format->setBuffer("albumart", buf);
+    }
+    int32_t loop;
+    if (meta->findInt32(kKeyAutoLoop, &loop)) {
+        format->setInt32("loop", loop);
+    }
+}
+
 status_t convertMetaDataToMessage(
         const sp<MetaData> &meta, sp<AMessage> *format) {
     return convertMetaDataToMessage(meta.get(), format);
@@ -597,6 +653,8 @@ status_t convertMetaDataToMessage(
 
     sp<AMessage> msg = new AMessage;
     msg->setString("mime", mime);
+
+    convertMetaDataToMessageTags(meta, msg);
 
     uint32_t type;
     const void *data;
@@ -1304,6 +1362,8 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
     } else {
         ALOGW("did not find mime type");
     }
+
+    convertMessageToMetaDataTags(msg, meta);
 
     int64_t durationUs;
     if (msg->findInt64("durationUs", &durationUs)) {

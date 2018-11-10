@@ -199,7 +199,8 @@ void StreamDescriptorCollection::switchVolumeCurve(audio_stream_type_t streamSrc
 void StreamDescriptorCollection::dump(String8 *dst) const
 {
     dst->append("\nStreams dump:\n");
-    dst->append(" Stream  Can be muted  Index Min  Index Max  Index Cur [device : index]...\n");
+    dst->append(
+             " Stream  Can be muted  Index Min  Index Max  Index Cur [device : index]...\n");
     for (size_t i = 0; i < size(); i++) {
         dst->appendFormat(" %02zu      ", i);
         valueAt(i).dump(dst);

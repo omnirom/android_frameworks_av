@@ -96,7 +96,7 @@ public:
         return valueFor(stream).hasVolumeIndexForDevice(device);
     }
 
-    virtual void dump(String8 *dst) const;
+    void dump(String8 *dst) const override;
 
 private:
     void setVolumeCurvePoint(audio_stream_type_t stream, device_category deviceCategory,

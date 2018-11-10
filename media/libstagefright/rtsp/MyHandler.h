@@ -56,6 +56,10 @@
 #define UNUSED_UNLESS_VERBOSE(x)
 #endif
 
+#ifndef FALLTHROUGH_INTENDED
+#define FALLTHROUGH_INTENDED [[clang::fallthrough]]  // NOLINT
+#endif
+
 // If no access units are received within 5 secs, assume that the rtp
 // stream has ended and signal end of stream.
 static int64_t kAccessUnitTimeoutUs = 10000000ll;
@@ -311,8 +315,10 @@ struct MyHandler : public AHandler {
             switch (count) {
                 case 3:
                     data[offset++] = 0;
+                    FALLTHROUGH_INTENDED;
                 case 2:
                     data[offset++] = 0;
+                    FALLTHROUGH_INTENDED;
                 case 1:
                     data[offset++] = 0;
             }
