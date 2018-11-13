@@ -231,12 +231,12 @@ public:
             hardware::hidl_version maxVersion = hardware::hidl_version{1000,0}) const;
 
     /*
-     * Check if a camera with staticInfo is a logical camera. And if yes, return
+     * Check if a camera is a logical camera. And if yes, return
      * the physical camera ids.
      */
-    static bool isLogicalCamera(const CameraMetadata& staticInfo,
-            std::vector<std::string>* physicalCameraIds);
+    bool isLogicalCamera(const std::string& id, std::vector<std::string>* physicalCameraIds);
 
+    bool isHiddenPhysicalCamera(const std::string& cameraId);
 private:
     // All private members, unless otherwise noted, expect mInterfaceMutex to be locked before use
     mutable std::mutex mInterfaceMutex;
@@ -292,6 +292,8 @@ private:
             const std::string mId;    // ID section of full name
             const hardware::hidl_version mVersion;
             const metadata_vendor_id_t mProviderTagid;
+            bool mIsLogicalCamera;
+            std::vector<std::string> mPhysicalIds;
 
             const hardware::camera::common::V1_0::CameraResourceCost mResourceCost;
 
@@ -306,17 +308,25 @@ private:
                 (void) characteristics;
                 return INVALID_OPERATION;
             }
+            virtual status_t getPhysicalCameraCharacteristics(const std::string& physicalCameraId,
+                    CameraMetadata *characteristics) const {
+                (void) physicalCameraId;
+                (void) characteristics;
+                return INVALID_OPERATION;
+            }
 
             DeviceInfo(const std::string& name, const metadata_vendor_id_t tagId,
                     const std::string &id, const hardware::hidl_version& version,
+                    const std::vector<std::string>& publicCameraIds,
                     const hardware::camera::common::V1_0::CameraResourceCost& resourceCost) :
                     mName(name), mId(id), mVersion(version), mProviderTagid(tagId),
-                    mResourceCost(resourceCost),
+                    mIsLogicalCamera(false), mResourceCost(resourceCost),
                     mStatus(hardware::camera::common::V1_0::CameraDeviceStatus::PRESENT),
-                    mHasFlashUnit(false) {}
+                    mHasFlashUnit(false), mPublicCameraIds(publicCameraIds) {}
             virtual ~DeviceInfo();
         protected:
             bool mHasFlashUnit;
+            const std::vector<std::string>& mPublicCameraIds;
 
             template<class InterfaceT>
             static status_t setTorchMode(InterfaceT& interface, bool enabled);
@@ -325,6 +335,12 @@ private:
         std::unordered_set<std::string> mUniqueCameraIds;
         int mUniqueDeviceCount;
         std::vector<std::string> mUniqueAPI1CompatibleCameraIds;
+        // The initial public camera IDs published by the camera provider.
+        // Currently logical multi-camera is not supported for hot-plug camera.
+        // And we use this list to keep track of initial public camera IDs
+        // advertised by the provider, and to distinguish against "hidden"
+        // physical camera IDs.
+        std::vector<std::string> mProviderPublicCameraIds;
 
         // HALv1-specific camera fields, including the actual device interface
         struct DeviceInfo1 : public DeviceInfo {
@@ -339,6 +355,7 @@ private:
             DeviceInfo1(const std::string& name, const metadata_vendor_id_t tagId,
                     const std::string &id, uint16_t minorVersion,
                     const hardware::camera::common::V1_0::CameraResourceCost& resourceCost,
+                    const std::vector<std::string>& publicCameraIds,
                     sp<InterfaceT> interface);
             virtual ~DeviceInfo1();
         private:
@@ -356,14 +373,18 @@ private:
             virtual status_t dumpState(int fd) const override;
             virtual status_t getCameraCharacteristics(
                     CameraMetadata *characteristics) const override;
+            virtual status_t getPhysicalCameraCharacteristics(const std::string& physicalCameraId,
+                    CameraMetadata *characteristics) const override;
 
             DeviceInfo3(const std::string& name, const metadata_vendor_id_t tagId,
                     const std::string &id, uint16_t minorVersion,
                     const hardware::camera::common::V1_0::CameraResourceCost& resourceCost,
-                    sp<InterfaceT> interface);
+                    const std::vector<std::string>& publicCameraIds, sp<InterfaceT> interface);
             virtual ~DeviceInfo3();
         private:
             CameraMetadata mCameraCharacteristics;
+            std::unordered_map<std::string, CameraMetadata> mPhysicalCameraCharacteristics;
+            void queryPhysicalCameraIds();
         };
 
     private:

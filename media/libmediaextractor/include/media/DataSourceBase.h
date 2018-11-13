@@ -66,6 +66,10 @@ public:
 
     virtual void close() {};
 
+    virtual status_t getAvailableSize(off64_t /*offset*/, off64_t * /*size*/) {
+        return -1;
+    }
+
 protected:
     virtual ~DataSourceBase() {}
 

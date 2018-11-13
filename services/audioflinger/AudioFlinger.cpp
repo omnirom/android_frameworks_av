@@ -20,7 +20,6 @@
 //#define LOG_NDEBUG 0
 
 #include "Configuration.h"
-#include <algorithm>    // std::any_of
 #include <dirent.h>
 #include <math.h>
 #include <signal.h>
@@ -57,8 +56,6 @@
 #include <system/audio_effects/effect_aec.h>
 
 #include <audio_utils/primitives.h>
-
-#include <json/json.h>
 
 #include <powermanager/PowerManager.h>
 
@@ -437,18 +434,6 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
     if (!dumpAllowed()) {
         dumpPermissionDenial(fd, args);
     } else {
-        // XXX This is sort of hacky for now.
-        const bool formatJson = std::any_of(args.begin(), args.end(),
-                [](const String16 &arg) { return arg == String16("--json"); });
-        if (formatJson) {
-            Json::Value root = getJsonDump();
-            Json::FastWriter writer;
-            std::string rootStr = writer.write(root);
-            // XXX consider buffering if the string happens to be too long.
-            dprintf(fd, "%s", rootStr.c_str());
-            return NO_ERROR;
-        }
-
         // get state of hardware lock
         bool hardwareLocked = dumpTryLock(mHardwareLock);
         if (!hardwareLocked) {
@@ -525,6 +510,12 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
         dumpLogger(mAppSetParameterLog, "App");
         dumpLogger(mSystemSetParameterLog, "System");
 
+        // dump historical threads in the last 10 seconds
+        const std::string threadLog = mThreadLog.dumpToString(
+                "Historical Thread Log ", 0 /* lines */,
+                audio_utils_get_real_time_ns() - 10 * 60 * NANOS_PER_SECOND);
+        write(fd, threadLog.c_str(), threadLog.size());
+
         BUFLOG_RESET;
 
         if (locked) {
@@ -567,32 +558,6 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
         }
     }
     return NO_ERROR;
-}
-
-Json::Value AudioFlinger::getJsonDump()
-{
-    Json::Value root(Json::objectValue);
-    const bool locked = dumpTryLock(mLock);
-
-    // failed to lock - AudioFlinger is probably deadlocked
-    if (!locked) {
-        root["deadlock_message"] = kDeadlockedString;
-    }
-    // FIXME risky to access data structures without a lock held?
-
-    Json::Value playbackThreads = Json::arrayValue;
-    // dump playback threads
-    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
-        playbackThreads.append(mPlaybackThreads.valueAt(i)->getJsonDump());
-    }
-
-    if (locked) {
-        mLock.unlock();
-    }
-
-    root["playback_threads"] = playbackThreads;
-
-    return root;
 }
 
 sp<AudioFlinger::Client> AudioFlinger::registerPid(pid_t pid)
@@ -781,6 +746,7 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
         output.afFrameCount = thread->frameCount();
         output.afSampleRate = thread->sampleRate();
         output.afLatencyMs = thread->latency();
+        output.trackId = track == nullptr ? -1 : track->id();
 
         // move effect chain to this output thread if an effect on same session was waiting
         // for a track to be created
@@ -1800,6 +1766,7 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
 
     output.cblk = recordTrack->getCblk();
     output.buffers = recordTrack->getBuffers();
+    output.trackId = recordTrack->id();
 
     // return handle to client
     recordHandle = new RecordHandle(recordTrack);
@@ -2291,6 +2258,8 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
         if (playbackThread != NULL) {
             ALOGV("closeOutput() %d", output);
 
+            dumpToThreadLog_l(playbackThread);
+
             if (playbackThread->type() == ThreadBase::MIXER) {
                 for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
                     if (mPlaybackThreads.valueAt(i)->isDuplicating()) {
@@ -2322,6 +2291,7 @@ status_t AudioFlinger::closeOutput_nonvirtual(audio_io_handle_t output)
             if (mmapThread == 0) {
                 return BAD_VALUE;
             }
+            dumpToThreadLog_l(mmapThread);
             mMmapThreads.removeItem(output);
             ALOGD("closing mmapThread %p", mmapThread.get());
         }
@@ -2530,6 +2500,8 @@ status_t AudioFlinger::closeInput_nonvirtual(audio_io_handle_t input)
         if (recordThread != 0) {
             ALOGV("closeInput() %d", input);
 
+            dumpToThreadLog_l(recordThread);
+
             // If we still have effect chains, it means that a client still holds a handle
             // on at least one effect. We must either move the chain to an existing thread with the
             // same session ID or put it aside in case a new record thread is opened for a
@@ -2572,6 +2544,7 @@ status_t AudioFlinger::closeInput_nonvirtual(audio_io_handle_t input)
             if (mmapThread == 0) {
                 return BAD_VALUE;
             }
+            dumpToThreadLog_l(mmapThread);
             mMmapThreads.removeItem(input);
         }
         const sp<AudioIoDescriptor> ioDesc = new AudioIoDescriptor();
@@ -2768,6 +2741,17 @@ void AudioFlinger::purgeStaleEffects_l() {
         }
     }
     return;
+}
+
+// dumpToThreadLog_l() must be called with AudioFlinger::mLock held
+void AudioFlinger::dumpToThreadLog_l(const sp<ThreadBase> &thread)
+{
+    audio_utils::FdToString fdToString;
+    const int fd = fdToString.fd();
+    if (fd >= 0) {
+        thread->dump(fd, {} /* args */);
+        mThreadLog.logs(-1 /* time */, fdToString.getStringAndClose());
+    }
 }
 
 // checkThread_l() must be called with AudioFlinger::mLock held

@@ -20,8 +20,9 @@
 
 #include <media/NdkMediaError.h>
 #include <media/NdkMediaExtractor.h>
+#include <media/NdkMediaFormatPriv.h>
+#include "NdkMediaErrorPriv.h"
 #include "NdkMediaDataSourcePriv.h"
-#include "NdkMediaFormatPriv.h"
 
 
 #include <inttypes.h>
@@ -39,19 +40,6 @@
 #include <jni.h>
 
 using namespace android;
-
-static media_status_t translate_error(status_t err) {
-    if (err == OK) {
-        return AMEDIA_OK;
-    } else if (err == ERROR_END_OF_STREAM) {
-        return AMEDIA_ERROR_END_OF_STREAM;
-    } else if (err == ERROR_IO) {
-        return AMEDIA_ERROR_IO;
-    }
-
-    ALOGE("sf error code: %d", err);
-    return AMEDIA_ERROR_UNKNOWN;
-}
 
 struct AMediaExtractor {
     sp<NuMediaExtractor> mImpl;
@@ -82,47 +70,35 @@ media_status_t AMediaExtractor_setDataSourceFd(AMediaExtractor *mData, int fd, o
     return translate_error(mData->mImpl->setDataSource(fd, offset, length));
 }
 
+media_status_t AMediaExtractor_setDataSourceWithHeaders(AMediaExtractor *mData,
+        const char *uri,
+        int numheaders,
+        const char * const *keys,
+        const char * const *values) {
+
+    ALOGV("setDataSource(%s)", uri);
+
+    sp<MediaHTTPService> httpService = createMediaHttpService(uri, /* version = */ 1);
+    if (httpService == NULL) {
+        ALOGE("can't create http service");
+        return AMEDIA_ERROR_UNSUPPORTED;
+    }
+
+    KeyedVector<String8, String8> headers;
+    for (int i = 0; i < numheaders; ++i) {
+        String8 key8(keys[i]);
+        String8 value8(values[i]);
+        headers.add(key8, value8);
+    }
+
+    status_t err;
+    err = mData->mImpl->setDataSource(httpService, uri, numheaders > 0 ? &headers : NULL);
+    return translate_error(err);
+}
+
 EXPORT
 media_status_t AMediaExtractor_setDataSource(AMediaExtractor *mData, const char *location) {
-    ALOGV("setDataSource(%s)", location);
-    // TODO: add header support
-
-    JNIEnv *env = AndroidRuntime::getJNIEnv();
-    jobject service = NULL;
-    if (env == NULL) {
-        ALOGE("setDataSource(path) must be called from Java thread");
-        return AMEDIA_ERROR_UNSUPPORTED;
-    }
-
-    jclass mediahttpclass = env->FindClass("android/media/MediaHTTPService");
-    if (mediahttpclass == NULL) {
-        ALOGE("can't find MediaHttpService");
-        env->ExceptionClear();
-        return AMEDIA_ERROR_UNSUPPORTED;
-    }
-
-    jmethodID mediaHttpCreateMethod = env->GetStaticMethodID(mediahttpclass,
-            "createHttpServiceBinderIfNecessary", "(Ljava/lang/String;)Landroid/os/IBinder;");
-    if (mediaHttpCreateMethod == NULL) {
-        ALOGE("can't find method");
-        env->ExceptionClear();
-        return AMEDIA_ERROR_UNSUPPORTED;
-    }
-
-    jstring jloc = env->NewStringUTF(location);
-
-    service = env->CallStaticObjectMethod(mediahttpclass, mediaHttpCreateMethod, jloc);
-    env->DeleteLocalRef(jloc);
-
-    sp<IMediaHTTPService> httpService;
-    if (service != NULL) {
-        sp<IBinder> binder = ibinderForJavaObject(env, service);
-        httpService = interface_cast<IMediaHTTPService>(binder);
-    }
-
-    status_t err = mData->mImpl->setDataSource(httpService, location, NULL);
-    env->ExceptionClear();
-    return translate_error(err);
+    return AMediaExtractor_setDataSourceWithHeaders(mData, location, 0, NULL, NULL);
 }
 
 EXPORT
@@ -472,12 +448,6 @@ media_status_t AMediaExtractor_getSampleFormat(AMediaExtractor *ex, AMediaFormat
         meta->setBuffer(AMEDIAFORMAT_KEY_MPEG_USER_DATA, mpegUserData);
     }
 
-    return AMEDIA_OK;
-}
-
-EXPORT
-media_status_t AMediaExtractor_disconnect(AMediaExtractor * ex) {
-    ex->mImpl->disconnect();
     return AMEDIA_OK;
 }
 

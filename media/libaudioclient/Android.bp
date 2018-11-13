@@ -40,22 +40,26 @@ cc_library_shared {
         "TrackPlayerBase.cpp",
     ],
     shared_libs: [
-        "liblog",
-        "libcutils",
-        "libutils",
-        "libbinder",
-        "libdl",
         "libaudioutils",
         "libaudiomanager",
+        "libbinder",
+        "libcutils",
+        "libdl",
+        "liblog",
         "libmedia_helper",
         "libmediametrics",
         "libmediautils",
+        "libnblog",
+        "libutils",
     ],
     export_shared_lib_headers: ["libbinder"],
 
     local_include_dirs: ["include/media", "aidl"],
     include_dirs: ["frameworks/av/media/libavextensions"],
-    header_libs: ["libaudioclient_headers"],
+    header_libs: [
+        "libaudioclient_headers",
+        "libbase_headers",
+    ],
     export_header_lib_headers: ["libaudioclient_headers"],
 
     // for memory heap analysis

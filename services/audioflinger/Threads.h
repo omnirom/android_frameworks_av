@@ -397,6 +397,8 @@ public:
 
                 bool                isMsdDevice() const { return mIsMsdDevice; }
 
+    virtual     void                dump(int fd, const Vector<String16>& args) = 0;
+
     mutable     Mutex                   mLock;
 
 protected:
@@ -665,9 +667,7 @@ public:
                    audio_io_handle_t id, audio_devices_t device, type_t type, bool systemReady);
     virtual             ~PlaybackThread();
 
-                void        dump(int fd, const Vector<String16>& args);
-                // returns a string of audio performance related data in JSON format.
-    virtual     Json::Value getJsonDump() const;
+                void        dump(int fd, const Vector<String16>& args) override;
 
     // Thread virtuals
     virtual     bool        threadLoop();
@@ -711,7 +711,6 @@ protected:
 
     // ThreadBase virtuals
     virtual     void        preExit();
-    virtual     void        onIdleMixer();
 
     virtual     bool        keepWakeLock() const { return true; }
     virtual     void        acquireWakeLock_l() {
@@ -963,16 +962,19 @@ private:
     virtual void dumpInternals(int fd, const Vector<String16>& args);
     void        dumpTracks(int fd, const Vector<String16>& args);
 
-    // The Tracks class manages names for all tracks
-    // added and removed from the Thread.
+    // The Tracks class manages tracks added and removed from the Thread.
     template <typename T>
     class Tracks {
     public:
-        Tracks(bool saveDeletedTrackNames) :
-            mSaveDeletedTrackNames(saveDeletedTrackNames) { }
+        Tracks(bool saveDeletedTrackIds) :
+            mSaveDeletedTrackIds(saveDeletedTrackIds) { }
 
         // SortedVector methods
-        ssize_t         add(const sp<T> &track);
+        ssize_t         add(const sp<T> &track) {
+            const ssize_t index = mTracks.add(track);
+            LOG_ALWAYS_FATAL_IF(index < 0, "cannot add track");
+            return index;
+        }
         ssize_t         remove(const sp<T> &track);
         size_t          size() const {
             return mTracks.size();
@@ -993,28 +995,19 @@ private:
             return mTracks.end();
         }
 
-        size_t          processDeletedTrackNames(std::function<void(int)> f) {
-            const size_t size = mDeletedTrackNames.size();
-            if (size > 0) {
-                for (const int name : mDeletedTrackNames) {
-                    f(name);
-                }
+        size_t          processDeletedTrackIds(std::function<void(int)> f) {
+            for (const int trackId : mDeletedTrackIds) {
+                f(trackId);
             }
-            return size;
+            return mDeletedTrackIds.size();
         }
 
-        void            clearDeletedTrackNames() { mDeletedTrackNames.clear(); }
+        void            clearDeletedTrackIds() { mDeletedTrackIds.clear(); }
 
     private:
-        // Track names pending deletion for MIXER type threads
-        const bool mSaveDeletedTrackNames; // true to enable tracking
-        std::set<int> mDeletedTrackNames;
-
-        // Fast lookup of previously deleted track names for reuse.
-        // This is an arbitrary decision (actually any non-negative
-        // integer that isn't in mTracks[*]->names() could be used) - we attempt
-        // to use the smallest possible available name.
-        std::set<int> mUnusedTrackNames;
+        // Tracks pending deletion for MIXER type threads
+        const bool mSaveDeletedTrackIds; // true to enable tracking
+        std::set<int> mDeletedTrackIds;
 
         SortedVector<sp<T>> mTracks; // wrapped SortedVector.
     };
@@ -1122,7 +1115,6 @@ public:
     virtual     bool        checkForNewParameter_l(const String8& keyValuePair,
                                                    status_t& status);
     virtual     void        dumpInternals(int fd, const Vector<String16>& args);
-                Json::Value getJsonDump() const override;
 
     virtual     bool        isTrackAllowed_l(
                                     audio_channel_mask_t channelMask, audio_format_t format,
@@ -1146,8 +1138,6 @@ protected:
     virtual     void        threadLoop_standby();
     virtual     void        threadLoop_mix();
     virtual     void        threadLoop_sleepTime();
-    virtual     void        threadLoop_removeTracks(const Vector< sp<Track> >& tracksToRemove);
-    virtual     void        onIdleMixer();
     virtual     uint32_t    correctLatency_l(uint32_t latency) const;
 
     virtual     status_t    createAudioPatch_l(const struct audio_patch *patch,
@@ -1495,7 +1485,7 @@ public:
             // return true if the caller should then do it's part of the stopping process
             bool        stop(RecordTrack* recordTrack);
 
-            void        dump(int fd, const Vector<String16>& args);
+            void        dump(int fd, const Vector<String16>& args) override;
             AudioStreamIn* clearInput();
             virtual sp<StreamHalInterface> stream() const;
 
@@ -1704,7 +1694,7 @@ class MmapThread : public ThreadBase
                 // Sets the UID records silence
     virtual     void        setRecordSilenced(uid_t uid __unused, bool silenced __unused) {}
 
-                void        dump(int fd, const Vector<String16>& args);
+                void        dump(int fd, const Vector<String16>& args) override;
     virtual     void        dumpInternals(int fd, const Vector<String16>& args);
                 void        dumpTracks(int fd, const Vector<String16>& args);
 

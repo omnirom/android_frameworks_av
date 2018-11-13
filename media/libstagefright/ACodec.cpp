@@ -140,10 +140,6 @@ static OMX_VIDEO_CONTROLRATETYPE getVideoBitrateMode(const sp<AMessage> &msg) {
             case 1: return OMX_Video_ControlRateVariable;
             //BITRATE_MODE_CBR
             case 2: return OMX_Video_ControlRateConstant;
-            //BITRATE_MODE_VBR_VFR
-            case 3: return OMX_Video_ControlRateVariableSkipFrames;
-            //BITRATE_MODE_CBR_VFR
-            case 4: return OMX_Video_ControlRateConstantSkipFrames;
             default: break;
         }
     }
@@ -1641,7 +1637,7 @@ status_t ACodec::freeBuffer(OMX_U32 portIndex, size_t i) {
             if (portIndex == kPortIndexOutput && mNativeWindow != NULL) {
                 (void)cancelBufferToNativeWindow(info);
             }
-            // fall through
+            FALLTHROUGH_INTENDED;
 
         case BufferInfo::OWNED_BY_NATIVE_WINDOW:
             err = mOMXNode->freeBuffer(portIndex, info->mBufferID);
@@ -4283,6 +4279,9 @@ int /* OMX_VIDEO_AVCLEVELTYPE */ ACodec::getAVCLevelFor(
         {  589824, 22080, 420, 135000, OMX_VIDEO_AVCLevel5  },
         {  983040, 36864, 543, 240000, OMX_VIDEO_AVCLevel51 },
         { 2073600, 36864, 543, 240000, OMX_VIDEO_AVCLevel52 },
+        { 4177920, 139264, 543, 240000, OMX_VIDEO_AVCLevel6  },
+        { 8355840, 139264, 543, 480000, OMX_VIDEO_AVCLevel61 },
+        { 16711680, 139264, 543, 800000, OMX_VIDEO_AVCLevel62 },
     };
 
     for (size_t i = 0; i < ARRAY_SIZE(limits); i++) {
@@ -4358,7 +4357,6 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
         h264type.eLevel = static_cast<OMX_VIDEO_AVCLEVELTYPE>(level);
     } else {
         h264type.eProfile = OMX_VIDEO_AVCProfileBaseline;
-#if 0   /* DON'T YET DEFAULT TO HIGHEST PROFILE */
         // Use largest supported profile for AVC recording if profile is not specified.
         for (OMX_VIDEO_AVCPROFILETYPE profile : {
                 OMX_VIDEO_AVCProfileHigh, OMX_VIDEO_AVCProfileMain }) {
@@ -4367,13 +4365,14 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
                 break;
             }
         }
-#endif
     }
 
     ALOGI("setupAVCEncoderParameters with [profile: %s] [level: %s]",
             asString(h264type.eProfile), asString(h264type.eLevel));
 
-    if (h264type.eProfile == OMX_VIDEO_AVCProfileBaseline) {
+    if (h264type.eProfile == OMX_VIDEO_AVCProfileBaseline ||
+        h264type.eProfile == static_cast<OMX_VIDEO_AVCPROFILETYPE>(
+            OMX_VIDEO_AVCProfileConstrainedBaseline)) {
         h264type.nSliceHeaderSpacing = 0;
         h264type.bUseHadamard = OMX_TRUE;
         h264type.nRefFrames = 1;
@@ -4391,7 +4390,9 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
         h264type.bDirectSpatialTemporal = OMX_FALSE;
         h264type.nCabacInitIdc = 0;
     } else if (h264type.eProfile == OMX_VIDEO_AVCProfileMain ||
-            h264type.eProfile == OMX_VIDEO_AVCProfileHigh) {
+            h264type.eProfile == OMX_VIDEO_AVCProfileHigh ||
+            h264type.eProfile == static_cast<OMX_VIDEO_AVCPROFILETYPE>(
+                OMX_VIDEO_AVCProfileConstrainedHigh)) {
         h264type.nSliceHeaderSpacing = 0;
         h264type.bUseHadamard = OMX_TRUE;
         h264type.nRefFrames = 2;
@@ -4414,7 +4415,6 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
         h264type.nCabacInitIdc = 1;
     }
 
-    setBFrames(&h264type, iFrameInterval, frameRate);
     if (h264type.nBFrames != 0) {
         h264type.nAllowedPictureTypes |= OMX_VIDEO_PictureTypeB;
     }
@@ -4565,7 +4565,6 @@ status_t ACodec::setupHEVCEncoderParameters(
             }
             frameRate = (float)tmp;
         }
-        AVUtils::get()->setIntraPeriod(setPFramesSpacing(iFrameInterval, frameRate), 0, mOMXNode);
 
         hevcType.nKeyFrameInterval =
                 setPFramesSpacing(iFrameInterval, frameRate) + 1;
@@ -5063,6 +5062,7 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                         }
                     }
                     // Fall through to set up mime.
+                    FALLTHROUGH_INTENDED;
                 }
 
                 default:
@@ -5173,6 +5173,7 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                     notify->setString("mime", MEDIA_MIMETYPE_AUDIO_AAC);
                     notify->setInt32("channel-count", params.nChannels);
                     notify->setInt32("sample-rate", params.nSampleRate);
+                    notify->setInt32("bitrate", params.nBitRate);
                     break;
                 }
 
@@ -7948,7 +7949,7 @@ bool ACodec::OutputPortSettingsChangedState::onMessageReceived(
                 msg->setInt32("generation", mCodec->mStateGeneration);
                 msg->post(3000000);
             }
-            // fall-through
+            FALLTHROUGH_INTENDED;
         }
         case kWhatResume:
         case kWhatSetParameters:

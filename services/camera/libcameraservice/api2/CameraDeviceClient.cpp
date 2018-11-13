@@ -19,6 +19,7 @@
 //#define LOG_NDEBUG 0
 
 #include <cutils/properties.h>
+#include <utils/CameraThreadState.h>
 #include <utils/Log.h>
 #include <utils/Trace.h>
 #include <gui/Surface.h>
@@ -130,6 +131,7 @@ status_t CameraDeviceClient::initializeImpl(TProviderPtr providerPtr, const Stri
                 physicalKeysEntry.data.i32 + physicalKeysEntry.count);
     }
 
+    mProviderManager = providerPtr;
     return OK;
 }
 
@@ -634,12 +636,11 @@ binder::Status CameraDeviceClient::createStream(
 
     if (physicalCameraId.size() > 0) {
         std::vector<std::string> physicalCameraIds;
-        std::string physicalId(physicalCameraId.string());
         bool logicalCamera =
-                CameraProviderManager::isLogicalCamera(mDevice->info(), &physicalCameraIds);
+                mProviderManager->isLogicalCamera(mCameraIdStr.string(), &physicalCameraIds);
         if (!logicalCamera ||
-                std::find(physicalCameraIds.begin(), physicalCameraIds.end(), physicalId) ==
-                physicalCameraIds.end()) {
+                std::find(physicalCameraIds.begin(), physicalCameraIds.end(),
+                physicalCameraId.string()) == physicalCameraIds.end()) {
             String8 msg = String8::format("Camera %s: Camera doesn't support physicalCameraId %s.",
                     mCameraIdStr.string(), physicalCameraId.string());
             ALOGE("%s: %s", __FUNCTION__, msg.string());
@@ -1732,7 +1733,7 @@ binder::Status CameraDeviceClient::checkPidStatus(const char* checkLocation) {
 // TODO: move to Camera2ClientBase
 bool CameraDeviceClient::enforceRequestPermissions(CameraMetadata& metadata) {
 
-    const int pid = IPCThreadState::self()->getCallingPid();
+    const int pid = CameraThreadState::getCallingPid();
     const int selfPid = getpid();
     camera_metadata_entry_t entry;
 
@@ -1771,7 +1772,7 @@ bool CameraDeviceClient::enforceRequestPermissions(CameraMetadata& metadata) {
         String16 permissionString =
             String16("android.permission.CAMERA_DISABLE_TRANSMIT_LED");
         if (!checkCallingPermission(permissionString)) {
-            const int uid = IPCThreadState::self()->getCallingUid();
+            const int uid = CameraThreadState::getCallingUid();
             ALOGE("Permission Denial: "
                   "can't disable transmit LED pid=%d, uid=%d", pid, uid);
             return false;

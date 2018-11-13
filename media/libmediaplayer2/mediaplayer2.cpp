@@ -53,97 +53,6 @@ namespace {
 const int kDumpLockRetries = 50;
 const int kDumpLockSleepUs = 20000;
 
-// Max number of entries in the filter.
-const int kMaxFilterSize = 64;  // I pulled that out of thin air.
-
-// FIXME: Move all the metadata related function in the Metadata.cpp
-
-// Unmarshall a filter from a Parcel.
-// Filter format in a parcel:
-//
-//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-// |                       number of entries (n)                   |
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-// |                       metadata type 1                         |
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-// |                       metadata type 2                         |
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//  ....
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-// |                       metadata type n                         |
-// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-//
-// @param p Parcel that should start with a filter.
-// @param[out] filter On exit contains the list of metadata type to be
-//                    filtered.
-// @param[out] status On exit contains the status code to be returned.
-// @return true if the parcel starts with a valid filter.
-bool unmarshallFilter(const Parcel& p,
-                      media::Metadata::Filter *filter,
-                      status_t *status) {
-    int32_t val;
-    if (p.readInt32(&val) != OK) {
-        ALOGE("Failed to read filter's length");
-        *status = NOT_ENOUGH_DATA;
-        return false;
-    }
-
-    if (val > kMaxFilterSize || val < 0) {
-        ALOGE("Invalid filter len %d", val);
-        *status = BAD_VALUE;
-        return false;
-    }
-
-    const size_t num = val;
-
-    filter->clear();
-    filter->setCapacity(num);
-
-    size_t size = num * sizeof(media::Metadata::Type);
-
-
-    if (p.dataAvail() < size) {
-        ALOGE("Filter too short expected %zu but got %zu", size, p.dataAvail());
-        *status = NOT_ENOUGH_DATA;
-        return false;
-    }
-
-    const media::Metadata::Type *data =
-        static_cast<const media::Metadata::Type*>(p.readInplace(size));
-
-    if (NULL == data) {
-        ALOGE("Filter had no data");
-        *status = BAD_VALUE;
-        return false;
-    }
-
-    // TODO: The stl impl of vector would be more efficient here
-    // because it degenerates into a memcpy on pod types. Try to
-    // replace later or use stl::set.
-    for (size_t i = 0; i < num; ++i) {
-        filter->add(*data);
-        ++data;
-    }
-    *status = OK;
-    return true;
-}
-
-// @param filter Of metadata type.
-// @param val To be searched.
-// @return true if a match was found.
-bool findMetadata(const media::Metadata::Filter& filter, const int32_t val) {
-    // Deal with empty and ANY right away
-    if (filter.isEmpty()) {
-        return false;
-    }
-    if (filter[0] == media::Metadata::kAny) {
-        return true;
-    }
-
-    return filter.indexOf(val) >= 0;
-}
-
 // marshalling tag indicating flattened utf16 tags
 // keep in sync with frameworks/base/media/java/android/media/AudioAttributes.java
 const int32_t kAudioAttributesMarshallTagFlattenTags = 1;
@@ -223,7 +132,8 @@ public:
 
     ~proxyListener() { };
 
-    virtual void notify(int64_t srcId, int msg, int ext1, int ext2, const Parcel *obj) override {
+    virtual void notify(int64_t srcId, int msg, int ext1, int ext2,
+            const PlayerMessage *obj) override {
         sp<MediaPlayer2> player = mPlayer.promote();
         if (player != NULL) {
             player->notify(srcId, msg, ext1, ext2, obj);
@@ -565,77 +475,16 @@ status_t MediaPlayer2::playNextDataSource(int64_t srcId) {
     return mPlayer->playNextDataSource(srcId);
 }
 
-status_t MediaPlayer2::invoke(const Parcel& request, Parcel *reply) {
+status_t MediaPlayer2::invoke(const PlayerMessage &request, PlayerMessage *reply) {
     Mutex::Autolock _l(mLock);
     const bool hasBeenInitialized =
             (mCurrentState != MEDIA_PLAYER2_STATE_ERROR) &&
             ((mCurrentState & MEDIA_PLAYER2_IDLE) != MEDIA_PLAYER2_IDLE);
     if ((mPlayer == NULL) || !hasBeenInitialized) {
-        ALOGE("invoke failed: wrong state %X, mPlayer(%p)", mCurrentState, mPlayer.get());
+        ALOGE("invoke() failed: wrong state %X, mPlayer(%p)", mCurrentState, mPlayer.get());
         return INVALID_OPERATION;
     }
-    ALOGV("invoke %zu", request.dataSize());
     return mPlayer->invoke(request, reply);
-}
-
-// This call doesn't need to access the native player.
-status_t MediaPlayer2::setMetadataFilter(const Parcel& filter) {
-    ALOGD("setMetadataFilter");
-
-    status_t status;
-    media::Metadata::Filter allow, drop;
-
-    if (unmarshallFilter(filter, &allow, &status) &&
-        unmarshallFilter(filter, &drop, &status)) {
-        Mutex::Autolock lock(mLock);
-
-        mMetadataAllow = allow;
-        mMetadataDrop = drop;
-    }
-    return status;
-}
-
-status_t MediaPlayer2::getMetadata(bool update_only, bool /* apply_filter */, Parcel *reply) {
-    ALOGD("getMetadata");
-    sp<MediaPlayer2Interface> player;
-    media::Metadata::Filter ids;
-    Mutex::Autolock lock(mLock);
-    {
-        if (mPlayer == NULL) {
-            return NO_INIT;
-        }
-
-        player = mPlayer;
-        // Placeholder for the return code, updated by the caller.
-        reply->writeInt32(-1);
-
-        // We don't block notifications while we fetch the data. We clear
-        // mMetadataUpdated first so we don't lose notifications happening
-        // during the rest of this call.
-        if (update_only) {
-            ids = mMetadataUpdated;
-        }
-        mMetadataUpdated.clear();
-    }
-
-    media::Metadata metadata(reply);
-
-    metadata.appendHeader();
-    status_t status = player->getMetadata(ids, reply);
-
-    if (status != OK) {
-        metadata.resetParcel();
-        ALOGE("getMetadata failed %d", status);
-        return status;
-    }
-
-    // FIXME: ement filtering on the result. Not critical since
-    // filtering takes place on the update notifications already. This
-    // would be when all the metadata are fetch and a filter is set.
-
-    // Everything is fine, update the metadata length.
-    metadata.updateLength();
-    return OK;
 }
 
 void MediaPlayer2::disconnectNativeWindow_l() {
@@ -750,7 +599,7 @@ status_t MediaPlayer2::setAudioAttributes_l(const Parcel &parcel) {
 status_t MediaPlayer2::prepareAsync() {
     ALOGV("prepareAsync");
     Mutex::Autolock _l(mLock);
-    if ((mPlayer != 0) && (mCurrentState & (MEDIA_PLAYER2_INITIALIZED | MEDIA_PLAYER2_STOPPED))) {
+    if ((mPlayer != 0) && (mCurrentState & MEDIA_PLAYER2_INITIALIZED)) {
         if (mAudioAttributesParcel != NULL) {
             status_t err = setAudioAttributes_l(*mAudioAttributesParcel);
             if (err != OK) {
@@ -806,30 +655,12 @@ status_t MediaPlayer2::start() {
     return ret;
 }
 
-status_t MediaPlayer2::stop() {
-    ALOGV("stop");
-    Mutex::Autolock _l(mLock);
-    if (mCurrentState & MEDIA_PLAYER2_STOPPED) return NO_ERROR;
-    if ( (mPlayer != 0) && ( mCurrentState & ( MEDIA_PLAYER2_STARTED | MEDIA_PLAYER2_PREPARED |
-                    MEDIA_PLAYER2_PAUSED | MEDIA_PLAYER2_PLAYBACK_COMPLETE ) ) ) {
-        status_t ret = mPlayer->stop();
-        if (ret != NO_ERROR) {
-            mCurrentState = MEDIA_PLAYER2_STATE_ERROR;
-        } else {
-            mCurrentState = MEDIA_PLAYER2_STOPPED;
-        }
-        return ret;
-    }
-    ALOGE("stop called in state %d, mPlayer(%p)", mCurrentState, mPlayer.get());
-    return INVALID_OPERATION;
-}
-
 status_t MediaPlayer2::pause() {
     ALOGV("pause");
     Mutex::Autolock _l(mLock);
     if (mCurrentState & (MEDIA_PLAYER2_PAUSED|MEDIA_PLAYER2_PLAYBACK_COMPLETE))
         return NO_ERROR;
-    if ((mPlayer != 0) && (mCurrentState & MEDIA_PLAYER2_STARTED)) {
+    if ((mPlayer != 0) && (mCurrentState & (MEDIA_PLAYER2_STARTED | MEDIA_PLAYER2_PREPARED))) {
         status_t ret = mPlayer->pause();
         if (ret != NO_ERROR) {
             mCurrentState = MEDIA_PLAYER2_STATE_ERROR;
@@ -873,8 +704,7 @@ mediaplayer2_states MediaPlayer2::getState() {
     if (mCurrentState & MEDIA_PLAYER2_STARTED) {
         return MEDIAPLAYER2_STATE_PLAYING;
     }
-    if (mCurrentState
-        & (MEDIA_PLAYER2_PAUSED | MEDIA_PLAYER2_STOPPED | MEDIA_PLAYER2_PLAYBACK_COMPLETE)) {
+    if (mCurrentState & (MEDIA_PLAYER2_PAUSED | MEDIA_PLAYER2_PLAYBACK_COMPLETE)) {
         return MEDIAPLAYER2_STATE_PAUSED;
     }
     // now only mCurrentState & MEDIA_PLAYER2_PREPARED is true
@@ -890,7 +720,7 @@ status_t MediaPlayer2::setPlaybackSettings(const AudioPlaybackRate& rate) {
         return BAD_VALUE;
     }
     Mutex::Autolock _l(mLock);
-    if (mPlayer == 0 || (mCurrentState & MEDIA_PLAYER2_STOPPED)) {
+    if (mPlayer == 0) {
         return INVALID_OPERATION;
     }
 
@@ -982,7 +812,7 @@ status_t MediaPlayer2::getDuration(int64_t *msec) {
     Mutex::Autolock _l(mLock);
     ALOGV("getDuration_l");
     bool isValidState = (mCurrentState & (MEDIA_PLAYER2_PREPARED | MEDIA_PLAYER2_STARTED |
-            MEDIA_PLAYER2_PAUSED | MEDIA_PLAYER2_STOPPED | MEDIA_PLAYER2_PLAYBACK_COMPLETE));
+            MEDIA_PLAYER2_PAUSED | MEDIA_PLAYER2_PLAYBACK_COMPLETE));
     if (mPlayer == 0 || !isValidState) {
         ALOGE("Attempt to call getDuration in wrong state: mPlayer=%p, mCurrentState=%u",
                 mPlayer.get(), mCurrentState);
@@ -1269,43 +1099,9 @@ status_t MediaPlayer2::getParameter(int key, Parcel *reply) {
     return status;
 }
 
-bool MediaPlayer2::shouldDropMetadata(media::Metadata::Type code) const {
-    Mutex::Autolock lock(mLock);
-
-    if (findMetadata(mMetadataDrop, code)) {
-        return true;
-    }
-
-    if (mMetadataAllow.isEmpty() || findMetadata(mMetadataAllow, code)) {
-        return false;
-    } else {
-        return true;
-    }
-}
-
-
-void MediaPlayer2::addNewMetadataUpdate(media::Metadata::Type metadata_type) {
-    Mutex::Autolock lock(mLock);
-    if (mMetadataUpdated.indexOf(metadata_type) < 0) {
-        mMetadataUpdated.add(metadata_type);
-    }
-}
-
-void MediaPlayer2::notify(int64_t srcId, int msg, int ext1, int ext2, const Parcel *obj) {
+void MediaPlayer2::notify(int64_t srcId, int msg, int ext1, int ext2, const PlayerMessage *obj) {
     ALOGV("message received srcId=%lld, msg=%d, ext1=%d, ext2=%d",
           (long long)srcId, msg, ext1, ext2);
-
-    if (MEDIA2_INFO == msg && MEDIA2_INFO_METADATA_UPDATE == ext1) {
-        const media::Metadata::Type metadata_type = ext2;
-
-        if(shouldDropMetadata(metadata_type)) {
-            return;
-        }
-
-        // Update the list of metadata that have changed. getMetadata
-        // also access mMetadataUpdated and clears it.
-        addNewMetadataUpdate(metadata_type);
-    }
 
     bool send = true;
     bool locked = false;

@@ -21,9 +21,9 @@
 #include "OggExtractor.h"
 
 #include <cutils/properties.h>
+#include <utils/Vector.h>
 #include <media/DataSourceBase.h>
 #include <media/ExtractorUtils.h>
-#include <media/MediaTrack.h>
 #include <media/VorbisComment.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -47,12 +47,12 @@ extern "C" {
 
 namespace android {
 
-struct OggSource : public MediaTrack {
+struct OggSource : public MediaTrackHelper {
     explicit OggSource(OggExtractor *extractor);
 
     virtual status_t getFormat(MetaDataBase &);
 
-    virtual status_t start(MetaDataBase *params = NULL);
+    virtual status_t start();
     virtual status_t stop();
 
     virtual status_t read(
@@ -241,7 +241,7 @@ status_t OggSource::getFormat(MetaDataBase &meta) {
     return mExtractor->mImpl->getFormat(meta);
 }
 
-status_t OggSource::start(MetaDataBase * /* params */) {
+status_t OggSource::start() {
     if (mStarted) {
         return INVALID_OPERATION;
     }
@@ -1227,7 +1227,7 @@ size_t OggExtractor::countTracks() {
     return mInitCheck != OK ? 0 : 1;
 }
 
-MediaTrack *OggExtractor::getTrack(size_t index) {
+MediaTrackHelper *OggExtractor::getTrack(size_t index) {
     if (index >= 1) {
         return NULL;
     }
@@ -1280,7 +1280,7 @@ ExtractorDef GETEXTRACTORDEF() {
         UUID("8cc5cd06-f772-495e-8a62-cba9649374e9"),
         1, // version
         "Ogg Extractor",
-        Sniff
+        { Sniff }
     };
 }
 

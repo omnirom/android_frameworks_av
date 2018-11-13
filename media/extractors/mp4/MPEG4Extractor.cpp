@@ -34,7 +34,6 @@
 
 #include <media/DataSourceBase.h>
 #include <media/ExtractorUtils.h>
-#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ABitReader.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -68,7 +67,7 @@ enum {
     kMaxAtomSize = 64 * 1024 * 1024,
 };
 
-class MPEG4Source : public MediaTrack {
+class MPEG4Source : public MediaTrackHelper {
 static const size_t  kMaxPcmFrameSize = 8192;
 public:
     // Caller retains ownership of both "dataSource" and "sampleTable".
@@ -82,7 +81,7 @@ public:
                 const sp<ItemTable> &itemTable);
     virtual status_t init();
 
-    virtual status_t start(MetaDataBase *params = NULL);
+    virtual status_t start();
     virtual status_t stop();
 
     virtual status_t getFormat(MetaDataBase &);
@@ -137,8 +136,6 @@ private:
     MediaBufferGroup *mGroup;
 
     MediaBufferBase *mBuffer;
-
-    bool mWantsNALFragments;
 
     uint8_t *mSrcBuffer;
 
@@ -198,13 +195,14 @@ private:
 // possibly wrapping multiple times to cover all tracks, i.e.
 // Each CachedRangedDataSource caches the sampletable metadata for a single track.
 
-struct CachedRangedDataSource : public DataSourceHelper {
+class CachedRangedDataSource : public DataSourceHelper {
+public:
     explicit CachedRangedDataSource(DataSourceHelper *source);
     virtual ~CachedRangedDataSource();
 
-    virtual ssize_t readAt(off64_t offset, void *data, size_t size);
-    virtual status_t getSize(off64_t *size);
-    virtual uint32_t flags();
+    ssize_t readAt(off64_t offset, void *data, size_t size) override;
+    status_t getSize(off64_t *size) override;
+    uint32_t flags() override;
 
     status_t setCachedRange(off64_t offset, size_t size, bool assumeSourceOwnershipOnSuccess);
 
@@ -236,7 +234,7 @@ CachedRangedDataSource::CachedRangedDataSource(DataSourceHelper *source)
 CachedRangedDataSource::~CachedRangedDataSource() {
     clearCache();
     if (mOwnsDataSource) {
-        delete (CachedRangedDataSource*)mSource;
+        delete mSource;
     }
 }
 
@@ -366,7 +364,6 @@ MPEG4Extractor::MPEG4Extractor(DataSourceHelper *source, const char *mime)
       mMoofFound(false),
       mMdatFound(false),
       mDataSource(source),
-      mCachedSource(NULL),
       mInitCheck(NO_INIT),
       mHeaderTimescale(0),
       mIsQT(false),
@@ -393,7 +390,6 @@ MPEG4Extractor::~MPEG4Extractor() {
     }
     mPssh.clear();
 
-    delete mCachedSource;
     delete mDataSource;
 }
 
@@ -907,8 +903,8 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 
                     if (cachedSource->setCachedRange(
                             *offset, chunk_size,
-                            mCachedSource != NULL /* assume ownership on success */) == OK) {
-                        mDataSource = mCachedSource = cachedSource;
+                            true /* assume ownership on success */) == OK) {
+                        mDataSource = cachedSource;
                     } else {
                         delete cachedSource;
                     }
@@ -3617,7 +3613,7 @@ void MPEG4Extractor::parseID3v2MetaData(off64_t offset) {
     }
 }
 
-MediaTrack *MPEG4Extractor::getTrack(size_t index) {
+MediaTrackHelper *MPEG4Extractor::getTrack(size_t index) {
     status_t err;
     if ((err = readMetaData()) != OK) {
         return NULL;
@@ -4124,7 +4120,6 @@ MPEG4Source::MPEG4Source(
       mStarted(false),
       mGroup(NULL),
       mBuffer(NULL),
-      mWantsNALFragments(false),
       mSrcBuffer(NULL),
       mIsHeif(itemTable != NULL),
       mItemTable(itemTable) {
@@ -4223,18 +4218,10 @@ MPEG4Source::~MPEG4Source() {
     free(mCurrentSampleInfoOffsets);
 }
 
-status_t MPEG4Source::start(MetaDataBase *params) {
+status_t MPEG4Source::start() {
     Mutex::Autolock autoLock(mLock);
 
     CHECK(!mStarted);
-
-    int32_t val;
-    if (params && params->findInt32(kKeyWantsNALFragments, &val)
-        && val != 0) {
-        mWantsNALFragments = true;
-    } else {
-        mWantsNALFragments = false;
-    }
 
     int32_t tmp;
     CHECK(mFormat.findInt32(kKeyMaxInputSize, &tmp));
@@ -5115,7 +5102,7 @@ status_t MPEG4Source::read(
         }
     }
 
-    if ((!mIsAVC && !mIsHEVC && !mIsAC4) || mWantsNALFragments) {
+    if ((!mIsAVC && !mIsHEVC && !mIsAC4)) {
         if (newBuffer) {
             if (mIsPcm) {
                 // The twos' PCM block reader assumes that all samples has the same size.
@@ -5543,7 +5530,7 @@ status_t MPEG4Source::fragmentedRead(
 
     }
 
-    if ((!mIsAVC && !mIsHEVC)|| mWantsNALFragments) {
+    if ((!mIsAVC && !mIsHEVC)) {
         if (newBuffer) {
             if (!isInRange((size_t)0u, mBuffer->size(), size)) {
                 mBuffer->release();
@@ -5971,7 +5958,7 @@ ExtractorDef GETEXTRACTORDEF() {
         UUID("27575c67-4417-4c54-8d3d-8e626985a164"),
         1, // version
         "MP4 Extractor",
-        Sniff
+        { Sniff }
     };
 }
 

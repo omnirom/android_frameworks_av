@@ -21,7 +21,6 @@
 #include <stdio.h>
 
 #include <media/IMediaExtractor.h>
-#include <media/MediaExtractor.h>
 
 namespace android {
 
@@ -41,6 +40,7 @@ private:
     static Mutex gPluginMutex;
     static std::shared_ptr<std::list<sp<ExtractorPlugin>>> gPlugins;
     static bool gPluginsRegistered;
+    static bool gIgnoreVersion;
 
     static void RegisterExtractorsInApk(
             const char *apkPath, std::list<sp<ExtractorPlugin>> &pluginList);
@@ -49,9 +49,9 @@ private:
     static void RegisterExtractor(
             const sp<ExtractorPlugin> &plugin, std::list<sp<ExtractorPlugin>> &pluginList);
 
-    static CreatorFunc sniff(const sp<DataSource> &source,
+    static void *sniff(const sp<DataSource> &source,
             float *confidence, void **meta, FreeMetaFunc *freeMeta,
-            sp<ExtractorPlugin> &plugin);
+            sp<ExtractorPlugin> &plugin, uint32_t *creatorVersion);
 
     static void UpdateExtractors(const char *newUpdateApkPath);
 };

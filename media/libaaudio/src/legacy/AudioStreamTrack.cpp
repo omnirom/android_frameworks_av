@@ -59,18 +59,25 @@ aaudio_result_t AudioStreamTrack::open(const AudioStreamBuilder& builder)
         return result;
     }
 
+    const aaudio_session_id_t requestedSessionId = builder.getSessionId();
+    const audio_session_t sessionId = AAudioConvert_aaudioToAndroidSessionId(requestedSessionId);
+
     // Try to create an AudioTrack
     // Use stereo if unspecified.
     int32_t samplesPerFrame = (getSamplesPerFrame() == AAUDIO_UNSPECIFIED)
                               ? 2 : getSamplesPerFrame();
     audio_channel_mask_t channelMask = audio_channel_out_mask_from_count(samplesPerFrame);
 
-    audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE;
+    audio_output_flags_t flags;
     aaudio_performance_mode_t perfMode = getPerformanceMode();
     switch(perfMode) {
         case AAUDIO_PERFORMANCE_MODE_LOW_LATENCY:
             // Bypass the normal mixer and go straight to the FAST mixer.
-            flags = (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_FAST | AUDIO_OUTPUT_FLAG_RAW);
+            // If the app asks for a sessionId then it means they want to use effects.
+            // So don't use RAW flag.
+            flags = (audio_output_flags_t) ((requestedSessionId == AAUDIO_SESSION_ID_NONE)
+                    ? (AUDIO_OUTPUT_FLAG_FAST | AUDIO_OUTPUT_FLAG_RAW)
+                    : (AUDIO_OUTPUT_FLAG_FAST));
             break;
 
         case AAUDIO_PERFORMANCE_MODE_POWER_SAVING:
@@ -85,6 +92,7 @@ aaudio_result_t AudioStreamTrack::open(const AudioStreamBuilder& builder)
 
         default:
             // No flags. Use a normal mixer in front of the FAST mixer.
+            flags = AUDIO_OUTPUT_FLAG_NONE;
             break;
     }
 
@@ -92,9 +100,9 @@ aaudio_result_t AudioStreamTrack::open(const AudioStreamBuilder& builder)
 
     int32_t notificationFrames = 0;
 
-    audio_format_t format = (getFormat() == AAUDIO_FORMAT_UNSPECIFIED)
+    const audio_format_t format = (getFormat() == AUDIO_FORMAT_DEFAULT)
             ? AUDIO_FORMAT_PCM_FLOAT
-            : AAudioConvert_aaudioToAndroidDataFormat(getFormat());
+            : getFormat();
 
     // Setup the callback if there is one.
     AudioTrack::callback_t callback = nullptr;
@@ -139,11 +147,6 @@ aaudio_result_t AudioStreamTrack::open(const AudioStreamBuilder& builder)
             .tags = ""
     };
 
-    static_assert(AAUDIO_UNSPECIFIED == AUDIO_SESSION_ALLOCATE, "Session IDs should match");
-
-    aaudio_session_id_t requestedSessionId = builder.getSessionId();
-    audio_session_t sessionId = AAudioConvert_aaudioToAndroidSessionId(requestedSessionId);
-
     mAudioTrack = new AudioTrack();
     mAudioTrack->set(
             AUDIO_STREAM_DEFAULT,  // ignored because we pass attributes below
@@ -182,10 +185,8 @@ aaudio_result_t AudioStreamTrack::open(const AudioStreamBuilder& builder)
 
     // Get the actual values from the AudioTrack.
     setSamplesPerFrame(mAudioTrack->channelCount());
-    aaudio_format_t aaudioFormat =
-            AAudioConvert_androidToAAudioDataFormat(mAudioTrack->format());
-    setFormat(aaudioFormat);
-    setDeviceFormat(aaudioFormat);
+    setFormat(mAudioTrack->format());
+    setDeviceFormat(mAudioTrack->format());
 
     int32_t actualSampleRate = mAudioTrack->getSampleRate();
     ALOGW_IF(actualSampleRate != getSampleRate(),

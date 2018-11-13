@@ -159,6 +159,11 @@ public:
             /*out*/
             bool *isSupported);
 
+    virtual binder::Status    isHiddenPhysicalCamera(
+            const String16& cameraId,
+            /*out*/
+            bool *isSupported);
+
     // Extra permissions checks
     virtual status_t    onTransact(uint32_t code, const Parcel& data,
                                    Parcel* reply, uint32_t flags);
@@ -830,10 +835,6 @@ private:
 
     // Prints the shell command help
     status_t printHelp(int out);
-
-    static int getCallingPid();
-
-    static int getCallingUid();
 
     /**
      * Get the current system time as a formatted string.

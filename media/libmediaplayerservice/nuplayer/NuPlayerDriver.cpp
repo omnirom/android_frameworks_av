@@ -17,6 +17,7 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "NuPlayerDriver"
 #include <inttypes.h>
+#include <android-base/macros.h>
 #include <utils/Log.h>
 #include <cutils/properties.h>
 
@@ -347,7 +348,7 @@ status_t NuPlayerDriver::start_l() {
 
             CHECK_EQ(mState, STATE_PREPARED);
 
-            // fall through
+            FALLTHROUGH_INTENDED;
         }
 
         case STATE_PAUSED:
@@ -356,7 +357,7 @@ status_t NuPlayerDriver::start_l() {
         {
             mPlayer->start();
 
-            // fall through
+            FALLTHROUGH_INTENDED;
         }
 
         case STATE_RUNNING:
@@ -385,7 +386,7 @@ status_t NuPlayerDriver::stop() {
     switch (mState) {
         case STATE_RUNNING:
             mPlayer->pause();
-            // fall through
+            FALLTHROUGH_INTENDED;
 
         case STATE_PAUSED:
             mState = STATE_STOPPED;
@@ -991,14 +992,11 @@ void NuPlayerDriver::notifyListener_l(
                     // don't send completion event when looping
                     return;
                 }
-                if (property_get_bool("persist.debug.sf.stats", false)) {
-                    Vector<String16> args;
-                    dump(-1, args);
-                }
+
                 mPlayer->pause();
                 mState = STATE_PAUSED;
             }
-            // fall through
+            FALLTHROUGH_INTENDED;
         }
 
         case MEDIA_ERROR:

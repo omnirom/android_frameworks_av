@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #include <utils/Log.h>
 #include <binder/PermissionCache.h>
+#include <media/nblog/Merger.h>
 #include <media/nblog/NBLog.h>
 #include <mediautils/ServiceUtilities.h>
 #include "MediaLogService.h"
@@ -118,7 +119,6 @@ status_t MediaLogService::dump(int fd, const Vector<String16>& args __unused)
                 } else {
                     ALOGW("%s:", result.string());
                 }
-                // TODO should we instead proceed to mMergeReader.dump? does it need lock?
                 return NO_ERROR;
             }
 
@@ -131,9 +131,10 @@ status_t MediaLogService::dump(int fd, const Vector<String16>& args __unused)
                 }
             }
             mLock.unlock();
+        } else {
+            mMergeReader.dump(fd, args);
         }
     }
-    mMergeReader.dump(fd);
     return NO_ERROR;
 }
 

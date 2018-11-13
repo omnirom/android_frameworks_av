@@ -25,13 +25,13 @@
 #include "FLAC/stream_decoder.h"
 
 #include <media/MediaExtractorPluginApi.h>
-#include <media/MediaTrack.h>
 #include <media/VorbisComment.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/base64.h>
 #include <media/stagefright/MediaBufferGroup.h>
 #include <media/stagefright/MediaDefs.h>
+#include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/MediaBufferBase.h>
 
@@ -39,14 +39,14 @@ namespace android {
 
 class FLACParser;
 
-class FLACSource : public MediaTrack {
+class FLACSource : public MediaTrackHelper {
 
 public:
     FLACSource(
             DataSourceHelper *dataSource,
             MetaDataBase &meta);
 
-    virtual status_t start(MetaDataBase *params);
+    virtual status_t start();
     virtual status_t stop();
     virtual status_t getFormat(MetaDataBase &meta);
 
@@ -731,7 +731,7 @@ FLACSource::~FLACSource()
     delete mParser;
 }
 
-status_t FLACSource::start(MetaDataBase * /* params */)
+status_t FLACSource::start()
 {
     ALOGV("FLACSource::start");
 
@@ -812,7 +812,7 @@ size_t FLACExtractor::countTracks()
     return mInitCheck == OK ? 1 : 0;
 }
 
-MediaTrack *FLACExtractor::getTrack(size_t index)
+MediaTrackHelper *FLACExtractor::getTrack(size_t index)
 {
     if (mInitCheck != OK || index > 0) {
         return NULL;
@@ -866,19 +866,21 @@ ExtractorDef GETEXTRACTORDEF() {
             UUID("1364b048-cc45-4fda-9934-327d0ebf9829"),
             1,
             "FLAC Extractor",
-            [](
-                    CDataSource *source,
-                    float *confidence,
-                    void **,
-                    FreeMetaFunc *) -> CreatorFunc {
-                DataSourceHelper helper(source);
-                if (SniffFLAC(&helper, confidence)) {
-                    return [](
-                            CDataSource *source,
-                            void *) -> CMediaExtractor* {
-                        return wrap(new FLACExtractor(new DataSourceHelper(source)));};
+            {
+                [](
+                        CDataSource *source,
+                        float *confidence,
+                        void **,
+                        FreeMetaFunc *) -> CreatorFunc {
+                    DataSourceHelper helper(source);
+                    if (SniffFLAC(&helper, confidence)) {
+                        return [](
+                                CDataSource *source,
+                                void *) -> CMediaExtractor* {
+                            return wrap(new FLACExtractor(new DataSourceHelper(source)));};
+                    }
+                    return NULL;
                 }
-                return NULL;
             }
      };
 }

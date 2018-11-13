@@ -16,37 +16,37 @@
 
 #pragma once
 
-#include "AudioIODescriptorInterface.h"
-#include "AudioPort.h"
-#include "AudioSession.h"
-#include "ClientDescriptor.h"
-#include <utils/Errors.h>
 #include <system/audio.h>
+#include <utils/Errors.h>
 #include <utils/SortedVector.h>
 #include <utils/KeyedVector.h>
+#include "AudioIODescriptorInterface.h"
+#include "AudioPort.h"
+#include "ClientDescriptor.h"
 
 namespace android {
 
 class IOProfile;
 class AudioMix;
+class AudioPolicyClientInterface;
 
 // descriptor for audio inputs. Used to maintain current configuration of each opened audio input
 // and keep track of the usage of this input.
 class AudioInputDescriptor: public AudioPortConfig, public AudioIODescriptorInterface
+    , public ClientMapHandler<RecordClientDescriptor>
 {
 public:
     explicit AudioInputDescriptor(const sp<IOProfile>& profile,
                                   AudioPolicyClientInterface *clientInterface);
     audio_port_handle_t getId() const;
     audio_module_handle_t getModuleHandle() const;
-    uint32_t getOpenRefCount() const;
 
-    status_t    dump(int fd);
+    void dump(String8 *dst) const override;
 
-    audio_io_handle_t             mIoHandle;       // input handle
-    audio_devices_t               mDevice;         // current device this input is routed to
-    AudioMix                      *mPolicyMix;     // non NULL when used by a dynamic policy
-    const sp<IOProfile>           mProfile;        // I/O profile this output derives from
+    audio_io_handle_t   mIoHandle = AUDIO_IO_HANDLE_NONE; // input handle
+    audio_devices_t     mDevice = AUDIO_DEVICE_NONE;  // current device this input is routed to
+    AudioMix            *mPolicyMix = nullptr;        // non NULL when used by a dynamic policy
+    const sp<IOProfile> mProfile;                     // I/O profile this output derives from
 
     virtual void toAudioPortConfig(struct audio_port_config *dstConfig,
             const struct audio_port_config *srcConfig = NULL) const;
@@ -56,19 +56,13 @@ public:
     SortedVector<audio_session_t> getPreemptedSessions() const;
     bool hasPreemptedSession(audio_session_t session) const;
     void clearPreemptedSessions();
-    bool isActive() const;
+    bool isActive() const { return mGlobalActiveCount > 0; }
     bool isSourceActive(audio_source_t source) const;
     audio_source_t inputSource(bool activeOnly = false) const;
     bool isSoundTrigger() const;
-    status_t addAudioSession(audio_session_t session,
-                             const sp<AudioSession>& audioSession);
-    status_t removeAudioSession(audio_session_t session);
-    sp<AudioSession> getAudioSession(audio_session_t session) const;
-    AudioSessionCollection getAudioSessions(bool activeOnly) const;
-    size_t getAudioSessionCount(bool activeOnly) const;
     audio_source_t getHighestPrioritySource(bool activeOnly) const;
-    void changeRefCount(audio_session_t session, int delta);
-
+    void setClientActive(const sp<RecordClientDescriptor>& client, bool active);
+    int32_t activeCount() { return mGlobalActiveCount; }
 
     // implementation of AudioIODescriptorInterface
     audio_config_base_t getConfig() const override;
@@ -82,24 +76,23 @@ public:
                   audio_input_flags_t flags,
                   audio_io_handle_t *input);
     // Called when a stream is about to be started.
-    // Note: called after changeRefCount(session, 1)
+    // Note: called after setClientActive(client, true)
     status_t start();
     // Called after a stream is stopped
-    // Note: called after changeRefCount(session, -1)
+    // Note: called after setClientActive(client, false)
     void stop();
     void close();
 
-    RecordClientMap& clients() { return mClients; }
     RecordClientVector getClientsForSession(audio_session_t session);
+    RecordClientVector clientsList(bool activeOnly = false,
+        audio_source_t source = AUDIO_SOURCE_DEFAULT, bool preferredDeviceOnly = false) const;
 
  private:
 
-    void updateSessionRecordingConfiguration(int event, const sp<AudioSession>& audioSession);
+    void updateClientRecordingConfiguration(int event, const sp<RecordClientDescriptor>& client);
 
-    audio_patch_handle_t          mPatchHandle;
-    audio_port_handle_t           mId;
-    // audio sessions attached to this input
-    AudioSessionCollection        mSessions;
+    audio_patch_handle_t mPatchHandle = AUDIO_PATCH_HANDLE_NONE;
+    audio_port_handle_t  mId = AUDIO_PORT_HANDLE_NONE;
     // Because a preemptible capture session can preempt another one, we end up in an endless loop
     // situation were each session is allowed to restart after being preempted,
     // thus preempting the other one which restarts and so on.
@@ -107,10 +100,8 @@ public:
     // a particular input started and prevent preemption of this active input by this session.
     // We also inherit sessions from the preempted input to avoid a 3 way preemption loop etc...
     SortedVector<audio_session_t> mPreemptedSessions;
-    AudioPolicyClientInterface *mClientInterface;
-    uint32_t mGlobalRefCount;  // non-session-specific ref count
-
-    RecordClientMap mClients;
+    AudioPolicyClientInterface * const mClientInterface;
+    int32_t mGlobalActiveCount = 0;  // non-client-specific activity ref count
 };
 
 class AudioInputCollection :
@@ -136,7 +127,7 @@ public:
 
     sp<AudioInputDescriptor> getInputForClient(audio_port_handle_t portId);
 
-    status_t dump(int fd) const;
+    void dump(String8 *dst) const;
 };
 
 

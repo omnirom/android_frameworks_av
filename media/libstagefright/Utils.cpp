@@ -77,7 +77,7 @@ static void convertMetaDataToMessageInt32(
 }
 #endif
 
-static void convertMetaDataToMessageColorAspects(const sp<MetaData> &meta, sp<AMessage> &msg) {
+static void convertMetaDataToMessageColorAspects(const MetaDataBase *meta, sp<AMessage> &msg) {
     // 0 values are unspecified
     int32_t range = 0;
     int32_t primaries = 0;
@@ -193,6 +193,9 @@ static void parseAvcProfileLevelFromAvcc(const uint8_t *ptr, size_t size, sp<AMe
         { 50, OMX_VIDEO_AVCLevel5  },
         { 51, OMX_VIDEO_AVCLevel51 },
         { 52, OMX_VIDEO_AVCLevel52 },
+        { 60, OMX_VIDEO_AVCLevel6  },
+        { 61, OMX_VIDEO_AVCLevel61 },
+        { 62, OMX_VIDEO_AVCLevel62 },
     };
     const static ALookup<uint8_t, OMX_VIDEO_AVCPROFILETYPE> profiles {
         { 66, OMX_VIDEO_AVCProfileBaseline },
@@ -571,8 +574,14 @@ static void parseVp9ProfileLevelFromCsd(const sp<ABuffer> &csd, sp<AMessage> &fo
     }
 }
 
+
 status_t convertMetaDataToMessage(
         const sp<MetaData> &meta, sp<AMessage> *format) {
+    return convertMetaDataToMessage(meta.get(), format);
+}
+
+status_t convertMetaDataToMessage(
+        const MetaDataBase *meta, sp<AMessage> *format) {
 
     format->clear();
 

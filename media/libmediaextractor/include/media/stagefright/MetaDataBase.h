@@ -68,7 +68,6 @@ enum {
     kKeyOpusSeekPreRoll   = 'ospr',  // uint64_t (seek preroll in ns)
     kKeyFlacMetadata      = 'flMd',  // raw data
     kKeyVp9CodecPrivate   = 'vp9p',  // raw data (vp9 csd information)
-    kKeyWantsNALFragments = 'NALf',
     kKeyIsSyncFrame       = 'sync',  // int32_t (bool)
     kKeyIsCodecConfig     = 'conf',  // int32_t (bool)
     kKeyIsMuxerData       = 'muxd',  // int32_t (bool)
@@ -201,9 +200,6 @@ enum {
 
     // MPEG user data offsets
     kKeyMpegUserData      = 'mpud', // size_t[]
-
-    // Size of NALU length in mkv/mp4
-    kKeyNalLengthSize     = 'nals', // int32_t
 
     // HDR related
     kKeyHdrStaticInfo    = 'hdrS', // HDRStaticInfo

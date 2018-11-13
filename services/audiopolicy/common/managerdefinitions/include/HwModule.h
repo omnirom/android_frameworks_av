@@ -82,7 +82,7 @@ public:
     }
 
     // TODO remove from here (split serialization)
-    void dump(int fd);
+    void dump(String8 *dst) const;
 
     OutputProfileCollection mOutputProfiles; // output profiles exposed by this module
 
@@ -110,7 +110,7 @@ public:
                                              const char *device_name,
                                              bool matchAddress = true) const;
 
-    status_t dump(int fd) const;
+    void dump(String8 *dst) const;
 };
 
 } // namespace android

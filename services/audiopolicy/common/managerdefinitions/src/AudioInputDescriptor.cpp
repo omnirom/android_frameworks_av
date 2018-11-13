@@ -17,22 +17,20 @@
 #define LOG_TAG "APM::AudioInputDescriptor"
 //#define LOG_NDEBUG 0
 
+#include <media/AudioPolicy.h>
+#include <policy.h>
 #include <AudioPolicyInterface.h>
 #include "AudioInputDescriptor.h"
 #include "IOProfile.h"
 #include "AudioGain.h"
 #include "HwModule.h"
-#include <media/AudioPolicy.h>
-#include <policy.h>
 
 namespace android {
 
 AudioInputDescriptor::AudioInputDescriptor(const sp<IOProfile>& profile,
                                            AudioPolicyClientInterface *clientInterface)
-    : mIoHandle(0),
-      mDevice(AUDIO_DEVICE_NONE), mPolicyMix(NULL),
-      mProfile(profile), mPatchHandle(AUDIO_PATCH_HANDLE_NONE), mId(0),
-      mClientInterface(clientInterface), mGlobalRefCount(0)
+    : mProfile(profile)
+    ,  mClientInterface(clientInterface)
 {
     if (profile != NULL) {
         profile->pickAudioProfile(mSamplingRate, mChannelMask, mFormat);
@@ -48,11 +46,6 @@ audio_module_handle_t AudioInputDescriptor::getModuleHandle() const
         return AUDIO_MODULE_HANDLE_NONE;
     }
     return mProfile->getModuleHandle();
-}
-
-uint32_t AudioInputDescriptor::getOpenRefCount() const
-{
-    return mSessions.getOpenCount();
 }
 
 audio_port_handle_t AudioInputDescriptor::getId() const
@@ -118,57 +111,45 @@ void AudioInputDescriptor::clearPreemptedSessions()
     mPreemptedSessions.clear();
 }
 
-bool AudioInputDescriptor::isActive() const {
-    return mSessions.hasActiveSession();
-}
-
 bool AudioInputDescriptor::isSourceActive(audio_source_t source) const
 {
-    return mSessions.isSourceActive(source);
+    for (const auto &client : getClientIterable()) {
+        if (client->active() &&
+            ((client->source() == source) ||
+                ((source == AUDIO_SOURCE_VOICE_RECOGNITION) &&
+                    (client->source() == AUDIO_SOURCE_HOTWORD) &&
+                    client->isSoundTrigger()))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 audio_source_t AudioInputDescriptor::getHighestPrioritySource(bool activeOnly) const
 {
+    audio_source_t source = AUDIO_SOURCE_DEFAULT;
+    int32_t priority = -1;
 
-    return mSessions.getHighestPrioritySource(activeOnly);
+    for (const auto &client : getClientIterable()) {
+        if (activeOnly && !client->active() ) {
+            continue;
+        }
+        int32_t curPriority = source_priority(client->source());
+        if (curPriority > priority) {
+            priority = curPriority;
+            source = client->source();
+        }
+    }
+    return source;
 }
 
 bool AudioInputDescriptor::isSoundTrigger() const {
-    // sound trigger and non sound trigger sessions are not mixed
-    // on a given input
-    return mSessions.valueAt(0)->isSoundTrigger();
-}
-
-sp<AudioSession> AudioInputDescriptor::getAudioSession(
-                                              audio_session_t session) const {
-    return mSessions.valueFor(session);
-}
-
-AudioSessionCollection AudioInputDescriptor::getAudioSessions(bool activeOnly) const
-{
-    if (activeOnly) {
-        return mSessions.getActiveSessions();
-    } else {
-        return mSessions;
+    // sound trigger and non sound trigger clients are not mixed on a given input
+    // so check only first client
+    if (getClientCount() == 0) {
+        return false;
     }
-}
-
-size_t AudioInputDescriptor::getAudioSessionCount(bool activeOnly) const
-{
-    if (activeOnly) {
-        return mSessions.getActiveSessionCount();
-    } else {
-        return mSessions.size();
-    }
-}
-
-status_t AudioInputDescriptor::addAudioSession(audio_session_t session,
-                         const sp<AudioSession>& audioSession) {
-    return mSessions.addSession(session, audioSession);
-}
-
-status_t AudioInputDescriptor::removeAudioSession(audio_session_t session) {
-    return mSessions.removeSession(session);
+    return getClientIterable().begin()->isSoundTrigger();
 }
 
 audio_patch_handle_t AudioInputDescriptor::getPatchHandle() const
@@ -179,9 +160,9 @@ audio_patch_handle_t AudioInputDescriptor::getPatchHandle() const
 void AudioInputDescriptor::setPatchHandle(audio_patch_handle_t handle)
 {
     mPatchHandle = handle;
-    for (size_t i = 0; i < mSessions.size(); i++) {
-        if (mSessions[i]->activeCount() > 0) {
-            updateSessionRecordingConfiguration(RECORD_CONFIG_EVENT_START, mSessions[i]);
+    for (const auto &client : getClientIterable()) {
+        if (client->active()) {
+            updateClientRecordingConfiguration(RECORD_CONFIG_EVENT_START, client);
         }
     }
 }
@@ -243,7 +224,7 @@ status_t AudioInputDescriptor::open(const audio_config_t *config,
 
 status_t AudioInputDescriptor::start()
 {
-    if (getAudioSessionCount(true/*activeOnly*/) == 1) {
+    if (mGlobalActiveCount == 1) {
         if (!mProfile->canStartNewIo()) {
             ALOGI("%s mProfile->curActiveCount %d", __func__, mProfile->curActiveCount);
             return INVALID_OPERATION;
@@ -270,37 +251,44 @@ void AudioInputDescriptor::close()
         LOG_ALWAYS_FATAL_IF(mProfile->curOpenCount < 1, "%s profile open count %u",
                             __FUNCTION__, mProfile->curOpenCount);
         // do not call stop() here as stop() is supposed to be called after
-        //  changeRefCount(session, -1) and we don't know how many sessions
+        //  setClientActive(client, false) and we don't know how many clients
         // are still active at this time
         if (isActive()) {
             mProfile->curActiveCount--;
         }
         mProfile->curOpenCount--;
+        LOG_ALWAYS_FATAL_IF(mProfile->curOpenCount <  mProfile->curActiveCount,
+                "%s(%d): mProfile->curOpenCount %d < mProfile->curActiveCount %d.",
+                __func__, mId, mProfile->curOpenCount, mProfile->curActiveCount);
         mIoHandle = AUDIO_IO_HANDLE_NONE;
     }
 }
 
-void AudioInputDescriptor::changeRefCount(audio_session_t session, int delta)
+void AudioInputDescriptor::setClientActive(const sp<RecordClientDescriptor>& client, bool active)
 {
-    sp<AudioSession> audioSession = mSessions.valueFor(session);
-    if (audioSession == 0) {
+    LOG_ALWAYS_FATAL_IF(getClient(client->portId()) == nullptr,
+        "%s(%d) does not exist on input descriptor", __func__, client->portId());
+    if (active == client->active()) {
         return;
     }
-    // handle session-independent ref count
-    uint32_t oldGlobalRefCount = mGlobalRefCount;
-    if ((delta + (int)mGlobalRefCount) < 0) {
-        ALOGW("changeRefCount() invalid delta %d globalRefCount %d", delta, mGlobalRefCount);
-        delta = -((int)mGlobalRefCount);
+
+    // Handle non-client-specific activity ref count
+    int32_t oldGlobalActiveCount = mGlobalActiveCount;
+    if (!active && mGlobalActiveCount < 1) {
+        LOG_ALWAYS_FATAL("%s(%d) invalid deactivation with globalActiveCount %d",
+               __func__, client->portId(), mGlobalActiveCount);
+        // mGlobalActiveCount = 1;
     }
-    mGlobalRefCount += delta;
-    if ((oldGlobalRefCount == 0) && (mGlobalRefCount > 0)) {
+    const int delta = active ? 1 : -1;
+    mGlobalActiveCount += delta;
+
+    if ((oldGlobalActiveCount == 0) && (mGlobalActiveCount > 0)) {
         if ((mPolicyMix != NULL) && ((mPolicyMix->mCbFlags & AudioMix::kCbFlagNotifyActivity) != 0))
         {
             mClientInterface->onDynamicPolicyMixStateUpdate(mPolicyMix->mDeviceAddress,
                                                             MIX_STATE_MIXING);
         }
-
-    } else if ((oldGlobalRefCount > 0) && (mGlobalRefCount == 0)) {
+    } else if ((oldGlobalActiveCount > 0) && (mGlobalActiveCount == 0)) {
         if ((mPolicyMix != NULL) && ((mPolicyMix->mCbFlags & AudioMix::kCbFlagNotifyActivity) != 0))
         {
             mClientInterface->onDynamicPolicyMixStateUpdate(mPolicyMix->mDeviceAddress,
@@ -308,32 +296,18 @@ void AudioInputDescriptor::changeRefCount(audio_session_t session, int delta)
         }
     }
 
-    uint32_t oldActiveCount = audioSession->activeCount();
-    if ((delta + (int)oldActiveCount) < 0) {
-        ALOGW("changeRefCount() invalid delta %d for sesion %d active count %d",
-              delta, session, oldActiveCount);
-        delta = -((int)oldActiveCount);
-    }
+    client->setActive(active);
 
-    audioSession->changeActiveCount(delta);
-
-    int event = RECORD_CONFIG_EVENT_NONE;
-    if ((oldActiveCount == 0) && (audioSession->activeCount() > 0)) {
-        event = RECORD_CONFIG_EVENT_START;
-    } else if ((oldActiveCount > 0) && (audioSession->activeCount() == 0)) {
-        event = RECORD_CONFIG_EVENT_STOP;
-    }
-    if (event != RECORD_CONFIG_EVENT_NONE) {
-        updateSessionRecordingConfiguration(event, audioSession);
-    }
+    int event = active ? RECORD_CONFIG_EVENT_START : RECORD_CONFIG_EVENT_STOP;
+    updateClientRecordingConfiguration(event, client);
 
 }
 
-void AudioInputDescriptor::updateSessionRecordingConfiguration(
-    int event, const sp<AudioSession>& audioSession) {
-
-    const audio_config_base_t sessionConfig = audioSession->config();
-    const record_client_info_t recordClientInfo = audioSession->recordClientInfo();
+void AudioInputDescriptor::updateClientRecordingConfiguration(
+    int event, const sp<RecordClientDescriptor>& client)
+{
+    const audio_config_base_t sessionConfig = client->config();
+    const record_client_info_t recordClientInfo{client->uid(), client->session(), client->source()};
     const audio_config_base_t config = getConfig();
     mClientInterface->onRecordingConfigurationUpdate(event,
                                                      &recordClientInfo, &sessionConfig,
@@ -344,43 +318,38 @@ RecordClientVector AudioInputDescriptor::getClientsForSession(
     audio_session_t session)
 {
     RecordClientVector clients;
-    for (const auto &client : mClients) {
-        if (client.second->session() == session) {
-            clients.push_back(client.second);
+    for (const auto &client : getClientIterable()) {
+        if (client->session() == session) {
+            clients.push_back(client);
         }
     }
     return clients;
 }
 
-status_t AudioInputDescriptor::dump(int fd)
+RecordClientVector AudioInputDescriptor::clientsList(bool activeOnly, audio_source_t source,
+                                                     bool preferredDeviceOnly) const
 {
-    const size_t SIZE = 256;
-    char buffer[SIZE];
-    String8 result;
-
-    snprintf(buffer, SIZE, " ID: %d\n", getId());
-    result.append(buffer);
-    snprintf(buffer, SIZE, " Sampling rate: %d\n", mSamplingRate);
-    result.append(buffer);
-    snprintf(buffer, SIZE, " Format: %d\n", mFormat);
-    result.append(buffer);
-    snprintf(buffer, SIZE, " Channels: %08x\n", mChannelMask);
-    result.append(buffer);
-    snprintf(buffer, SIZE, " Devices %08x\n", mDevice);
-    result.append(buffer);
-
-    write(fd, result.string(), result.size());
-
-    mSessions.dump(fd, 1);
-
-    size_t index = 0;
-    result = " AudioRecord clients:\n";
-    for (const auto& client: mClients) {
-        client.second->dump(result, 2, index++);
+    RecordClientVector clients;
+    for (const auto &client : getClientIterable()) {
+        if ((!activeOnly || client->active())
+            && (source == AUDIO_SOURCE_DEFAULT || source == client->source())
+            && (!preferredDeviceOnly || client->hasPreferredDevice())) {
+            clients.push_back(client);
+        }
     }
-    result.append(" \n");
-    write(fd, result.string(), result.size());
-    return NO_ERROR;
+    return clients;
+}
+
+void AudioInputDescriptor::dump(String8 *dst) const
+{
+    dst->appendFormat(" ID: %d\n", getId());
+    dst->appendFormat(" Sampling rate: %d\n", mSamplingRate);
+    dst->appendFormat(" Format: %d\n", mFormat);
+    dst->appendFormat(" Channels: %08x\n", mChannelMask);
+    dst->appendFormat(" Devices %08x\n", mDevice);
+    dst->append(" AudioRecord Clients:\n");
+    ClientMapHandler<RecordClientDescriptor>::dump(dst);
+    dst->append("\n");
 }
 
 bool AudioInputCollection::isSourceActive(audio_source_t source) const
@@ -396,14 +365,13 @@ bool AudioInputCollection::isSourceActive(audio_source_t source) const
 
 sp<AudioInputDescriptor> AudioInputCollection::getInputFromId(audio_port_handle_t id) const
 {
-    sp<AudioInputDescriptor> inputDesc = NULL;
     for (size_t i = 0; i < size(); i++) {
-        inputDesc = valueAt(i);
-        if (inputDesc->getId() == id) {
-            break;
+        const sp<AudioInputDescriptor> inputDescriptor = valueAt(i);
+        if (inputDescriptor->getId() == id) {
+            return inputDescriptor;
         }
     }
-    return inputDesc;
+    return NULL;
 }
 
 uint32_t AudioInputCollection::activeInputsCountOnDevices(audio_devices_t devices) const
@@ -446,29 +414,20 @@ sp<AudioInputDescriptor> AudioInputCollection::getInputForClient(audio_port_hand
 {
     for (size_t i = 0; i < size(); i++) {
         sp<AudioInputDescriptor> inputDesc = valueAt(i);
-        for (const auto& client : inputDesc->clients()) {
-            if (client.second->portId() == portId) {
-                return inputDesc;
-            }
+        if (inputDesc->getClient(portId) != nullptr) {
+            return inputDesc;
         }
     }
     return 0;
 }
 
-status_t AudioInputCollection::dump(int fd) const
+void AudioInputCollection::dump(String8 *dst) const
 {
-    const size_t SIZE = 256;
-    char buffer[SIZE];
-
-    snprintf(buffer, SIZE, "\nInputs dump:\n");
-    write(fd, buffer, strlen(buffer));
+    dst->append("\nInputs dump:\n");
     for (size_t i = 0; i < size(); i++) {
-        snprintf(buffer, SIZE, "- Input %d dump:\n", keyAt(i));
-        write(fd, buffer, strlen(buffer));
-        valueAt(i)->dump(fd);
+        dst->appendFormat("- Input %d dump:\n", keyAt(i));
+        valueAt(i)->dump(dst);
     }
-
-    return NO_ERROR;
 }
 
 }; //namespace android

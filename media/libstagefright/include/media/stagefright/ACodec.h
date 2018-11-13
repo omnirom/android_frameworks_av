@@ -22,7 +22,7 @@
 #include <media/hardware/MetadataBufferType.h>
 #include <media/MediaCodecInfo.h>
 #include <media/IOMX.h>
-#include <media/stagefright/foundation/AHierarchicalStateMachine.h>
+#include <media/stagefright/AHierarchicalStateMachine.h>
 #include <media/stagefright/CodecBase.h>
 #include <media/stagefright/FrameRenderTracker.h>
 #include <media/stagefright/MediaDefs.h>
@@ -571,8 +571,6 @@ protected:
     void forceStateTransition(int generation);
 
     virtual void setBFrames(OMX_VIDEO_PARAM_MPEG4TYPE *mpeg4type __unused) {}
-    virtual void setBFrames(OMX_VIDEO_PARAM_AVCTYPE *h264type __unused,
-        const int32_t iFramesInterval __unused, const int32_t frameRate __unused) {}
 
     virtual status_t getVQZIPInfo(const sp<AMessage> &msg __unused) {
         return OK;

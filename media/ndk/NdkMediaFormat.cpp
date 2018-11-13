@@ -20,6 +20,7 @@
 #include <inttypes.h>
 
 #include <media/NdkMediaFormat.h>
+#include <media/NdkMediaFormatPriv.h>
 
 #include <utils/Log.h>
 #include <utils/StrongPointer.h>
@@ -32,30 +33,7 @@
 
 using namespace android;
 
-struct AMediaFormat {
-    sp<AMessage> mFormat;
-    String8 mDebug;
-    KeyedVector<String8, String8> mStringCache;
-};
-
 extern "C" {
-
-// private functions for conversion to/from AMessage
-AMediaFormat* AMediaFormat_fromMsg(const void* data) {
-    ALOGV("private ctor");
-    AMediaFormat* mData = new AMediaFormat();
-    mData->mFormat = *((sp<AMessage>*)data);
-    if (mData->mFormat == NULL) {
-        ALOGW("got NULL format");
-        mData->mFormat = new AMessage;
-    }
-    return mData;
-}
-
-void AMediaFormat_getFormat(const AMediaFormat* mData, void* dest) {
-    *((sp<AMessage>*)dest) = mData->mFormat;
-}
-
 
 /*
  * public function follow
@@ -71,6 +49,21 @@ EXPORT
 media_status_t AMediaFormat_delete(AMediaFormat *mData) {
     ALOGV("dtor");
     delete mData;
+    return AMEDIA_OK;
+}
+
+EXPORT
+void AMediaFormat_clear(AMediaFormat *format) {
+    format->mFormat->clear();
+}
+
+EXPORT
+media_status_t AMediaFormat_copy(AMediaFormat *to, AMediaFormat *from) {
+    if (!to || !from) {
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    to->mFormat->clear();
+    to->mFormat->extend(from->mFormat);
     return AMEDIA_OK;
 }
 
@@ -256,7 +249,7 @@ void AMediaFormat_setString(AMediaFormat* format, const char* name, const char* 
 }
 
 EXPORT
-void AMediaFormat_setBuffer(AMediaFormat* format, const char* name, void* data, size_t size) {
+void AMediaFormat_setBuffer(AMediaFormat* format, const char* name, const void* data, size_t size) {
     // the ABuffer(void*, size_t) constructor doesn't take ownership of the data, so create
     // a new buffer and copy the data into it
     sp<ABuffer> buf = new ABuffer(size);

@@ -190,6 +190,9 @@ public:
         ret = reply.readInt32();
         ALOGV("readMultiple status %d, bufferCount %u, sinceStop %u",
                 ret, bufferCount, mBuffersSinceStop);
+        if (bufferCount && ret == WOULD_BLOCK) {
+            ret = OK;
+        }
         return ret;
     }
 

@@ -30,7 +30,7 @@
 #define _AV_EXTENSIONS_H_
 
 #include <media/DataSource.h>
-#include <media/MediaExtractor.h>
+#include <media/stagefright/MediaExtractor.h>
 #include <SharedMemoryBuffer.h>
 #include <common/AVExtensionsCommon.h>
 #include <system/audio.h>
@@ -110,6 +110,8 @@ struct AVFactory {
  */
 struct AVUtils {
 
+    virtual status_t convertMetaDataToMessage(
+            const MetaDataBase *meta, sp<AMessage> *format);
     virtual status_t convertMetaDataToMessage(
             const sp<MetaData> &meta, sp<AMessage> *format);
     virtual status_t convertMessageToMetaData(

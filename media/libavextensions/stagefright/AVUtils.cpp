@@ -49,6 +49,11 @@
 namespace android {
 
 status_t AVUtils::convertMetaDataToMessage(
+        const MetaDataBase *, sp<AMessage> *) {
+    return OK;
+}
+
+status_t AVUtils::convertMetaDataToMessage(
         const sp<MetaData> &, sp<AMessage> *) {
     return OK;
 }

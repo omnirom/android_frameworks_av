@@ -57,6 +57,9 @@ aaudio_result_t AudioStreamRecord::open(const AudioStreamBuilder& builder)
 
     // Try to create an AudioRecord
 
+    const aaudio_session_id_t requestedSessionId = builder.getSessionId();
+    const audio_session_t sessionId = AAudioConvert_aaudioToAndroidSessionId(requestedSessionId);
+
     // TODO Support UNSPECIFIED in AudioRecord. For now, use stereo if unspecified.
     int32_t samplesPerFrame = (getSamplesPerFrame() == AAUDIO_UNSPECIFIED)
                               ? 2 : getSamplesPerFrame();
@@ -66,23 +69,27 @@ aaudio_result_t AudioStreamRecord::open(const AudioStreamBuilder& builder)
                         : builder.getBufferCapacity();
 
 
-    audio_input_flags_t flags = AUDIO_INPUT_FLAG_NONE;
+    audio_input_flags_t flags;
     aaudio_performance_mode_t perfMode = getPerformanceMode();
     switch (perfMode) {
         case AAUDIO_PERFORMANCE_MODE_LOW_LATENCY:
-            flags = (audio_input_flags_t) (AUDIO_INPUT_FLAG_FAST | AUDIO_INPUT_FLAG_RAW);
+            // If the app asks for a sessionId then it means they want to use effects.
+            // So don't use RAW flag.
+            flags = (audio_input_flags_t) ((requestedSessionId == AAUDIO_SESSION_ID_NONE)
+                    ? (AUDIO_INPUT_FLAG_FAST | AUDIO_INPUT_FLAG_RAW)
+                    : (AUDIO_INPUT_FLAG_FAST));
             break;
 
         case AAUDIO_PERFORMANCE_MODE_POWER_SAVING:
         case AAUDIO_PERFORMANCE_MODE_NONE:
         default:
-            // No flags.
+            flags = AUDIO_INPUT_FLAG_NONE;
             break;
     }
 
     // Preserve behavior of API 26
-    if (getFormat() == AAUDIO_FORMAT_UNSPECIFIED) {
-        setFormat(AAUDIO_FORMAT_PCM_FLOAT);
+    if (getFormat() == AUDIO_FORMAT_DEFAULT) {
+        setFormat(AUDIO_FORMAT_PCM_FLOAT);
     }
 
     // Maybe change device format to get a FAST path.
@@ -99,12 +106,12 @@ aaudio_result_t AudioStreamRecord::open(const AudioStreamBuilder& builder)
     // We just may not get a FAST track.
     // But we wouldn't have anyway without this hack.
     constexpr int32_t kMostLikelySampleRateForFast = 48000;
-    if (getFormat() == AAUDIO_FORMAT_PCM_FLOAT
+    if (getFormat() == AUDIO_FORMAT_PCM_FLOAT
             && perfMode == AAUDIO_PERFORMANCE_MODE_LOW_LATENCY
             && (samplesPerFrame <= 2) // FAST only for mono and stereo
             && (getSampleRate() == kMostLikelySampleRateForFast
                 || getSampleRate() == AAUDIO_UNSPECIFIED)) {
-        setDeviceFormat(AAUDIO_FORMAT_PCM_I16);
+        setDeviceFormat(AUDIO_FORMAT_PCM_16_BIT);
     } else {
         setDeviceFormat(getFormat());
     }
@@ -141,14 +148,10 @@ aaudio_result_t AudioStreamRecord::open(const AudioStreamBuilder& builder)
             .tags = ""
     };
 
-    aaudio_session_id_t requestedSessionId = builder.getSessionId();
-    audio_session_t sessionId = AAudioConvert_aaudioToAndroidSessionId(requestedSessionId);
-
     // ----------- open the AudioRecord ---------------------
     // Might retry, but never more than once.
     for (int i = 0; i < 2; i ++) {
-        audio_format_t requestedInternalFormat =
-                AAudioConvert_aaudioToAndroidDataFormat(getDeviceFormat());
+        const audio_format_t requestedInternalFormat = getDeviceFormat();
 
         mAudioRecord = new AudioRecord(
                 mOpPackageName // const String16& opPackageName TODO does not compile
@@ -214,8 +217,8 @@ aaudio_result_t AudioStreamRecord::open(const AudioStreamBuilder& builder)
     }
 
     // Allocate format conversion buffer if needed.
-    if (getDeviceFormat() == AAUDIO_FORMAT_PCM_I16
-        && getFormat() == AAUDIO_FORMAT_PCM_FLOAT) {
+    if (getDeviceFormat() == AUDIO_FORMAT_PCM_16_BIT
+        && getFormat() == AUDIO_FORMAT_PCM_FLOAT) {
 
         if (builder.getDataCallbackProc() != nullptr) {
             // If we have a callback then we need to convert the data into an internal float

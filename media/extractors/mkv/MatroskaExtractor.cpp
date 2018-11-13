@@ -23,7 +23,6 @@
 
 #include <media/DataSourceBase.h>
 #include <media/ExtractorUtils.h>
-#include <media/MediaTrack.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -124,10 +123,10 @@ private:
     BlockIterator &operator=(const BlockIterator &);
 };
 
-struct MatroskaSource : public MediaTrack {
+struct MatroskaSource : public MediaTrackHelper {
     MatroskaSource(MatroskaExtractor *extractor, size_t index);
 
-    virtual status_t start(MetaDataBase *params);
+    virtual status_t start();
     virtual status_t stop();
 
     virtual status_t getFormat(MetaDataBase &);
@@ -222,7 +221,8 @@ MatroskaSource::MatroskaSource(
                  mExtractor->mTracks.itemAt(index).mTrackNum,
                  index),
       mNALSizeLen(-1) {
-    MetaDataBase &meta = mExtractor->mTracks.editItemAt(index).mMeta;
+    MatroskaExtractor::TrackInfo &trackInfo = mExtractor->mTracks.editItemAt(index);
+    MetaDataBase &meta = trackInfo.mMeta;
 
     const char *mime;
     CHECK(meta.findCString(kKeyMIMEType, &mime));
@@ -235,9 +235,9 @@ MatroskaSource::MatroskaSource(
         uint32_t dummy;
         const uint8_t *avcc;
         size_t avccSize;
-        int32_t nalSizeLen = 0;
-        if (meta.findInt32(kKeyNalLengthSize, &nalSizeLen)) {
-            if (nalSizeLen >= 0 && nalSizeLen <= 4) {
+        int32_t nalSizeLen = trackInfo.mNalLengthSize;
+        if (nalSizeLen >= 0) {
+            if (nalSizeLen <= 4) {
                 mNALSizeLen = nalSizeLen;
             }
         } else if (meta.findData(kKeyAVCC, &dummy, (const void **)&avcc, &avccSize)
@@ -269,7 +269,7 @@ MatroskaSource::~MatroskaSource() {
     clearPendingFrames();
 }
 
-status_t MatroskaSource::start(MetaDataBase * /* params */) {
+status_t MatroskaSource::start() {
     if (mType == AVC && mNALSizeLen < 0) {
         return ERROR_MALFORMED;
     }
@@ -1002,7 +1002,7 @@ size_t MatroskaExtractor::countTracks() {
     return mTracks.size();
 }
 
-MediaTrack *MatroskaExtractor::getTrack(size_t index) {
+MediaTrackHelper *MatroskaExtractor::getTrack(size_t index) {
     if (index >= mTracks.size()) {
         return NULL;
     }
@@ -1227,7 +1227,7 @@ status_t MatroskaExtractor::synthesizeAVCC(TrackInfo *trackInfo, size_t index) {
     }
 
     // Override the synthesized nal length size, which is arbitrary
-    trackInfo->mMeta.setInt32(kKeyNalLengthSize, 0);
+    trackInfo->mNalLengthSize = 0;
     return OK;
 }
 
@@ -1344,6 +1344,7 @@ status_t MatroskaExtractor::initTrackInfo(
     trackInfo->mEncrypted = false;
     trackInfo->mHeader = NULL;
     trackInfo->mHeaderLen = 0;
+    trackInfo->mNalLengthSize = -1;
 
     for(size_t i = 0; i < track->GetContentEncodingCount(); i++) {
         const mkvparser::ContentEncoding *encoding = track->GetContentEncodingByIndex(i);
@@ -1646,19 +1647,21 @@ ExtractorDef GETEXTRACTORDEF() {
         UUID("abbedd92-38c4-4904-a4c1-b3f45f899980"),
         1,
         "Matroska Extractor",
-        [](
-                CDataSource *source,
-                float *confidence,
-                void **,
-                FreeMetaFunc *) -> CreatorFunc {
-            DataSourceHelper helper(source);
-            if (SniffMatroska(&helper, confidence)) {
-                return [](
-                        CDataSource *source,
-                        void *) -> CMediaExtractor* {
-                    return wrap(new MatroskaExtractor(new DataSourceHelper(source)));};
+        {
+            [](
+                    CDataSource *source,
+                    float *confidence,
+                    void **,
+                    FreeMetaFunc *) -> CreatorFunc {
+                DataSourceHelper helper(source);
+                if (SniffMatroska(&helper, confidence)) {
+                    return [](
+                            CDataSource *source,
+                            void *) -> CMediaExtractor* {
+                        return wrap(new MatroskaExtractor(new DataSourceHelper(source)));};
+                }
+                return NULL;
             }
-            return NULL;
         }
     };
 }

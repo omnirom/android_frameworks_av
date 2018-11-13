@@ -56,6 +56,7 @@
 #include "device3/Camera3DummyStream.h"
 #include "device3/Camera3SharedOutputStream.h"
 #include "CameraService.h"
+#include "utils/CameraThreadState.h"
 
 using namespace android::camera3;
 using namespace android::hardware::camera;
@@ -127,7 +128,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
     }
 
     std::vector<std::string> physicalCameraIds;
-    bool isLogical = CameraProviderManager::isLogicalCamera(mDeviceInfo, &physicalCameraIds);
+    bool isLogical = manager->isLogicalCamera(mId.string(), &physicalCameraIds);
     if (isLogical) {
         for (auto& physicalId : physicalCameraIds) {
             res = manager->getCameraCharacteristics(physicalId, &mPhysicalDeviceInfoMap[physicalId]);
@@ -281,7 +282,6 @@ status_t Camera3Device::disconnect() {
 status_t Camera3Device::disconnectImpl() {
     ATRACE_CALL();
     Mutex::Autolock il(mInterfaceLock);
-    Mutex::Autolock stLock(mTrackerLock);
 
     ALOGI("%s: E", __FUNCTION__);
 
@@ -346,6 +346,7 @@ status_t Camera3Device::disconnectImpl() {
     {
         Mutex::Autolock l(mLock);
         mRequestThread.clear();
+        Mutex::Autolock stLock(mTrackerLock);
         mStatusTracker.clear();
         interface = mInterface.get();
     }
@@ -1698,7 +1699,7 @@ status_t Camera3Device::createDefaultRequest(int templateId,
 
     if (templateId <= 0 || templateId >= CAMERA3_TEMPLATE_COUNT) {
         android_errorWriteWithInfoLog(CameraService::SN_EVENT_LOG_ID, "26866110",
-                IPCThreadState::self()->getCallingUid(), nullptr, 0);
+                CameraThreadState::getCallingUid(), nullptr, 0);
         return BAD_VALUE;
     }
 
@@ -2011,6 +2012,13 @@ status_t Camera3Device::flush(int64_t *frameNumber) {
 
     {
         Mutex::Autolock l(mLock);
+
+        // b/116514106 "disconnect()" can get called twice for the same device. The
+        // camera device will not be initialized during the second run.
+        if (mStatus == STATUS_UNINITIALIZED) {
+            return OK;
+        }
+
         mRequestThread->clear(/*out*/frameNumber);
     }
 
@@ -2269,8 +2277,8 @@ sp<Camera3Device::CaptureRequest> Camera3Device::createCaptureRequest(
                 return NULL;
             }
         }
-        // Check if stream is being prepared
-        if (mInputStream->isPreparing()) {
+        // Check if stream prepare is blocking requests.
+        if (mInputStream->isBlockedByPrepare()) {
             CLOGE("Request references an input stream that's being prepared!");
             return NULL;
         }
@@ -2320,8 +2328,8 @@ sp<Camera3Device::CaptureRequest> Camera3Device::createCaptureRequest(
                 return NULL;
             }
         }
-        // Check if stream is being prepared
-        if (stream->isPreparing()) {
+        // Check if stream prepare is blocking requests.
+        if (stream->isBlockedByPrepare()) {
             CLOGE("Request references an output stream that's being prepared!");
             return NULL;
         }
@@ -2739,13 +2747,14 @@ void Camera3Device::setErrorStateLockedV(const char *fmt, va_list args) {
 status_t Camera3Device::registerInFlight(uint32_t frameNumber,
         int32_t numBuffers, CaptureResultExtras resultExtras, bool hasInput,
         bool hasAppCallback, nsecs_t maxExpectedDuration,
-        std::set<String8>& physicalCameraIds, bool isStillCapture) {
+        std::set<String8>& physicalCameraIds, bool isStillCapture,
+        bool isZslCapture) {
     ATRACE_CALL();
     Mutex::Autolock l(mInFlightLock);
 
     ssize_t res;
     res = mInFlightMap.add(frameNumber, InFlightRequest(numBuffers, resultExtras, hasInput,
-            hasAppCallback, maxExpectedDuration, physicalCameraIds, isStillCapture));
+            hasAppCallback, maxExpectedDuration, physicalCameraIds, isStillCapture, isZslCapture));
     if (res < 0) return res;
 
     if (mInFlightMap.size() == 1) {
@@ -2763,11 +2772,12 @@ status_t Camera3Device::registerInFlight(uint32_t frameNumber,
 
 void Camera3Device::returnOutputBuffers(
         const camera3_stream_buffer_t *outputBuffers, size_t numBuffers,
-        nsecs_t timestamp) {
+        nsecs_t timestamp, bool timestampIncreasing) {
+
     for (size_t i = 0; i < numBuffers; i++)
     {
         Camera3Stream *stream = Camera3Stream::cast(outputBuffers[i].stream);
-        status_t res = stream->returnBuffer(outputBuffers[i], timestamp);
+        status_t res = stream->returnBuffer(outputBuffers[i], timestamp, timestampIncreasing);
         // Note: stream may be deallocated at this point, if this buffer was
         // the last reference to it.
         if (res != OK) {
@@ -3211,8 +3221,9 @@ void Camera3Device::processCaptureResult(const camera3_capture_result *result) {
             request.pendingOutputBuffers.appendArray(result->output_buffers,
                 result->num_output_buffers);
         } else {
+            bool timestampIncreasing = !(request.zslCapture || request.hasInputBuffer);
             returnOutputBuffers(result->output_buffers,
-                result->num_output_buffers, shutterTimestamp);
+                result->num_output_buffers, shutterTimestamp, timestampIncreasing);
         }
 
         if (result->result != NULL && !isPartialResult) {
@@ -3418,8 +3429,9 @@ void Camera3Device::notifyShutter(const camera3_shutter_msg_t &msg,
                     r.collectedPartialResult, msg.frame_number,
                     r.hasInputBuffer, r.physicalMetadatas);
             }
+            bool timestampIncreasing = !(r.zslCapture || r.hasInputBuffer);
             returnOutputBuffers(r.pendingOutputBuffers.array(),
-                r.pendingOutputBuffers.size(), r.shutterTimestamp);
+                r.pendingOutputBuffers.size(), r.shutterTimestamp, timestampIncreasing);
             r.pendingOutputBuffers.clear();
 
             removeInFlightRequestIfReadyLocked(idx);
@@ -4884,6 +4896,15 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
                 captureRequest->mOutputStreams.size());
         halRequest->output_buffers = outputBuffers->array();
         std::set<String8> requestedPhysicalCameras;
+
+        sp<Camera3Device> parent = mParent.promote();
+        if (parent == NULL) {
+            // Should not happen, and nowhere to send errors to, so just log it
+            CLOGE("RequestThread: Parent is gone");
+            return INVALID_OPERATION;
+        }
+        nsecs_t waitDuration = kBaseGetBufferWait + parent->getExpectedInFlightDuration();
+
         for (size_t j = 0; j < captureRequest->mOutputStreams.size(); j++) {
             sp<Camera3OutputStreamInterface> outputStream = captureRequest->mOutputStreams.editItemAt(j);
 
@@ -4892,7 +4913,8 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
                 // Only try to prepare video stream on the first video request.
                 mPrepareVideoStream = false;
 
-                res = outputStream->startPrepare(Camera3StreamInterface::ALLOCATE_PIPELINE_MAX);
+                res = outputStream->startPrepare(Camera3StreamInterface::ALLOCATE_PIPELINE_MAX,
+                        false /*blockRequest*/);
                 while (res == NOT_ENOUGH_DATA) {
                     res = outputStream->prepareNextBuffer();
                 }
@@ -4904,6 +4926,7 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
             }
 
             res = outputStream->getBuffer(&outputBuffers->editItemAt(j),
+                    waitDuration,
                     captureRequest->mOutputSurfaces[j]);
             if (res != OK) {
                 // Can't get output buffer from gralloc queue - this could be due to
@@ -4930,13 +4953,6 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
         totalNumBuffers += halRequest->num_output_buffers;
 
         // Log request in the in-flight queue
-        sp<Camera3Device> parent = mParent.promote();
-        if (parent == NULL) {
-            // Should not happen, and nowhere to send errors to, so just log it
-            CLOGE("RequestThread: Parent is gone");
-            return INVALID_OPERATION;
-        }
-
         // If this request list is for constrained high speed recording (not
         // preview), and the current request is not the last one in the batch,
         // do not send callback to the app.
@@ -4945,6 +4961,7 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
             hasCallback = false;
         }
         bool isStillCapture = false;
+        bool isZslCapture = false;
         if (!mNextRequests[0].captureRequest->mSettingsList.begin()->metadata.isEmpty()) {
             camera_metadata_ro_entry_t e = camera_metadata_ro_entry_t();
             find_camera_metadata_ro_entry(halRequest->settings, ANDROID_CONTROL_CAPTURE_INTENT, &e);
@@ -4952,13 +4969,18 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
                 isStillCapture = true;
                 ATRACE_ASYNC_BEGIN("still capture", mNextRequests[i].halRequest.frame_number);
             }
+
+            find_camera_metadata_ro_entry(halRequest->settings, ANDROID_CONTROL_ENABLE_ZSL, &e);
+            if ((e.count > 0) && (e.data.u8[0] == ANDROID_CONTROL_ENABLE_ZSL_TRUE)) {
+                isZslCapture = true;
+            }
         }
         res = parent->registerInFlight(halRequest->frame_number,
                 totalNumBuffers, captureRequest->mResultExtras,
                 /*hasInput*/halRequest->input_buffer != NULL,
                 hasCallback,
                 calculateMaxExpectedDuration(halRequest->settings),
-                requestedPhysicalCameras, isStillCapture);
+                requestedPhysicalCameras, isStillCapture, isZslCapture);
         ALOGVV("%s: registered in flight requestId = %" PRId32 ", frameNumber = %" PRId64
                ", burstId = %" PRId32 ".",
                 __FUNCTION__,
@@ -5572,7 +5594,7 @@ status_t Camera3Device::PreparerThread::prepare(int maxCount, sp<Camera3StreamIn
     Mutex::Autolock l(mLock);
     sp<NotificationListener> listener = mListener.promote();
 
-    res = stream->startPrepare(maxCount);
+    res = stream->startPrepare(maxCount, true /*blockRequest*/);
     if (res == OK) {
         // No preparation needed, fire listener right off
         ALOGV("%s: Stream %d already prepared", __FUNCTION__, stream->getId());
@@ -5660,7 +5682,7 @@ status_t Camera3Device::PreparerThread::resume() {
 
     auto it = mPendingStreams.begin();
     for (; it != mPendingStreams.end();) {
-        res = it->second->startPrepare(it->first);
+        res = it->second->startPrepare(it->first, true /*blockRequest*/);
         if (res == OK) {
             if (listener != NULL) {
                 listener->notifyPrepared(it->second->getId());

@@ -40,7 +40,7 @@ struct MatroskaExtractor : public MediaExtractorPluginHelper {
 
     virtual size_t countTracks();
 
-    virtual MediaTrack *getTrack(size_t index);
+    virtual MediaTrackHelper *getTrack(size_t index);
 
     virtual status_t getTrackMetaData(MetaDataBase& meta, size_t index, uint32_t flags);
 
@@ -69,6 +69,7 @@ private:
         // in ~MatroskaExtractor.
         unsigned char *mHeader;
         size_t mHeaderLen;
+        int32_t mNalLengthSize;
 
         const mkvparser::Track* getTrack() const;
         const mkvparser::CuePoint::TrackPosition *find(long long timeNs) const;

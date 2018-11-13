@@ -25,7 +25,6 @@
 #include <cutils/properties.h>
 #include <media/DataSource.h>
 #include <media/MediaBufferHolder.h>
-#include <media/MediaExtractor.h>
 #include <media/MediaSource.h>
 #include <media/IMediaExtractorService.h>
 #include <media/IMediaHTTPService.h>
@@ -38,6 +37,7 @@
 #include <media/stagefright/MediaBuffer.h>
 #include <media/stagefright/MediaClock.h>
 #include <media/stagefright/MediaDefs.h>
+#include <media/stagefright/MediaExtractor.h>
 #include <media/stagefright/MediaExtractorFactory.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/Utils.h>
@@ -305,7 +305,7 @@ status_t NuPlayer::GenericSource::startSources() {
     // TODO: this logic may no longer be relevant after the removal of widevine
     // support
     sp<MetaData> meta = new MetaData();
-    meta->setInt32(kKeyIsByteStreamMode, mIsStreaming ? 0 : AVNuUtils::get()->getFlags());
+    meta->setInt32(kKeyExtraFlags, mIsStreaming ? 0 : AVNuUtils::get()->getFlags());
     if (mAudioTrack.mSource != NULL && mAudioTrack.mSource->start(meta.get()) != OK) {
         ALOGE("failed to start audio track!");
         return UNKNOWN_ERROR;

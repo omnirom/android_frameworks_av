@@ -45,7 +45,7 @@ cc_library_static {
         },
     },
 
-    shared_libs: ["libmedia"],
+    shared_libs: ["libmedia", "libmediandk"],
 }
 
 cc_library_shared {
@@ -90,9 +90,10 @@ cc_library_shared {
     name: "libstagefright",
 
     srcs: [
+        "AACWriter.cpp",
         "ACodec.cpp",
         "ACodecBufferChannel.cpp",
-        "AACWriter.cpp",
+        "AHierarchicalStateMachine.cpp",
         "AMRWriter.cpp",
         "AudioPlayer.cpp",
         "AudioPresentationInfo.cpp",
@@ -120,8 +121,10 @@ cc_library_shared {
         "MediaCodecList.cpp",
         "MediaCodecListOverrides.cpp",
         "MediaCodecSource.cpp",
+        "MediaExtractor.cpp",
         "MediaExtractorFactory.cpp",
         "MediaSync.cpp",
+        "MediaTrack.cpp",
         "http/ClearMediaHTTP.cpp",
         "http/MediaHTTP.cpp",
         "MediaMuxer.cpp",
@@ -241,7 +244,7 @@ cc_library_shared {
     },
 }
 
-cc_library {
+cc_library_static {
     name: "libstagefright_player2",
 
     srcs: [
@@ -254,6 +257,7 @@ cc_library {
         "HevcUtils.cpp",
         "InterfaceUtils.cpp",
         "MediaClock.cpp",
+        "MediaExtractor.cpp",
         "MediaExtractorFactory.cpp",
         "NdkUtils.cpp",
         "NuCachedSource2.cpp",
@@ -269,7 +273,6 @@ cc_library {
         "libcutils",
         "libgui",
         "liblog",
-        "libmedia_player2_util",
         "libaudioclient",
         "libmediaextractor",
         "libmediametrics",
@@ -292,14 +295,11 @@ cc_library {
         "libstagefright_mpeg2support",
         "libstagefright_timedtext",
         "libavextensions",
+        "libmedia_player2_util",
     ],
 
     header_libs:[
         "media_plugin_headers",
-    ],
-
-    export_shared_lib_headers: [
-        "libmedia_player2_util",
     ],
 
     export_include_dirs: [

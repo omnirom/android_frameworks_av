@@ -17,6 +17,7 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "OMXHarness"
 #include <inttypes.h>
+#include <android-base/macros.h>
 #include <utils/Log.h>
 
 #include "OMXHarness.h"
@@ -28,7 +29,6 @@
 #include <cutils/properties.h>
 #include <media/DataSource.h>
 #include <media/IMediaHTTPService.h>
-#include <media/MediaExtractor.h>
 #include <media/MediaSource.h>
 #include <media/OMXBuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -844,7 +844,7 @@ int main(int argc, char **argv) {
 
             case '?':
                 fprintf(stderr, "\n");
-                // fall through
+                FALLTHROUGH_INTENDED;
 
             case 'h':
             default:
