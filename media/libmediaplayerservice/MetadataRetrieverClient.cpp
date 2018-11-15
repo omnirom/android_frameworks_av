@@ -280,7 +280,6 @@ sp<IMemory> MetadataRetrieverClient::extractAlbumArt()
     }
     MediaAlbumArt *albumArt = mRetriever->extractAlbumArt();
     if (albumArt == NULL) {
-        ALOGE("failed to extract an album art");
         return NULL;
     }
     size_t size = sizeof(MediaAlbumArt) + albumArt->size();
