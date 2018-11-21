@@ -187,6 +187,17 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                 ALOGE("SDM429 prop_value = %s, file_path = %s", value, file_path);
                 path = file_path;
                 parseTopLevelXMLFile(path.c_str(), false);
+            } else if (!strcmp(platform, "sdm660")) {
+                if (property_get("vendor.media.sdm660.version", value, "0") &&
+                    (atoi(value) == 1)){
+                    strlcpy(file_path, "/vendor/etc/media_codecs_sdm660_v1.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_vendor.xml",
+                            PROP_VALUE_MAX);
+                }
+                path = file_path;
+                parseTopLevelXMLFile(path.c_str(), false);
             } else {
                 parseTopLevelXMLFile(path.c_str(), false);
             }
@@ -228,6 +239,15 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                             PROP_VALUE_MAX);
                 } else {
                     strlcpy(file_path, "/vendor/etc/media_codecs_performance_8953.xml",
+                            PROP_VALUE_MAX);
+                }
+            } else if (!strcmp(platform, "sdm660")) {
+                if (property_get("vendor.media.sdm660.version", value, "0") &&
+                    (atoi(value) == 1)){
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance_sdm660_v1.xml",
+                            PROP_VALUE_MAX);
+                } else {
+                    strlcpy(file_path, "/vendor/etc/media_codecs_performance.xml",
                             PROP_VALUE_MAX);
                 }
             } else {
