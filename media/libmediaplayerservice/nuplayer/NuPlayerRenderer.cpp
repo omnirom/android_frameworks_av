@@ -307,7 +307,6 @@ void NuPlayer::Renderer::flush(bool audio, bool notifyComplete) {
             ++mVideoDrainGeneration;
         }
 
-        mMediaClock->clearAnchor();
         mVideoLateByUs = 0;
         mNextVideoTimeMediaUs = -1;
         mSyncQueues = false;
@@ -1605,7 +1604,17 @@ void NuPlayer::Renderer::onFlush(const sp<AMessage> &msg) {
         // is flushed.
         syncQueuesDone_l();
     }
-    clearAnchorTime();
+
+    if (audio && mHasVideo) {
+        // Audio should not clear anchor(MediaClock) directly, because video
+        // postDrainVideoQueue sets msg kWhatDrainVideoQueue into MediaClock
+        // timer, clear anchor without update immediately may block msg posting.
+        // So, postpone clear action to video to ensure anchor can be updated
+        // immediately after clear
+        mNeedVideoClearAnchor = true;
+    } else {
+        clearAnchorTime();
+    }
 
     ALOGV("flushing %s", audio ? "audio" : "video");
     if (audio) {
