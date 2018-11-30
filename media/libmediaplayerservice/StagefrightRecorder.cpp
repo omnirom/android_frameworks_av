@@ -1804,6 +1804,9 @@ status_t StagefrightRecorder::setupVideoEncoder(
         format->setInt32("nal-length-in-bytes", 4);
     }
 
+    // Will send this info to encoder component for custom optimizations
+    format->setInt32("isNativeRecorder", 1);
+
     uint32_t flags = 0;
     if (cameraSource == NULL) {
         flags |= MediaCodecSource::FLAG_USE_SURFACE_INPUT;
