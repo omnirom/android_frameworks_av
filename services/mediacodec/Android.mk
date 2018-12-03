@@ -68,6 +68,59 @@ LOCAL_INIT_RC := android.hardware.media.omx@1.0-service.rc
 
 include $(BUILD_EXECUTABLE)
 
+####################################################################
+
+# service executable
+include $(CLEAR_VARS)
+# seccomp is not required for coverage build.
+ifneq ($(NATIVE_COVERAGE),true)
+LOCAL_REQUIRED_MODULES_arm := crash_dump.policy mediacodec.policy
+LOCAL_REQUIRED_MODULES_x86 := crash_dump.policy mediacodec.policy
+endif
+LOCAL_SRC_FILES := \
+    main_swcodecservice.cpp \
+    MediaCodecUpdateService.cpp \
+
+sanitizer_runtime_libraries := $(call normalize-path-list,$(addsuffix .so,\
+  $(ADDRESS_SANITIZER_RUNTIME_LIBRARY) \
+  $(UBSAN_RUNTIME_LIBRARY) \
+  $(TSAN_RUNTIME_LIBRARY) \
+  $(2ND_ADDRESS_SANITIZER_RUNTIME_LIBRARY) \
+  $(2ND_UBSAN_RUNTIME_LIBRARY) \
+  $(2ND_TSAN_RUNTIME_LIBRARY)))
+
+# $(info Sanitizer:  $(sanitizer_runtime_libraries))
+
+llndk_libraries := $(call normalize-path-list,$(addsuffix .so,\
+  $(LLNDK_LIBRARIES)))
+
+# $(info LLNDK:  $(llndk_libraries))
+
+LOCAL_CFLAGS := -DLINKED_LIBRARIES='"$(sanitizer_runtime_libraries):$(llndk_libraries)"'
+
+LOCAL_SHARED_LIBRARIES := \
+    libavservices_minijail \
+    libbase \
+    libbinder \
+    libcutils \
+    libhidltransport \
+    libhwbinder \
+    liblog \
+    libmedia \
+    libutils \
+    libziparchive \
+
+LOCAL_MODULE := mediaswcodec
+LOCAL_INIT_RC := mediaswcodec.rc
+LOCAL_32_BIT_ONLY := true
+
+sanitizer_runtime_libraries :=
+llndk_libraries :=
+
+include $(BUILD_EXECUTABLE)
+
+####################################################################
+
 # service seccomp policy
 ifeq ($(TARGET_ARCH), $(filter $(TARGET_ARCH), x86 x86_64 arm arm64))
 include $(CLEAR_VARS)

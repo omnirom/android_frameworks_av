@@ -51,4 +51,8 @@ cc_library_static {
         "android.hardware.media.omx@1.0",
         "libhidlmemory",
     ],
+
+    header_libs: [
+        "media_ndk_headers",
+    ],
 }

@@ -18,17 +18,17 @@
 #define ANDROID_MEDIA_EXTRACTOR_UPDATE_SERVICE_H
 
 #include <binder/BinderService.h>
-#include <android/media/BnMediaExtractorUpdateService.h>
+#include <android/media/BnMediaUpdateService.h>
 
 namespace android {
 namespace media {
 
 class MediaExtractorUpdateService
-    : public BinderService<MediaExtractorUpdateService>, public BnMediaExtractorUpdateService
+    : public BinderService<MediaExtractorUpdateService>, public BnMediaUpdateService
 {
     friend class BinderService<MediaExtractorUpdateService>;
 public:
-    MediaExtractorUpdateService() : BnMediaExtractorUpdateService() { }
+    MediaExtractorUpdateService() : BnMediaUpdateService() { }
     virtual ~MediaExtractorUpdateService() { }
     static const char* getServiceName() { return "media.extractor.update"; }
     binder::Status loadPlugins(const ::std::string& apkPath);
