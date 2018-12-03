@@ -1559,6 +1559,16 @@ void NuPlayer::GenericSource::onPollBuffering() {
             notifyBufferingUpdate(100);
         }
 
+        if (mPreparing) {
+            notifyPreparedAndCleanup(finalStatus);
+            mPreparing = false;
+        } else if (mSentPauseOnBuffering) {
+            sendCacheStats();
+            mSentPauseOnBuffering = false;
+            sp<AMessage> notify = dupNotify();
+            notify->setInt32("what", kWhatResumeOnBufferingEnd);
+            notify->post();
+        }
         return;
     }
 

@@ -20,15 +20,15 @@
 namespace android {
 namespace hardware {
 namespace drm {
-namespace V1_1 {
+namespace V1_2 {
 namespace clearkey {
 
 class DeviceFiles {
  public:
     typedef enum {
+        kLicenseStateUnknown,
         kLicenseStateActive,
         kLicenseStateReleasing,
-        kLicenseStateUnknown,
     } LicenseState;
 
     DeviceFiles() {};
@@ -41,6 +41,10 @@ class DeviceFiles {
             const std::string& key_set_id, LicenseState* state, std::string* offlineLicense);
 
     virtual bool LicenseExists(const std::string& keySetId);
+
+    virtual std::vector<std::string> ListLicenses() const;
+
+    virtual bool DeleteLicense(const std::string& keySetId);
 
     virtual bool DeleteAllLicenses();
 
@@ -59,7 +63,7 @@ class DeviceFiles {
 };
 
 } // namespace clearkey
-} // namespace V1_1
+} // namespace V1_2
 } // namespace drm
 } // namespace hardware
 } // namespace android

@@ -1,4 +1,3 @@
-
 /*
  * Copyright (C) 2009 The Android Open Source Project
  *
@@ -575,7 +574,7 @@ static void parseVp9ProfileLevelFromCsd(const sp<ABuffer> &csd, sp<AMessage> &fo
 }
 
 
-std::vector<std::pair<const char *, uint32_t>> tagMappings {
+static std::vector<std::pair<const char *, uint32_t>> stringMappings {
     {
         { "album", kKeyAlbum },
         { "albumartist", kKeyAlbumArtist },
@@ -587,47 +586,108 @@ std::vector<std::pair<const char *, uint32_t>> tagMappings {
         { "date", kKeyDate },
         { "discnum", kKeyDiscNumber },
         { "genre", kKeyGenre },
+        { "location", kKeyLocation },
         { "lyricist", kKeyWriter },
         { "title", kKeyTitle },
         { "year", kKeyYear },
     }
 };
 
-void convertMessageToMetaDataTags(const sp<AMessage> &msg, sp<MetaData> &meta) {
-    for (auto elem : tagMappings) {
+static std::vector<std::pair<const char *, uint32_t>> int64Mappings {
+    {
+        { "exif-offset", kKeyExifOffset },
+        { "exif-size", kKeyExifSize },
+    }
+};
+
+static std::vector<std::pair<const char *, uint32_t>> int32Mappings {
+    {
+        { "loop", kKeyAutoLoop },
+        { "time-scale", kKeyTimeScale },
+        { "crypto-mode", kKeyCryptoMode },
+        { "crypto-default-iv-size", kKeyCryptoDefaultIVSize },
+        { "crypto-encrypted-byte-block", kKeyEncryptedByteBlock },
+        { "crypto-skip-byte-block", kKeySkipByteBlock },
+        { "max-bitrate", kKeyMaxBitRate },
+        { "pcm-big-endian", kKeyPcmBigEndian },
+        { "temporal-layer-count", kKeyTemporalLayerCount },
+        { "thumbnail-width", kKeyThumbnailWidth },
+        { "thumbnail-height", kKeyThumbnailHeight },
+    }
+};
+
+static std::vector<std::pair<const char *, uint32_t>> bufferMappings {
+    {
+        { "albumart", kKeyAlbumArt },
+        { "pssh", kKeyPssh },
+        { "crypto-iv", kKeyCryptoIV },
+        { "crypto-key", kKeyCryptoKey },
+        { "icc-profile", kKeyIccProfile },
+        { "text-format-data", kKeyTextFormatData },
+    }
+};
+
+void convertMessageToMetaDataFromMappings(const sp<AMessage> &msg, sp<MetaData> &meta) {
+    for (auto elem : stringMappings) {
         AString value;
         if (msg->findString(elem.first, &value)) {
             meta->setCString(elem.second, value.c_str());
         }
     }
-    sp<ABuffer> buf;
-    if (msg->findBuffer("albumart", &buf)) {
-        meta->setData(kKeyAlbumArt, MetaDataBase::Type::TYPE_NONE, buf->data(), buf->size());
+
+    for (auto elem : int64Mappings) {
+        int64_t value;
+        if (msg->findInt64(elem.first, &value)) {
+            meta->setInt64(elem.second, value);
+        }
     }
 
-    int32_t loop;
-    if (msg->findInt32("loop", &loop)) {
-        meta->setInt32(kKeyAutoLoop, loop);
+    for (auto elem : int32Mappings) {
+        int32_t value;
+        if (msg->findInt32(elem.first, &value)) {
+            meta->setInt32(elem.second, value);
+        }
+    }
+
+    for (auto elem : bufferMappings) {
+        sp<ABuffer> value;
+        if (msg->findBuffer(elem.first, &value)) {
+            meta->setData(elem.second,
+                    MetaDataBase::Type::TYPE_NONE, value->data(), value->size());
+        }
     }
 }
 
-void convertMetaDataToMessageTags(const MetaDataBase *meta, sp<AMessage> format) {
-    for (auto elem : tagMappings) {
+void convertMetaDataToMessageFromMappings(const MetaDataBase *meta, sp<AMessage> format) {
+    for (auto elem : stringMappings) {
         const char *value;
         if (meta->findCString(elem.second, &value)) {
             format->setString(elem.first, value, strlen(value));
         }
     }
-    uint32_t type;
-    const void* data;
-    size_t size;
-    if (meta->findData(kKeyAlbumArt, &type, &data, &size)) {
-        sp<ABuffer> buf = ABuffer::CreateAsCopy(data, size);
-        format->setBuffer("albumart", buf);
+
+    for (auto elem : int64Mappings) {
+        int64_t value;
+        if (meta->findInt64(elem.second, &value)) {
+            format->setInt64(elem.first, value);
+        }
     }
-    int32_t loop;
-    if (meta->findInt32(kKeyAutoLoop, &loop)) {
-        format->setInt32("loop", loop);
+
+    for (auto elem : int32Mappings) {
+        int32_t value;
+        if (meta->findInt32(elem.second, &value)) {
+            format->setInt32(elem.first, value);
+        }
+    }
+
+    for (auto elem : bufferMappings) {
+        uint32_t type;
+        const void* data;
+        size_t size;
+        if (meta->findData(elem.second, &type, &data, &size)) {
+            sp<ABuffer> buf = ABuffer::CreateAsCopy(data, size);
+            format->setBuffer(elem.first, buf);
+        }
     }
 }
 
@@ -654,7 +714,7 @@ status_t convertMetaDataToMessage(
     sp<AMessage> msg = new AMessage;
     msg->setString("mime", mime);
 
-    convertMetaDataToMessageTags(meta, msg);
+    convertMetaDataToMessageFromMappings(meta, msg);
 
     uint32_t type;
     const void *data;
@@ -792,6 +852,11 @@ status_t convertMetaDataToMessage(
 
         msg->setInt32("channel-count", numChannels);
         msg->setInt32("sample-rate", sampleRate);
+
+        int32_t bitsPerSample;
+        if (meta->findInt32(kKeyBitsPerSample, &bitsPerSample)) {
+            msg->setInt32("bits-per-sample", bitsPerSample);
+        }
 
         int32_t channelMask;
         if (meta->findInt32(kKeyChannelMask, &channelMask)) {
@@ -1020,6 +1085,56 @@ status_t convertMetaDataToMessage(
             msg->setInt32("android._is-hdr", (info & hvcc.kInfoIsHdr) != 0);
         }
 
+        uint32_t isoPrimaries, isoTransfer, isoMatrix, isoRange;
+        if (hvcc.findParam32(kColourPrimaries, &isoPrimaries)
+                && hvcc.findParam32(kTransferCharacteristics, &isoTransfer)
+                && hvcc.findParam32(kMatrixCoeffs, &isoMatrix)
+                && hvcc.findParam32(kVideoFullRangeFlag, &isoRange)) {
+            ALOGV("found iso color aspects : primaris=%d, transfer=%d, matrix=%d, range=%d",
+                    isoPrimaries, isoTransfer, isoMatrix, isoRange);
+
+            ColorAspects aspects;
+            ColorUtils::convertIsoColorAspectsToCodecAspects(
+                    isoPrimaries, isoTransfer, isoMatrix, isoRange, aspects);
+
+            if (aspects.mPrimaries == ColorAspects::PrimariesUnspecified) {
+                int32_t primaries;
+                if (meta->findInt32(kKeyColorPrimaries, &primaries)) {
+                    ALOGV("unspecified primaries found, replaced to %d", primaries);
+                    aspects.mPrimaries = static_cast<ColorAspects::Primaries>(primaries);
+                }
+            }
+            if (aspects.mTransfer == ColorAspects::TransferUnspecified) {
+                int32_t transferFunction;
+                if (meta->findInt32(kKeyTransferFunction, &transferFunction)) {
+                    ALOGV("unspecified transfer found, replaced to %d", transferFunction);
+                    aspects.mTransfer = static_cast<ColorAspects::Transfer>(transferFunction);
+                }
+            }
+            if (aspects.mMatrixCoeffs == ColorAspects::MatrixUnspecified) {
+                int32_t colorMatrix;
+                if (meta->findInt32(kKeyColorMatrix, &colorMatrix)) {
+                    ALOGV("unspecified matrix found, replaced to %d", colorMatrix);
+                    aspects.mMatrixCoeffs = static_cast<ColorAspects::MatrixCoeffs>(colorMatrix);
+                }
+            }
+            if (aspects.mRange == ColorAspects::RangeUnspecified) {
+                int32_t range;
+                if (meta->findInt32(kKeyColorRange, &range)) {
+                    ALOGV("unspecified range found, replaced to %d", range);
+                    aspects.mRange = static_cast<ColorAspects::Range>(range);
+                }
+            }
+
+            int32_t standard, transfer, range;
+            if (ColorUtils::convertCodecColorAspectsToPlatformAspects(
+                    aspects, &range, &standard, &transfer) == OK) {
+                msg->setInt32("color-standard", standard);
+                msg->setInt32("color-transfer", transfer);
+                msg->setInt32("color-range", range);
+            }
+        }
+
         parseHevcProfileLevelFromHvcc((const uint8_t *)data, dataSize, msg);
     } else if (meta->findData(kKeyESDS, &type, &data, &size)) {
         ESDS esds((const char *)data, size);
@@ -1068,7 +1183,7 @@ status_t convertMetaDataToMessage(
                 msg->setInt32("max-bitrate", (int32_t)maxBitrate);
             }
         }
-    } else if (meta->findData(kTypeD263, &type, &data, &size)) {
+    } else if (meta->findData(kKeyD263, &type, &data, &size)) {
         const uint8_t *ptr = (const uint8_t *)data;
         parseH263ProfileLevelFromD263(ptr, size, msg);
     } else if (meta->findData(kKeyVorbisInfo, &type, &data, &size)) {
@@ -1155,13 +1270,17 @@ status_t convertMetaDataToMessage(
         msg->setBuffer("csd-0", buffer);
 
         parseVp9ProfileLevelFromCsd(buffer, msg);
-    }
-
-    // TODO expose "crypto-key"/kKeyCryptoKey through public api
-    if (meta->findData(kKeyCryptoKey, &type, &data, &size)) {
+    } else if (meta->findData(kKeyAlacMagicCookie, &type, &data, &size)) {
+        ALOGV("convertMetaDataToMessage found kKeyAlacMagicCookie of size %zu\n", size);
         sp<ABuffer> buffer = new (std::nothrow) ABuffer(size);
-        msg->setBuffer("crypto-key", buffer);
+        if (buffer.get() == NULL || buffer->base() == NULL) {
+            return NO_MEMORY;
+        }
         memcpy(buffer->data(), data, size);
+
+        buffer->meta()->setInt32("csd", true);
+        buffer->meta()->setInt64("timeUs", 0);
+        msg->setBuffer("csd-0", buffer);
     }
 
      AVUtils::get()->convertMetaDataToMessage(meta, &msg);
@@ -1363,7 +1482,7 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
         ALOGW("did not find mime type");
     }
 
-    convertMessageToMetaDataTags(msg, meta);
+    convertMessageToMetaDataFromMappings(msg, meta);
 
     int64_t durationUs;
     if (msg->findInt64("durationUs", &durationUs)) {
@@ -1396,7 +1515,7 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
             meta->setInt32(kKeyWidth, width);
             meta->setInt32(kKeyHeight, height);
         } else {
-            ALOGW("did not find width and/or height");
+            ALOGV("did not find width and/or height");
         }
 
         int32_t sarWidth, sarHeight;
@@ -1483,6 +1602,10 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
         if (msg->findInt32("sample-rate", &sampleRate)) {
             meta->setInt32(kKeySampleRate, sampleRate);
         }
+        int32_t bitsPerSample;
+        if (msg->findInt32("bits-per-sample", &bitsPerSample)) {
+            meta->setInt32(kKeyBitsPerSample, bitsPerSample);
+        }
         int32_t channelMask;
         if (msg->findInt32("channel-mask", &channelMask)) {
             meta->setInt32(kKeyChannelMask, channelMask);
@@ -1553,19 +1676,19 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
             if (msg->findBuffer("csd-1", &csd1)) {
                 std::vector<char> avcc(csd0size + csd1->size() + 1024);
                 size_t outsize = reassembleAVCC(csd0, csd1, avcc.data());
-                meta->setData(kKeyAVCC, kKeyAVCC, avcc.data(), outsize);
+                meta->setData(kKeyAVCC, kTypeAVCC, avcc.data(), outsize);
             }
         } else if (mime == MEDIA_MIMETYPE_AUDIO_AAC || mime == MEDIA_MIMETYPE_VIDEO_MPEG4) {
             std::vector<char> esds(csd0size + 31);
             // The written ESDS is actually for an audio stream, but it's enough
             // for transporting the CSD to muxers.
             reassembleESDS(csd0, esds.data());
-            meta->setData(kKeyESDS, kKeyESDS, esds.data(), esds.size());
+            meta->setData(kKeyESDS, kTypeESDS, esds.data(), esds.size());
         } else if (mime == MEDIA_MIMETYPE_VIDEO_HEVC ||
                    mime == MEDIA_MIMETYPE_IMAGE_ANDROID_HEIC) {
             std::vector<uint8_t> hvcc(csd0size + 1024);
             size_t outsize = reassembleHVCC(csd0, hvcc.data(), hvcc.size(), 4);
-            meta->setData(kKeyHVCC, kKeyHVCC, hvcc.data(), outsize);
+            meta->setData(kKeyHVCC, kTypeHVCC, hvcc.data(), outsize);
         } else if (mime == MEDIA_MIMETYPE_VIDEO_VP9) {
             meta->setData(kKeyVp9CodecPrivate, 0, csd0->data(), csd0->size());
         } else if (mime == MEDIA_MIMETYPE_AUDIO_OPUS) {
@@ -1581,12 +1704,20 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
             if (msg->findBuffer("csd-1", &csd1)) {
                 meta->setData(kKeyVorbisBooks, 0, csd1->data(), csd1->size());
             }
+        } else if (mime == MEDIA_MIMETYPE_AUDIO_ALAC) {
+            meta->setData(kKeyAlacMagicCookie, 0, csd0->data(), csd0->size());
         }
-    }
-
-    int32_t timeScale;
-    if (msg->findInt32("time-scale", &timeScale)) {
-        meta->setInt32(kKeyTimeScale, timeScale);
+    } else if (mime == MEDIA_MIMETYPE_VIDEO_AVC && msg->findBuffer("csd-avc", &csd0)) {
+        meta->setData(kKeyAVCC, kTypeAVCC, csd0->data(), csd0->size());
+    } else if ((mime == MEDIA_MIMETYPE_VIDEO_HEVC || mime == MEDIA_MIMETYPE_IMAGE_ANDROID_HEIC)
+            && msg->findBuffer("csd-hevc", &csd0)) {
+        meta->setData(kKeyHVCC, kTypeHVCC, csd0->data(), csd0->size());
+    } else if (msg->findBuffer("esds", &csd0)) {
+        meta->setData(kKeyESDS, kTypeESDS, csd0->data(), csd0->size());
+    } else if (msg->findBuffer("mpeg2-stream-header", &csd0)) {
+        meta->setData(kKeyStreamHeader, 'mdat', csd0->data(), csd0->size());
+    } else if (msg->findBuffer("d263", &csd0)) {
+        meta->setData(kKeyD263, kTypeD263, csd0->data(), csd0->size());
     }
 
     // XXX TODO add whatever other keys there are
@@ -1667,6 +1798,7 @@ static const struct mime_conv_t mimeLookup[] = {
     { MEDIA_MIMETYPE_AUDIO_EAC3,        AUDIO_FORMAT_E_AC3},
     { MEDIA_MIMETYPE_AUDIO_AC4,         AUDIO_FORMAT_AC4},
     { MEDIA_MIMETYPE_AUDIO_FLAC,        AUDIO_FORMAT_FLAC},
+    { MEDIA_MIMETYPE_AUDIO_ALAC,        AUDIO_FORMAT_ALAC },
     { 0, AUDIO_FORMAT_INVALID }
 };
 
@@ -1718,30 +1850,30 @@ const struct aac_format_conv_t* p = &profileLookup[0];
     return;
 }
 
-bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
-                      bool isStreaming, audio_stream_type_t streamType)
+status_t getAudioOffloadInfo(const sp<MetaData>& meta, bool hasVideo,
+        bool isStreaming, audio_stream_type_t streamType, audio_offload_info_t *info)
 {
     const char *mime;
     if (meta == NULL) {
-        return false;
+        return BAD_VALUE;
     }
     CHECK(meta->findCString(kKeyMIMEType, &mime));
 
-    audio_offload_info_t info = AUDIO_INFO_INITIALIZER;
+    (*info) = AUDIO_INFO_INITIALIZER;
 
-    info.format = AUDIO_FORMAT_INVALID;
-    if (mapMimeToAudioFormat(info.format, mime) != OK) {
+    info->format = AUDIO_FORMAT_INVALID;
+    if (mapMimeToAudioFormat(info->format, mime) != OK) {
         ALOGE(" Couldn't map mime type \"%s\" to a valid AudioSystem::audio_format !", mime);
-        return false;
+        return BAD_VALUE;
     } else {
-        ALOGV("Mime type \"%s\" mapped to audio_format %d", mime, info.format);
+        ALOGV("Mime type \"%s\" mapped to audio_format %d", mime, info->format);
     }
 
-    info.format  = AVUtils::get()->updateAudioFormat(info.format, meta);
-    if (AUDIO_FORMAT_INVALID == info.format) {
+    info->format  = AVUtils::get()->updateAudioFormat(info.format, meta);
+    if (AUDIO_FORMAT_INVALID == info->format) {
         // can't offload if we don't know what the source format is
         ALOGE("mime type \"%s\" not a known audio format", mime);
-        return false;
+        return BAD_VALUE;
     }
 
     if (AVUtils::get()->canOffloadAPE(meta) != true) {
@@ -1752,10 +1884,10 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
     int32_t aacaot = -1;
     if (meta->findInt32(kKeyAACAOT, &aacaot)) {
         bool isADTSSupported = false;
-        isADTSSupported = AVUtils::get()->mapAACProfileToAudioFormat(meta, info.format,
+        isADTSSupported = AVUtils::get()->mapAACProfileToAudioFormat(meta, info->format,
                                     (OMX_AUDIO_AACPROFILETYPE) aacaot);
         if (!isADTSSupported) {
-            mapAACProfileToAudioFormat(info.format,(OMX_AUDIO_AACPROFILETYPE) aacaot);
+            mapAACProfileToAudioFormat(info->format,(OMX_AUDIO_AACPROFILETYPE) aacaot);
         }
     }
 
@@ -1763,10 +1895,10 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
     if (!meta->findInt32(kKeySampleRate, &srate)) {
         ALOGV("track of type '%s' does not publish sample rate", mime);
     }
-    info.sample_rate = srate;
+    info->sample_rate = srate;
 
     int32_t cmask = 0;
-    if (!meta->findInt32(kKeyChannelMask, &cmask) || 0 == cmask) {
+    if (!meta->findInt32(kKeyChannelMask, &cmask) || cmask == CHANNEL_MASK_USE_CHANNEL_ORDER) {
         ALOGV("track of type '%s' does not publish channel mask", mime);
 
         // Try a channel count instead
@@ -1779,25 +1911,34 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
         ALOGW("track of type '%s' does not publish channel mask, channel count %d",
               mime, channelCount);
     }
-    info.channel_mask = cmask;
+    info->channel_mask = cmask;
 
     int64_t duration = 0;
     if (!meta->findInt64(kKeyDuration, &duration)) {
         ALOGV("track of type '%s' does not publish duration", mime);
     }
-    info.duration_us = duration;
+    info->duration_us = duration;
 
     int32_t brate = -1;
     if (!meta->findInt32(kKeyBitRate, &brate)) {
         ALOGV("track of type '%s' does not publish bitrate", mime);
     }
-    info.bit_rate = brate;
+    info->bit_rate = brate;
 
 
-    info.stream_type = streamType;
-    info.has_video = hasVideo;
-    info.is_streaming = isStreaming;
+    info->stream_type = streamType;
+    info->has_video = hasVideo;
+    info->is_streaming = isStreaming;
+    return OK;
+}
 
+bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
+                      bool isStreaming, audio_stream_type_t streamType)
+{
+    audio_offload_info_t info = AUDIO_INFO_INITIALIZER;
+    if (OK != getAudioOffloadInfo(meta, hasVideo, isStreaming, streamType, &info)) {
+        return false;
+    }
     // Check if offload is possible for given format, stream type, sample rate,
     // bit rate, duration, video and streaming
     return AudioSystem::isOffloadSupported(info);

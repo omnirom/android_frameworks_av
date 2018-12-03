@@ -35,6 +35,7 @@
 #include <map>
 
 namespace android {
+namespace acam {
 
 /**
  * Per-process singleton instance of CameraManger. Shared by all ACameraManager
@@ -172,6 +173,7 @@ class CameraManagerGlobal final : public RefBase {
     ~CameraManagerGlobal();
 };
 
+} // namespace acam;
 } // namespace android;
 
 /**
@@ -180,7 +182,7 @@ class CameraManagerGlobal final : public RefBase {
  */
 struct ACameraManager {
     ACameraManager() :
-            mGlobalManager(&(android::CameraManagerGlobal::getInstance())) {}
+            mGlobalManager(&(android::acam::CameraManagerGlobal::getInstance())) {}
     ~ACameraManager();
     camera_status_t getCameraIdList(ACameraIdList** cameraIdList);
     static void     deleteCameraIdList(ACameraIdList* cameraIdList);
@@ -196,7 +198,7 @@ struct ACameraManager {
         kCameraIdListNotInit = -1
     };
     android::Mutex         mLock;
-    android::sp<android::CameraManagerGlobal> mGlobalManager;
+    android::sp<android::acam::CameraManagerGlobal> mGlobalManager;
 };
 
 #endif //_ACAMERA_MANAGER_H
