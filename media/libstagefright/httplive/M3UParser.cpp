@@ -237,7 +237,7 @@ bool M3UParser::MediaGroup::getActiveURI(AString *uri, const char *baseURL) cons
             if (item.mURI.empty()) {
                 *uri = "";
             } else {
-                *uri = item.mURI;
+                *uri = item.makeURL(baseURL);
             }
             return true;
         }
