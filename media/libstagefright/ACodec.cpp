@@ -6529,8 +6529,9 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
     //as these components are not present in media_codecs.xml and MediaCodecList won't find
     //these component by findCodecByName.
     //Video and Flac decoder are present in list so exclude them.
-    if (!(componentName.find("qcom", 0) > 0 || componentName.find("qti", 0) > 0) ||
-          componentName.find("video", 0) > 0 || componentName.find("flac", 0) > 0) {
+    if ((!(componentName.find("qcom", 0) > 0 || componentName.find("qti", 0) > 0) ||
+          componentName.find("video", 0) > 0 || componentName.find("flac", 0) > 0) &&
+          !(componentName.find("tme",0) > 0)) {
         if (info == nullptr) {
             ALOGE("Unexpected nullptr for codec information");
             mCodec->signalError(OMX_ErrorUndefined, UNKNOWN_ERROR);

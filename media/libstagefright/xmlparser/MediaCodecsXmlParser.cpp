@@ -153,7 +153,8 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                 } else {
                     parseTopLevelXMLFile(path.c_str(), false);
                 }
-            } else if (!strcmp(platform, "talos")) {
+            } else if (!strcmp(platform, "talos") ||
+                    !strcmp(platform, "sm6150")) {
                 if (property_get("vendor.media.sm6150.version", value, "0") &&
                     (atoi(value) == 1)) {
                     strlcpy(file_path, "/vendor/etc/media_codecs_vendor.xml",
@@ -226,7 +227,8 @@ MediaCodecsXmlParser::MediaCodecsXmlParser(
                     strlcpy(file_path, "/vendor/etc/media_codecs_performance.xml",
                             PROP_VALUE_MAX);
                 }
-            } else if (!strcmp(platform, "talos")) {
+            } else if (!strcmp(platform, "talos") ||
+                    !strcmp(platform, "sm6150")) {
                 if (property_get("vendor.media.sm6150.version", value, "0") &&
                     (atoi(value) == 1)) {
                     strlcpy(file_path, "/vendor/etc/media_codecs_performance.xml",
