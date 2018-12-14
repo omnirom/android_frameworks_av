@@ -1304,7 +1304,7 @@ void NuPlayer::Renderer::postDrainVideoQueue() {
         mMediaClock->updateMaxTimeMedia(mNextVideoTimeMediaUs);
     }
 
-    if (!mVideoSampleReceived || mediaTimeUs < mAudioFirstAnchorTimeMediaUs) {
+    if (!mVideoSampleReceived || mediaTimeUs < mAudioFirstAnchorTimeMediaUs || getVideoLateByUs() > 40000) {
         msg->post();
     } else {
         int64_t twoVsyncsUs = 2 * (mVideoScheduler->getVsyncPeriod() / 1000);
