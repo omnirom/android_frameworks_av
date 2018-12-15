@@ -21,8 +21,11 @@
 
 using namespace android;
 
+#ifdef __ANDROID_VNDK__
+#include "ndk_vendor/impl/ACaptureRequestVendor.h"
+#else
 struct ACameraOutputTarget {
-    explicit ACameraOutputTarget(ANativeWindow* window) : mWindow(window) {};
+    explicit ACameraOutputTarget(ACameraWindowType* window) : mWindow(window) {};
 
     bool operator == (const ACameraOutputTarget& other) const {
         return mWindow == other.mWindow;
@@ -37,8 +40,9 @@ struct ACameraOutputTarget {
         return mWindow > other.mWindow;
     }
 
-    ANativeWindow* mWindow;
+    ACameraWindowType* mWindow;
 };
+#endif
 
 struct ACameraOutputTargets {
     std::set<ACameraOutputTarget> mOutputs;

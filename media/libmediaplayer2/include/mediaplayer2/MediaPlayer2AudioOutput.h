@@ -19,9 +19,15 @@
 #define ANDROID_MEDIAPLAYER2AUDIOOUTPUT_H
 
 #include <mediaplayer2/MediaPlayer2Interface.h>
+#include <mediaplayer2/JAudioTrack.h>
+#include <mediaplayer2/JObjectHolder.h>
 
+#include <vector>
+#include <utility>
 #include <utils/String16.h>
 #include <utils/Vector.h>
+
+#include "jni.h"
 
 namespace android {
 
@@ -32,15 +38,14 @@ class MediaPlayer2AudioOutput : public MediaPlayer2Interface::AudioSink
     class CallbackData;
 
 public:
-    MediaPlayer2AudioOutput(audio_session_t sessionId,
+    MediaPlayer2AudioOutput(int32_t sessionId,
                             uid_t uid,
                             int pid,
-                            const audio_attributes_t * attr,
-                            const sp<AudioSystem::AudioDeviceCallback>& deviceCallback);
+                            const jobject attributes);
     virtual ~MediaPlayer2AudioOutput();
 
     virtual bool ready() const {
-        return mTrack != 0;
+        return mJAudioTrack != nullptr;
     }
     virtual ssize_t bufferSize() const;
     virtual ssize_t frameCount() const;
@@ -52,7 +57,8 @@ public:
     virtual status_t getTimestamp(AudioTimestamp &ts) const;
     virtual int64_t getPlayedOutDurationUs(int64_t nowUs) const;
     virtual status_t getFramesWritten(uint32_t *frameswritten) const;
-    virtual audio_session_t getSessionId() const;
+    virtual int32_t getSessionId() const;
+    virtual void setSessionId(const int32_t id);
     virtual uint32_t getSampleRate() const;
     virtual int64_t getBufferDurationInUs() const;
 
@@ -62,7 +68,6 @@ public:
             AudioCallback cb, void *cookie,
             audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
             const audio_offload_info_t *offloadInfo = NULL,
-            bool doNotReconnect = false,
             uint32_t suggestedFrameCount = 0);
 
     virtual status_t start();
@@ -71,11 +76,8 @@ public:
     virtual void flush();
     virtual void pause();
     virtual void close();
-    void setAudioStreamType(audio_stream_type_t streamType);
-    virtual audio_stream_type_t getAudioStreamType() const {
-        return mStreamType;
-    }
-    void setAudioAttributes(const audio_attributes_t * attributes);
+    void setAudioAttributes(const jobject attributes);
+    virtual audio_stream_type_t getAudioStreamType() const;
 
     void setVolume(float volume);
     virtual status_t setPlaybackRate(const AudioPlaybackRate& rate);
@@ -92,13 +94,11 @@ public:
         // TODO: return correct value.
         //return mNextOutput == NULL;
     }
-    virtual status_t setParameters(const String8& keyValuePairs);
-    virtual String8 getParameters(const String8& keys);
-
     // AudioRouting
-    virtual status_t setOutputDevice(audio_port_handle_t deviceId);
-    virtual status_t getRoutedDeviceId(audio_port_handle_t* deviceId);
-    virtual status_t enableAudioDeviceCallback(bool enabled);
+    virtual status_t setPreferredDevice(jobject device);
+    virtual jobject getRoutedDevice();
+    virtual status_t addAudioDeviceCallback(jobject routingDelegate);
+    virtual status_t removeAudioDeviceCallback(jobject listener);
 
 private:
     static void setMinBufferCount();
@@ -107,28 +107,25 @@ private:
     void close_l();
     status_t updateTrack_l();
 
-    sp<AudioTrack>          mTrack;
+    sp<JAudioTrack>         mJAudioTrack;
     AudioCallback           mCallback;
     void *                  mCallbackCookie;
     CallbackData *          mCallbackData;
-    audio_stream_type_t     mStreamType;
-    audio_attributes_t *    mAttributes;
+    sp<JObjectHolder>       mAttributes;
     float                   mVolume;
     AudioPlaybackRate       mPlaybackRate;
     uint32_t                mSampleRateHz; // sample rate of the content, as set in open()
     float                   mMsecsPerFrame;
     size_t                  mFrameSize;
-    audio_session_t         mSessionId;
+    int32_t                 mSessionId;
     uid_t                   mUid;
     int                     mPid;
     float                   mSendLevel;
     int                     mAuxEffectId;
     audio_output_flags_t    mFlags;
-    audio_port_handle_t     mSelectedDeviceId;
-    audio_port_handle_t     mRoutedDeviceId;
-    bool                    mDeviceCallbackEnabled;
-    wp<AudioSystem::AudioDeviceCallback>        mDeviceCallback;
+    sp<JObjectHolder>       mPreferredDevice;
     mutable Mutex           mLock;
+    std::vector<std::pair<jobject, jobject>> mRoutingDelegates; // <listener, routingDelegate>
 
     // static variables below not protected by mutex
     static bool             mIsOnEmulator;

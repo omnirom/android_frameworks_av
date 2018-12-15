@@ -49,7 +49,7 @@ class Camera3StreamSplitter : public BnConsumerListener {
 public:
 
     // Constructor
-    Camera3StreamSplitter() = default;
+    Camera3StreamSplitter(bool useHalBufManager = false);
 
     // Connect to the stream splitter by creating buffer queue and connecting it
     // with output surfaces.
@@ -226,7 +226,10 @@ private:
     android::PixelFormat mFormat = android::PIXEL_FORMAT_NONE;
     uint64_t mProducerUsage = 0;
 
-    static const nsecs_t kDequeueBufferTimeout   = s2ns(1); // 1 sec
+    // The attachBuffer call will happen on different thread according to mUseHalBufManager and have
+    // different timing constraint.
+    static const nsecs_t kNormalDequeueBufferTimeout    = s2ns(1);  // 1 sec
+    static const nsecs_t kHalBufMgrDequeueBufferTimeout = ms2ns(1); // 1 msec
 
     Mutex mMutex;
 
@@ -269,7 +272,12 @@ private:
     // Latest onFrameAvailable return value
     std::atomic<status_t> mOnFrameAvailableRes{0};
 
+    // Currently acquired input buffers
+    size_t mAcquiredInputBuffers;
+
     String8 mConsumerName;
+
+    const bool mUseHalBufManager;
 };
 
 } // namespace android

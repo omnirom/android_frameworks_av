@@ -295,6 +295,7 @@ cc_library_static {
         "libmediaextractor",
         "libmediandk",
         "libnativewindow",
+        "libmediandk_utils",
         "libstagefright_foundation",
         "libui",
         "libutils",
@@ -307,6 +308,10 @@ cc_library_static {
 
     header_libs: [
         "media_plugin_headers",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/ndk",
     ],
 
     static_libs: [

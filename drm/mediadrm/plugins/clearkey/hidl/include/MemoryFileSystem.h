@@ -13,7 +13,7 @@
 namespace android {
 namespace hardware {
 namespace drm {
-namespace V1_1 {
+namespace V1_2 {
 namespace clearkey {
 
 // Using android file system requires clearkey plugin to update
@@ -32,7 +32,9 @@ class MemoryFileSystem {
         size_t getFileSize() const { return fileSize; }
         void setContent(const std::string& file) { content = file; }
         void setFileName(const std::string& name) { fileName = name; }
-        void setFileSize(size_t size) { fileSize = size; }
+        void setFileSize(size_t size) {
+            content.resize(size); fileSize = size;
+        }
     };
 
     MemoryFileSystem() {};
@@ -40,6 +42,7 @@ class MemoryFileSystem {
 
     bool FileExists(const std::string& fileName) const;
     ssize_t GetFileSize(const std::string& fileName) const;
+    std::vector<std::string> ListFiles() const;
     size_t Read(const std::string& pathName, std::string* buffer);
     bool RemoveAllFiles();
     bool RemoveFile(const std::string& fileName);
@@ -57,7 +60,7 @@ class MemoryFileSystem {
 };
 
 } // namespace clearkey
-} // namespace V1_1
+} // namespace V1_2
 } // namespace drm
 } // namespace hardware
 } // namespace android

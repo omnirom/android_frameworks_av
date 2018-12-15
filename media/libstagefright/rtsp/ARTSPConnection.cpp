@@ -19,6 +19,7 @@
 #include <utils/Log.h>
 
 #include "ARTSPConnection.h"
+#include "NetworkUtils.h"
 
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -60,8 +61,8 @@ ARTSPConnection::~ARTSPConnection() {
     if (mSocket >= 0) {
         ALOGE("Connection is still open, closing the socket.");
         if (mUIDValid) {
-            HTTPBase::UnRegisterSocketUserTag(mSocket);
-            HTTPBase::UnRegisterSocketUserMark(mSocket);
+            NetworkUtils::UnRegisterSocketUserTag(mSocket);
+            NetworkUtils::UnRegisterSocketUserMark(mSocket);
         }
         close(mSocket);
         mSocket = -1;
@@ -215,8 +216,8 @@ void ARTSPConnection::onConnect(const sp<AMessage> &msg) {
 
     if (mState != DISCONNECTED) {
         if (mUIDValid) {
-            HTTPBase::UnRegisterSocketUserTag(mSocket);
-            HTTPBase::UnRegisterSocketUserMark(mSocket);
+            NetworkUtils::UnRegisterSocketUserTag(mSocket);
+            NetworkUtils::UnRegisterSocketUserMark(mSocket);
         }
         close(mSocket);
         mSocket = -1;
@@ -272,9 +273,9 @@ void ARTSPConnection::performConnect(const sp<AMessage> &reply,
     mSocket = socket(AF_INET, SOCK_STREAM, 0);
 
     if (mUIDValid) {
-        HTTPBase::RegisterSocketUserTag(mSocket, mUID,
+        NetworkUtils::RegisterSocketUserTag(mSocket, mUID,
                                         (uint32_t)*(uint32_t*) "RTSP");
-        HTTPBase::RegisterSocketUserMark(mSocket, mUID);
+        NetworkUtils::RegisterSocketUserMark(mSocket, mUID);
     }
 
     MakeSocketBlocking(mSocket, false);
@@ -303,8 +304,8 @@ void ARTSPConnection::performConnect(const sp<AMessage> &reply,
         mState = DISCONNECTED;
 
         if (mUIDValid) {
-            HTTPBase::UnRegisterSocketUserTag(mSocket);
-            HTTPBase::UnRegisterSocketUserMark(mSocket);
+            NetworkUtils::UnRegisterSocketUserTag(mSocket);
+            NetworkUtils::UnRegisterSocketUserMark(mSocket);
         }
         close(mSocket);
         mSocket = -1;
@@ -321,8 +322,8 @@ void ARTSPConnection::performConnect(const sp<AMessage> &reply,
 
 void ARTSPConnection::performDisconnect() {
     if (mUIDValid) {
-        HTTPBase::UnRegisterSocketUserTag(mSocket);
-        HTTPBase::UnRegisterSocketUserMark(mSocket);
+        NetworkUtils::UnRegisterSocketUserTag(mSocket);
+        NetworkUtils::UnRegisterSocketUserMark(mSocket);
     }
     close(mSocket);
     mSocket = -1;
@@ -400,8 +401,8 @@ void ARTSPConnection::performCompleteConnection(const sp<AMessage> &msg, int err
 
         mState = DISCONNECTED;
         if (mUIDValid) {
-            HTTPBase::UnRegisterSocketUserTag(mSocket);
-            HTTPBase::UnRegisterSocketUserMark(mSocket);
+            NetworkUtils::UnRegisterSocketUserTag(mSocket);
+            NetworkUtils::UnRegisterSocketUserMark(mSocket);
         }
         close(mSocket);
         mSocket = -1;

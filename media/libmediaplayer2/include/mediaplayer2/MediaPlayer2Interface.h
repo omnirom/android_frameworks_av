@@ -23,6 +23,7 @@
 #include <utils/Errors.h>
 #include <utils/String8.h>
 #include <utils/RefBase.h>
+#include <jni.h>
 
 #include <media/AVSyncSettings.h>
 #include <media/AudioResamplerPublic.h>
@@ -33,6 +34,7 @@
 #include <media/stagefright/foundation/AHandler.h>
 #include <mediaplayer2/MediaPlayer2Types.h>
 
+#include "jni.h"
 #include "mediaplayer2.pb.h"
 
 using android::media::MediaPlayer2Proto::PlayerMessage;
@@ -92,7 +94,7 @@ public:
         virtual status_t getTimestamp(AudioTimestamp &ts) const = 0;
         virtual int64_t getPlayedOutDurationUs(int64_t nowUs) const = 0;
         virtual status_t getFramesWritten(uint32_t *frameswritten) const = 0;
-        virtual audio_session_t getSessionId() const = 0;
+        virtual int32_t getSessionId() const = 0;
         virtual audio_stream_type_t getAudioStreamType() const = 0;
         virtual uint32_t getSampleRate() const = 0;
         virtual int64_t getBufferDurationInUs() const = 0;
@@ -106,7 +108,6 @@ public:
                 void *cookie = NULL,
                 audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
                 const audio_offload_info_t *offloadInfo = NULL,
-                bool doNotReconnect = false,
                 uint32_t suggestedFrameCount = 0) = 0;
 
         virtual status_t start() = 0;
@@ -142,9 +143,10 @@ public:
         }
 
         // AudioRouting
-        virtual status_t    setOutputDevice(audio_port_handle_t deviceId);
-        virtual status_t    getRoutedDeviceId(audio_port_handle_t* deviceId);
-        virtual status_t    enableAudioDeviceCallback(bool enabled);
+        virtual status_t    setPreferredDevice(jobject device);
+        virtual jobject     getRoutedDevice();
+        virtual status_t    addAudioDeviceCallback(jobject routingDelegate);
+        virtual status_t    removeAudioDeviceCallback(jobject listener);
     };
 
     MediaPlayer2Interface() : mListener(NULL) { }

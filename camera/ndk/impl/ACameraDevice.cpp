@@ -27,9 +27,9 @@
 #include "ACaptureRequest.h"
 #include "ACameraCaptureSession.h"
 
-using namespace android;
-
 namespace android {
+namespace acam {
+
 // Static member definitions
 const char* CameraDevice::kContextKey        = "Context";
 const char* CameraDevice::kDeviceKey         = "Device";
@@ -1513,5 +1513,5 @@ CameraDevice::ServiceCallback::onRepeatingRequestError(
     return ret;
 }
 
-
+} // namespace acam
 } // namespace android
