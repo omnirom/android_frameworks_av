@@ -17,6 +17,7 @@
 #define LOG_TAG "APM::IOProfile"
 //#define LOG_NDEBUG 0
 
+#include <system/audio-base.h>
 #include "IOProfile.h"
 #include "HwModule.h"
 #include "AudioGain.h"
@@ -67,19 +68,28 @@ bool IOProfile::isCompatibleProfile(audio_devices_t device,
     audio_format_t myUpdatedFormat = format;
     audio_channel_mask_t myUpdatedChannelMask = channelMask;
     uint32_t myUpdatedSamplingRate = samplingRate;
+    const struct audio_port_config config = {
+        .config_mask = AUDIO_PORT_CONFIG_ALL & ~AUDIO_PORT_CONFIG_GAIN,
+        .sample_rate = samplingRate,
+        .channel_mask = channelMask,
+        .format = format,
+    };
     if (isRecordThread)
     {
+<<<<<<< HEAD
         if (checkCompatibleAudioProfile(
                 myUpdatedSamplingRate, myUpdatedChannelMask, myUpdatedFormat, checkExactFormat) != NO_ERROR) {
+=======
+        if ((flags & AUDIO_INPUT_FLAG_MMAP_NOIRQ) != 0) {
+            if (checkExactAudioProfile(&config) != NO_ERROR) {
+                return false;
+            }
+        } else if (checkCompatibleAudioProfile(
+                myUpdatedSamplingRate, myUpdatedChannelMask, myUpdatedFormat) != NO_ERROR) {
+>>>>>>> 1f25e58635d44aba1f1a88b2676edc7129e39622
             return false;
         }
     } else {
-        const struct audio_port_config config = {
-            .config_mask = AUDIO_PORT_CONFIG_ALL & ~AUDIO_PORT_CONFIG_GAIN,
-            .sample_rate = samplingRate,
-            .channel_mask = channelMask,
-            .format = format,
-        };
         if (checkExactAudioProfile(&config) != NO_ERROR) {
             return false;
         }

@@ -49,6 +49,7 @@ cc_defaults {
         "AMessage.cpp",
         "AString.cpp",
         "AStringUtils.cpp",
+        "AudioPresentationInfo.cpp",
         "ByteUtils.cpp",
         "ColorUtils.cpp",
         "MediaDefs.cpp",
