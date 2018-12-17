@@ -76,17 +76,12 @@ bool IOProfile::isCompatibleProfile(audio_devices_t device,
     };
     if (isRecordThread)
     {
-<<<<<<< HEAD
-        if (checkCompatibleAudioProfile(
-                myUpdatedSamplingRate, myUpdatedChannelMask, myUpdatedFormat, checkExactFormat) != NO_ERROR) {
-=======
         if ((flags & AUDIO_INPUT_FLAG_MMAP_NOIRQ) != 0) {
             if (checkExactAudioProfile(&config) != NO_ERROR) {
                 return false;
             }
         } else if (checkCompatibleAudioProfile(
-                myUpdatedSamplingRate, myUpdatedChannelMask, myUpdatedFormat) != NO_ERROR) {
->>>>>>> 1f25e58635d44aba1f1a88b2676edc7129e39622
+                myUpdatedSamplingRate, myUpdatedChannelMask, myUpdatedFormat, checkExactFormat) != NO_ERROR) {
             return false;
         }
     } else {

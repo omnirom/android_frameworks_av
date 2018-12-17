@@ -214,13 +214,10 @@ public:
                                         bool reported);
     virtual status_t setSurroundFormatEnabled(audio_format_t audioFormat, bool enabled);
 
-<<<<<<< HEAD
-            status_t doStartOutput(audio_port_handle_t portId);
-=======
     virtual status_t setAssistantUid(uid_t uid);
     virtual status_t setA11yServicesUids(const std::vector<uid_t>& uids);
 
->>>>>>> 1f25e58635d44aba1f1a88b2676edc7129e39622
+            status_t doStartOutput(audio_port_handle_t portId);
             status_t doStopOutput(audio_port_handle_t portId);
             void doReleaseOutput(audio_port_handle_t portId);
 
