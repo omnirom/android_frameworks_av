@@ -512,7 +512,10 @@ status_t AudioTrack::set(
             goto exit;
         }
         mStreamType = streamType;
-
+        mAttributes.content_type = AUDIO_CONTENT_TYPE_UNKNOWN;
+        mAttributes.usage = AUDIO_USAGE_UNKNOWN;
+        mAttributes.flags = 0x0;
+        strcpy(mAttributes.tags, "");
     } else {
         // stream type shouldn't be looked at, this track has audio attributes
         memcpy(&mAttributes, pAttributes, sizeof(audio_attributes_t));
