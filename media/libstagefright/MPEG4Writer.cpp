@@ -378,7 +378,6 @@ private:
 
     void dumpTimeStamps();
 
-    int64_t getStartTimeOffsetTimeUs() const;
     int32_t getStartTimeOffsetScaledTime() const;
 
     static void *ThreadWrapper(void *me);
@@ -1747,10 +1746,11 @@ bool MPEG4Writer::reachedEOS() {
     return allDone;
 }
 
-void MPEG4Writer::setStartTimestampUs(int64_t timeUs) {
+void MPEG4Writer::setStartTimestampUs(int64_t timeUs, int64_t *trackStartTime) {
     ALOGI("setStartTimestampUs: %" PRId64, timeUs);
     CHECK_GE(timeUs, 0ll);
     Mutex::Autolock autoLock(mLock);
+    *trackStartTime = timeUs;
     if (mStartTimestampUs < 0 || mStartTimestampUs > timeUs) {
         mStartTimestampUs = timeUs;
         ALOGI("Earliest track starting time: %" PRId64, mStartTimestampUs);
@@ -1760,6 +1760,16 @@ void MPEG4Writer::setStartTimestampUs(int64_t timeUs) {
 int64_t MPEG4Writer::getStartTimestampUs() {
     Mutex::Autolock autoLock(mLock);
     return mStartTimestampUs;
+}
+
+int64_t MPEG4Writer::getStartTimeOffsetTimeUs(int64_t startTime) {
+    int64_t trackStartTimeOffsetUs = 0;
+    Mutex::Autolock autoLock(mLock);
+    if (startTime != -1 && startTime != mStartTimestampUs) {
+        CHECK_GT(startTime, mStartTimestampUs);
+        trackStartTimeOffsetUs = startTime - mStartTimestampUs;
+    }
+    return trackStartTimeOffsetUs;
 }
 
 size_t MPEG4Writer::numTracks() {
@@ -3126,8 +3136,7 @@ status_t MPEG4Writer::Track::threadEntry() {
         if (!mIsHeic) {
             if (mStszTableEntries->count() == 0) {
                 mFirstSampleTimeRealUs = systemTime() / 1000;
-                mStartTimestampUs = timestampUs;
-                mOwner->setStartTimestampUs(mStartTimestampUs);
+                mOwner->setStartTimestampUs(timestampUs, &mStartTimestampUs);
                 previousPausedDurationUs = mStartTimestampUs;
             }
 
@@ -3604,7 +3613,8 @@ void MPEG4Writer::Track::bufferChunk(int64_t timestampUs) {
 }
 
 int64_t MPEG4Writer::Track::getDurationUs() const {
-    return mTrackDurationUs + getStartTimeOffsetTimeUs();
+    return mTrackDurationUs +
+        mOwner->getStartTimeOffsetTimeUs(mStartTimestampUs);
 }
 
 int64_t MPEG4Writer::Track::getEstimatedTrackSizeBytes() const {
@@ -4147,18 +4157,9 @@ void MPEG4Writer::Track::writePaspBox() {
     mOwner->endBox();  // pasp
 }
 
-int64_t MPEG4Writer::Track::getStartTimeOffsetTimeUs() const {
-    int64_t trackStartTimeOffsetUs = 0;
-    int64_t moovStartTimeUs = mOwner->getStartTimestampUs();
-    if (mStartTimestampUs != -1 && mStartTimestampUs != moovStartTimeUs) {
-        CHECK_GT(mStartTimestampUs, moovStartTimeUs);
-        trackStartTimeOffsetUs = mStartTimestampUs - moovStartTimeUs;
-    }
-    return trackStartTimeOffsetUs;
-}
-
 int32_t MPEG4Writer::Track::getStartTimeOffsetScaledTime() const {
-    return (getStartTimeOffsetTimeUs() * mTimeScale + 500000LL) / 1000000LL;
+    return (mOwner->getStartTimeOffsetTimeUs(mStartTimestampUs) *
+                mTimeScale + 500000LL) / 1000000LL;
 }
 
 void MPEG4Writer::Track::writeSttsBox() {
@@ -4195,7 +4196,8 @@ void MPEG4Writer::Track::writeCttsBox() {
 
     mOwner->beginBox("ctts");
     mOwner->writeInt32(0);  // version=0, flags=0
-    int64_t deltaTimeUs = kMaxCttsOffsetTimeUs - getStartTimeOffsetTimeUs();
+    int64_t deltaTimeUs = kMaxCttsOffsetTimeUs -
+                mOwner->getStartTimeOffsetTimeUs(mStartTimestampUs);
     int64_t delta = (deltaTimeUs * mTimeScale + 500000LL) / 1000000LL;
     mCttsTableEntries->adjustEntries([delta](size_t /* ix */, uint32_t (&value)[2]) {
         // entries are <count, ctts> pairs; adjust only ctts

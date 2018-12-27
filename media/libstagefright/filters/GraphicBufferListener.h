@@ -49,7 +49,7 @@ public:
         kWhatFrameAvailable = 'frav',
     };
 
-private:
+protected:
     sp<AMessage> mNotify;
     size_t mNumFramesAvailable;
 
