@@ -302,12 +302,15 @@ status_t FrameDecoder::extractInternal() {
             err = mSource->read(&mediaBuffer, &mReadOptions);
             mReadOptions.clearSeekTo();
             if (err != OK) {
-                ALOGW("Input Error or EOS");
                 mHaveMoreInputs = false;
                 if (!mFirstSample && err == ERROR_END_OF_STREAM) {
+                    (void)mDecoder->queueInputBuffer(
+                            index, 0, 0, 0, MediaCodec::BUFFER_FLAG_EOS);
                     err = OK;
                     flags |= MediaCodec::BUFFER_FLAG_EOS;
                     mHaveMoreInputs = true;
+                } else {
+                    ALOGW("Input Error: err=%d", err);
                 }
                 break;
             }
