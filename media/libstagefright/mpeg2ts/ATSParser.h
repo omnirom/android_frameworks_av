@@ -23,6 +23,7 @@
 #include <media/MediaSource.h>
 #include <media/stagefright/foundation/ABase.h>
 #include <media/stagefright/foundation/AMessage.h>
+#include <media/stagefright/foundation/AudioPresentationInfo.h>
 #include <utils/KeyedVector.h>
 #include <utils/Vector.h>
 #include <utils/RefBase.h>
@@ -164,7 +165,7 @@ struct ATSParser : public RefBase {
     };
 
     enum {
-        // From ISO/IEC 13818-1: 2007 (E), Table 2-29
+        // From ISO/IEC 13818-1: 2007 (E), Table 2-45
         DESCRIPTOR_CA                   = 0x09,
 
         // DVB BlueBook A038 Table 12
@@ -173,8 +174,9 @@ struct ATSParser : public RefBase {
 
     // DVB BlueBook A038 Table 109
     enum {
-        EXT_DESCRIPTOR_DVB_AC4              = 0x15,
-        EXT_DESCRIPTOR_DVB_RESERVED_MAX     = 0x7F,
+        EXT_DESCRIPTOR_DVB_AC4                  = 0x15,
+        EXT_DESCRIPTOR_DVB_AUDIO_PRESELECTION   = 0x19,
+        EXT_DESCRIPTOR_DVB_RESERVED_MAX         = 0x7F,
     };
 
 protected:
@@ -186,9 +188,18 @@ private:
     struct PSISection;
     struct CasManager;
     struct CADescriptor {
-        int32_t mSystemID;
+        CADescriptor() : mPID(0), mSystemID(-1) {}
         unsigned mPID;
+        int32_t mSystemID;
         std::vector<uint8_t> mPrivateData;
+    };
+
+    struct StreamInfo {
+        unsigned mType;
+        unsigned mTypeExt;
+        unsigned mPID;
+        CADescriptor mCADescriptor;
+        AudioPresentationCollection mAudioPresentations;
     };
 
     sp<CasManager> mCasManager;

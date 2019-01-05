@@ -96,7 +96,6 @@ cc_library_shared {
         "AHierarchicalStateMachine.cpp",
         "AMRWriter.cpp",
         "AudioPlayer.cpp",
-        "AudioPresentationInfo.cpp",
         "AudioSource.cpp",
         "BufferImpl.cpp",
         "CallbackDataSource.cpp",
@@ -218,6 +217,12 @@ cc_library_shared {
         "frameworks/av/media/libavextensions",
         "frameworks/av/media/libmediaextractor",
         "frameworks/av/media/libstagefright/mpeg2ts",
+    ],
+
+    // This is needed to make sure libcodec2 exists in all devices.
+    // TODO: Remove this once the public CCodec is enabled.
+    required: [
+        "libcodec2",
     ],
 
     cflags: [
