@@ -1,0 +1,12 @@
+# List of unresolved conflicts
+# Generated with `git ls-files --unmerged`
+
+100644 eea7cfcd4e40debfdcc9a5e077db526562e9dd24 1	media/libmediaextractor/include/media/stagefright/MetaDataBase.h
+100644 18c2c04789901640af4a0c8949eda87402589bab 2	media/libmediaextractor/include/media/stagefright/MetaDataBase.h
+100644 9f2deda471e34a8938dc1ae58bc5c0ae97e7868a 3	media/libmediaextractor/include/media/stagefright/MetaDataBase.h
+100644 8660624bfe8ba2a82baa719ec79920cf35928069 1	services/audiopolicy/common/managerdefinitions/src/IOProfile.cpp
+100644 a8367d293c3c8e882f157f48cc784c7b4b265e6d 2	services/audiopolicy/common/managerdefinitions/src/IOProfile.cpp
+100644 3788244783c42d2cb0c13ece9f26dfb696a882a2 3	services/audiopolicy/common/managerdefinitions/src/IOProfile.cpp
+100644 6c5564728a5af02221d7c81b3aa9b6908de07ea1 1	services/audiopolicy/service/AudioPolicyService.h
+100644 e2c45fbcf807701cd9f9f0cc75e4dd41b0b5e564 2	services/audiopolicy/service/AudioPolicyService.h
+100644 ec325113878290087dbe4bb63eefbc78bc487684 3	services/audiopolicy/service/AudioPolicyService.h

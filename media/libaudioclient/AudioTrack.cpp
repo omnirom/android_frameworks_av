@@ -871,12 +871,9 @@ void AudioTrack::stop()
         if (!isOffloaded_l()) {
             t->pause();
         } else if (mTransfer == TRANSFER_SYNC_NOTIF_CALLBACK) {
-            const sp<AudioTrackThread> t = mAudioTrackThread;
-            if (t != 0) {
-                // causes wake up of the playback thread, that will callback the client for
-                // EVENT_STREAM_END in processAudioBuffer()
-                t->wake();
-            }
+            // causes wake up of the playback thread, that will callback the client for
+            // EVENT_STREAM_END in processAudioBuffer()
+            t->wake();
         }
     } else {
         setpriority(PRIO_PROCESS, 0, mPreviousPriority);
@@ -2541,13 +2538,8 @@ status_t AudioTrack::setParameters(const String8& keyValuePairs)
 status_t AudioTrack::selectPresentation(int presentationId, int programId)
 {
     AutoMutex lock(mLock);
-    AudioParameter param = AudioParameter();
-    param.addInt(String8(AudioParameter::keyPresentationId), presentationId);
-    param.addInt(String8(AudioParameter::keyProgramId), programId);
-    ALOGV("%s(%d): PresentationId/ProgramId[%s]",
-            __func__, mId, param.toString().string());
-
-    return mAudioTrack->setParameters(param.toString());
+    ALOGV("%s(%d): PresentationId:%d ProgramId:%d", __func__, mId, presentationId, programId);
+    return mAudioTrack->selectPresentation(presentationId, programId);
 }
 
 VolumeShaper::Status AudioTrack::applyVolumeShaper(
