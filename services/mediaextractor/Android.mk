@@ -9,6 +9,24 @@ LOCAL_SRC_FILES := \
 
 LOCAL_SHARED_LIBRARIES := libmedia libstagefright libbinder libutils liblog
 LOCAL_MODULE:= libmediaextractorservice
+
+sanitizer_runtime_libraries := $(call normalize-path-list,$(addsuffix .so,\
+  $(ADDRESS_SANITIZER_RUNTIME_LIBRARY) \
+  $(UBSAN_RUNTIME_LIBRARY) \
+  $(TSAN_RUNTIME_LIBRARY)))
+
+# $(info Sanitizer:  $(sanitizer_runtime_libraries))
+
+ndk_libraries := $(call normalize-path-list,$(addprefix lib,$(addsuffix .so,\
+  $(NDK_PREBUILT_SHARED_LIBRARIES))))
+
+# $(info NDK:  $(ndk_libraries))
+
+LOCAL_CFLAGS += -DLINKED_LIBRARIES='"$(sanitizer_runtime_libraries):$(ndk_libraries)"'
+
+sanitizer_runtime_libraries :=
+ndk_libraries :=
+
 include $(BUILD_SHARED_LIBRARY)
 
 
@@ -19,19 +37,6 @@ LOCAL_REQUIRED_MODULES_arm := crash_dump.policy mediaextractor.policy
 LOCAL_REQUIRED_MODULES_arm64 := crash_dump.policy mediaextractor.policy
 LOCAL_REQUIRED_MODULES_x86 := crash_dump.policy mediaextractor.policy
 LOCAL_REQUIRED_MODULES_x86_64 := crash_dump.policy mediaextractor.policy
-
-# extractor libraries
-LOCAL_REQUIRED_MODULES += \
-    libaacextractor \
-    libamrextractor \
-    libflacextractor \
-    libmidiextractor \
-    libmkvextractor \
-    libmp3extractor \
-    libmp4extractor \
-    libmpeg2extractor \
-    liboggextractor \
-    libwavextractor \
 
 LOCAL_SRC_FILES := main_extractorservice.cpp
 LOCAL_SHARED_LIBRARIES := libmedia libmediaextractorservice libbinder libutils \

@@ -28,7 +28,7 @@
 #include <media/stagefright/MediaClock.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/Utils.h>
-#include <media/stagefright/VideoFrameScheduler.h>
+#include <media/stagefright/VideoFrameScheduler2.h>
 #include <media/MediaCodecBuffer.h>
 
 #include <inttypes.h>
@@ -67,10 +67,10 @@ static inline int32_t getAudioSinkPcmMsSetting() {
 
 // Maximum time in paused state when offloading audio decompression. When elapsed, the AudioSink
 // is closed to allow the audio DSP to power down.
-static const int64_t kOffloadPauseMaxUs = 10000000ll;
+static const int64_t kOffloadPauseMaxUs = 10000000LL;
 
 // Maximum allowed delay from AudioSink, 1.5 seconds.
-static const int64_t kMaxAllowedAudioSinkDelayUs = 1500000ll;
+static const int64_t kMaxAllowedAudioSinkDelayUs = 1500000LL;
 
 static const int64_t kMinimumAudioClockUpdatePeriodUs = 20 /* msec */ * 1000;
 
@@ -84,7 +84,7 @@ const NuPlayer2::Renderer::PcmInfo NuPlayer2::Renderer::AUDIO_PCMINFO_INITIALIZE
 };
 
 // static
-const int64_t NuPlayer2::Renderer::kMinPositionUpdateDelayUs = 100000ll;
+const int64_t NuPlayer2::Renderer::kMinPositionUpdateDelayUs = 100000LL;
 
 NuPlayer2::Renderer::Renderer(
         const sp<MediaPlayer2Interface::AudioSink> &sink,
@@ -108,7 +108,7 @@ NuPlayer2::Renderer::Renderer(
       mAudioFirstAnchorTimeMediaUs(-1),
       mAnchorTimeMediaUs(-1),
       mAnchorNumFramesWritten(-1),
-      mVideoLateByUs(0ll),
+      mVideoLateByUs(0LL),
       mNextVideoTimeMediaUs(-1),
       mHasAudio(false),
       mHasVideo(false),
@@ -1142,7 +1142,7 @@ int64_t NuPlayer2::Renderer::getPendingAudioPlayoutDurationUs(int64_t nowUs) {
         int64_t nowUs = ALooper::GetNowUs();
         int64_t mediaUs;
         if (mMediaClock->getMediaTime(nowUs, &mediaUs) != OK) {
-            return 0ll;
+            return 0LL;
         } else {
             return writtenAudioDurationUs - (mediaUs - mAudioFirstAnchorTimeMediaUs);
         }
@@ -1269,10 +1269,10 @@ void NuPlayer2::Renderer::postDrainVideoQueue() {
             mAnchorTimeMediaUs = mediaTimeUs;
         }
     }
-    mNextVideoTimeMediaUs = mediaTimeUs + 100000;
+    mNextVideoTimeMediaUs = mediaTimeUs;
     if (!mHasAudio) {
         // smooth out videos >= 10fps
-        mMediaClock->updateMaxTimeMedia(mNextVideoTimeMediaUs);
+        mMediaClock->updateMaxTimeMedia(mediaTimeUs + 100000);
     }
 
     if (!mVideoSampleReceived || mediaTimeUs < mAudioFirstAnchorTimeMediaUs) {
@@ -1357,7 +1357,7 @@ void NuPlayer2::Renderer::onDrainVideoQueue() {
         tooLate = false;
     }
 
-    entry->mNotifyConsumed->setInt64("timestampNs", realTimeUs * 1000ll);
+    entry->mNotifyConsumed->setInt64("timestampNs", realTimeUs * 1000LL);
     entry->mNotifyConsumed->setInt32("render", !tooLate);
     entry->mNotifyConsumed->post();
     mVideoQueue.erase(mVideoQueue.begin());
@@ -1406,9 +1406,15 @@ void NuPlayer2::Renderer::notifyEOS_l(bool audio, status_t finalResult, int64_t 
         mHasAudio = false;
         if (mNextVideoTimeMediaUs >= 0) {
             int64_t mediaUs = 0;
-            mMediaClock->getMediaTime(ALooper::GetNowUs(), &mediaUs);
-            if (mNextVideoTimeMediaUs > mediaUs) {
-                mMediaClock->updateMaxTimeMedia(mNextVideoTimeMediaUs);
+            int64_t nowUs = ALooper::GetNowUs();
+            status_t result = mMediaClock->getMediaTime(nowUs, &mediaUs);
+            if (result == OK) {
+                if (mNextVideoTimeMediaUs > mediaUs) {
+                    mMediaClock->updateMaxTimeMedia(mNextVideoTimeMediaUs);
+                }
+            } else {
+                mMediaClock->updateAnchor(
+                        mNextVideoTimeMediaUs, nowUs, mNextVideoTimeMediaUs + 100000);
             }
         }
     }
@@ -1436,7 +1442,7 @@ void NuPlayer2::Renderer::onQueueBuffer(const sp<AMessage> &msg) {
 
     if (mHasVideo) {
         if (mVideoScheduler == NULL) {
-            mVideoScheduler = new VideoFrameScheduler();
+            mVideoScheduler = new VideoFrameScheduler2();
             mVideoScheduler->init();
         }
     }
@@ -1489,7 +1495,7 @@ void NuPlayer2::Renderer::onQueueBuffer(const sp<AMessage> &msg) {
 
     ALOGV("queueDiff = %.2f secs", diff / 1E6);
 
-    if (diff > 100000ll) {
+    if (diff > 100000LL) {
         // Audio data starts More than 0.1 secs before video.
         // Drop some audio.
 
@@ -1779,7 +1785,7 @@ void NuPlayer2::Renderer::onResume() {
 
 void NuPlayer2::Renderer::onSetVideoFrameRate(float fps) {
     if (mVideoScheduler == NULL) {
-        mVideoScheduler = new VideoFrameScheduler();
+        mVideoScheduler = new VideoFrameScheduler2();
     }
     mVideoScheduler->init(fps);
 }

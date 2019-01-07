@@ -140,6 +140,8 @@ public:
 
 private:
     enum {
+        // TODO: need to increase this considering the bug
+        // about camera app not sending video frames continuously?
         kMaxCttsOffsetTimeUs = 1000000LL,  // 1 second
         kSampleArraySize = 1000,
     };
@@ -321,6 +323,7 @@ private:
     ListTableEntries<uint32_t, 1> *mStssTableEntries;
     ListTableEntries<uint32_t, 2> *mSttsTableEntries;
     ListTableEntries<uint32_t, 2> *mCttsTableEntries;
+    ListTableEntries<uint32_t, 3> *mElstTableEntries; // 3columns: segDuration, mediaTime, mediaRate
 
     int64_t mMinCttsOffsetTimeUs;
     int64_t mMinCttsOffsetTicks;
@@ -419,6 +422,8 @@ private:
     // Duration is time scale based
     void addOneSttsTableEntry(size_t sampleCount, int32_t timescaledDur);
     void addOneCttsTableEntry(size_t sampleCount, int32_t timescaledDur);
+    void addOneElstTableEntry(uint32_t segmentDuration, int32_t mediaTime,
+        int16_t mediaRate, int16_t mediaRateFraction);
 
     bool isTrackMalFormed() const;
     void sendTrackSummary(bool hasMultipleTracks);
@@ -451,6 +456,7 @@ private:
     void writeVideoFourCCBox();
     void writeMetadataFourCCBox();
     void writeStblBox(bool use32BitOffset);
+    void writeEdtsBox();
 
     Track(const Track &);
     Track &operator=(const Track &);
@@ -490,6 +496,7 @@ void MPEG4Writer::initInternal(int fd, bool isFirstSession) {
 
     mStartTimestampUs = -1ll;
     mStartTimeOffsetMs = -1;
+    mStartTimeOffsetBFramesUs = 0;
     mPaused = false;
     mStarted = false;
     mWriterThreadStarted = false;
@@ -1286,6 +1293,10 @@ void MPEG4Writer::writeMoovBox(int64_t durationUs) {
     // Adjust the global start time.
     mStartTimestampUs += minCttsOffsetTimeUs - kMaxCttsOffsetTimeUs;
 
+    // Add mStartTimeOffsetBFramesUs(-ve or zero) to the duration of first entry in STTS.
+    mStartTimeOffsetBFramesUs = minCttsOffsetTimeUs - kMaxCttsOffsetTimeUs;
+    ALOGV("mStartTimeOffsetBFramesUs :%" PRId32, mStartTimeOffsetBFramesUs);
+
     for (List<Track *>::iterator it = mTracks.begin();
         it != mTracks.end(); ++it) {
         if (!(*it)->isHeic()) {
@@ -1762,6 +1773,11 @@ int64_t MPEG4Writer::getStartTimestampUs() {
     return mStartTimestampUs;
 }
 
+int32_t MPEG4Writer::getStartTimeOffsetBFramesUs() {
+    Mutex::Autolock autoLock(mLock);
+    return mStartTimeOffsetBFramesUs;
+}
+
 int64_t MPEG4Writer::getStartTimeOffsetTimeUs(int64_t startTime) {
     int64_t trackStartTimeOffsetUs = 0;
     Mutex::Autolock autoLock(mLock);
@@ -1802,6 +1818,7 @@ MPEG4Writer::Track::Track(
       mStssTableEntries(new ListTableEntries<uint32_t, 1>(1000)),
       mSttsTableEntries(new ListTableEntries<uint32_t, 2>(1000)),
       mCttsTableEntries(new ListTableEntries<uint32_t, 2>(1000)),
+      mElstTableEntries(new ListTableEntries<uint32_t, 3>(3)), // Reserve 3 rows, a row has 3 items
       mMinCttsOffsetTimeUs(0),
       mMinCttsOffsetTicks(0),
       mMaxCttsOffsetTicks(0),
@@ -1870,46 +1887,48 @@ MPEG4Writer::Track::Track(
 
 // Clear all the internal states except the CSD data.
 void MPEG4Writer::Track::resetInternal() {
-      mDone = false;
-      mPaused = false;
-      mResumed = false;
-      mStarted = false;
-      mGotStartKeyFrame = false;
-      mIsMalformed = false;
-      mTrackDurationUs = 0;
-      mEstimatedTrackSizeBytes = 0;
-      mSamplesHaveSameSize = 0;
-      if (mStszTableEntries != NULL) {
-         delete mStszTableEntries;
-         mStszTableEntries = new ListTableEntries<uint32_t, 1>(1000);
-      }
-
-      if (mStcoTableEntries != NULL) {
-         delete mStcoTableEntries;
-         mStcoTableEntries = new ListTableEntries<uint32_t, 1>(1000);
-      }
-      if (mCo64TableEntries != NULL) {
-         delete mCo64TableEntries;
-         mCo64TableEntries = new ListTableEntries<off64_t, 1>(1000);
-      }
-
-      if (mStscTableEntries != NULL) {
-         delete mStscTableEntries;
-         mStscTableEntries = new ListTableEntries<uint32_t, 3>(1000);
-      }
-      if (mStssTableEntries != NULL) {
-         delete mStssTableEntries;
-         mStssTableEntries = new ListTableEntries<uint32_t, 1>(1000);
-      }
-      if (mSttsTableEntries != NULL) {
-         delete mSttsTableEntries;
-         mSttsTableEntries = new ListTableEntries<uint32_t, 2>(1000);
-      }
-      if (mCttsTableEntries != NULL) {
-         delete mCttsTableEntries;
-         mCttsTableEntries = new ListTableEntries<uint32_t, 2>(1000);
-      }
-      mReachedEOS = false;
+    mDone = false;
+    mPaused = false;
+    mResumed = false;
+    mStarted = false;
+    mGotStartKeyFrame = false;
+    mIsMalformed = false;
+    mTrackDurationUs = 0;
+    mEstimatedTrackSizeBytes = 0;
+    mSamplesHaveSameSize = 0;
+    if (mStszTableEntries != NULL) {
+        delete mStszTableEntries;
+        mStszTableEntries = new ListTableEntries<uint32_t, 1>(1000);
+    }
+    if (mStcoTableEntries != NULL) {
+        delete mStcoTableEntries;
+        mStcoTableEntries = new ListTableEntries<uint32_t, 1>(1000);
+    }
+    if (mCo64TableEntries != NULL) {
+        delete mCo64TableEntries;
+        mCo64TableEntries = new ListTableEntries<off64_t, 1>(1000);
+    }
+    if (mStscTableEntries != NULL) {
+        delete mStscTableEntries;
+        mStscTableEntries = new ListTableEntries<uint32_t, 3>(1000);
+    }
+    if (mStssTableEntries != NULL) {
+        delete mStssTableEntries;
+        mStssTableEntries = new ListTableEntries<uint32_t, 1>(1000);
+    }
+    if (mSttsTableEntries != NULL) {
+        delete mSttsTableEntries;
+        mSttsTableEntries = new ListTableEntries<uint32_t, 2>(1000);
+    }
+    if (mCttsTableEntries != NULL) {
+        delete mCttsTableEntries;
+        mCttsTableEntries = new ListTableEntries<uint32_t, 2>(1000);
+    }
+    if (mElstTableEntries != NULL) {
+        delete mElstTableEntries;
+        mElstTableEntries = new ListTableEntries<uint32_t, 3>(3);
+    }
+    mReachedEOS = false;
 }
 
 void MPEG4Writer::Track::updateTrackSizeEstimate() {
@@ -1928,6 +1947,7 @@ void MPEG4Writer::Track::updateTrackSizeEstimate() {
                                     mStssTableEntries->count() * 4 +   // stss box size
                                     mSttsTableEntries->count() * 8 +   // stts box size
                                     mCttsTableEntries->count() * 8 +   // ctts box size
+                                    mElstTableEntries->count() * 12 +   // elst box size
                                     stcoBoxSizeBytes +           // stco box size
                                     stszBoxSizeBytes;            // stsz box size
     }
@@ -1962,6 +1982,16 @@ void MPEG4Writer::Track::addOneCttsTableEntry(
     }
     mCttsTableEntries->add(htonl(sampleCount));
     mCttsTableEntries->add(htonl(duration));
+}
+
+void MPEG4Writer::Track::addOneElstTableEntry(
+    uint32_t segmentDuration, int32_t mediaTime, int16_t mediaRate, int16_t mediaRateFraction) {
+    ALOGV("segmentDuration:%u, mediaTime:%d", segmentDuration, mediaTime);
+    ALOGV("mediaRate :%" PRId16 ", mediaRateFraction :%" PRId16 ", Ored %u", mediaRate,
+        mediaRateFraction, ((((uint32_t)mediaRate) << 16) | ((uint32_t)mediaRateFraction)));
+    mElstTableEntries->add(htonl(segmentDuration));
+    mElstTableEntries->add(htonl(mediaTime));
+    mElstTableEntries->add(htonl((((uint32_t)mediaRate) << 16) | (uint32_t)mediaRateFraction));
 }
 
 status_t MPEG4Writer::setNextFd(int fd) {
@@ -2201,6 +2231,7 @@ MPEG4Writer::Track::~Track() {
     delete mSttsTableEntries;
     delete mStssTableEntries;
     delete mCttsTableEntries;
+    delete mElstTableEntries;
 
     mStszTableEntries = NULL;
     mStcoTableEntries = NULL;
@@ -2209,6 +2240,7 @@ MPEG4Writer::Track::~Track() {
     mSttsTableEntries = NULL;
     mStssTableEntries = NULL;
     mCttsTableEntries = NULL;
+    mElstTableEntries = NULL;
 
     if (mCodecSpecificData != NULL) {
         free(mCodecSpecificData);
@@ -3700,6 +3732,7 @@ void MPEG4Writer::Track::writeTrackHeader(bool use32BitOffset) {
     uint32_t now = getMpeg4Time();
     mOwner->beginBox("trak");
         writeTkhdBox(now);
+        writeEdtsBox();
         mOwner->beginBox("mdia");
             writeMdhdBox(now);
             writeHdlrBox();
@@ -3762,6 +3795,29 @@ void MPEG4Writer::Track::writeMetadataFourCCBox() {
         TRESPASS();
     }
     mOwner->beginBox(fourcc);    // TextMetaDataSampleEntry
+
+    //  HACK to make the metadata track compliant with the ISO standard.
+    //
+    //  Metadata track is added from API 26 and the original implementation does not
+    //  fully followed the TextMetaDataSampleEntry specified in ISO/IEC 14496-12-2015
+    //  in that only the mime_format is written out. content_encoding and
+    //  data_reference_index have not been written out. This leads to the failure
+    //  when some MP4 parser tries to parse the metadata track according to the
+    //  standard. The hack here will make the metadata track compliant with the
+    //  standard while still maintaining backwards compatibility. This would enable
+    //  Android versions before API 29 to be able to read out the standard compliant
+    //  Metadata track generated with Android API 29 and upward. The trick is based
+    //  on the fact that the Metadata track must start with prefix “application/” and
+    //  those missing fields are not used in Android's Metadata track. By writting
+    //  out the mime_format twice, the first mime_format will be used to fill out the
+    //  missing reserved, data_reference_index and content encoding fields. On the
+    //  parser side, the extracter before API 29  will read out the first mime_format
+    //  correctly and drop the second mime_format. The extractor from API 29 will
+    //  check if the reserved, data_reference_index and content encoding are filled
+    //  with “application” to detect if this is a standard compliant metadata track
+    //  and read out the data accordingly.
+    mOwner->writeCString(mime);
+
     mOwner->writeCString(mime);  // metadata mime_format
     mOwner->endBox(); // mett
 }
@@ -4047,6 +4103,33 @@ void MPEG4Writer::Track::writeHdlrBox() {
     mOwner->endBox();
 }
 
+void MPEG4Writer::Track::writeEdtsBox(){
+    ALOGV("%s : getStartTimeOffsetTimeUs of track:%" PRId64 " us", getTrackType(),
+        getStartTimeOffsetTimeUs());
+
+    // Prepone video playback.
+    if (mMinCttsOffsetTicks != mMaxCttsOffsetTicks) {
+        int32_t mvhdTimeScale = mOwner->getTimeScale();
+        uint32_t tkhdDuration = (mTrackDurationUs * mvhdTimeScale + 5E5) / 1E6;
+        int64_t mediaTime = ((kMaxCttsOffsetTimeUs - getMinCttsOffsetTimeUs())
+            * mTimeScale + 5E5) / 1E6;
+        if (tkhdDuration > 0 && mediaTime > 0) {
+            addOneElstTableEntry(tkhdDuration, mediaTime, 1, 0);
+        }
+    }
+
+    if (mElstTableEntries->count() == 0) {
+        return;
+    }
+
+    mOwner->beginBox("edts");
+        mOwner->beginBox("elst");
+            mOwner->writeInt32(0); // version=0, flags=0
+            mElstTableEntries->write(mOwner);
+        mOwner->endBox(); // elst;
+    mOwner->endBox(); // edts
+}
+
 void MPEG4Writer::Track::writeMdhdBox(uint32_t now) {
     int64_t trakDurationUs = getDurationUs();
     int64_t mdhdDuration = (trakDurationUs * mTimeScale + 5E5) / 1E6;
@@ -4174,7 +4257,9 @@ void MPEG4Writer::Track::writeSttsBox() {
         uint32_t duration;
         CHECK(mSttsTableEntries->get(duration, 1));
         duration = htonl(duration);  // Back to host byte order
-        mSttsTableEntries->set(htonl(duration + getStartTimeOffsetScaledTime()), 1);
+        int32_t startTimeOffsetScaled = (((getStartTimeOffsetTimeUs() +
+            mOwner->getStartTimeOffsetBFramesUs()) * mTimeScale) + 500000LL) / 1000000LL;
+        mSttsTableEntries->set(htonl((int32_t)duration + startTimeOffsetScaled), 1);
     }
     mSttsTableEntries->write(mOwner);
     mOwner->endBox();  // stts

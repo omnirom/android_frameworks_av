@@ -18,9 +18,6 @@ cc_library_static {
             "signed-integer-overflow",
         ],
         cfi: true,
-        diag: {
-            cfi: true,
-        },
     },
 
     shared_libs: ["libmedia"],
@@ -40,9 +37,6 @@ cc_library_static {
             "signed-integer-overflow",
         ],
         cfi: true,
-        diag: {
-            cfi: true,
-        },
     },
 
     shared_libs: ["libmedia", "libmediandk"],
@@ -80,13 +74,10 @@ cc_library_shared {
             "unsigned-integer-overflow",
             "signed-integer-overflow",
         ],
-        diag: {
-            cfi: true,
-        },
     },
 }
 
-cc_library_shared {
+cc_library {
     name: "libstagefright",
 
     srcs: [
@@ -129,6 +120,7 @@ cc_library_shared {
         "MediaMuxer.cpp",
         "NuCachedSource2.cpp",
         "NuMediaExtractor.cpp",
+        "OggWriter.cpp",
         "OMXClient.cpp",
         "OmxInfoBuilder.cpp",
         "RemoteMediaExtractor.cpp",
@@ -141,11 +133,13 @@ cc_library_shared {
         "SurfaceUtils.cpp",
         "Utils.cpp",
         "ThrottledSource.cpp",
+        "VideoFrameSchedulerBase.cpp",
         "VideoFrameScheduler.cpp",
     ],
 
     shared_libs: [
         "libaudioutils",
+        "libbase",
         "libbinder",
         "libcamera_client",
         "libcutils",
@@ -153,7 +147,6 @@ cc_library_shared {
         "libdl",
         "libdrmframework",
         "libgui",
-        "libion",
         "liblog",
         "libmedia",
         "libmedia_omx",
@@ -161,14 +154,13 @@ cc_library_shared {
         "libmediaextractor",
         "libmediametrics",
         "libmediautils",
-        "libnetd_client",
         "libui",
         "libutils",
         "libmedia_helper",
         "libstagefright_codecbase",
         "libstagefright_foundation",
         "libstagefright_omx_utils",
-        "libstagefright_xmlparser",
+        "libstagefright_opus_common",
         "libRScpp",
         "libhidlallocatorutils",
         "libhidlbase",
@@ -178,8 +170,6 @@ cc_library_shared {
         "android.hidl.memory@1.0",
         "android.hardware.cas.native@1.0",
         "android.hardware.media.omx@1.0",
-        "android.hardware.graphics.allocator@2.0",
-        "android.hardware.graphics.mapper@2.0",
     ],
 
     static_libs: [
@@ -189,6 +179,7 @@ cc_library_shared {
         "libstagefright_webm",
         "libstagefright_timedtext",
         "libvpx",
+        "libogg",
         "libwebm",
         "libstagefright_esds",
         "libstagefright_id3",
@@ -200,6 +191,7 @@ cc_library_shared {
     ],
 
     header_libs:[
+        "libstagefright_xmlparser_headers",
         "media_ndk_headers",
     ],
 
@@ -217,12 +209,6 @@ cc_library_shared {
         "frameworks/av/media/libavextensions",
         "frameworks/av/media/libmediaextractor",
         "frameworks/av/media/libstagefright/mpeg2ts",
-    ],
-
-    // This is needed to make sure libcodec2 exists in all devices.
-    // TODO: Remove this once the public CCodec is enabled.
-    required: [
-        "libcodec2",
     ],
 
     cflags: [
@@ -247,9 +233,6 @@ cc_library_shared {
             "unsigned-integer-overflow",
             "signed-integer-overflow",
         ],
-        diag: {
-            cfi: true,
-        },
     },
 }
 
@@ -264,7 +247,8 @@ cc_library_static {
         "MediaClock.cpp",
         "NdkUtils.cpp",
         "Utils.cpp",
-        "VideoFrameScheduler.cpp",
+        "VideoFrameSchedulerBase.cpp",
+        "VideoFrameScheduler2.cpp",
         "http/ClearMediaHTTP.cpp",
     ],
 
@@ -274,6 +258,7 @@ cc_library_static {
         "libnetd_client",
         "libutils",
         "libstagefright_foundation",
+        "libandroid",
         "libdl",
         "libhidlmemory",
         "libcrypto",
@@ -282,6 +267,7 @@ cc_library_static {
 
     static_libs: [
         "libmedia_player2_util",
+        "libmedia2_jni_core",
         "libstagefright_id3",
         "libstagefright_mpeg2support",
         "libstagefright_timedtext",
@@ -318,9 +304,6 @@ cc_library_static {
             "unsigned-integer-overflow",
             "signed-integer-overflow",
         ],
-        diag: {
-            cfi: true,
-        },
     },
 }
 

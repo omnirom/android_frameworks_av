@@ -51,7 +51,6 @@ AAudioServiceStreamBase::AAudioServiceStreamBase(AAudioService &audioService)
 }
 
 AAudioServiceStreamBase::~AAudioServiceStreamBase() {
-    ALOGD("~AAudioServiceStreamBase() destroying %p", this);
     // If the stream is deleted when OPEN or in use then audio resources will leak.
     // This would indicate an internal error. So we want to find this ASAP.
     LOG_ALWAYS_FATAL_IF(!(getState() == AAUDIO_STREAM_STATE_CLOSED
@@ -110,7 +109,6 @@ aaudio_result_t AAudioServiceStreamBase::open(const aaudio::AAudioStreamRequest 
         mServiceEndpoint = mEndpointManager.openEndpoint(mAudioService,
                                                          request);
         if (mServiceEndpoint == nullptr) {
-            ALOGE("%s() openEndpoint() failed", __func__);
             result = AAUDIO_ERROR_UNAVAILABLE;
             goto error;
         }
@@ -181,6 +179,7 @@ aaudio_result_t AAudioServiceStreamBase::start() {
     }
 
     setFlowing(false);
+    setSuspended(false);
 
     // Start with fresh presentation timestamps.
     mAtomicTimestamp.clear();
@@ -347,7 +346,9 @@ aaudio_result_t AAudioServiceStreamBase::writeUpMessageQueue(AAudioServiceMessag
     }
     int32_t count = mUpMessageQueue->getFifoBuffer()->write(command, 1);
     if (count != 1) {
-        ALOGE("%s(): Queue full. Did client die? %s", __func__, getTypeText());
+        ALOGW("%s(): Queue full. Did client stop? Suspending stream. what = %u, %s",
+              __func__, command->what, getTypeText());
+        setSuspended(true);
         return AAUDIO_ERROR_WOULD_BLOCK;
     } else {
         return AAUDIO_OK;

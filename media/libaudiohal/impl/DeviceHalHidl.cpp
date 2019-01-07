@@ -31,30 +31,16 @@
 #include "StreamHalHidl.h"
 #include "VersionUtils.h"
 
-using ::android::hardware::audio::common::CPP_VERSION::AudioConfig;
-using ::android::hardware::audio::common::CPP_VERSION::AudioDevice;
-using ::android::hardware::audio::common::CPP_VERSION::AudioInputFlag;
-using ::android::hardware::audio::common::CPP_VERSION::AudioOutputFlag;
-using ::android::hardware::audio::common::CPP_VERSION::AudioPatchHandle;
-using ::android::hardware::audio::common::CPP_VERSION::AudioPort;
-using ::android::hardware::audio::common::CPP_VERSION::AudioPortConfig;
-using ::android::hardware::audio::common::CPP_VERSION::AudioMode;
-using ::android::hardware::audio::common::CPP_VERSION::AudioSource;
-using ::android::hardware::audio::common::CPP_VERSION::HidlUtils;
+using ::android::hardware::audio::common::CPP_VERSION::implementation::HidlUtils;
 using ::android::hardware::audio::common::utils::EnumBitfield;
-using ::android::hardware::audio::CPP_VERSION::DeviceAddress;
-using ::android::hardware::audio::CPP_VERSION::IPrimaryDevice;
-using ::android::hardware::audio::CPP_VERSION::ParameterValue;
-using ::android::hardware::audio::CPP_VERSION::Result;
 using ::android::hardware::hidl_string;
 using ::android::hardware::hidl_vec;
 
-#if MAJOR_VERSION == 4
-using ::android::hardware::audio::CPP_VERSION::SinkMetadata;
-#endif
-
 namespace android {
 namespace CPP_VERSION {
+
+using namespace ::android::hardware::audio::common::CPP_VERSION;
+using namespace ::android::hardware::audio::CPP_VERSION;
 
 namespace {
 
@@ -262,7 +248,7 @@ status_t DeviceHalHidl::openOutputStream(
             hidlDevice,
             hidlConfig,
             EnumBitfield<AudioOutputFlag>(flags),
-#if MAJOR_VERSION == 4
+#if MAJOR_VERSION >= 4
             {} /* metadata */,
 #endif
             [&](Result r, const sp<IStreamOut>& result, const AudioConfig& suggestedConfig) {
@@ -291,18 +277,18 @@ status_t DeviceHalHidl::openInputStream(
     HidlUtils::audioConfigFromHal(*config, &hidlConfig);
     Result retval = Result::NOT_INITIALIZED;
 #if MAJOR_VERSION == 2
-    auto sourceMetadata = AudioSource(source);
-#elif MAJOR_VERSION == 4
+    auto sinkMetadata = AudioSource(source);
+#elif MAJOR_VERSION >= 4
     // TODO: correctly propagate the tracks sources and volume
     //       for now, only send the main source at 1dbfs
-    SinkMetadata sourceMetadata = {{{AudioSource(source), 1}}};
+    SinkMetadata sinkMetadata = {{{ .source = AudioSource(source), .gain = 1 }}};
 #endif
     Return<void> ret = mDevice->openInputStream(
             handle,
             hidlDevice,
             hidlConfig,
             EnumBitfield<AudioInputFlag>(flags),
-            sourceMetadata,
+            sinkMetadata,
             [&](Result r, const sp<IStreamIn>& result, const AudioConfig& suggestedConfig) {
                 retval = r;
                 if (retval == Result::OK) {
@@ -374,7 +360,7 @@ status_t DeviceHalHidl::getMicrophones(
     if (mDevice == 0) return NO_INIT;
     return INVALID_OPERATION;
 }
-#elif MAJOR_VERSION == 4
+#elif MAJOR_VERSION >= 4
 status_t DeviceHalHidl::getMicrophones(std::vector<media::MicrophoneInfo> *microphonesInfo) {
     if (mDevice == 0) return NO_INIT;
     Result retval;

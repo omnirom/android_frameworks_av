@@ -61,7 +61,6 @@ cc_library_shared {
     ],
 
     cflags: [
-        "-fvisibility=hidden",
         "-DEXPORT=__attribute__((visibility(\"default\")))",
         "-Werror",
         "-Wall",
@@ -89,7 +88,6 @@ cc_library_shared {
         "libandroid",
         "libandroid_runtime",
         "libbinder",
-        "libhwbinder",
         "libhidlbase",
         "libgui",
         "libui",
@@ -103,6 +101,11 @@ cc_library_shared {
         pdk: {
             enabled: false,
         },
+    },
+    version_script: "libmediandk.map.txt",
+    stubs: {
+        symbol_file: "libmediandk.map.txt",
+        versions: ["29"],
     },
 }
 
@@ -137,10 +140,6 @@ cc_library {
     ],
 
     shared_libs: [
-        "libstagefright_foundation",
-        "liblog",
-        "libutils",
-        "libcutils",
     ],
 
     sanitize: {
@@ -149,9 +148,6 @@ cc_library {
             "signed-integer-overflow",
         ],
         cfi: true,
-        diag: {
-            cfi: true,
-        },
     },
 }
 

@@ -25,7 +25,7 @@ import android.annotation.UnsupportedAppUsage;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-//import android.content.pm.ParceledListSlice;
+import android.media.MediaParceledListSlice;
 import android.media.browse.MediaBrowser;
 import android.media.browse.MediaBrowserUtils;
 import android.media.session.MediaSession;
@@ -544,12 +544,8 @@ public abstract class MediaBrowserService extends Service {
             throw new IllegalStateException("This should be called inside of onGetRoot or"
                     + " onLoadChildren or onLoadItem methods");
         }
-        //TODO(b/119752205): Resolve hidden API usage. 4-param constructor of RemoteUserInfo
-        /*
         return new RemoteUserInfo(mCurConnection.pkg, mCurConnection.pid, mCurConnection.uid,
                 mCurConnection.callbacks.asBinder());
-        */
-        return new RemoteUserInfo(mCurConnection.pkg, mCurConnection.pid, mCurConnection.uid);
     }
 
     /**
@@ -691,10 +687,8 @@ public abstract class MediaBrowserService extends Service {
                 List<MediaBrowser.MediaItem> filteredList =
                         (flag & RESULT_FLAG_OPTION_NOT_HANDLED) != 0
                         ? applyOptions(list, options) : list;
-                //TODO:(b/119750807) Resolve hidden API usage ParceledListSlice.
-                /*
-                final ParceledListSlice<MediaBrowser.MediaItem> pls =
-                        filteredList == null ? null : new ParceledListSlice<>(filteredList);
+                final MediaParceledListSlice<MediaBrowser.MediaItem> pls =
+                        filteredList == null ? null : new MediaParceledListSlice<>(filteredList);
                 try {
                     connection.callbacks.onLoadChildrenWithOptions(parentId, pls, options);
                 } catch (RemoteException ex) {
@@ -702,7 +696,6 @@ public abstract class MediaBrowserService extends Service {
                     Log.w(TAG, "Calling onLoadChildren() failed for id=" + parentId
                             + " package=" + connection.pkg);
                 }
-                */
             }
         };
 
