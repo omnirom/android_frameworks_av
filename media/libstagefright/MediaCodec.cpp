@@ -937,12 +937,14 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
             return NAME_NOT_FOUND;
         }
     }
+    const char *owner = "default";
+    if (mCodecInfo !=NULL)
+        owner = mCodecInfo->getOwnerName();
 
-    mCodec = GetCodecBase(name, mCodecInfo->getOwnerName());
+    mCodec = GetCodecBase(name, owner);
     if (mCodec == NULL) {
         return NAME_NOT_FOUND;
     }
-
     if (mIsVideo) {
         // video codec needs dedicated looper
         if (mCodecLooper == NULL) {
@@ -1964,8 +1966,9 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     if (mComponentName.c_str()) {
                         mAnalyticsItem->setCString(kCodecCodec, mComponentName.c_str());
                     }
-
-                    const char *owner = mCodecInfo->getOwnerName();
+                    const char *owner = "default";
+                    if (mCodecInfo !=NULL)
+                        owner = mCodecInfo->getOwnerName();
                     if (mComponentName.startsWith("OMX.google.")
                             && (owner == nullptr || strncmp(owner, "default", 8) == 0)) {
                         mFlags |= kFlagUsesSoftwareRenderer;
