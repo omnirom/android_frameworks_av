@@ -351,6 +351,7 @@ cc_library {
         "BufferingSettings.cpp",
         "CharacterEncodingDetector.cpp",
         "IDataSource.cpp",
+        "IHDCP.cpp",
         "IMediaDeathNotifier.cpp",
         "IMediaExtractor.cpp",
         "IMediaHTTPConnection.cpp",
@@ -417,6 +418,7 @@ cc_library {
         "libmedia_codeclist",
         "libmedia_omx",
         "libstagefright_foundation",
+        "libui",
     ],
 
     export_shared_lib_headers: [
