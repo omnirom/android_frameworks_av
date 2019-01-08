@@ -31,7 +31,7 @@
 namespace android {
 namespace hardware {
 namespace drm {
-namespace V1_1 {
+namespace V1_2 {
 namespace clearkey {
 
 namespace {
@@ -156,7 +156,8 @@ std::string InitDataParser::generateRequest(V1_0::KeyType keyType,
     }
     if (keyType == V1_0::KeyType::STREAMING) {
         request.append(kTemporarySession);
-    } else if (keyType == V1_0::KeyType::OFFLINE) {
+    } else if (keyType == V1_0::KeyType::OFFLINE ||
+                   keyType == V1_0::KeyType::RELEASE) {
             request.append(kPersistentSession);
     }
 
@@ -168,7 +169,7 @@ std::string InitDataParser::generateRequest(V1_0::KeyType keyType,
 }
 
 } // namespace clearkey
-} // namespace V1_1
+} // namespace V1_2
 } // namespace drm
 } // namespace hardware
 } // namespace android

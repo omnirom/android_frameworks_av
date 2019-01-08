@@ -83,8 +83,8 @@ status_t Camera3StreamSplitter::connect(const std::unordered_map<size_t, sp<Surf
     // from input, and attached to the outputs. In this case, the input queue's
     // dequeueBuffer can still allocate 1 extra buffer before being blocked by
     // the output's attachBuffer().
-    mBufferItemConsumer = new BufferItemConsumer(mConsumer, consumerUsage,
-                                                 mMaxConsumerBuffers+1);
+    mMaxConsumerBuffers++;
+    mBufferItemConsumer = new BufferItemConsumer(mConsumer, consumerUsage, mMaxConsumerBuffers);
     if (mBufferItemConsumer == nullptr) {
         return NO_MEMORY;
     }
@@ -108,6 +108,7 @@ status_t Camera3StreamSplitter::connect(const std::unordered_map<size_t, sp<Surf
     mHeight = height;
     mFormat = format;
     mProducerUsage = producerUsage;
+    mAcquiredInputBuffers = 0;
 
     SP_LOGV("%s: connected", __FUNCTION__);
     return res;
@@ -147,9 +148,12 @@ void Camera3StreamSplitter::disconnect() {
 
     mMaxHalBuffers = 0;
     mMaxConsumerBuffers = 0;
+    mAcquiredInputBuffers = 0;
     SP_LOGV("%s: Disconnected", __FUNCTION__);
 }
 
+Camera3StreamSplitter::Camera3StreamSplitter(bool useHalBufManager) :
+        mUseHalBufManager(useHalBufManager) {}
 
 Camera3StreamSplitter::~Camera3StreamSplitter() {
     disconnect();
@@ -165,7 +169,9 @@ status_t Camera3StreamSplitter::addOutput(size_t surfaceId, const sp<Surface>& o
         return res;
     }
 
-    res = mConsumer->setMaxAcquiredBufferCount(mMaxConsumerBuffers+1);
+    if (mMaxConsumerBuffers > mAcquiredInputBuffers) {
+        res = mConsumer->setMaxAcquiredBufferCount(mMaxConsumerBuffers);
+    }
 
     return res;
 }
@@ -237,7 +243,9 @@ status_t Camera3StreamSplitter::addOutputLocked(size_t surfaceId, const sp<Surfa
     uint64_t usage = 0;
     res = native_window_get_consumer_usage(static_cast<ANativeWindow*>(outputQueue.get()), &usage);
     if (!(usage & (GRALLOC_USAGE_HW_COMPOSER | GRALLOC_USAGE_HW_TEXTURE))) {
-        outputQueue->setDequeueTimeout(kDequeueBufferTimeout);
+        nsecs_t timeout = mUseHalBufManager ?
+                kHalBufMgrDequeueBufferTimeout : kNormalDequeueBufferTimeout;
+        outputQueue->setDequeueTimeout(timeout);
     }
 
     res = gbp->allowAllocation(false);
@@ -266,10 +274,12 @@ status_t Camera3StreamSplitter::removeOutput(size_t surfaceId) {
         return res;
     }
 
-    res = mConsumer->setMaxAcquiredBufferCount(mMaxConsumerBuffers+1);
-    if (res != OK) {
-        SP_LOGE("%s: setMaxAcquiredBufferCount failed %d", __FUNCTION__, res);
-        return res;
+    if (mAcquiredInputBuffers < mMaxConsumerBuffers) {
+        res = mConsumer->setMaxAcquiredBufferCount(mMaxConsumerBuffers);
+        if (res != OK) {
+            SP_LOGE("%s: setMaxAcquiredBufferCount failed %d", __FUNCTION__, res);
+            return res;
+        }
     }
 
     return res;
@@ -430,8 +440,9 @@ status_t Camera3StreamSplitter::attachBufferToOutputs(ANativeWindowBuffer* anb,
         res = gbp->attachBuffer(&slot, gb);
         mMutex.lock();
         if (res != OK) {
-            SP_LOGE("%s: Cannot acquireBuffer from GraphicBufferProducer %p: %s (%d)",
+            SP_LOGE("%s: Cannot attachBuffer from GraphicBufferProducer %p: %s (%d)",
                     __FUNCTION__, gbp.get(), strerror(-res), res);
+            // TODO: might need to detach/cleanup the already attached buffers before return?
             return res;
         }
         if ((slot < 0) || (slot > BufferQueue::NUM_BUFFER_SLOTS)) {
@@ -497,6 +508,7 @@ void Camera3StreamSplitter::onFrameAvailable(const BufferItem& /*item*/) {
         return;
     }
 
+    mAcquiredInputBuffers++;
     SP_LOGV("acquired buffer %" PRId64 " from input at slot %d",
             bufferItem.mGraphicBuffer->getId(), bufferItem.mSlot);
 
@@ -598,6 +610,12 @@ void Camera3StreamSplitter::decrementBufRefCountLocked(uint64_t id, size_t surfa
             SP_LOGE("%s: detachBuffer returns %d", __FUNCTION__, res);
         } else {
             SP_LOGE("%s: releaseBuffer returns %d", __FUNCTION__, res);
+        }
+    } else {
+        if (mAcquiredInputBuffers == 0) {
+            ALOGW("%s: Acquired input buffer count already at zero!", __FUNCTION__);
+        } else {
+            mAcquiredInputBuffers--;
         }
     }
 }

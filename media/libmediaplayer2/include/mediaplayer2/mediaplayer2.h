@@ -24,13 +24,17 @@
 #include <media/mediaplayer_common.h>
 #include <mediaplayer2/MediaPlayer2Interface.h>
 #include <mediaplayer2/MediaPlayer2Types.h>
+#include <mediaplayer2/JObjectHolder.h>
 
+#include <jni.h>
 #include <utils/Errors.h>
 #include <utils/Mutex.h>
 #include <utils/RefBase.h>
 #include <utils/String16.h>
 #include <utils/Vector.h>
 #include <system/audio-base.h>
+
+#include "jni.h"
 
 namespace android {
 
@@ -51,7 +55,7 @@ class MediaPlayer2 : public MediaPlayer2InterfaceListener
 public:
     ~MediaPlayer2();
 
-    static sp<MediaPlayer2> Create();
+    static sp<MediaPlayer2> Create(int32_t sessionId);
     static status_t DumpAll(int fd, const Vector<String16>& args);
 
             void            disconnect();
@@ -92,38 +96,40 @@ public:
             void            notify(int64_t srcId, int msg, int ext1, int ext2,
                                    const PlayerMessage *obj = NULL);
             status_t        invoke(const PlayerMessage &request, PlayerMessage *reply);
-            status_t        setAudioSessionId(audio_session_t sessionId);
-            audio_session_t getAudioSessionId();
+            status_t        setAudioSessionId(int32_t sessionId);
+            int32_t         getAudioSessionId();
             status_t        setAuxEffectSendLevel(float level);
             status_t        attachAuxEffect(int effectId);
-            status_t        setParameter(int key, const Parcel& request);
+            status_t        setAudioAttributes(const jobject attributes);
+            jobject         getAudioAttributes();
             status_t        getParameter(int key, Parcel* reply);
 
             // Modular DRM
             status_t        prepareDrm(const uint8_t uuid[16], const Vector<uint8_t>& drmSessionId);
             status_t        releaseDrm();
             // AudioRouting
-            status_t        setOutputDevice(audio_port_handle_t deviceId);
-            audio_port_handle_t getRoutedDeviceId();
-            status_t        enableAudioDeviceCallback(bool enabled);
+            status_t        setPreferredDevice(jobject device);
+            jobject         getRoutedDevice();
+            status_t        addAudioDeviceCallback(jobject routingDelegate);
+            status_t        removeAudioDeviceCallback(jobject listener);
 
             status_t        dump(int fd, const Vector<String16>& args);
 
 private:
-    MediaPlayer2();
+    MediaPlayer2(int32_t sessionId);
     bool init();
 
     // Disconnect from the currently connected ANativeWindow.
     void disconnectNativeWindow_l();
 
-    status_t setAudioAttributes_l(const Parcel &request);
+    status_t setAudioAttributes_l(const jobject attributes);
 
     void clear_l();
     status_t seekTo_l(int64_t msec, MediaPlayer2SeekMode mode);
     status_t prepareAsync_l();
     status_t getDuration_l(int64_t *msec);
     status_t reset_l();
-    status_t checkStateForKeySet_l(int key);
+    status_t checkState_l();
 
     pid_t                       mPid;
     uid_t                       mUid;
@@ -140,15 +146,13 @@ private:
     int64_t                     mSeekPosition;
     MediaPlayer2SeekMode        mSeekMode;
     audio_stream_type_t         mStreamType;
-    Parcel*                     mAudioAttributesParcel;
     bool                        mLoop;
     float                       mVolume;
     int                         mVideoWidth;
     int                         mVideoHeight;
-    audio_session_t             mAudioSessionId;
-    audio_attributes_t *        mAudioAttributes;
+    int32_t                     mAudioSessionId;
+    sp<JObjectHolder>           mAudioAttributes;
     float                       mSendLevel;
-
     sp<ANativeWindowWrapper>    mConnectedWindow;
 };
 

@@ -47,6 +47,8 @@
 #include <cutils/misc.h>
 #include <gui/Surface.h>
 #include <hardware/hardware.h>
+#include "hidl/HidlCameraService.h"
+#include <hidl/HidlTransportSupport.h>
 #include <memunreachable/memunreachable.h>
 #include <media/AudioSystem.h>
 #include <media/IMediaHTTPService.h>
@@ -78,6 +80,7 @@ namespace {
 namespace android {
 
 using binder::Status;
+using frameworks::cameraservice::service::V2_0::implementation::HidlCameraService;
 using hardware::ICamera;
 using hardware::ICameraClient;
 using hardware::ICameraServiceProxy;
@@ -142,6 +145,11 @@ void CameraService::onFirstRef()
 
     mUidPolicy = new UidPolicy(this);
     mUidPolicy->registerSelf();
+    sp<HidlCameraService> hcs = HidlCameraService::getInstance(this);
+    if (hcs->registerAsService() != android::OK) {
+        ALOGE("%s: Failed to register default android.frameworks.cameraservice.service@1.0",
+              __FUNCTION__);
+    }
 }
 
 status_t CameraService::enumerateProviders() {
@@ -209,6 +217,14 @@ void CameraService::pingCameraServiceProxy() {
     proxyBinder->pingForUserUpdate();
 }
 
+void CameraService::broadcastTorchModeStatus(const String8& cameraId, TorchModeStatus status) {
+    Mutex::Autolock lock(mStatusListenerLock);
+
+    for (auto& i : mListenerList) {
+        i->onTorchStatusChanged(mapToInterface(status), String16{cameraId});
+    }
+}
+
 CameraService::~CameraService() {
     VendorTagDescriptor::clearGlobalVendorTagDescriptor();
     mUidPolicy->unregisterSelf();
@@ -247,6 +263,8 @@ void CameraService::addStates(const String8 id) {
     if (mFlashlight->hasFlashUnit(id)) {
         Mutex::Autolock al(mTorchStatusMutex);
         mTorchStatusMap.add(id, TorchModeStatus::AVAILABLE_OFF);
+
+        broadcastTorchModeStatus(id, TorchModeStatus::AVAILABLE_OFF);
     }
 
     updateCameraNumAndIds();
@@ -399,12 +417,7 @@ void CameraService::onTorchStatusChangedLocked(const String8& cameraId,
         }
     }
 
-    {
-        Mutex::Autolock lock(mStatusListenerLock);
-        for (auto& i : mListenerList) {
-            i->onTorchStatusChanged(mapToInterface(newStatus), String16{cameraId});
-        }
-    }
+    broadcastTorchModeStatus(cameraId, newStatus);
 }
 
 Status CameraService::getNumberOfCameras(int32_t type, int32_t* numCameras) {

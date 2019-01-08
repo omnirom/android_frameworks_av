@@ -717,6 +717,25 @@ status_t SoundTriggerHwService::Module::stopRecognition(sound_model_handle_t han
     return NO_ERROR;
 }
 
+status_t SoundTriggerHwService::Module::getModelState(sound_model_handle_t handle)
+{
+    ALOGV("getModelState() model handle %d", handle);
+    if (mHalInterface == 0) {
+        return NO_INIT;
+    }
+    AutoMutex lock(mLock);
+    sp<Model> model = getModel(handle);
+    if (model == 0) {
+        return BAD_VALUE;
+    }
+
+    if (model->mState != Model::STATE_ACTIVE) {
+        return INVALID_OPERATION;
+    }
+
+    return mHalInterface->getModelState(handle);
+}
+
 void SoundTriggerHwService::Module::onCallbackEvent(const sp<CallbackEvent>& event)
 {
     ALOGV("onCallbackEvent type %d", event->mType);
@@ -750,7 +769,10 @@ void SoundTriggerHwService::Module::onCallbackEvent(const sp<CallbackEvent>& eve
             }
 
             recognitionEvent->capture_session = model->mCaptureSession;
-            model->mState = Model::STATE_IDLE;
+            // Don't reset the model state if this recognition event is a get-state response
+            if (recognitionEvent->status != RECOGNITION_STATUS_GET_STATE_RESPONSE) {
+                model->mState = Model::STATE_IDLE;
+            }
             clients.add(model->mModuleClient);
         }
     } break;
@@ -1016,6 +1038,21 @@ status_t SoundTriggerHwService::ModuleClient::stopRecognition(sound_model_handle
         return NO_INIT;
     }
     return module->stopRecognition(handle);
+}
+
+status_t SoundTriggerHwService::ModuleClient::getModelState(sound_model_handle_t handle)
+{
+    ALOGV("getModelState() model handle %d", handle);
+    if (!captureHotwordAllowed(IPCThreadState::self()->getCallingPid(),
+                               IPCThreadState::self()->getCallingUid())) {
+        return PERMISSION_DENIED;
+    }
+
+    sp<Module> module = mModule.promote();
+    if (module == 0) {
+        return NO_INIT;
+    }
+    return module->getModelState(handle);
 }
 
 void SoundTriggerHwService::ModuleClient::setCaptureState_l(bool active)

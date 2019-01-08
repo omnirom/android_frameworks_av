@@ -41,6 +41,7 @@
 #include "ACameraMetadata.h"
 
 namespace android {
+namespace acam {
 
 // Wrap ACameraCaptureFailure so it can be ref-counted
 struct CameraCaptureFailure : public RefBase, public ACameraCaptureFailure {};
@@ -286,6 +287,7 @@ class CameraDevice final : public RefBase {
 
 };
 
+} // namespace acam;
 } // namespace android;
 
 /**
@@ -295,7 +297,7 @@ class CameraDevice final : public RefBase {
 struct ACameraDevice {
     ACameraDevice(const char* id, ACameraDevice_StateCallbacks* cb,
                   sp<ACameraMetadata> chars) :
-            mDevice(new CameraDevice(id, cb, chars, this)) {}
+            mDevice(new android::acam::CameraDevice(id, cb, chars, this)) {}
 
     ~ACameraDevice() {};
 
@@ -331,7 +333,7 @@ struct ACameraDevice {
     }
 
   private:
-    android::sp<android::CameraDevice> mDevice;
+    android::sp<android::acam::CameraDevice> mDevice;
 };
 
 #endif // _ACAMERA_DEVICE_H

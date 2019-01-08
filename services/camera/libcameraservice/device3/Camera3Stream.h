@@ -322,11 +322,17 @@ class Camera3Stream :
     /**
      * Return a buffer to the stream after use by the HAL.
      *
+     * Multiple surfaces could share the same HAL stream, but a request may
+     * be only for a subset of surfaces. In this case, the
+     * Camera3StreamInterface object needs the surface ID information to attach
+     * buffers for those surfaces.
+     *
      * This method may only be called for buffers provided by getBuffer().
      * For bidirectional streams, this method applies to the output-side buffers
      */
     status_t         returnBuffer(const camera3_stream_buffer &buffer,
-            nsecs_t timestamp, bool timestampIncreasing);
+            nsecs_t timestamp, bool timestampIncreasing,
+            const std::vector<size_t>& surface_ids = std::vector<size_t>());
 
     /**
      * Fill in the camera3_stream_buffer with the next valid buffer for this
@@ -359,6 +365,11 @@ class Camera3Stream :
      * release fence signaled.
      */
     bool             hasOutstandingBuffers() const;
+
+    /**
+     * Get number of buffers currently handed out to HAL
+     */
+    size_t           getOutstandingBuffersCount() const;
 
     enum {
         TIMEOUT_NEVER = -1
@@ -473,7 +484,8 @@ class Camera3Stream :
     virtual status_t getBufferLocked(camera3_stream_buffer *buffer,
             const std::vector<size_t>& surface_ids = std::vector<size_t>());
     virtual status_t returnBufferLocked(const camera3_stream_buffer &buffer,
-            nsecs_t timestamp);
+            nsecs_t timestamp,
+            const std::vector<size_t>& surface_ids = std::vector<size_t>());
     virtual status_t getInputBufferLocked(camera3_stream_buffer *buffer);
     virtual status_t returnInputBufferLocked(
             const camera3_stream_buffer &buffer);
@@ -495,7 +507,7 @@ class Camera3Stream :
     virtual size_t   getBufferCountLocked() = 0;
 
     // Get handout output buffer count.
-    virtual size_t   getHandoutOutputBufferCountLocked() = 0;
+    virtual size_t   getHandoutOutputBufferCountLocked() const = 0;
 
     // Get handout input buffer count.
     virtual size_t   getHandoutInputBufferCountLocked() = 0;

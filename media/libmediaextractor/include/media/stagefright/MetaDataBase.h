@@ -89,7 +89,6 @@ enum {
     kKeyMaxHeight         = 'maxH',
     kKeyThumbnailTime     = 'thbT',  // int64_t (usecs)
     kKeyTrackID           = 'trID',
-    kKeyIsDRM             = 'idrm',  // int32_t (bool)
     kKeyEncoderDelay      = 'encd',  // int32_t (frames)
     kKeyEncoderPadding    = 'encp',  // int32_t (frames)
 
@@ -225,6 +224,10 @@ enum {
     kKeyExifSize         = 'exsz', // int64_t, Exif data size
     kKeyIsExif           = 'exif', // bool (int32_t) buffer contains exif data block
     kKeyPcmBigEndian     = 'pcmb', // bool (int32_t)
+
+    // Key for ALAC Magic Cookie
+    kKeyAlacMagicCookie  = 'almc', // raw data
+
     kKeyFeatureNalLengthBitstream = 'nlbs', // int32_t key to check nal length bistream
 };
 
