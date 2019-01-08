@@ -13,11 +13,11 @@
 #include <openssl/sha.h>
 
 // Protobuf generated classes.
-using android::hardware::drm::V1_1::clearkey::OfflineFile;
-using android::hardware::drm::V1_1::clearkey::HashedFile;
-using android::hardware::drm::V1_1::clearkey::License;
-using android::hardware::drm::V1_1::clearkey::License_LicenseState_ACTIVE;
-using android::hardware::drm::V1_1::clearkey::License_LicenseState_RELEASING;
+using android::hardware::drm::V1_2::clearkey::OfflineFile;
+using android::hardware::drm::V1_2::clearkey::HashedFile;
+using android::hardware::drm::V1_2::clearkey::License;
+using android::hardware::drm::V1_2::clearkey::License_LicenseState_ACTIVE;
+using android::hardware::drm::V1_2::clearkey::License_LicenseState_RELEASING;
 
 namespace {
 const char kLicenseFileNameExt[] = ".lic";
@@ -38,7 +38,7 @@ bool Hash(const std::string& data, std::string* hash) {
 namespace android {
 namespace hardware {
 namespace drm {
-namespace V1_1 {
+namespace V1_2 {
 namespace clearkey {
 
 bool DeviceFiles::StoreLicense(
@@ -57,6 +57,7 @@ bool DeviceFiles::StoreLicense(
             break;
         case kLicenseStateReleasing:
             license->set_state(License_LicenseState_RELEASING);
+            license->set_license(licenseResponse);
             break;
         default:
             ALOGW("StoreLicense: Unknown license state: %u", state);
@@ -106,8 +107,8 @@ bool DeviceFiles::StoreFileRaw(const std::string& fileName, const std::string& s
 
 bool DeviceFiles::RetrieveLicense(
     const std::string& keySetId, LicenseState* state, std::string* offlineLicense) {
-    OfflineFile file;
 
+    OfflineFile file;
     if (!RetrieveHashedFile(keySetId + kLicenseFileNameExt, &file)) {
         return false;
     }
@@ -128,7 +129,6 @@ bool DeviceFiles::RetrieveLicense(
     }
 
     License license = file.license();
-
     switch (license.state()) {
         case License_LicenseState_ACTIVE:
             *state = kLicenseStateActive;
@@ -142,9 +142,12 @@ bool DeviceFiles::RetrieveLicense(
             *state = kLicenseStateUnknown;
             break;
     }
-
     *offlineLicense = license.license();
     return true;
+}
+
+bool DeviceFiles::DeleteLicense(const std::string& keySetId) {
+    return mFileHandle.RemoveFile(keySetId + kLicenseFileNameExt);
 }
 
 bool DeviceFiles::DeleteAllLicenses() {
@@ -153,6 +156,15 @@ bool DeviceFiles::DeleteAllLicenses() {
 
 bool DeviceFiles::LicenseExists(const std::string& keySetId) {
     return mFileHandle.FileExists(keySetId + kLicenseFileNameExt);
+}
+
+std::vector<std::string> DeviceFiles::ListLicenses() const {
+    std::vector<std::string> licenses = mFileHandle.ListFiles();
+    for (size_t i = 0; i < licenses.size(); i++) {
+        std::string& license = licenses[i];
+        license = license.substr(0, license.size() - strlen(kLicenseFileNameExt));
+    }
+    return licenses;
 }
 
 bool DeviceFiles::RetrieveHashedFile(const std::string& fileName, OfflineFile* deSerializedFile) {
@@ -234,7 +246,7 @@ ssize_t DeviceFiles::GetFileSize(const std::string& fileName) const {
 }
 
 } // namespace clearkey
-} // namespace V1_1
+} // namespace V1_2
 } // namespace drm
 } // namespace hardware
 } // namespace android

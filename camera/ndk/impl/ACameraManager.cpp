@@ -26,9 +26,10 @@
 #include <stdlib.h>
 #include <camera/VendorTagDescriptor.h>
 
-using namespace android;
+using namespace android::acam;
 
 namespace android {
+namespace acam {
 // Static member definitions
 const char* CameraManagerGlobal::kCameraIdKey   = "CameraId";
 const char* CameraManagerGlobal::kCallbackFpKey = "CallbackFp";
@@ -345,6 +346,7 @@ void CameraManagerGlobal::onStatusChangedLocked(
     }
 }
 
+} // namespace acam
 } // namespace android
 
 /**
