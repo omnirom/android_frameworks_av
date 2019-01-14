@@ -4105,7 +4105,7 @@ void MPEG4Writer::Track::writeHdlrBox() {
 
 void MPEG4Writer::Track::writeEdtsBox(){
     ALOGV("%s : getStartTimeOffsetTimeUs of track:%" PRId64 " us", getTrackType(),
-        getStartTimeOffsetTimeUs());
+        mOwner->getStartTimeOffsetTimeUs(mStartTimestampUs));
 
     // Prepone video playback.
     if (mMinCttsOffsetTicks != mMaxCttsOffsetTicks) {
@@ -4257,7 +4257,7 @@ void MPEG4Writer::Track::writeSttsBox() {
         uint32_t duration;
         CHECK(mSttsTableEntries->get(duration, 1));
         duration = htonl(duration);  // Back to host byte order
-        int32_t startTimeOffsetScaled = (((getStartTimeOffsetTimeUs() +
+        int32_t startTimeOffsetScaled = (((mOwner->getStartTimeOffsetTimeUs(mStartTimestampUs) +
             mOwner->getStartTimeOffsetBFramesUs()) * mTimeScale) + 500000LL) / 1000000LL;
         mSttsTableEntries->set(htonl((int32_t)duration + startTimeOffsetScaled), 1);
     }

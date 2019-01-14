@@ -698,9 +698,9 @@ bool SwAudioOutputCollection::isA2dpOnPrimary() const
     sp<SwAudioOutputDescriptor> primaryOutput = getPrimaryOutput();
 
     if ((primaryOutput != NULL) && (primaryOutput->mProfile != NULL)
-        && (primaryOutput->mProfile->mModule != NULL)) {
+        && (primaryOutput->mProfile->getModule() != NULL)) {
         Vector <sp<IOProfile>> primaryOutputProfiles =
-                               primaryOutput->mProfile->mModule->mOutputProfiles;
+            primaryOutput->mProfile->getModule()->mOutputProfiles;
         for (size_t j = 0; j < primaryOutputProfiles.size(); j++) {
             if (primaryOutputProfiles[j]->supportDevice(AUDIO_DEVICE_OUT_ALL_A2DP)) {
                 return true;
