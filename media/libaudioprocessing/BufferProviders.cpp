@@ -23,6 +23,8 @@
 #include <audio_utils/format.h>
 #include <audio_utils/channels.h>
 #include <sonic.h>
+// TODO (QP1A.190107.001) without Android.bp file this might have to be the path below
+// #include <external/sonic/sonic.h>
 #include <media/audiohal/EffectBufferHalInterface.h>
 #include <media/audiohal/EffectHalInterface.h>
 #include <media/audiohal/EffectsFactoryHalInterface.h>
