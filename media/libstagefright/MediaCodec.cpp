@@ -864,7 +864,7 @@ static CodecBase *CreateCCodec() {
 sp<CodecBase> MediaCodec::GetCodecBase(const AString &name, const char *owner) {
     if (owner) {
         if (strncmp(owner, "default", 8) == 0) {
-            return new ACodec;
+            return AVFactory::get()->createACodec();
         } else if (strncmp(owner, "codec2", 7) == 0) {
             return CreateCCodec();
         }
