@@ -233,7 +233,13 @@ LVM_ReturnStatus_en LVM_GetMemoryTable(LVM_Handle_t         hInstance,
          * Set the capabilities
          */
 #if defined(BUILD_FLOAT) && defined(HIGHER_FS)
-        DBE_Capabilities.SampleRate      = LVDBE_CAP_FS_8000 | LVDBE_CAP_FS_11025 | LVDBE_CAP_FS_12000 | LVDBE_CAP_FS_16000 | LVDBE_CAP_FS_22050 | LVDBE_CAP_FS_24000 | LVDBE_CAP_FS_32000 | LVDBE_CAP_FS_44100 | LVDBE_CAP_FS_48000 | LVDBE_CAP_FS_96000 | LVDBE_CAP_FS_192000;
+        DBE_Capabilities.SampleRate      = LVDBE_CAP_FS_8000 | LVDBE_CAP_FS_11025 |
+                                           LVDBE_CAP_FS_12000 | LVDBE_CAP_FS_16000 |
+                                           LVDBE_CAP_FS_22050 | LVDBE_CAP_FS_24000 |
+                                           LVDBE_CAP_FS_32000 | LVDBE_CAP_FS_44100 |
+                                           LVDBE_CAP_FS_48000 | LVDBE_CAP_FS_88200 |
+                                           LVDBE_CAP_FS_96000 | LVDBE_CAP_FS_176400 |
+                                           LVDBE_CAP_FS_192000;
 #else
         DBE_Capabilities.SampleRate      = LVDBE_CAP_FS_8000 | LVDBE_CAP_FS_11025 | LVDBE_CAP_FS_12000 | LVDBE_CAP_FS_16000 | LVDBE_CAP_FS_22050 | LVDBE_CAP_FS_24000 | LVDBE_CAP_FS_32000 | LVDBE_CAP_FS_44100 | LVDBE_CAP_FS_48000;
 #endif
@@ -270,7 +276,13 @@ LVM_ReturnStatus_en LVM_GetMemoryTable(LVM_Handle_t         hInstance,
          * Set the capabilities
          */
 #if defined(BUILD_FLOAT) && defined(HIGHER_FS)
-        EQNB_Capabilities.SampleRate   = LVEQNB_CAP_FS_8000 | LVEQNB_CAP_FS_11025 | LVEQNB_CAP_FS_12000 | LVEQNB_CAP_FS_16000 | LVEQNB_CAP_FS_22050 | LVEQNB_CAP_FS_24000 | LVEQNB_CAP_FS_32000 | LVEQNB_CAP_FS_44100 | LVEQNB_CAP_FS_48000 | LVEQNB_CAP_FS_96000 | LVEQNB_CAP_FS_192000;
+        EQNB_Capabilities.SampleRate   = LVEQNB_CAP_FS_8000 | LVEQNB_CAP_FS_11025 |
+                                         LVEQNB_CAP_FS_12000 | LVEQNB_CAP_FS_16000 |
+                                         LVEQNB_CAP_FS_22050 | LVEQNB_CAP_FS_24000 |
+                                         LVEQNB_CAP_FS_32000 | LVEQNB_CAP_FS_44100 |
+                                         LVEQNB_CAP_FS_48000 | LVEQNB_CAP_FS_88200 |
+                                         LVEQNB_CAP_FS_96000 | LVEQNB_CAP_FS_176400 |
+                                         LVEQNB_CAP_FS_192000;
 #else
         EQNB_Capabilities.SampleRate   = LVEQNB_CAP_FS_8000 | LVEQNB_CAP_FS_11025 | LVEQNB_CAP_FS_12000 | LVEQNB_CAP_FS_16000 | LVEQNB_CAP_FS_22050 | LVEQNB_CAP_FS_24000 | LVEQNB_CAP_FS_32000 | LVEQNB_CAP_FS_44100 | LVEQNB_CAP_FS_48000;
 #endif
@@ -584,8 +596,11 @@ LVM_ReturnStatus_en LVM_GetInstanceHandle(LVM_Handle_t           *phInstance,
     /*
      * DC removal filter
      */
+#ifdef SUPPORT_MC
+    DC_Mc_D16_TRC_WRA_01_Init(&pInstance->DC_RemovalInstance);
+#else
     DC_2I_D16_TRC_WRA_01_Init(&pInstance->DC_RemovalInstance);
-
+#endif
 
     /*
      * Treble Enhancement
@@ -744,7 +759,13 @@ LVM_ReturnStatus_en LVM_GetInstanceHandle(LVM_Handle_t           *phInstance,
          * Set the initialisation capabilities
          */
 #if defined(BUILD_FLOAT) && defined(HIGHER_FS)
-        DBE_Capabilities.SampleRate      = LVDBE_CAP_FS_8000 | LVDBE_CAP_FS_11025 | LVDBE_CAP_FS_12000 | LVDBE_CAP_FS_16000 | LVDBE_CAP_FS_22050 | LVDBE_CAP_FS_24000 | LVDBE_CAP_FS_32000 | LVDBE_CAP_FS_44100 | LVDBE_CAP_FS_48000 | LVDBE_CAP_FS_96000 | LVDBE_CAP_FS_192000;
+        DBE_Capabilities.SampleRate      = LVDBE_CAP_FS_8000 | LVDBE_CAP_FS_11025 |
+                                           LVDBE_CAP_FS_12000 | LVDBE_CAP_FS_16000 |
+                                           LVDBE_CAP_FS_22050 | LVDBE_CAP_FS_24000 |
+                                           LVDBE_CAP_FS_32000 | LVDBE_CAP_FS_44100 |
+                                           LVDBE_CAP_FS_48000 | LVDBE_CAP_FS_88200 |
+                                           LVDBE_CAP_FS_96000 | LVDBE_CAP_FS_176400 |
+                                           LVDBE_CAP_FS_192000;
 #else
         DBE_Capabilities.SampleRate      = LVDBE_CAP_FS_8000 | LVDBE_CAP_FS_11025 | LVDBE_CAP_FS_12000 | LVDBE_CAP_FS_16000 | LVDBE_CAP_FS_22050 | LVDBE_CAP_FS_24000 | LVDBE_CAP_FS_32000 | LVDBE_CAP_FS_44100 | LVDBE_CAP_FS_48000;
 #endif
@@ -802,7 +823,13 @@ LVM_ReturnStatus_en LVM_GetInstanceHandle(LVM_Handle_t           *phInstance,
          * Set the initialisation capabilities
          */
 #if defined(BUILD_FLOAT) && defined(HIGHER_FS)
-        EQNB_Capabilities.SampleRate      = LVEQNB_CAP_FS_8000 | LVEQNB_CAP_FS_11025 | LVEQNB_CAP_FS_12000 | LVEQNB_CAP_FS_16000 | LVEQNB_CAP_FS_22050 | LVEQNB_CAP_FS_24000 | LVEQNB_CAP_FS_32000 | LVEQNB_CAP_FS_44100 | LVEQNB_CAP_FS_48000 | LVEQNB_CAP_FS_96000 | LVEQNB_CAP_FS_192000;
+        EQNB_Capabilities.SampleRate      = LVEQNB_CAP_FS_8000 | LVEQNB_CAP_FS_11025 |
+                                            LVEQNB_CAP_FS_12000 | LVEQNB_CAP_FS_16000 |
+                                            LVEQNB_CAP_FS_22050 | LVEQNB_CAP_FS_24000 |
+                                            LVEQNB_CAP_FS_32000 | LVEQNB_CAP_FS_44100 |
+                                            LVEQNB_CAP_FS_48000 | LVEQNB_CAP_FS_88200 |
+                                            LVEQNB_CAP_FS_96000 | LVEQNB_CAP_FS_176400 |
+                                            LVEQNB_CAP_FS_192000;
 #else
         EQNB_Capabilities.SampleRate      = LVEQNB_CAP_FS_8000 | LVEQNB_CAP_FS_11025 | LVEQNB_CAP_FS_12000 | LVEQNB_CAP_FS_16000 | LVEQNB_CAP_FS_22050 | LVEQNB_CAP_FS_24000 | LVEQNB_CAP_FS_32000 | LVEQNB_CAP_FS_44100 | LVEQNB_CAP_FS_48000;
 #endif
@@ -1039,7 +1066,11 @@ LVM_ReturnStatus_en LVM_ClearAudioBuffers(LVM_Handle_t  hInstance)
     LVM_SetHeadroomParams(hInstance, &HeadroomParams);
 
     /* DC removal filter */
+#ifdef SUPPORT_MC
+    DC_Mc_D16_TRC_WRA_01_Init(&pInstance->DC_RemovalInstance);
+#else
     DC_2I_D16_TRC_WRA_01_Init(&pInstance->DC_RemovalInstance);
+#endif
 
     return LVM_SUCCESS;
 }

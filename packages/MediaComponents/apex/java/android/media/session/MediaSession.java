@@ -24,12 +24,13 @@ import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-//import android.content.pm.ParceledListSlice;
 import android.media.AudioAttributes;
 import android.media.MediaDescription;
 import android.media.MediaMetadata;
+import android.media.MediaParceledListSlice;
 import android.media.Rating;
 import android.media.VolumeProvider;
+import android.media.session.MediaSessionManager.RemoteUserInfo;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -40,7 +41,6 @@ import android.os.Parcelable;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.os.UserHandle;
-import android.media.session.MediaSessionManager.RemoteUserInfo;
 import android.service.media.MediaBrowserService;
 import android.text.TextUtils;
 import android.util.Log;
@@ -171,10 +171,8 @@ public final class MediaSession {
         if (TextUtils.isEmpty(tag)) {
             throw new IllegalArgumentException("tag cannot be null or empty");
         }
-        //TODO(b/119749798): Resolve hidden API usage. com.android.internal.R
-        //mMaxBitmapSize = context.getResources().getDimensionPixelSize(
-                //com.android.internal.R.dimen.config_mediaMetadataBitmapMaxSize);
-        mMaxBitmapSize = 1024;  //TODO: remove this.
+        mMaxBitmapSize = context.getResources().getDimensionPixelSize(
+                android.R.dimen.config_mediaMetadataBitmapMaxSize);
         mCbStub = new CallbackStub(this);
         MediaSessionManager manager = (MediaSessionManager) context
                 .getSystemService(Context.MEDIA_SESSION_SERVICE);
@@ -441,11 +439,21 @@ public final class MediaSession {
      * @see android.media.MediaMetadata.Builder#putBitmap
      */
     public void setMetadata(@Nullable MediaMetadata metadata) {
+        long duration = -1;
+        int fields = 0;
+        MediaDescription description = null;
         if (metadata != null) {
             metadata = (new MediaMetadata.Builder(metadata, mMaxBitmapSize)).build();
+            if (metadata.containsKey(MediaMetadata.METADATA_KEY_DURATION)) {
+                duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
+            }
+            fields = metadata.size();
+            description = metadata.getDescription();
         }
+        String metadataDescription = "size=" + fields + ", description=" + description;
+
         try {
-            mBinder.setMetadata(metadata);
+            mBinder.setMetadata(metadata, duration, metadataDescription);
         } catch (RemoteException e) {
             Log.wtf(TAG, "Dead object in setPlaybackState.", e);
         }
@@ -463,14 +471,11 @@ public final class MediaSession {
      * @param queue A list of items in the play queue.
      */
     public void setQueue(@Nullable List<QueueItem> queue) {
-        //TODO:(b/119750807) Resolve hidden API usage ParceledListSlice.
-        /*
         try {
-            mBinder.setQueue(queue == null ? null : new ParceledListSlice<QueueItem>(queue));
+            mBinder.setQueue(queue == null ? null : new MediaParceledListSlice<QueueItem>(queue));
         } catch (RemoteException e) {
             Log.wtf("Dead object in setQueue.", e);
         }
-        */
     }
 
     /**
@@ -1072,12 +1077,8 @@ public final class MediaSession {
 
         private static RemoteUserInfo createRemoteUserInfo(String packageName, int pid, int uid,
                 ISessionControllerCallback caller) {
-            //TODO(b/119752205): Resolve hidden API usage. 4-param constructor of RemoteUserInfo
-            /*
             return new RemoteUserInfo(packageName, pid, uid,
                     caller != null ? caller.asBinder() : null);
-            */
-            return new RemoteUserInfo(packageName, pid, uid);
         }
 
         @Override

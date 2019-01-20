@@ -17,8 +17,8 @@ package android.media.session;
 
 import android.app.PendingIntent;
 import android.content.Intent;
-//import android.content.pm.ParceledListSlice;
 import android.media.MediaMetadata;
+import android.media.MediaParceledListSlice;
 import android.media.Rating;
 import android.media.session.ISessionControllerCallback;
 import android.media.session.MediaSession;
@@ -48,9 +48,9 @@ interface ISessionController {
     PendingIntent getLaunchPendingIntent();
     long getFlags();
     ParcelableVolumeInfo getVolumeAttributes();
-    void adjustVolume(String packageName, ISessionControllerCallback caller,
+    void adjustVolume(String packageName, String opPackageName, ISessionControllerCallback caller,
             boolean asSystemService, int direction, int flags);
-    void setVolumeTo(String packageName, ISessionControllerCallback caller,
+    void setVolumeTo(String packageName, String opPackageName, ISessionControllerCallback caller,
             int value, int flags);
 
     // These commands are for the TransportControls
@@ -81,8 +81,7 @@ interface ISessionController {
             String action, in Bundle args);
     MediaMetadata getMetadata();
     PlaybackState getPlaybackState();
-    //TODO:(b/119750807) Resolve hidden API usage ParceledListSlice.
-    //ParceledListSlice getQueue();
+    MediaParceledListSlice getQueue();
     CharSequence getQueueTitle();
     Bundle getExtras();
     int getRatingType();

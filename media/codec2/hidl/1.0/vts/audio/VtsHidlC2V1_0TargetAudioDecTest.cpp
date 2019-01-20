@@ -156,63 +156,31 @@ class Codec2AudioDecHidlTest : public ::testing::VtsHalHidlTargetTestBase {
     // callback function to process onWorkDone received by Listener
     void handleWorkDone(std::list<std::unique_ptr<C2Work>>& workItems) {
         for (std::unique_ptr<C2Work>& work : workItems) {
-            // handle configuration changes in work done
-            if (!work->worklets.empty() &&
-                (work->worklets.front()->output.configUpdate.size() != 0)) {
-                ALOGV("Config Update");
-                std::vector<std::unique_ptr<C2Param>> updates =
-                    std::move(work->worklets.front()->output.configUpdate);
-                std::vector<C2Param*> configParam;
-                std::vector<std::unique_ptr<C2SettingResult>> failures;
-                for (size_t i = 0; i < updates.size(); ++i) {
-                    C2Param* param = updates[i].get();
-                    if ((param->index() == C2StreamSampleRateInfo::output::PARAM_TYPE) ||
-                        (param->index() == C2StreamChannelCountInfo::output::PARAM_TYPE)) {
-                        configParam.push_back(param);
+            if (!work->worklets.empty()) {
+                // For decoder components current timestamp always exceeds
+                // previous timestamp
+                bool codecConfig = ((work->worklets.front()->output.flags &
+                                     C2FrameData::FLAG_CODEC_CONFIG) != 0);
+                if (!codecConfig &&
+                    !work->worklets.front()->output.buffers.empty()) {
+                    EXPECT_GE(work->worklets.front()->output.ordinal.timestamp.peeku(),
+                        mTimestampUs);
+                    mTimestampUs =
+                        work->worklets.front()->output.ordinal.timestamp.peeku();
+                    uint32_t rangeLength =
+                        work->worklets.front()->output.buffers[0]->data()
+                        .linearBlocks().front().map().get().capacity();
+                    //List of timestamp values and output size to calculate timestamp
+                    if (mTimestampDevTest) {
+                        outputMetaData meta = {mTimestampUs, rangeLength};
+                        oBufferMetaData.push_back(meta);
                     }
                 }
-                mComponent->config(configParam, C2_DONT_BLOCK, &failures);
-                ASSERT_EQ(failures.size(), 0u);
-            }
-            mFramesReceived++;
-            mEos = (work->worklets.front()->output.flags &
-                    C2FrameData::FLAG_END_OF_STREAM) != 0;
-            auto frameIndexIt =
-                std::find(mFlushedIndices.begin(), mFlushedIndices.end(),
-                          work->input.ordinal.frameIndex.peeku());
-            ALOGV("WorkDone: frameID received %d",
-                (int)work->worklets.front()->output.ordinal.frameIndex.peeku());
-
-            // For decoder components current timestamp always exceeds
-            // previous timestamp
-            bool codecConfig = ((work->worklets.front()->output.flags &
-                                 C2FrameData::FLAG_CODEC_CONFIG) != 0);
-            if (!codecConfig &&
-                !work->worklets.front()->output.buffers.empty()) {
-                EXPECT_GE(work->worklets.front()->output.ordinal.timestamp.peeku(),
-                    mTimestampUs);
-                mTimestampUs =
-                    work->worklets.front()->output.ordinal.timestamp.peeku();
-                uint32_t rangeLength =
-                    work->worklets.front()->output.buffers[0]->data()
-                    .linearBlocks().front().map().get().capacity();
-                //List of timestamp values and output size to calculate timestamp
-                if (mTimestampDevTest) {
-                    outputMetaData meta = {mTimestampUs, rangeLength};
-                    oBufferMetaData.push_back(meta);
-                }
-            }
-
-            work->input.buffers.clear();
-            work->worklets.clear();
-            {
-                typedef std::unique_lock<std::mutex> ULock;
-                ULock l(mQueueLock);
-                mWorkQueue.push_back(std::move(work));
-                if (!mFlushedIndices.empty()) {
-                    mFlushedIndices.erase(frameIndexIt);
-                }
-                mQueueCondition.notify_all();
+                bool mCsd = false;
+                workDone(mComponent, work, mFlushedIndices, mQueueLock,
+                         mQueueCondition, mWorkQueue, mEos, mCsd,
+                         mFramesReceived);
+                (void)mCsd;
             }
         }
     }
@@ -362,67 +330,82 @@ void getInputChannelInfo(
     }
 }
 
+// number of elementary streams per component
+#define STREAM_COUNT 2
+
 // LookUpTable of clips and metadata for component testing
 void GetURLForComponent(Codec2AudioDecHidlTest::standardComp comp, char* mURL,
-                        char* info) {
+                        char* info, size_t streamIndex = 0) {
     struct CompToURL {
         Codec2AudioDecHidlTest::standardComp comp;
-        const char* mURL;
-        const char* info;
+        const char mURL[STREAM_COUNT][512];
+        const char info[STREAM_COUNT][512];
     };
+    ASSERT_TRUE(streamIndex < STREAM_COUNT);
+
     static const CompToURL kCompToURL[] = {
         {Codec2AudioDecHidlTest::standardComp::xaac,
-         "bbb_aac_stereo_128kbps_48000hz.aac",
-         "bbb_aac_stereo_128kbps_48000hz.info"},
+         {"bbb_aac_stereo_128kbps_48000hz.aac",
+          "bbb_aac_stereo_128kbps_48000hz.aac"},
+         {"bbb_aac_stereo_128kbps_48000hz.info",
+          "bbb_aac_stereo_128kbps_48000hz_multi_frame.info"}},
         {Codec2AudioDecHidlTest::standardComp::mp3,
-         "bbb_mp3_stereo_192kbps_48000hz.mp3",
-         "bbb_mp3_stereo_192kbps_48000hz.info"},
+         {"bbb_mp3_stereo_192kbps_48000hz.mp3",
+          "bbb_mp3_stereo_192kbps_48000hz.mp3"},
+         {"bbb_mp3_stereo_192kbps_48000hz.info",
+          "bbb_mp3_stereo_192kbps_48000hz_multi_frame.info"}},
         {Codec2AudioDecHidlTest::standardComp::aac,
-         "bbb_aac_stereo_128kbps_48000hz.aac",
-         "bbb_aac_stereo_128kbps_48000hz.info"},
+         {"bbb_aac_stereo_128kbps_48000hz.aac",
+          "bbb_aac_stereo_128kbps_48000hz.aac"},
+         {"bbb_aac_stereo_128kbps_48000hz.info",
+          "bbb_aac_stereo_128kbps_48000hz_multi_frame.info"}},
         {Codec2AudioDecHidlTest::standardComp::amrnb,
-         "sine_amrnb_1ch_12kbps_8000hz.amrnb",
-         "sine_amrnb_1ch_12kbps_8000hz.info"},
+         {"sine_amrnb_1ch_12kbps_8000hz.amrnb",
+          "sine_amrnb_1ch_12kbps_8000hz.amrnb"},
+         {"sine_amrnb_1ch_12kbps_8000hz.info",
+          "sine_amrnb_1ch_12kbps_8000hz_multi_frame.info"}},
         {Codec2AudioDecHidlTest::standardComp::amrwb,
-         "bbb_amrwb_1ch_14kbps_16000hz.amrwb",
-         "bbb_amrwb_1ch_14kbps_16000hz.info"},
+         {"bbb_amrwb_1ch_14kbps_16000hz.amrwb",
+          "bbb_amrwb_1ch_14kbps_16000hz.amrwb"},
+         {"bbb_amrwb_1ch_14kbps_16000hz.info",
+          "bbb_amrwb_1ch_14kbps_16000hz_multi_frame.info"}},
         {Codec2AudioDecHidlTest::standardComp::vorbis,
-         "bbb_vorbis_stereo_128kbps_48000hz.vorbis",
-         "bbb_vorbis_stereo_128kbps_48000hz.info"},
+         {"bbb_vorbis_stereo_128kbps_48000hz.vorbis", ""},
+         {"bbb_vorbis_stereo_128kbps_48000hz.info", ""}},
         {Codec2AudioDecHidlTest::standardComp::opus,
-         "bbb_opus_stereo_128kbps_48000hz.opus",
-         "bbb_opus_stereo_128kbps_48000hz.info"},
+         {"bbb_opus_stereo_128kbps_48000hz.opus", ""},
+         {"bbb_opus_stereo_128kbps_48000hz.info", ""}},
         {Codec2AudioDecHidlTest::standardComp::g711alaw,
-        "bbb_g711alaw_1ch_8khz.raw",
-         "bbb_g711alaw_1ch_8khz.info"},
+         {"bbb_g711alaw_1ch_8khz.raw", ""},
+         {"bbb_g711alaw_1ch_8khz.info", ""}},
         {Codec2AudioDecHidlTest::standardComp::g711mlaw,
-        "bbb_g711mulaw_1ch_8khz.raw",
-         "bbb_g711mulaw_1ch_8khz.info"},
+         {"bbb_g711mulaw_1ch_8khz.raw", ""},
+         {"bbb_g711mulaw_1ch_8khz.info", ""}},
         {Codec2AudioDecHidlTest::standardComp::gsm,
-        "bbb_gsm_1ch_8khz_13kbps.raw",
-         "bbb_gsm_1ch_8khz_13kbps.info"},
+         {"bbb_gsm_1ch_8khz_13kbps.raw", ""},
+         {"bbb_gsm_1ch_8khz_13kbps.info", ""}},
         {Codec2AudioDecHidlTest::standardComp::raw,
-        "bbb_raw_1ch_8khz_s32le.raw",
-         "bbb_raw_1ch_8khz_s32le.info"},
+         {"bbb_raw_1ch_8khz_s32le.raw", ""},
+         {"bbb_raw_1ch_8khz_s32le.info", ""}},
         {Codec2AudioDecHidlTest::standardComp::flac,
-         "bbb_flac_stereo_680kbps_48000hz.flac",
-         "bbb_flac_stereo_680kbps_48000hz.info"},
+         {"bbb_flac_stereo_680kbps_48000hz.flac", ""},
+         {"bbb_flac_stereo_680kbps_48000hz.info", ""}},
     };
 
     for (size_t i = 0; i < sizeof(kCompToURL) / sizeof(kCompToURL[0]); ++i) {
         if (kCompToURL[i].comp == comp) {
-            strcat(mURL, kCompToURL[i].mURL);
-            strcat(info, kCompToURL[i].info);
+            strcat(mURL, kCompToURL[i].mURL[streamIndex]);
+            strcat(info, kCompToURL[i].info[streamIndex]);
             return;
         }
     }
 }
 
-void decodeNFrames(const std::shared_ptr<android::Codec2Client::Component> &component,
-                   std::mutex &queueLock, std::condition_variable &queueCondition,
-                   std::list<std::unique_ptr<C2Work>> &workQueue,
-                   std::list<uint64_t> &flushedIndices,
-                   std::shared_ptr<C2BlockPool> &linearPool,
+void decodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& component,
+                   std::mutex &queueLock, std::condition_variable& queueCondition,
+                   std::list<std::unique_ptr<C2Work>>& workQueue,
+                   std::list<uint64_t>& flushedIndices,
+                   std::shared_ptr<C2BlockPool>& linearPool,
                    std::ifstream& eleStream,
                    android::Vector<FrameInfo>* Info,
                    int offset, int range, bool signalEOS = true) {
@@ -462,34 +445,37 @@ void decodeNFrames(const std::shared_ptr<android::Codec2Client::Component> &comp
         }
         int size = (*Info)[frameID].bytesCount;
         char* data = (char*)malloc(size);
+        ASSERT_NE(data, nullptr);
 
         eleStream.read(data, size);
         ASSERT_EQ(eleStream.gcount(), size);
 
-        std::shared_ptr<C2LinearBlock> block;
-        ASSERT_EQ(C2_OK,
-                  linearPool->fetchLinearBlock(
-                      size, {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE},
-                      &block));
-        ASSERT_TRUE(block);
-
-        // Write View
-        C2WriteView view = block->map().get();
-        if (view.error() != C2_OK) {
-            fprintf(stderr, "C2LinearBlock::map() failed : %d", view.error());
-            break;
-        }
-        ASSERT_EQ((size_t)size, view.capacity());
-        ASSERT_EQ(0u, view.offset());
-        ASSERT_EQ((size_t)size, view.size());
-
-        memcpy(view.base(), data, size);
-
         work->input.buffers.clear();
-        work->input.buffers.emplace_back(new LinearBuffer(block));
+        if (size) {
+            std::shared_ptr<C2LinearBlock> block;
+            ASSERT_EQ(C2_OK,
+                    linearPool->fetchLinearBlock(
+                        size, {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE},
+                        &block));
+            ASSERT_TRUE(block);
+
+            // Write View
+            C2WriteView view = block->map().get();
+            if (view.error() != C2_OK) {
+                fprintf(stderr, "C2LinearBlock::map() failed : %d", view.error());
+                break;
+            }
+            ASSERT_EQ((size_t)size, view.capacity());
+            ASSERT_EQ(0u, view.offset());
+            ASSERT_EQ((size_t)size, view.size());
+
+            memcpy(view.base(), data, size);
+
+            work->input.buffers.emplace_back(new LinearBuffer(block));
+            free(data);
+        }
         work->worklets.clear();
         work->worklets.emplace_back(new C2Worklet);
-        free(data);
 
         std::list<std::unique_ptr<C2Work>> items;
         items.push_back(std::move(work));
@@ -499,29 +485,6 @@ void decodeNFrames(const std::shared_ptr<android::Codec2Client::Component> &comp
         ALOGV("Frame #%d size = %d queued", frameID, size);
         frameID++;
         maxRetry = 0;
-    }
-}
-
-void waitOnInputConsumption(std::mutex& queueLock,
-                            std::condition_variable& queueCondition,
-                            std::list<std::unique_ptr<C2Work>>& workQueue,
-                            size_t bufferCount = MAX_INPUT_BUFFERS) {
-    typedef std::unique_lock<std::mutex> ULock;
-    uint32_t queueSize;
-    uint32_t maxRetry = 0;
-    {
-        ULock l(queueLock);
-        queueSize = workQueue.size();
-    }
-    while ((maxRetry < MAX_RETRY) && (queueSize < bufferCount)) {
-        ULock l(queueLock);
-        if (queueSize != workQueue.size()) {
-            queueSize = workQueue.size();
-            maxRetry = 0;
-        } else {
-            queueCondition.wait_for(l, TIME_OUT);
-            maxRetry++;
-        }
     }
 }
 
@@ -543,10 +506,15 @@ TEST_F(Codec2AudioDecHidlTest, configComp) {
     ASSERT_EQ(mComponent->stop(), C2_OK);
 }
 
-TEST_F(Codec2AudioDecHidlTest, DecodeTest) {
+class Codec2AudioDecDecodeTest : public Codec2AudioDecHidlTest,
+                                 public ::testing::WithParamInterface<int32_t> {
+};
+
+TEST_P(Codec2AudioDecDecodeTest, DecodeTest) {
     description("Decodes input file");
     if (mDisableTest) return;
 
+    uint32_t streamIndex = GetParam();
     ASSERT_EQ(mComponent->start(), C2_OK);
     mTimestampDevTest = true;
     char mURL[512], info[512];
@@ -554,7 +522,12 @@ TEST_F(Codec2AudioDecHidlTest, DecodeTest) {
 
     strcpy(mURL, gEnv->getRes().c_str());
     strcpy(info, gEnv->getRes().c_str());
-    GetURLForComponent(mCompName, mURL, info);
+    GetURLForComponent(mCompName, mURL, info, streamIndex);
+    if (!strcmp(mURL, gEnv->getRes().c_str())) {
+        ALOGV("EMPTY INPUT gEnv->getRes().c_str() %s mURL  %s ",
+              gEnv->getRes().c_str(), mURL);
+        return;
+    }
 
     eleInfo.open(info);
     ASSERT_EQ(eleInfo.is_open(), true);
@@ -573,6 +546,9 @@ TEST_F(Codec2AudioDecHidlTest, DecodeTest) {
         Info.push_back({bytesCount, flags, timestamp});
     }
     eleInfo.close();
+    // Reset total no of frames received
+    mFramesReceived = 0;
+    mTimestampUs = 0;
     int32_t bitStreamInfo[2] = {0};
     if (mCompName == raw) {
         bitStreamInfo[0] = 8000;
@@ -628,6 +604,9 @@ TEST_F(Codec2AudioDecHidlTest, DecodeTest) {
     }
     ASSERT_EQ(mComponent->stop(), C2_OK);
 }
+
+INSTANTIATE_TEST_CASE_P(StreamIndexes, Codec2AudioDecDecodeTest,
+                        ::testing::Values(0, 1));
 
 // thumbnail test
 TEST_F(Codec2AudioDecHidlTest, ThumbnailTest) {
@@ -718,53 +697,12 @@ TEST_F(Codec2AudioDecHidlTest, EOSTest) {
     ASSERT_EQ(mComponent->queue(&items), C2_OK);
 
     {
-        typedef std::unique_lock<std::mutex> ULock;
         ULock l(mQueueLock);
         if (mWorkQueue.size() != MAX_INPUT_BUFFERS) {
             mQueueCondition.wait_for(l, TIME_OUT);
         }
     }
     ASSERT_EQ(mEos, true);
-    ASSERT_EQ(mWorkQueue.size(), (size_t)MAX_INPUT_BUFFERS);
-    ASSERT_EQ(mComponent->stop(), C2_OK);
-}
-
-TEST_F(Codec2AudioDecHidlTest, EmptyBufferTest) {
-    description("Tests empty input buffer");
-    if (mDisableTest) return;
-    typedef std::unique_lock<std::mutex> ULock;
-    ASSERT_EQ(mComponent->start(), C2_OK);
-    std::unique_ptr<C2Work> work;
-    // Prepare C2Work
-    {
-        ULock l(mQueueLock);
-        if (!mWorkQueue.empty()) {
-            work.swap(mWorkQueue.front());
-            mWorkQueue.pop_front();
-        } else {
-            ASSERT_TRUE(false) << "mWorkQueue Empty at the start of test";
-        }
-    }
-    ASSERT_NE(work, nullptr);
-
-    work->input.flags = (C2FrameData::flags_t)0;
-    work->input.ordinal.timestamp = 0;
-    work->input.ordinal.frameIndex = 0;
-    work->input.buffers.clear();
-    work->worklets.clear();
-    work->worklets.emplace_back(new C2Worklet);
-
-    std::list<std::unique_ptr<C2Work>> items;
-    items.push_back(std::move(work));
-    ASSERT_EQ(mComponent->queue(&items), C2_OK);
-
-    {
-        typedef std::unique_lock<std::mutex> ULock;
-        ULock l(mQueueLock);
-        if (mWorkQueue.size() != MAX_INPUT_BUFFERS) {
-            mQueueCondition.wait_for(l, TIME_OUT);
-        }
-    }
     ASSERT_EQ(mWorkQueue.size(), (size_t)MAX_INPUT_BUFFERS);
     ASSERT_EQ(mComponent->stop(), C2_OK);
 }
@@ -888,6 +826,72 @@ TEST_F(Codec2AudioDecHidlTest, FlushTest) {
         }
     }
     ASSERT_EQ(mFlushedIndices.empty(), true);
+    ASSERT_EQ(mComponent->stop(), C2_OK);
+}
+
+TEST_F(Codec2AudioDecHidlTest, DecodeTestEmptyBuffersInserted) {
+    description("Decode with multiple empty input frames");
+    if (mDisableTest) return;
+
+    ASSERT_EQ(mComponent->start(), C2_OK);
+
+    char mURL[512], info[512];
+    std::ifstream eleStream, eleInfo;
+
+    strcpy(mURL, gEnv->getRes().c_str());
+    strcpy(info, gEnv->getRes().c_str());
+    GetURLForComponent(mCompName, mURL, info);
+
+    eleInfo.open(info);
+    ASSERT_EQ(eleInfo.is_open(), true) << mURL << " - file not found";
+    android::Vector<FrameInfo> Info;
+    int bytesCount = 0;
+    uint32_t frameId = 0;
+    uint32_t flags = 0;
+    uint32_t timestamp = 0;
+    bool codecConfig = false;
+    // This test introduces empty CSD after every 20th frame
+    // and empty input frames at an interval of 5 frames.
+    while (1) {
+        if (!(frameId % 5)) {
+            if (!(frameId % 20)) flags = 32;
+            else flags = 0;
+            bytesCount = 0;
+        } else {
+            if (!(eleInfo >> bytesCount)) break;
+            eleInfo >> flags;
+            eleInfo >> timestamp;
+            codecConfig = flags ?
+                ((1 << (flags - 1)) & C2FrameData::FLAG_CODEC_CONFIG) != 0 : 0;
+        }
+        Info.push_back({bytesCount, flags, timestamp});
+        frameId++;
+    }
+    eleInfo.close();
+
+    ALOGV("mURL : %s", mURL);
+    eleStream.open(mURL, std::ifstream::binary);
+    ASSERT_EQ(eleStream.is_open(), true);
+    ASSERT_NO_FATAL_FAILURE(decodeNFrames(
+        mComponent, mQueueLock, mQueueCondition, mWorkQueue, mFlushedIndices,
+        mLinearPool, eleStream, &Info, 0, (int)Info.size()));
+
+    // blocking call to ensures application to Wait till all the inputs are
+    // consumed
+    if (!mEos) {
+        ALOGV("Waiting for input consumption");
+        ASSERT_NO_FATAL_FAILURE(
+            waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue));
+    }
+
+    eleStream.close();
+    if (mFramesReceived != Info.size()) {
+        ALOGE("Input buffer count and Output buffer count mismatch");
+        ALOGV("framesReceived : %d inputFrames : %zu", mFramesReceived,
+              Info.size());
+        ASSERT_TRUE(false);
+    }
+
     ASSERT_EQ(mComponent->stop(), C2_OK);
 }
 

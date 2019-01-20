@@ -35,7 +35,7 @@ class IOProfile : public AudioPort
 public:
     IOProfile(const String8 &name, audio_port_role_t role)
         : AudioPort(name, AUDIO_PORT_TYPE_MIX, role),
-          maxOpenCount((role == AUDIO_PORT_ROLE_SOURCE) ? 1 : 0),
+          maxOpenCount(1),
           curOpenCount(0),
           maxActiveCount(1),
           curActiveCount(0) {}
@@ -89,7 +89,7 @@ public:
 
     bool supportDeviceAddress(const String8 &address) const
     {
-        return mSupportedDevices[0]->mAddress == address;
+        return mSupportedDevices[0]->address() == address;
     }
 
     // chose first device present in mSupportedDevices also part of deviceType

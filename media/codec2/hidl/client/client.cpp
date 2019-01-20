@@ -34,7 +34,7 @@
 #include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
 #undef LOG
 
-#include <android/hardware/media/bufferpool/1.0/IClientManager.h>
+#include <android/hardware/media/bufferpool/2.0/IClientManager.h>
 #include <android/hardware/media/c2/1.0/IComponent.h>
 #include <android/hardware/media/c2/1.0/IComponentInterface.h>
 #include <android/hardware/media/c2/1.0/IComponentListener.h>
@@ -55,8 +55,8 @@ using ::android::TWGraphicBufferProducer;
 
 using namespace ::android::hardware::media::c2::V1_0;
 using namespace ::android::hardware::media::c2::V1_0::utils;
-using namespace ::android::hardware::media::bufferpool::V1_0;
-using namespace ::android::hardware::media::bufferpool::V1_0::implementation;
+using namespace ::android::hardware::media::bufferpool::V2_0;
+using namespace ::android::hardware::media::bufferpool::V2_0::implementation;
 
 namespace /* unnamed */ {
 
@@ -76,7 +76,11 @@ typedef std::array<std::shared_ptr<Codec2Client>, kNumClients> ClientList;
 
 // Convenience methods to obtain known clients.
 std::shared_ptr<Codec2Client> getClient(size_t index) {
-    return Codec2Client::CreateFromService(kClientNames[index]);
+    uint32_t serviceMask = ::android::base::GetUintProperty(
+            "debug.media.codec2", uint32_t(0));
+    return Codec2Client::CreateFromService(
+            kClientNames[index],
+            (serviceMask & (1 << index)) != 0);
 }
 
 ClientList getClientList() {
@@ -633,9 +637,13 @@ std::shared_ptr<Codec2Client> Codec2Client::CreateFromService(
             Base::tryGetService(instanceName);
     if (!baseStore) {
         if (waitForService) {
-            ALOGE("Codec2.0 service inaccessible. Check the device manifest.");
+            ALOGW("Codec2.0 service \"%s\" inaccessible. "
+                  "Check the device manifest.",
+                  instanceName);
         } else {
-            ALOGW("Codec2.0 service not available right now. Try again later.");
+            ALOGD("Codec2.0 service \"%s\" unavailable right now. "
+                  "Try again later.",
+                  instanceName);
         }
         return nullptr;
     }

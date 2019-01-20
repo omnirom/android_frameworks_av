@@ -47,10 +47,6 @@ AAudioServiceEndpointPlay::AAudioServiceEndpointPlay(AAudioService &audioService
     mStreamInternal = &mStreamInternalPlay;
 }
 
-AAudioServiceEndpointPlay::~AAudioServiceEndpointPlay() {
-    ALOGD("%s(%p) destroyed", __func__, this);
-}
-
 aaudio_result_t AAudioServiceEndpointPlay::open(const aaudio::AAudioStreamRequest &request) {
     aaudio_result_t result = AAudioServiceEndpointShared::open(request);
     if (result == AAUDIO_OK) {
@@ -84,9 +80,13 @@ void *AAudioServiceEndpointPlay::callbackLoop() {
             int64_t mmapFramesWritten = getStreamInternal()->getFramesWritten();
 
             std::lock_guard <std::mutex> lock(mLockStreams);
-            for (const auto clientStream : mRegisteredStreams) {
+            for (const auto& clientStream : mRegisteredStreams) {
                 int64_t clientFramesRead = 0;
                 bool allowUnderflow = true;
+
+                if (clientStream->isSuspended()) {
+                    continue; // dead stream
+                }
 
                 aaudio_stream_state_t state = clientStream->getState();
                 if (state == AAUDIO_STREAM_STATE_STOPPING) {

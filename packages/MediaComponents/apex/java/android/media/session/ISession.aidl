@@ -16,9 +16,9 @@
 package android.media.session;
 
 import android.app.PendingIntent;
-import android.content.pm.ParceledListSlice;
 //import android.media.AudioAttributes;
 import android.media.MediaMetadata;
+import android.media.MediaParceledListSlice;
 import android.media.session.ISessionController;
 import android.media.session.PlaybackState;
 import android.media.session.MediaSession;
@@ -39,10 +39,9 @@ interface ISession {
     void destroy();
 
     // These commands are for the TransportPerformer
-    void setMetadata(in MediaMetadata metadata);
+    void setMetadata(in MediaMetadata metadata, long duration, String metadataDescription);
     void setPlaybackState(in PlaybackState state);
-    //TODO(b/119750807): Resolve hidden API usage ParceledListSlice.
-    //void setQueue(in ParceledListSlice queue);
+    void setQueue(in MediaParceledListSlice queue);
     void setQueueTitle(CharSequence title);
     void setExtras(in Bundle extras);
     void setRatingType(int type);

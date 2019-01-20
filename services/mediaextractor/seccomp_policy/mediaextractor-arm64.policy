@@ -39,6 +39,7 @@ getdents64: 1
 readlinkat: 1
 pread64: 1
 mremap: 1
+statfs: 1
 
 # Required by Sanitizers
 sched_yield: 1

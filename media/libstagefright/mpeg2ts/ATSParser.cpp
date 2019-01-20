@@ -23,10 +23,10 @@
 #include "ESQueue.h"
 
 #include <android/hardware/cas/native/1.0/IDescrambler.h>
-#include <binder/IMemory.h>
-#include <binder/MemoryDealer.h>
+#include <android/hidl/allocator/1.0/IAllocator.h>
+#include <android/hidl/memory/1.0/IMemory.h>
 #include <cutils/native_handle.h>
-#include <hidlmemory/FrameworkUtils.h>
+#include <hidlmemory/mapping.h>
 #include <media/cas/DescramblerAPI.h>
 #include <media/stagefright/foundation/ABitReader.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -47,12 +47,13 @@
 #include <stagefright/AVExtensions.h>
 
 namespace android {
-using hardware::fromHeap;
 using hardware::hidl_string;
 using hardware::hidl_vec;
-using hardware::HidlMemory;
+using hardware::hidl_memory;
 using namespace hardware::cas::V1_0;
 using namespace hardware::cas::native::V1_0;
+typedef hidl::allocator::V1_0::IAllocator TAllocator;
+typedef hidl::memory::V1_0::IMemory TMemory;
 
 // I want the expression "y" evaluated even if verbose logging is off.
 #define MY_LOGV(x, y) \
@@ -122,6 +123,8 @@ private:
     ATSParser *mParser;
     unsigned mProgramNumber;
     unsigned mProgramMapPID;
+    uint32_t mPMTVersion;
+    uint32_t mPMT_CRC;
     KeyedVector<unsigned, sp<Stream> > mStreams;
     bool mFirstPTSValid;
     uint64_t mFirstPTS;
@@ -144,6 +147,9 @@ struct ATSParser::Stream : public RefBase {
     unsigned typeExt() const { return mStreamTypeExt; }
     unsigned pid() const { return mElementaryPID; }
     void setPID(unsigned pid) { mElementaryPID = pid; }
+    void setAudioPresentations(AudioPresentationCollection audioPresentations) {
+        mAudioPresentations = audioPresentations;
+    }
 
     void setCasInfo(
             int32_t systemId,
@@ -204,9 +210,8 @@ private:
     bool mScrambled;
     bool mSampleEncrypted;
     sp<AMessage> mSampleAesKeyItem;
-    sp<IMemory> mMem;
-    sp<MemoryDealer> mDealer;
-    sp<HidlMemory> mHidlMemory;
+    sp<TMemory> mHidlMemory;
+    sp<TAllocator> mHidlAllocator;
     hardware::cas::native::V1_0::SharedBuffer mDescramblerSrcBuffer;
     sp<ABuffer> mDescrambledBuffer;
     List<SubSampleInfo> mSubSamples;
@@ -294,6 +299,8 @@ ATSParser::Program::Program(
     : mParser(parser),
       mProgramNumber(programNumber),
       mProgramMapPID(programMapPID),
+      mPMTVersion(0xffffffff),
+      mPMT_CRC(0xffffffff),
       mFirstPTSValid(false),
       mFirstPTS(0),
       mLastRecoveredPTS(lastRecoveredPTS) {
@@ -481,7 +488,13 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
 
     MY_LOGV("  program_number = %u", br->getBits(16));
     MY_LOGV("  reserved = %u", br->getBits(2));
-    MY_LOGV("  version_number = %u", br->getBits(5));
+    bool audioPresentationsChanged = false;
+    unsigned pmtVersion = br->getBits(5);
+    if (pmtVersion != mPMTVersion) {
+        audioPresentationsChanged = true;
+        mPMTVersion = pmtVersion;
+    }
+    MY_LOGV("  version_number = %u", pmtVersion);
     MY_LOGV("  current_next_indicator = %u", br->getBits(1));
     MY_LOGV("  section_number = %u", br->getBits(8));
     MY_LOGV("  last_section_number = %u", br->getBits(8));
@@ -662,7 +675,12 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
     if (infoBytesRemaining != 0) {
         ALOGW("Section data remains unconsumed");
     }
-    MY_LOGV("  CRC = 0x%08x", br->getBits(32));
+    unsigned crc = br->getBits(32);
+    if (crc != mPMT_CRC) {
+        audioPresentationsChanged = true;
+        mPMT_CRC = crc;
+    }
+    MY_LOGV("  CRC = 0x%08x", crc);
 
     bool PIDsChanged = false;
     for (size_t i = 0; i < infos.size(); ++i) {
@@ -722,6 +740,10 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
 
             isAddingScrambledStream |= info.mCADescriptor.mSystemID >= 0;
             mStreams.add(info.mPID, stream);
+        }
+        else if (index >= 0 && mStreams.editValueAt(index)->isAudio()
+                 && audioPresentationsChanged) {
+            mStreams.editValueAt(index)->setAudioPresentations(info.mAudioPresentations);
         }
     }
 
@@ -961,16 +983,43 @@ bool ATSParser::Stream::ensureBufferCapacity(size_t neededSize) {
             mBuffer == NULL ? 0 : mBuffer->capacity(), neededSize, mScrambled);
 
     sp<ABuffer> newBuffer, newScrambledBuffer;
-    sp<IMemory> newMem;
-    sp<MemoryDealer> newDealer;
+    sp<TMemory> newMem;
     if (mScrambled) {
-        size_t alignment = MemoryDealer::getAllocationAlignment();
-        neededSize = (neededSize + (alignment - 1)) & ~(alignment - 1);
-        // Align to multiples of 64K.
-        neededSize = (neededSize + 65535) & ~65535;
-        newDealer = new MemoryDealer(neededSize, "ATSParser");
-        newMem = newDealer->allocate(neededSize);
-        newScrambledBuffer = new ABuffer(newMem->pointer(), newMem->size());
+        if (mHidlAllocator == nullptr) {
+            mHidlAllocator = TAllocator::getService("ashmem");
+            if (mHidlAllocator == nullptr) {
+                ALOGE("[stream %d] can't get hidl allocator", mElementaryPID);
+                return false;
+            }
+        }
+
+        hidl_memory hidlMemToken;
+        bool success;
+        auto transStatus = mHidlAllocator->allocate(
+                neededSize,
+                [&success, &hidlMemToken](
+                        bool s,
+                        hidl_memory const& m) {
+                    success = s;
+                    hidlMemToken = m;
+                });
+
+        if (!transStatus.isOk()) {
+            ALOGE("[stream %d] hidl allocator failed at the transport: %s",
+                    mElementaryPID, transStatus.description().c_str());
+            return false;
+        }
+        if (!success) {
+            ALOGE("[stream %d] hidl allocator failed", mElementaryPID);
+            return false;
+        }
+        newMem = mapMemory(hidlMemToken);
+        if (newMem == nullptr || newMem->getPointer() == nullptr) {
+            ALOGE("[stream %d] hidl failed to map memory", mElementaryPID);
+            return false;
+        }
+
+        newScrambledBuffer = new ABuffer(newMem->getPointer(), newMem->getSize());
 
         if (mDescrambledBuffer != NULL) {
             memcpy(newScrambledBuffer->data(),
@@ -979,24 +1028,15 @@ bool ATSParser::Stream::ensureBufferCapacity(size_t neededSize) {
         } else {
             newScrambledBuffer->setRange(0, 0);
         }
-        mMem = newMem;
-        mDealer = newDealer;
+        mHidlMemory = newMem;
         mDescrambledBuffer = newScrambledBuffer;
 
-        ssize_t offset;
-        size_t size;
-        sp<IMemoryHeap> heap = newMem->getMemory(&offset, &size);
-        if (heap == NULL) {
-            return false;
-        }
+        mDescramblerSrcBuffer.heapBase = hidlMemToken;
+        mDescramblerSrcBuffer.offset = 0ULL;
+        mDescramblerSrcBuffer.size =  (uint64_t)neededSize;
 
-        mHidlMemory = fromHeap(heap);
-        mDescramblerSrcBuffer.heapBase = *mHidlMemory;
-        mDescramblerSrcBuffer.offset = (uint64_t) offset;
-        mDescramblerSrcBuffer.size = (uint64_t) size;
-
-        ALOGD("[stream %d] created shared buffer for descrambling, offset %zd, size %zu",
-                mElementaryPID, offset, size);
+        ALOGD("[stream %d] created shared buffer for descrambling, size %zu",
+                mElementaryPID, neededSize);
     } else {
         // Align to multiples of 64K.
         neededSize = (neededSize + 65535) & ~65535;
@@ -1485,7 +1525,7 @@ status_t ATSParser::Stream::flushScrambled(SyncEvent *event) {
         return UNKNOWN_ERROR;
     }
 
-    if (mDescrambledBuffer == NULL || mMem == NULL) {
+    if (mDescrambledBuffer == NULL || mHidlMemory == NULL) {
         ALOGE("received scrambled packets without shared memory!");
 
         return UNKNOWN_ERROR;
@@ -1579,9 +1619,9 @@ status_t ATSParser::Stream::flushScrambled(SyncEvent *event) {
                     detailedError = _detailedError;
                 });
 
-        if (!returnVoid.isOk()) {
-            ALOGE("[stream %d] descramble failed, trans=%s",
-                    mElementaryPID, returnVoid.description().c_str());
+        if (!returnVoid.isOk() || status != Status::OK) {
+            ALOGE("[stream %d] descramble failed, trans=%s, status=%d",
+                    mElementaryPID, returnVoid.description().c_str(), status);
             return UNKNOWN_ERROR;
         }
 
@@ -1741,6 +1781,7 @@ void ATSParser::Stream::onPayloadData(
                 mSource->setFormat(mQueue->getFormat());
             }
             mSource->queueAccessUnit(accessUnit);
+            mSource->convertAudioPresentationInfoToMetadata(mAudioPresentations);
         }
 
         // Every access unit has a pesStartOffset queued in |mPesStartOffsets|.

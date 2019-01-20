@@ -89,8 +89,9 @@ hardware::camera2::params::OutputConfiguration convertFromHidl(
     for (auto &handle : windowHandles) {
         iGBPs.push_back(new H2BGraphicBufferProducer(AImageReader_getHGBPFromHandle(handle)));
     }
+    String16 physicalCameraId16(hOutputConfiguration.physicalCameraId.c_str());
     hardware::camera2::params::OutputConfiguration outputConfiguration(
-        iGBPs, convertFromHidl(hOutputConfiguration.rotation),
+        iGBPs, convertFromHidl(hOutputConfiguration.rotation), physicalCameraId16,
         hOutputConfiguration.windowGroupId, OutputConfiguration::SURFACE_TYPE_UNKNOWN, 0, 0,
         (windowHandles.size() > 1));
     return outputConfiguration;
@@ -101,12 +102,14 @@ hardware::camera2::params::OutputConfiguration convertFromHidl(
 bool convertFromHidl(const HCameraMetadata &src, CameraMetadata *dst) {
     const camera_metadata_t *buffer = reinterpret_cast<const camera_metadata_t*>(src.data());
     size_t expectedSize = src.size();
-    int res = validate_camera_metadata_structure(buffer, &expectedSize);
-    if (res == OK || res == CAMERA_METADATA_VALIDATION_SHIFTED) {
-        *dst = buffer;
-    } else {
-        ALOGE("%s: Malformed camera metadata received from HAL", __FUNCTION__);
-        return false;
+    if (buffer != nullptr) {
+        int res = validate_camera_metadata_structure(buffer, &expectedSize);
+        if (res == OK || res == CAMERA_METADATA_VALIDATION_SHIFTED) {
+            *dst = buffer;
+        } else {
+            ALOGE("%s: Malformed camera metadata received from HAL", __FUNCTION__);
+            return false;
+        }
     }
     return true;
 }

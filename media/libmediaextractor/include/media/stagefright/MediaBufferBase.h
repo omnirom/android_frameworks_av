@@ -18,6 +18,10 @@
 
 #define MEDIA_BUFFER_BASE_H_
 
+#include <media/MediaExtractorPluginApi.h>
+#include <media/stagefright/foundation/AMessage.h>
+#include <media/NdkMediaFormatPriv.h>
+
 namespace android {
 
 class MediaBufferBase;
@@ -66,17 +70,65 @@ public:
 
     virtual void setObserver(MediaBufferObserver *group) = 0;
 
-    // Returns a clone of this MediaBufferBase increasing its reference
-    // count. The clone references the same data but has its own range and
-    // MetaData.
-    virtual MediaBufferBase *clone() = 0;
-
     virtual int refcount() const = 0;
 
     virtual int localRefcount() const = 0;
     virtual int remoteRefcount() const = 0;
 
-    virtual ~MediaBufferBase() {};
+    virtual ~MediaBufferBase() {
+        delete mWrapper;
+        delete mFormat;
+    };
+
+    CMediaBuffer *wrap() {
+        if (mWrapper) {
+            return mWrapper;
+        }
+        mWrapper = new CMediaBuffer;
+        mWrapper->handle = this;
+
+        mWrapper->release = [](void *handle) -> void {
+            ((MediaBufferBase*)handle)->release();
+        };
+
+        mWrapper->data = [](void *handle) -> void * {
+            return ((MediaBufferBase*)handle)->data();
+        };
+
+        mWrapper->size = [](void *handle) -> size_t {
+            return ((MediaBufferBase*)handle)->size();
+        };
+
+        mWrapper->range_offset = [](void *handle) -> size_t {
+            return ((MediaBufferBase*)handle)->range_offset();
+        };
+
+        mWrapper->range_length = [](void *handle) -> size_t {
+            return ((MediaBufferBase*)handle)->range_length();
+        };
+
+        mWrapper->set_range = [](void *handle, size_t offset, size_t length) -> void {
+            return ((MediaBufferBase*)handle)->set_range(offset, length);
+        };
+
+        mWrapper->meta_data = [](void *handle) -> AMediaFormat* {
+            if (((MediaBufferBase*)handle)->mFormat == nullptr) {
+                sp<AMessage> msg = new AMessage();
+                ((MediaBufferBase*)handle)->mFormat = AMediaFormat_fromMsg(&msg);
+            }
+            return ((MediaBufferBase*)handle)->mFormat;
+        };
+
+        return mWrapper;
+    }
+protected:
+    MediaBufferBase() {
+        mWrapper = nullptr;
+        mFormat = nullptr;
+    }
+private:
+    CMediaBuffer *mWrapper;
+    AMediaFormat *mFormat;
 };
 
 }  // namespace android

@@ -28,7 +28,7 @@ namespace android {
 class  AWakeLock;
 struct MediaClock;
 class MediaCodecBuffer;
-struct VideoFrameScheduler;
+struct VideoFrameSchedulerBase;
 
 struct NuPlayer::Renderer : public AHandler {
     enum Flags {
@@ -155,7 +155,7 @@ protected:
     List<QueueEntry> mAudioQueue;
     List<QueueEntry> mVideoQueue;
     uint32_t mNumFramesWritten;
-    sp<VideoFrameScheduler> mVideoScheduler;
+    sp<VideoFrameSchedulerBase> mVideoScheduler;
 
     bool mDrainAudioQueuePending;
     bool mDrainVideoQueuePending;

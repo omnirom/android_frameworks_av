@@ -78,8 +78,7 @@ public:
                               audio_input_flags_t flags,
                               audio_port_handle_t *selectedDeviceId,
                               audio_port_handle_t *portId) = 0;
-    virtual status_t startInput(audio_port_handle_t portId,
-                                bool *silenced) = 0;
+    virtual status_t startInput(audio_port_handle_t portId) = 0;
     virtual status_t stopInput(audio_port_handle_t portId) = 0;
     virtual void releaseInput(audio_port_handle_t portId) = 0;
     virtual status_t initStreamVolume(audio_stream_type_t stream,
@@ -126,6 +125,10 @@ public:
     // bit rate, duration, video and streaming or offload property is enabled
     virtual bool isOffloadSupported(const audio_offload_info_t& info) = 0;
 
+    // Check if direct playback is possible for given format, sample rate, channel mask and flags.
+    virtual bool isDirectOutputSupported(const audio_config_base_t& config,
+                                         const audio_attributes_t& attributes) = 0;
+
     /* List available audio ports and their attributes */
     virtual status_t listAudioPorts(audio_port_role_t role,
                                     audio_port_type_t type,
@@ -164,6 +167,11 @@ public:
 
     virtual status_t registerPolicyMixes(const Vector<AudioMix>& mixes, bool registration) = 0;
 
+    virtual status_t setUidDeviceAffinities(uid_t uid, const Vector<AudioDeviceTypeAddr>& devices)
+            = 0;
+
+    virtual status_t removeUidDeviceAffinities(uid_t uid) = 0;
+
     virtual status_t startAudioSource(const struct audio_port_config *source,
                                       const audio_attributes_t *attributes,
                                       audio_port_handle_t *portId) = 0;
@@ -182,6 +190,8 @@ public:
 
     virtual status_t setAssistantUid(uid_t uid) = 0;
     virtual status_t setA11yServicesUids(const std::vector<uid_t>& uids) = 0;
+
+    virtual bool     isHapticPlaybackSupported() = 0;
 };
 
 

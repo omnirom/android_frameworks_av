@@ -201,8 +201,10 @@ typedef enum
 #define LVEQNB_CAP_FS_44100                128
 #define LVEQNB_CAP_FS_48000                256
 #if defined(BUILD_FLOAT) && defined(HIGHER_FS)
-#define LVEQNB_CAP_FS_96000                512
-#define LVEQNB_CAP_FS_192000               1024
+#define LVEQNB_CAP_FS_88200                512
+#define LVEQNB_CAP_FS_96000                1024
+#define LVEQNB_CAP_FS_176400               2048
+#define LVEQNB_CAP_FS_192000               4096
 #endif
 
 typedef enum
@@ -217,8 +219,10 @@ typedef enum
     LVEQNB_FS_44100 = 7,
     LVEQNB_FS_48000 = 8,
 #ifdef HIGHER_FS
-    LVEQNB_FS_96000 = 9,
-    LVEQNB_FS_192000 = 10,
+    LVEQNB_FS_88200 = 9,
+    LVEQNB_FS_96000 = 10,
+    LVEQNB_FS_176400 = 11,
+    LVEQNB_FS_192000 = 12,
 #endif
     LVEQNB_FS_MAX   = LVM_MAXINT_32
 } LVEQNB_Fs_en;
@@ -267,7 +271,9 @@ typedef struct
     /* Equaliser parameters */
     LVM_UINT16                  NBands;                 /* Number of bands */
     LVEQNB_BandDef_t            *pBandDefinition;       /* Pointer to equaliser definitions */
-
+#ifdef SUPPORT_MC
+    LVM_INT16                   NrChannels;
+#endif
 } LVEQNB_Params_t;
 
 
