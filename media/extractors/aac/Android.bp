@@ -8,7 +8,6 @@ cc_library_shared {
 
     shared_libs: [
         "liblog",
-        "libmediaextractor",
         "libmediandk",
     ],
 
@@ -36,9 +35,6 @@ cc_library_shared {
             "unsigned-integer-overflow",
             "signed-integer-overflow",
         ],
-        diag: {
-            cfi: true,
-        },
     },
 
 }

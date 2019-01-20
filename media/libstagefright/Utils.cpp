@@ -121,7 +121,8 @@ static bool isHdr(const sp<AMessage> &format) {
     }
 
     // if user/container supplied HDR static info without transfer set, assume true
-    if (format->contains("hdr-static-info") && !format->contains("color-transfer")) {
+    if ((format->contains("hdr-static-info") || format->contains("hdr10-plus-info"))
+            && !format->contains("color-transfer")) {
         return true;
     }
     // otherwise, verify that an HDR transfer function is set
@@ -593,10 +594,20 @@ static std::vector<std::pair<const char *, uint32_t>> stringMappings {
     }
 };
 
+static std::vector<std::pair<const char *, uint32_t>> floatMappings {
+    {
+        { "capture-rate", kKeyCaptureFramerate },
+    }
+};
+
 static std::vector<std::pair<const char *, uint32_t>> int64Mappings {
     {
         { "exif-offset", kKeyExifOffset },
         { "exif-size", kKeyExifSize },
+        { "target-time", kKeyTargetTime },
+        { "thumbnail-time", kKeyThumbnailTime },
+        { "timeUs", kKeyTime },
+        { "durationUs", kKeyDuration },
     }
 };
 
@@ -608,12 +619,14 @@ static std::vector<std::pair<const char *, uint32_t>> int32Mappings {
         { "crypto-default-iv-size", kKeyCryptoDefaultIVSize },
         { "crypto-encrypted-byte-block", kKeyEncryptedByteBlock },
         { "crypto-skip-byte-block", kKeySkipByteBlock },
+        { "frame-count", kKeyFrameCount },
         { "max-bitrate", kKeyMaxBitRate },
         { "pcm-big-endian", kKeyPcmBigEndian },
         { "temporal-layer-count", kKeyTemporalLayerCount },
+        { "temporal-layer-id", kKeyTemporalLayerId },
         { "thumbnail-width", kKeyThumbnailWidth },
         { "thumbnail-height", kKeyThumbnailHeight },
-        { "frame-count", kKeyFrameCount },
+        { "valid-samples", kKeyValidSamples },
     }
 };
 
@@ -624,7 +637,10 @@ static std::vector<std::pair<const char *, uint32_t>> bufferMappings {
         { "pssh", kKeyPssh },
         { "crypto-iv", kKeyCryptoIV },
         { "crypto-key", kKeyCryptoKey },
+        { "crypto-encrypted-sizes", kKeyEncryptedSizes },
+        { "crypto-plain-sizes", kKeyPlainSizes },
         { "icc-profile", kKeyIccProfile },
+        { "sei", kKeySEI },
         { "text-format-data", kKeyTextFormatData },
     }
 };
@@ -634,6 +650,13 @@ void convertMessageToMetaDataFromMappings(const sp<AMessage> &msg, sp<MetaData> 
         AString value;
         if (msg->findString(elem.first, &value)) {
             meta->setCString(elem.second, value.c_str());
+        }
+    }
+
+    for (auto elem : floatMappings) {
+        float value;
+        if (msg->findFloat(elem.first, &value)) {
+            meta->setFloat(elem.second, value);
         }
     }
 
@@ -665,6 +688,13 @@ void convertMetaDataToMessageFromMappings(const MetaDataBase *meta, sp<AMessage>
         const char *value;
         if (meta->findCString(elem.second, &value)) {
             format->setString(elem.first, value, strlen(value));
+        }
+    }
+
+    for (auto elem : floatMappings) {
+        float value;
+        if (meta->findFloat(elem.second, &value)) {
+            format->setFloat(elem.first, value);
         }
     }
 
@@ -852,6 +882,16 @@ status_t convertMetaDataToMessage(
         if (meta->findData(kKeyHdrStaticInfo, &type, &data, &size)
                 && type == 'hdrS' && size == sizeof(HDRStaticInfo)) {
             ColorUtils::setHDRStaticInfoIntoFormat(*(HDRStaticInfo*)data, msg);
+        }
+
+        if (meta->findData(kKeyHdr10PlusInfo, &type, &data, &size)
+                && size > 0) {
+            sp<ABuffer> buffer = new (std::nothrow) ABuffer(size);
+            if (buffer.get() == NULL || buffer->base() == NULL) {
+                return NO_MEMORY;
+            }
+            memcpy(buffer->data(), data, size);
+            msg->setBuffer("hdr10-plus-info", buffer);
         }
 
         convertMetaDataToMessageColorAspects(meta, msg);
@@ -1603,6 +1643,12 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
             }
         }
 
+        sp<ABuffer> hdr10PlusInfo;
+        if (msg->findBuffer("hdr10-plus-info", &hdr10PlusInfo)) {
+            meta->setData(kKeyHdr10PlusInfo, 0,
+                    hdr10PlusInfo->data(), hdr10PlusInfo->size());
+        }
+
         convertMessageToMetaDataColorAspects(msg, meta);
 
         AString tsSchema;
@@ -1821,6 +1867,7 @@ static const struct mime_conv_t mimeLookup[] = {
     { MEDIA_MIMETYPE_AUDIO_OPUS,        AUDIO_FORMAT_OPUS},
     { MEDIA_MIMETYPE_AUDIO_AC3,         AUDIO_FORMAT_AC3},
     { MEDIA_MIMETYPE_AUDIO_EAC3,        AUDIO_FORMAT_E_AC3},
+    { MEDIA_MIMETYPE_AUDIO_EAC3_JOC,    AUDIO_FORMAT_E_AC3_JOC},
     { MEDIA_MIMETYPE_AUDIO_AC4,         AUDIO_FORMAT_AC4},
     { MEDIA_MIMETYPE_AUDIO_FLAC,        AUDIO_FORMAT_FLAC},
     { MEDIA_MIMETYPE_AUDIO_ALAC,        AUDIO_FORMAT_ALAC },

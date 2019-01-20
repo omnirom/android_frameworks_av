@@ -75,7 +75,6 @@ cc_library_shared {
         "libhidlbase",
         "libhidlmemory",
         "libhidltransport",
-        "libnativewindow", // TODO(b/62923479): use header library
         "libvndksupport",
         "android.hardware.media.omx@1.0",
         "android.hardware.graphics.bufferqueue@1.0",
@@ -86,7 +85,13 @@ cc_library_shared {
         "-Wno-unused-parameter",
         "-Wno-documentation",
     ],
-
+    sanitize: {
+        misc_undefined: [
+            "signed-integer-overflow",
+            "unsigned-integer-overflow",
+        ],
+        cfi: true,
+    },
 }
 
 cc_library_shared {
@@ -133,7 +138,13 @@ cc_library_shared {
         "-Wno-documentation",
         "-D__ANDROID_VNDK_EXT__",
     ],
-
+    sanitize: {
+        misc_undefined: [
+            "signed-integer-overflow",
+            "unsigned-integer-overflow",
+        ],
+        cfi: true,
+    },
 }
 
 cc_library_shared {
@@ -174,9 +185,6 @@ cc_library_shared {
             "unsigned-integer-overflow",
         ],
         cfi: true,
-        diag: {
-            cfi: true,
-        },
     },
     cflags: ["-Wall", "-Werror"],
 }

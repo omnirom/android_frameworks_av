@@ -43,6 +43,7 @@ getrandom: 1
 
 # for dynamically loading extractors
 pread64: 1
+statfs: 1
 
 # for FileSource
 readlinkat: 1

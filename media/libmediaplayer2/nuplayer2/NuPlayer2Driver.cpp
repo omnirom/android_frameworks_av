@@ -372,7 +372,7 @@ status_t NuPlayer2Driver::seekTo(int64_t msec, MediaPlayer2SeekMode mode) {
     ALOGD("seekTo(%p) (%lld ms, %d) at state %d", this, (long long)msec, mode, mState);
     Mutex::Autolock autoLock(mLock);
 
-    int64_t seekTimeUs = msec * 1000ll;
+    int64_t seekTimeUs = msec * 1000LL;
 
     switch (mState) {
         case STATE_PREPARED:
@@ -426,7 +426,7 @@ status_t NuPlayer2Driver::getDuration(int64_t *msec) {
         return UNKNOWN_ERROR;
     }
 
-    *msec = (mDurationUs + 500ll) / 1000;
+    *msec = (mDurationUs + 500LL) / 1000;
 
     return OK;
 }
@@ -603,28 +603,33 @@ status_t NuPlayer2Driver::invoke(const PlayerMessage &request, PlayerMessage *re
 
         case MEDIA_PLAYER2_INVOKE_ID_GET_TRACK_INFO:
         {
-            return mPlayer->getTrackInfo(response);
+            int64_t srcId = (it++)->int64_value();
+            return mPlayer->getTrackInfo(srcId, response);
         }
 
         case MEDIA_PLAYER2_INVOKE_ID_SELECT_TRACK:
         {
+            int64_t srcId = (it++)->int64_value();
             int trackIndex = (it++)->int32_value();
             int64_t msec = 0;
             // getCurrentPosition should always return OK
             getCurrentPosition(&msec);
-            return mPlayer->selectTrack(trackIndex, true /* select */, msec * 1000ll);
+            return mPlayer->selectTrack(srcId, trackIndex, true /* select */, msec * 1000LL);
         }
 
         case MEDIA_PLAYER2_INVOKE_ID_UNSELECT_TRACK:
         {
+            int64_t srcId = (it++)->int64_value();
             int trackIndex = (it++)->int32_value();
-            return mPlayer->selectTrack(trackIndex, false /* select */, 0xdeadbeef /* not used */);
+            return mPlayer->selectTrack(
+                    srcId, trackIndex, false /* select */, 0xdeadbeef /* not used */);
         }
 
         case MEDIA_PLAYER2_INVOKE_ID_GET_SELECTED_TRACK:
         {
+            int64_t srcId = (it++)->int64_value();
             int32_t type = (it++)->int32_value();
-            return mPlayer->getSelectedTrack(type, response);
+            return mPlayer->getSelectedTrack(srcId, type, response);
         }
 
         default:
@@ -976,24 +981,25 @@ void NuPlayer2Driver::notifyFlagsChanged(int64_t /* srcId */, uint32_t flags) {
 }
 
 // Modular DRM
-status_t NuPlayer2Driver::prepareDrm(const uint8_t uuid[16], const Vector<uint8_t> &drmSessionId)
+status_t NuPlayer2Driver::prepareDrm(
+        int64_t srcId, const uint8_t uuid[16], const Vector<uint8_t> &drmSessionId)
 {
     ALOGV("prepareDrm(%p) state: %d", this, mState);
 
     // leaving the state verification for mediaplayer.cpp
-    status_t ret = mPlayer->prepareDrm(uuid, drmSessionId);
+    status_t ret = mPlayer->prepareDrm(srcId, uuid, drmSessionId);
 
     ALOGV("prepareDrm ret: %d", ret);
 
     return ret;
 }
 
-status_t NuPlayer2Driver::releaseDrm()
+status_t NuPlayer2Driver::releaseDrm(int64_t srcId)
 {
     ALOGV("releaseDrm(%p) state: %d", this, mState);
 
     // leaving the state verification for mediaplayer.cpp
-    status_t ret = mPlayer->releaseDrm();
+    status_t ret = mPlayer->releaseDrm(srcId);
 
     ALOGV("releaseDrm ret: %d", ret);
 
