@@ -39,8 +39,7 @@ MediaBuffer::MediaBuffer(void *data, size_t size)
       mRangeOffset(0),
       mRangeLength(size),
       mOwnsData(false),
-      mMetaData(new MetaDataBase),
-      mOriginal(NULL) {
+      mMetaData(new MetaDataBase) {
 }
 
 MediaBuffer::MediaBuffer(size_t size)
@@ -51,11 +50,13 @@ MediaBuffer::MediaBuffer(size_t size)
       mRangeOffset(0),
       mRangeLength(size),
       mOwnsData(true),
-      mMetaData(new MetaDataBase),
-      mOriginal(NULL) {
+      mMetaData(new MetaDataBase) {
+#ifndef NO_IMEMORY
     if (size < kSharedMemThreshold
             || std::atomic_load_explicit(&mUseSharedMemory, std::memory_order_seq_cst) == 0) {
+#endif
         mData = malloc(size);
+#ifndef NO_IMEMORY
     } else {
         ALOGV("creating memoryDealer");
         sp<MemoryDealer> memoryDealer =
@@ -73,6 +74,7 @@ MediaBuffer::MediaBuffer(size_t size)
             ALOGV("Allocated shared mem buffer of size %zu @ %p", size, mData);
         }
     }
+#endif
 }
 
 MediaBuffer::MediaBuffer(const sp<ABuffer> &buffer)
@@ -84,8 +86,7 @@ MediaBuffer::MediaBuffer(const sp<ABuffer> &buffer)
       mRangeLength(mSize),
       mBuffer(buffer),
       mOwnsData(false),
-      mMetaData(new MetaDataBase),
-      mOriginal(NULL) {
+      mMetaData(new MetaDataBase) {
 }
 
 void MediaBuffer::release() {
@@ -162,11 +163,6 @@ MediaBuffer::~MediaBuffer() {
         mData = NULL;
     }
 
-    if (mOriginal != NULL) {
-        mOriginal->release();
-        mOriginal = NULL;
-    }
-
    if (mMemory.get() != nullptr) {
        getSharedControl()->setDeadObject();
    }
@@ -176,17 +172,6 @@ MediaBuffer::~MediaBuffer() {
 void MediaBuffer::setObserver(MediaBufferObserver *observer) {
     CHECK(observer == NULL || mObserver == NULL);
     mObserver = observer;
-}
-
-MediaBufferBase *MediaBuffer::clone() {
-    MediaBuffer *buffer = new MediaBuffer(mData, mSize);
-    buffer->set_range(mRangeOffset, mRangeLength);
-    buffer->mMetaData = new MetaDataBase(*mMetaData);
-
-    add_ref();
-    buffer->mOriginal = this;
-
-    return buffer;
 }
 
 }  // namespace android

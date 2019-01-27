@@ -233,6 +233,12 @@ const OutputChannelConverter::Table OutputChannelConverter::mTable[] = {
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_7POINT1),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_7POINT1POINT2),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_7POINT1POINT4),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_HAPTIC_A),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_MONO_HAPTIC_A),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_STEREO_HAPTIC_A),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_HAPTIC_AB),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_MONO_HAPTIC_AB),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_STEREO_HAPTIC_AB),
     TERMINATOR
 };
 
@@ -279,6 +285,7 @@ const GainModeConverter::Table GainModeConverter::mTable[] = {
 
 template <>
 const StreamTypeConverter::Table StreamTypeConverter::mTable[] = {
+    MAKE_STRING_FROM_ENUM(AUDIO_STREAM_DEFAULT),
     MAKE_STRING_FROM_ENUM(AUDIO_STREAM_VOICE_CALL),
     MAKE_STRING_FROM_ENUM(AUDIO_STREAM_SYSTEM),
     MAKE_STRING_FROM_ENUM(AUDIO_STREAM_RING),
@@ -355,6 +362,22 @@ const SourceTypeConverter::Table SourceTypeConverter::mTable[] = {
     TERMINATOR
 };
 
+template <>
+const AudioFlagConverter::Table AudioFlagConverter::mTable[] = {
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_NONE),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_AUDIBILITY_ENFORCED),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_SECURE),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_SCO),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_BEACON),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_HW_AV_SYNC),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_HW_HOTWORD),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_BYPASS_INTERRUPTION_POLICY),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_BYPASS_MUTE),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_LOW_LATENCY),
+    MAKE_STRING_FROM_ENUM(AUDIO_FLAG_DEEP_BUFFER),
+    TERMINATOR
+};
+
 template class TypeConverter<OutputDeviceTraits>;
 template class TypeConverter<InputDeviceTraits>;
 template class TypeConverter<OutputFlagTraits>;
@@ -368,6 +391,7 @@ template class TypeConverter<StreamTraits>;
 template class TypeConverter<AudioModeTraits>;
 template class TypeConverter<UsageTraits>;
 template class TypeConverter<SourceTraits>;
+template class TypeConverter<AudioFlagTraits>;
 
 bool deviceFromString(const std::string& literalDevice, audio_devices_t& device) {
     return InputDeviceConverter::fromString(literalDevice, device) ||

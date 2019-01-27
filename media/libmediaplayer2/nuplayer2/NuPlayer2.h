@@ -82,9 +82,9 @@ struct NuPlayer2 : public AHandler {
     void rewind();
 
     status_t setVideoScalingMode(int32_t mode);
-    status_t getTrackInfo(PlayerMessage* reply) const;
-    status_t getSelectedTrack(int32_t type, PlayerMessage* reply) const;
-    status_t selectTrack(size_t trackIndex, bool select, int64_t timeUs);
+    status_t getTrackInfo(int64_t srcId, PlayerMessage* reply) const;
+    status_t getSelectedTrack(int64_t srcId, int32_t type, PlayerMessage* reply) const;
+    status_t selectTrack(int64_t srcId, size_t trackIndex, bool select, int64_t timeUs);
     status_t getCurrentPosition(int64_t *mediaUs);
     void getStats(Vector<sp<AMessage> > *mTrackStats);
 
@@ -92,8 +92,8 @@ struct NuPlayer2 : public AHandler {
     float getFrameRate();
 
     // Modular DRM
-    status_t prepareDrm(const uint8_t uuid[16], const Vector<uint8_t> &drmSessionId);
-    status_t releaseDrm();
+    status_t prepareDrm(int64_t srcId, const uint8_t uuid[16], const Vector<uint8_t> &drmSessionId);
+    status_t releaseDrm(int64_t srcId);
 
     const char *getDataSourceType();
 
@@ -178,6 +178,9 @@ private:
         uint32_t mSourceFlags;
         int64_t mStartTimeUs;
         int64_t mEndTimeUs;
+        // Modular DRM
+        sp<AMediaCryptoWrapper> mCrypto;
+        bool mIsDrmProtected = false;
     };
 
     wp<NuPlayer2Driver> mDriver;
@@ -269,10 +272,6 @@ private:
     // Pause state as requested by source (internally) due to buffering
     bool mPausedForBuffering;
 
-    // Modular DRM
-    sp<AMediaCryptoWrapper> mCrypto;
-    bool mIsDrmProtected;
-
     inline const sp<DecoderBase> &getDecoder(bool audio) {
         return audio ? mAudioDecoder : mVideoDecoder;
     }
@@ -351,7 +350,10 @@ private:
     void writeTrackInfo(PlayerMessage* reply, const sp<AMessage>& format) const;
 
     status_t onPrepareDrm(const sp<AMessage> &msg);
-    status_t onReleaseDrm();
+    status_t onReleaseDrm(const sp<AMessage> &msg);
+
+    SourceInfo* getSourceInfoByIdInMsg(const sp<AMessage> &msg);
+    void resetSourceInfo(SourceInfo &srcInfo);
 
     DISALLOW_EVIL_CONSTRUCTORS(NuPlayer2);
 };

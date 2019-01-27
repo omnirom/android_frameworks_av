@@ -36,7 +36,6 @@
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/MetaDataUtils.h>
-#include <media/stagefright/MediaBufferBase.h>
 #include <private/android_filesystem_config.h> // for AID_MEDIA
 #include <system/audio.h>
 
@@ -53,7 +52,7 @@ static inline bool shouldExtractorOutputFloat(int bitsPerSample)
 
 class FLACParser;
 
-class FLACSource : public MediaTrackHelperV2 {
+class FLACSource : public MediaTrackHelper {
 
 public:
     FLACSource(
@@ -66,7 +65,7 @@ public:
     virtual media_status_t getFormat(AMediaFormat *meta);
 
     virtual media_status_t read(
-            MediaBufferBase **buffer, const ReadOptions *options = NULL);
+            MediaBufferHelper **buffer, const ReadOptions *options = NULL);
 
 protected:
     virtual ~FLACSource();
@@ -125,12 +124,12 @@ public:
     }
 
     // media buffers
-    void allocateBuffers();
+    void allocateBuffers(MediaBufferGroupHelper *group);
     void releaseBuffers();
-    MediaBufferBase *readBuffer() {
+    MediaBufferHelper *readBuffer() {
         return readBuffer(false, 0LL);
     }
-    MediaBufferBase *readBuffer(FLAC__uint64 sample) {
+    MediaBufferHelper *readBuffer(FLAC__uint64 sample) {
         return readBuffer(true, sample);
     }
 
@@ -143,7 +142,7 @@ private:
 
     // media buffers
     size_t mMaxBufferSize;
-    MediaBufferGroup *mGroup;
+    MediaBufferGroupHelper *mGroup;
     void (*mCopy)(int16_t *dst, const int * src[kMaxChannels], unsigned nSamples, unsigned nChannels);
 
     // handle to underlying libFLAC parser
@@ -167,7 +166,7 @@ private:
     FLAC__StreamDecoderErrorStatus mErrorStatus;
 
     status_t init();
-    MediaBufferBase *readBuffer(bool doSeek, FLAC__uint64 sample);
+    MediaBufferHelper *readBuffer(bool doSeek, FLAC__uint64 sample);
 
     // no copy constructor or assignment
     FLACParser(const FLACParser &);
@@ -401,6 +400,7 @@ void FLACParser::errorCallback(FLAC__StreamDecoderErrorStatus status)
 
 // Copy samples from FLAC native 32-bit non-interleaved to 16-bit signed
 // or 32-bit float interleaved.
+// TODO: Consider moving to audio_utils.
 // These are candidates for optimization if needed.
 static void copyTo16Signed(
         short *dst,
@@ -408,10 +408,19 @@ static void copyTo16Signed(
         unsigned nSamples,
         unsigned nChannels,
         unsigned bitsPerSample) {
-    const unsigned leftShift = 16 - bitsPerSample;
-    for (unsigned i = 0; i < nSamples; ++i) {
-        for (unsigned c = 0; c < nChannels; ++c) {
-            *dst++ = src[c][i] << leftShift;
+    const int leftShift = 16 - (int)bitsPerSample; // cast to int to prevent unsigned overflow.
+    if (leftShift >= 0) {
+        for (unsigned i = 0; i < nSamples; ++i) {
+            for (unsigned c = 0; c < nChannels; ++c) {
+                *dst++ = src[c][i] << leftShift;
+            }
+        }
+    } else {
+        const int rightShift = -leftShift;
+        for (unsigned i = 0; i < nSamples; ++i) {
+            for (unsigned c = 0; c < nChannels; ++c) {
+                *dst++ = src[c][i] >> rightShift;
+            }
         }
     }
 }
@@ -514,8 +523,10 @@ status_t FLACParser::init()
         case 8:
         case 16:
         case 24:
+        case 32: // generally not expected for FLAC
             break;
         default:
+            // Note: internally the FLAC extractor supports 2-32 bits.
             ALOGE("unsupported bits per sample %u", getBitsPerSample());
             return NO_INIT;
         }
@@ -532,8 +543,11 @@ status_t FLACParser::init()
         case 48000:
         case 88200:
         case 96000:
+        case 176400:
+        case 192000:
             break;
         default:
+            // Note: internally we support arbitrary sample rates from 8kHz to 192kHz.
             ALOGE("unsupported sample rate %u", getSampleRate());
             return NO_INIT;
         }
@@ -562,22 +576,19 @@ status_t FLACParser::init()
     return OK;
 }
 
-void FLACParser::allocateBuffers()
+void FLACParser::allocateBuffers(MediaBufferGroupHelper *group)
 {
     CHECK(mGroup == NULL);
-    mGroup = new MediaBufferGroup;
+    mGroup = group;
     mMaxBufferSize = getMaxBlockSize() * getChannels() * getOutputSampleSize();
-    mGroup->add_buffer(MediaBufferBase::Create(mMaxBufferSize));
+    mGroup->add_buffer(mMaxBufferSize);
 }
 
 void FLACParser::releaseBuffers()
 {
-    CHECK(mGroup != NULL);
-    delete mGroup;
-    mGroup = NULL;
 }
 
-MediaBufferBase *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
+MediaBufferHelper *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
 {
     mWriteRequested = true;
     mWriteCompleted = false;
@@ -614,7 +625,7 @@ MediaBufferBase *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
     }
     // acquire a media buffer
     CHECK(mGroup != NULL);
-    MediaBufferBase *buffer;
+    MediaBufferHelper *buffer;
     status_t err = mGroup->acquire_buffer(&buffer);
     if (err != OK) {
         return NULL;
@@ -641,8 +652,9 @@ MediaBufferBase *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
     CHECK(mWriteHeader.number_type == FLAC__FRAME_NUMBER_TYPE_SAMPLE_NUMBER);
     FLAC__uint64 sampleNumber = mWriteHeader.number.sample_number;
     int64_t timeUs = (1000000LL * sampleNumber) / getSampleRate();
-    buffer->meta_data().setInt64(kKeyTime, timeUs);
-    buffer->meta_data().setInt32(kKeyIsSyncFrame, 1);
+    AMediaFormat *meta = buffer->meta_data();
+    AMediaFormat_setInt64(meta, AMEDIAFORMAT_KEY_TIME_US, timeUs);
+    AMediaFormat_setInt32(meta, AMEDIAFORMAT_KEY_IS_SYNC_FRAME, 1);
     return buffer;
 }
 
@@ -676,7 +688,7 @@ media_status_t FLACSource::start()
     ALOGV("FLACSource::start");
 
     CHECK(!mStarted);
-    mParser->allocateBuffers();
+    mParser->allocateBuffers(mBufferGroup);
     mStarted = true;
 
     return AMEDIA_OK;
@@ -704,9 +716,9 @@ media_status_t FLACSource::getFormat(AMediaFormat *meta)
 }
 
 media_status_t FLACSource::read(
-        MediaBufferBase **outBuffer, const ReadOptions *options)
+        MediaBufferHelper **outBuffer, const ReadOptions *options)
 {
-    MediaBufferBase *buffer;
+    MediaBufferHelper *buffer;
     // process an optional seek request
     int64_t seekTimeUs;
     ReadOptions::SeekMode mode;
@@ -760,7 +772,7 @@ size_t FLACExtractor::countTracks()
     return mInitCheck == OK ? 1 : 0;
 }
 
-MediaTrackHelperV2 *FLACExtractor::getTrack(size_t index)
+MediaTrackHelper *FLACExtractor::getTrack(size_t index)
 {
     if (mInitCheck != OK || index > 0) {
         return NULL;
@@ -816,7 +828,7 @@ extern "C" {
 __attribute__ ((visibility ("default")))
 ExtractorDef GETEXTRACTORDEF() {
     return {
-            EXTRACTORDEF_VERSION_CURRENT,
+            EXTRACTORDEF_VERSION,
             UUID("1364b048-cc45-4fda-9934-327d0ebf9829"),
             1,
             "FLAC Extractor",
@@ -825,13 +837,13 @@ ExtractorDef GETEXTRACTORDEF() {
                         CDataSource *source,
                         float *confidence,
                         void **,
-                        FreeMetaFunc *) -> CreatorFuncV2 {
+                        FreeMetaFunc *) -> CreatorFunc {
                     DataSourceHelper helper(source);
                     if (SniffFLAC(&helper, confidence)) {
                         return [](
                                 CDataSource *source,
-                                void *) -> CMediaExtractorV2* {
-                            return wrapV2(new FLACExtractor(new DataSourceHelper(source)));};
+                                void *) -> CMediaExtractor* {
+                            return wrap(new FLACExtractor(new DataSourceHelper(source)));};
                     }
                     return NULL;
                 }

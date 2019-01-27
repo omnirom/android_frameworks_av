@@ -322,7 +322,7 @@ void NuPlayer2::GenericSource2::prepareAsync(int64_t startTimeUs) {
 
     if (mLooper == NULL) {
         mLooper = new ALooper;
-        mLooper->setName("generic");
+        mLooper->setName("generic2");
         mLooper->start(false, /* runOnCallingThread */
                        true,  /* canCallJava */
                        PRIORITY_DEFAULT);
@@ -1284,6 +1284,11 @@ void NuPlayer2::GenericSource2::readBuffer(
             mAudioTimeUs = timeUs;
         } else if (trackType == MEDIA_TRACK_TYPE_VIDEO) {
             mVideoTimeUs = timeUs;
+        }
+
+        sp<AMediaCodecCryptoInfoWrapper> cryptInfo = extractor->getSampleCryptoInfo();
+        if (cryptInfo != NULL) {
+            meta->setObject("cryptInfo", cryptInfo);
         }
 
         queueDiscontinuityIfNeeded(seeking, formatChange, trackType, track);

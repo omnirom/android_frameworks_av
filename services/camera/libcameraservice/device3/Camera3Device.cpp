@@ -175,7 +175,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
         session->interfaceChain([](
             ::android::hardware::hidl_vec<::android::hardware::hidl_string> interfaceChain) {
                 ALOGV("Session interface chain:");
-                for (auto iface : interfaceChain) {
+                for (const auto& iface : interfaceChain) {
                     ALOGV("  %s", iface.c_str());
                 }
             });
@@ -2115,6 +2115,15 @@ status_t Camera3Device::waitUntilDrainedLocked(nsecs_t maxExpectedDuration) {
     if (res != OK) {
         SET_ERR_L("Error waiting for HAL to drain: %s (%d)", strerror(-res),
                 res);
+        if (res == TIMED_OUT) {
+            for (size_t i = 0; i < mInFlightMap.size(); i++) {
+                InFlightRequest r = mInFlightMap.valueAt(i);
+                ALOGE("%s: Timed out Frame %d Timestamp: %" PRId64 ",  metadata"
+                    " arrived: %s, buffers left: %d\n", __FUNCTION__, mInFlightMap.keyAt(i),
+                        r.shutterTimestamp, r.haveResultMetadata ? "true" : "false",
+                        r.numBuffersLeft);
+            }
+        }
     }
     return res;
 }
@@ -3900,6 +3909,7 @@ bool Camera3Device::HalInterface::valid() {
 }
 
 void Camera3Device::HalInterface::clear() {
+    mHidlSession_3_5.clear();
     mHidlSession_3_4.clear();
     mHidlSession_3_3.clear();
     mHidlSession.clear();
@@ -5440,6 +5450,10 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
             }
 
             if (mUseHalBufManager) {
+                if (outputStream->isAbandoned()) {
+                    ALOGE("%s: stream %d is abandoned.", __FUNCTION__, streamId);
+                    return TIMED_OUT;
+                }
                 // HAL will request buffer through requestStreamBuffer API
                 camera3_stream_buffer_t& buffer = outputBuffers->editItemAt(j);
                 buffer.stream = outputStream->asHalStream();
@@ -6367,8 +6381,9 @@ status_t Camera3Device::RequestBufferStateMachine::initialize(
 
 bool Camera3Device::RequestBufferStateMachine::startRequestBuffer() {
     std::lock_guard<std::mutex> lock(mLock);
-    if (mStatus == RB_STATUS_READY) {
+    if (mStatus == RB_STATUS_READY || mStatus == RB_STATUS_PENDING_STOP) {
         mRequestBufferOngoing = true;
+        notifyTrackerLocked(/*active*/true);
         return true;
     }
     return false;
@@ -6384,15 +6399,12 @@ void Camera3Device::RequestBufferStateMachine::endRequestBuffer() {
     if (mStatus == RB_STATUS_PENDING_STOP) {
         checkSwitchToStopLocked();
     }
+    notifyTrackerLocked(/*active*/false);
 }
 
 void Camera3Device::RequestBufferStateMachine::onStreamsConfigured() {
     std::lock_guard<std::mutex> lock(mLock);
-    RequestBufferState oldStatus = mStatus;
     mStatus = RB_STATUS_READY;
-    if (oldStatus != RB_STATUS_READY) {
-        notifyTrackerLocked(/*active*/true);
-    }
     return;
 }
 
@@ -6402,7 +6414,6 @@ void Camera3Device::RequestBufferStateMachine::onRequestSubmitted() {
     mInflightMapEmpty = false;
     if (mStatus == RB_STATUS_STOPPED) {
         mStatus = RB_STATUS_READY;
-        notifyTrackerLocked(/*active*/true);
     }
     return;
 }
@@ -6447,7 +6458,6 @@ void Camera3Device::RequestBufferStateMachine::notifyTrackerLocked(bool active) 
 bool Camera3Device::RequestBufferStateMachine::checkSwitchToStopLocked() {
     if (mInflightMapEmpty && mRequestThreadPaused && !mRequestBufferOngoing) {
         mStatus = RB_STATUS_STOPPED;
-        notifyTrackerLocked(/*active*/false);
         return true;
     }
     return false;

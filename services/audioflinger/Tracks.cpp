@@ -326,6 +326,10 @@ status_t AudioFlinger::TrackHandle::setParameters(const String8& keyValuePairs) 
     return mTrack->setParameters(keyValuePairs);
 }
 
+status_t AudioFlinger::TrackHandle::selectPresentation(int presentationId, int programId) {
+    return mTrack->selectPresentation(presentationId, programId);
+}
+
 VolumeShaper::Status AudioFlinger::TrackHandle::applyVolumeShaper(
         const sp<VolumeShaper::Configuration>& configuration,
         const sp<VolumeShaper::Operation>& operation) {
@@ -498,7 +502,7 @@ void AudioFlinger::PlaybackThread::Track::destroy()
 
 void AudioFlinger::PlaybackThread::Track::appendDumpHeader(String8& result)
 {
-    result.appendFormat("Type     Id Active Client Session S  Flags "
+    result.appendFormat("Type     Id Active Client Session Port Id S  Flags "
                         "  Format Chn mask  SRate "
                         "ST Usg CT "
                         " G db  L dB  R dB  VS dB "
@@ -584,7 +588,7 @@ void AudioFlinger::PlaybackThread::Track::appendDump(String8& result, bool activ
             ? 'r' /* buffer reduced */: bufferSizeInFrames > mFrameCount
                     ? 'e' /* error */ : ' ' /* identical */;
 
-    result.appendFormat("%7s %6u %7u %2s 0x%03X "
+    result.appendFormat("%7s %6u %7u %7u %2s 0x%03X "
                         "%08X %08X %6u "
                         "%2u %3x %2x "
                         "%5.2g %5.2g %5.2g %5.2g%c "
@@ -592,6 +596,7 @@ void AudioFlinger::PlaybackThread::Track::appendDump(String8& result, bool activ
             active ? "yes" : "no",
             (mClient == 0) ? getpid() : mClient->pid(),
             mSessionId,
+            mPortId,
             getTrackStateString(),
             mCblk->mFlags,
 
@@ -974,6 +979,19 @@ status_t AudioFlinger::PlaybackThread::Track::setParameters(const String8& keyVa
     } else {
         return PERMISSION_DENIED;
     }
+}
+
+status_t AudioFlinger::PlaybackThread::Track::selectPresentation(int presentationId,
+        int programId) {
+    sp<ThreadBase> thread = mThread.promote();
+    if (thread == 0) {
+        ALOGE("thread is dead");
+        return FAILED_TRANSACTION;
+    } else if ((thread->type() == ThreadBase::DIRECT) || (thread->type() == ThreadBase::OFFLOAD)) {
+        DirectOutputThread *directOutputThread = static_cast<DirectOutputThread*>(thread.get());
+        return directOutputThread->selectPresentation(presentationId, programId);
+    }
+    return INVALID_OPERATION;
 }
 
 VolumeShaper::Status AudioFlinger::PlaybackThread::Track::applyVolumeShaper(
@@ -1755,7 +1773,7 @@ AudioFlinger::RecordThread::RecordTrack::RecordTrack(
         thread->mFastTrackAvail = false;
     } else {
         // TODO: only Normal Record has timestamps (Fast Record does not).
-        mServerLatencySupported = audio_is_linear_pcm(mFormat);
+        mServerLatencySupported = checkServerLatencySupported(mFormat, flags);
     }
 #ifdef TEE_SINK
     mTee.setId(std::string("_") + std::to_string(mThreadIoHandle)
@@ -1869,7 +1887,7 @@ void AudioFlinger::RecordThread::RecordTrack::invalidate()
 
 void AudioFlinger::RecordThread::RecordTrack::appendDumpHeader(String8& result)
 {
-    result.appendFormat("Active     Id Client Session S  Flags  "
+    result.appendFormat("Active     Id Client Session Port Id  S  Flags  "
                         " Format Chn mask  SRate Source  "
                         " Server FrmCnt FrmRdy Sil%s\n",
                         isServerLatencySupported() ? "   Latency" : "");
@@ -1877,7 +1895,7 @@ void AudioFlinger::RecordThread::RecordTrack::appendDumpHeader(String8& result)
 
 void AudioFlinger::RecordThread::RecordTrack::appendDump(String8& result, bool active)
 {
-    result.appendFormat("%c%5s %6d %6u %7u %2s 0x%03X "
+    result.appendFormat("%c%5s %6d %6u %7u %7u  %2s 0x%03X "
             "%08X %08X %6u %6X "
             "%08X %6zu %6zu %3c",
             isFastTrack() ? 'F' : ' ',
@@ -1885,6 +1903,7 @@ void AudioFlinger::RecordThread::RecordTrack::appendDump(String8& result, bool a
             mId,
             (mClient == 0) ? getpid() : mClient->pid(),
             mSessionId,
+            mPortId,
             getTrackStateString(),
             mCblk->mFlags,
 
@@ -2125,15 +2144,16 @@ void AudioFlinger::MmapThread::MmapTrack::onTimestamp(const ExtendedTimestamp &t
 
 void AudioFlinger::MmapThread::MmapTrack::appendDumpHeader(String8& result)
 {
-    result.appendFormat("Client Session   Format Chn mask  SRate Flags %s\n",
+    result.appendFormat("Client Session Port Id  Format Chn mask  SRate Flags %s\n",
                         isOut() ? "Usg CT": "Source");
 }
 
 void AudioFlinger::MmapThread::MmapTrack::appendDump(String8& result, bool active __unused)
 {
-    result.appendFormat("%6u %7u %08X %08X %6u 0x%03X ",
+    result.appendFormat("%6u %7u %7u %08X %08X %6u 0x%03X ",
             mPid,
             mSessionId,
+            mPortId,
             mFormat,
             mChannelMask,
             mSampleRate,

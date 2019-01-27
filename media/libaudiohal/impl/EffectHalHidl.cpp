@@ -26,21 +26,18 @@
 #include "EffectHalHidl.h"
 #include "HidlUtils.h"
 
-using ::android::hardware::audio::effect::CPP_VERSION::AudioBuffer;
-using ::android::hardware::audio::effect::CPP_VERSION::EffectBufferAccess;
-using ::android::hardware::audio::effect::CPP_VERSION::EffectConfigParameters;
-using ::android::hardware::audio::effect::CPP_VERSION::MessageQueueFlagBits;
-using ::android::hardware::audio::effect::CPP_VERSION::Result;
-using ::android::hardware::audio::common::CPP_VERSION::HidlUtils;
-using ::android::hardware::audio::common::CPP_VERSION::AudioChannelMask;
-using ::android::hardware::audio::common::CPP_VERSION::AudioFormat;
-using ::android::hardware::audio::common::utils::mkEnumConverter;
+using ::android::hardware::audio::common::CPP_VERSION::implementation::HidlUtils;
+using ::android::hardware::audio::common::utils::EnumBitfield;
 using ::android::hardware::hidl_vec;
 using ::android::hardware::MQDescriptorSync;
 using ::android::hardware::Return;
 
 namespace android {
+namespace effect {
 namespace CPP_VERSION {
+
+using namespace ::android::hardware::audio::common::CPP_VERSION;
+using namespace ::android::hardware::audio::effect::CPP_VERSION;
 
 EffectHalHidl::EffectHalHidl(const sp<IEffect>& effect, uint64_t effectId)
         : mEffect(effect), mEffectId(effectId), mBuffersChanged(true), mEfGroup(nullptr) {
@@ -77,10 +74,10 @@ void EffectHalHidl::effectDescriptorToHal(
 void EffectHalHidl::effectBufferConfigFromHal(
         const buffer_config_t& halConfig, EffectBufferConfig* config) {
     config->samplingRateHz = halConfig.samplingRate;
-    config->channels = mkEnumConverter<AudioChannelMask>(halConfig.channels);
+    config->channels = EnumBitfield<AudioChannelMask>(halConfig.channels);
     config->format = AudioFormat(halConfig.format);
     config->accessMode = EffectBufferAccess(halConfig.accessMode);
-    config->mask = mkEnumConverter<EffectConfigParameters>(halConfig.mask);
+    config->mask = EnumBitfield<EffectConfigParameters>(halConfig.mask);
 }
 
 // static
@@ -338,4 +335,5 @@ status_t EffectHalHidl::setConfigImpl(
 }
 
 } // namespace CPP_VERSION
+} // namespace effect
 } // namespace android

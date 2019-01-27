@@ -23,6 +23,7 @@
 #include "AudioIODescriptorInterface.h"
 #include "AudioPort.h"
 #include "ClientDescriptor.h"
+#include "EffectDescriptor.h"
 
 namespace android {
 
@@ -58,12 +59,12 @@ public:
     void clearPreemptedSessions();
     bool isActive() const { return mGlobalActiveCount > 0; }
     bool isSourceActive(audio_source_t source) const;
-    audio_source_t inputSource(bool activeOnly = false) const;
+    audio_source_t source() const;
     bool isSoundTrigger() const;
-    audio_source_t getHighestPrioritySource(bool activeOnly) const;
     void setClientActive(const sp<RecordClientDescriptor>& client, bool active);
     int32_t activeCount() { return mGlobalActiveCount; }
-
+    void trackEffectEnabled(const sp<EffectDescriptor> &effect, bool enabled);
+    EffectDescriptorCollection getEnabledEffects() const;
     // implementation of AudioIODescriptorInterface
     audio_config_base_t getConfig() const override;
     audio_patch_handle_t getPatchHandle() const override;
@@ -87,6 +88,11 @@ public:
     RecordClientVector clientsList(bool activeOnly = false,
         audio_source_t source = AUDIO_SOURCE_DEFAULT, bool preferredDeviceOnly = false) const;
 
+    void setAppState(uid_t uid, app_state_t state);
+
+    // implementation of ClientMapHandler<RecordClientDescriptor>
+    void addClient(const sp<RecordClientDescriptor> &client) override;
+
  private:
 
     void updateClientRecordingConfiguration(int event, const sp<RecordClientDescriptor>& client);
@@ -102,6 +108,7 @@ public:
     SortedVector<audio_session_t> mPreemptedSessions;
     AudioPolicyClientInterface * const mClientInterface;
     int32_t mGlobalActiveCount = 0;  // non-client-specific activity ref count
+    EffectDescriptorCollection mEnabledEffects;
 };
 
 class AudioInputCollection :
@@ -121,11 +128,13 @@ public:
      * Only considers inputs from physical devices (e.g. main mic, headset mic) when
      * ignoreVirtualInputs is true.
      */
-    Vector<sp <AudioInputDescriptor> > getActiveInputs(bool ignoreVirtualInputs = true);
+    Vector<sp <AudioInputDescriptor> > getActiveInputs();
 
     audio_devices_t getSupportedDevices(audio_io_handle_t handle) const;
 
     sp<AudioInputDescriptor> getInputForClient(audio_port_handle_t portId);
+
+    void trackEffectEnabled(const sp<EffectDescriptor> &effect, bool enabled);
 
     void dump(String8 *dst) const;
 };

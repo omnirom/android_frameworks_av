@@ -17,9 +17,12 @@
 #define LOG_TAG "BufferProvider"
 //#define LOG_NDEBUG 0
 
+#include <algorithm>
+
 #include <audio_utils/primitives.h>
 #include <audio_utils/format.h>
-#include <external/sonic/sonic.h>
+#include <audio_utils/channels.h>
+#include <sonic.h>
 #include <media/audiohal/EffectBufferHalInterface.h>
 #include <media/audiohal/EffectHalInterface.h>
 #include <media/audiohal/EffectsFactoryHalInterface.h>
@@ -35,13 +38,6 @@
 namespace android {
 
 // ----------------------------------------------------------------------------
-
-template <typename T>
-static inline T min(const T& a, const T& b)
-{
-    return a < b ? a : b;
-}
-
 CopyBufferProvider::CopyBufferProvider(size_t inputFrameSize,
         size_t outputFrameSize, size_t bufferFrameCount) :
         mInputFrameSize(inputFrameSize),
@@ -63,7 +59,8 @@ CopyBufferProvider::CopyBufferProvider(size_t inputFrameSize,
 
 CopyBufferProvider::~CopyBufferProvider()
 {
-    ALOGV("~CopyBufferProvider(%p)", this);
+    ALOGV("%s(%p) %zu %p %p",
+           __func__, this, mBuffer.frameCount, mTrackBufferProvider, mLocalBufferData);
     if (mBuffer.frameCount != 0) {
         mTrackBufferProvider->releaseBuffer(&mBuffer);
     }
@@ -98,8 +95,8 @@ status_t CopyBufferProvider::getNextBuffer(AudioBufferProvider::Buffer *pBuffer)
         mConsumed = 0;
     }
     ALOG_ASSERT(mConsumed < mBuffer.frameCount);
-    size_t count = min(mLocalBufferFrameCount, mBuffer.frameCount - mConsumed);
-    count = min(count, pBuffer->frameCount);
+    size_t count = std::min(mLocalBufferFrameCount, mBuffer.frameCount - mConsumed);
+    count = std::min(count, pBuffer->frameCount);
     pBuffer->raw = mLocalBufferData;
     pBuffer->frameCount = count;
     copyFrames(pBuffer->raw, (uint8_t*)mBuffer.raw + mConsumed * mInputFrameSize,
@@ -131,6 +128,16 @@ void CopyBufferProvider::reset()
         mTrackBufferProvider->releaseBuffer(&mBuffer);
     }
     mConsumed = 0;
+}
+
+void CopyBufferProvider::setBufferProvider(AudioBufferProvider *p) {
+    ALOGV("%s(%p): mTrackBufferProvider:%p  mBuffer.frameCount:%zu",
+            __func__, p, mTrackBufferProvider, mBuffer.frameCount);
+    if (mTrackBufferProvider == p) {
+        return;
+    }
+    mBuffer.frameCount = 0;
+    PassthruBufferProvider::setBufferProvider(p);
 }
 
 DownmixerBufferProvider::DownmixerBufferProvider(
@@ -479,7 +486,7 @@ status_t TimestretchBufferProvider::getNextBuffer(
         }
 
         // time-stretch the data
-        dstAvailable = min(mLocalBufferFrameCount - mRemaining, outputDesired);
+        dstAvailable = std::min(mLocalBufferFrameCount - mRemaining, outputDesired);
         size_t srcAvailable = mBuffer.frameCount;
         processFrames((uint8_t*)mLocalBufferData + mRemaining * mFrameSize, &dstAvailable,
                 mBuffer.raw, &srcAvailable);
@@ -528,6 +535,16 @@ void TimestretchBufferProvider::reset()
     mRemaining = 0;
 }
 
+void TimestretchBufferProvider::setBufferProvider(AudioBufferProvider *p) {
+    ALOGV("%s(%p): mTrackBufferProvider:%p  mBuffer.frameCount:%zu",
+            __func__, p, mTrackBufferProvider, mBuffer.frameCount);
+    if (mTrackBufferProvider == p) {
+        return;
+    }
+    mBuffer.frameCount = 0;
+    PassthruBufferProvider::setBufferProvider(p);
+}
+
 status_t TimestretchBufferProvider::setPlaybackRate(const AudioPlaybackRate &playbackRate)
 {
     mPlaybackRate = playbackRate;
@@ -567,7 +584,7 @@ void TimestretchBufferProvider::processFrames(void *dstBuffer, size_t *dstFrames
                   } else {
                       // cyclically repeat the source.
                       for (size_t count = 0; count < *dstFrames; count += *srcFrames) {
-                          size_t remaining = min(*srcFrames, *dstFrames - count);
+                          size_t remaining = std::min(*srcFrames, *dstFrames - count);
                           memcpy((uint8_t*)dstBuffer + mFrameSize * count,
                                   srcBuffer, mFrameSize * remaining);
                       }
@@ -608,6 +625,84 @@ void TimestretchBufferProvider::processFrames(void *dstBuffer, size_t *dstFrames
             LOG_ALWAYS_FATAL("invalid format %#x for TimestretchBufferProvider", mFormat);
         }
     }
+}
+
+AdjustChannelsBufferProvider::AdjustChannelsBufferProvider(audio_format_t format,
+        size_t inChannelCount, size_t outChannelCount, size_t frameCount) :
+        CopyBufferProvider(
+                audio_bytes_per_frame(inChannelCount, format),
+                audio_bytes_per_frame(outChannelCount, format),
+                frameCount),
+        mFormat(format),
+        mInChannelCount(inChannelCount),
+        mOutChannelCount(outChannelCount),
+        mSampleSizeInBytes(audio_bytes_per_sample(format))
+{
+    ALOGV("AdjustBufferProvider(%p)(%#x, %zu, %zu, %zu)",
+            this, format, inChannelCount, outChannelCount, frameCount);
+}
+
+void AdjustChannelsBufferProvider::copyFrames(void *dst, const void *src, size_t frames)
+{
+    adjust_channels(src, mInChannelCount, dst, mOutChannelCount, mSampleSizeInBytes,
+            frames * mInChannelCount * mSampleSizeInBytes);
+}
+
+AdjustChannelsNonDestructiveBufferProvider::AdjustChannelsNonDestructiveBufferProvider(
+        audio_format_t format, size_t inChannelCount, size_t outChannelCount,
+        audio_format_t contractedFormat, size_t contractedFrameCount, void* contractedBuffer) :
+        CopyBufferProvider(
+                audio_bytes_per_frame(std::max(inChannelCount, outChannelCount), format),
+                audio_bytes_per_frame(std::max(inChannelCount, outChannelCount), format),
+                contractedFrameCount),
+        mFormat(format),
+        mInChannelCount(inChannelCount),
+        mOutChannelCount(outChannelCount),
+        mSampleSizeInBytes(audio_bytes_per_sample(format)),
+        mContractedChannelCount(inChannelCount - outChannelCount),
+        mContractedFormat(contractedFormat),
+        mContractedFrameCount(contractedFrameCount),
+        mContractedBuffer(contractedBuffer),
+        mContractedWrittenFrames(0)
+{
+    ALOGV("AdjustChannelsNonDestructiveBufferProvider(%p)(%#x, %zu, %zu, %#x, %p)",
+            this, format, inChannelCount, outChannelCount, contractedFormat, contractedBuffer);
+    if (mContractedFormat != AUDIO_FORMAT_INVALID && mInChannelCount > mOutChannelCount) {
+        mContractedFrameSize = audio_bytes_per_frame(mContractedChannelCount, mContractedFormat);
+    }
+}
+
+status_t AdjustChannelsNonDestructiveBufferProvider::getNextBuffer(
+        AudioBufferProvider::Buffer* pBuffer)
+{
+    const size_t outFramesLeft = mContractedFrameCount - mContractedWrittenFrames;
+    if (outFramesLeft < pBuffer->frameCount) {
+        // Restrict the frame count so that we don't write over the size of the output buffer.
+        pBuffer->frameCount = outFramesLeft;
+    }
+    return CopyBufferProvider::getNextBuffer(pBuffer);
+}
+
+void AdjustChannelsNonDestructiveBufferProvider::copyFrames(
+        void *dst, const void *src, size_t frames)
+{
+    adjust_channels_non_destructive(src, mInChannelCount, dst, mOutChannelCount, mSampleSizeInBytes,
+            frames * mInChannelCount * mSampleSizeInBytes);
+    if (mContractedFormat != AUDIO_FORMAT_INVALID && mContractedBuffer != NULL
+            && mInChannelCount > mOutChannelCount) {
+        const size_t contractedIdx = frames * mOutChannelCount * mSampleSizeInBytes;
+        memcpy_by_audio_format(
+                (uint8_t*)mContractedBuffer + mContractedWrittenFrames * mContractedFrameSize,
+                mContractedFormat, (uint8_t*)dst + contractedIdx, mFormat,
+                mContractedChannelCount * frames);
+        mContractedWrittenFrames += frames;
+    }
+}
+
+void AdjustChannelsNonDestructiveBufferProvider::reset()
+{
+    mContractedWrittenFrames = 0;
+    CopyBufferProvider::reset();
 }
 // ----------------------------------------------------------------------------
 } // namespace android

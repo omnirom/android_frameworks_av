@@ -86,7 +86,7 @@ public:
                     MediaPlayer2SeekMode mode = MediaPlayer2SeekMode::SEEK_PREVIOUS_SYNC);
             status_t        notifyAt(int64_t mediaTimeUs);
             status_t        getCurrentPosition(int64_t *msec);
-            status_t        getDuration(int64_t *msec);
+            status_t        getDuration(int64_t srcId, int64_t *msec);
             status_t        reset();
             status_t        setAudioStreamType(audio_stream_type_t type);
             status_t        getAudioStreamType(audio_stream_type_t *type);
@@ -105,8 +105,10 @@ public:
             status_t        getParameter(int key, Parcel* reply);
 
             // Modular DRM
-            status_t        prepareDrm(const uint8_t uuid[16], const Vector<uint8_t>& drmSessionId);
-            status_t        releaseDrm();
+            status_t        prepareDrm(int64_t srcId,
+                                       const uint8_t uuid[16],
+                                       const Vector<uint8_t>& drmSessionId);
+            status_t        releaseDrm(int64_t srcId);
             // AudioRouting
             status_t        setPreferredDevice(jobject device);
             jobject         getRoutedDevice();

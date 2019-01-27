@@ -200,6 +200,18 @@ status_t NuPlayer::CCDecoder::selectTrack(size_t index, bool select) {
     return OK;
 }
 
+ssize_t NuPlayer::CCDecoder::getSelectedTrack(media_track_type type) const {
+    if (mSelectedTrack != -1) {
+        CCTrack track = mTracks[mSelectedTrack];
+        if (track.mTrackType == kTrackTypeCEA608 || track.mTrackType == kTrackTypeCEA708) {
+            return (type == MEDIA_TRACK_TYPE_SUBTITLE ? mSelectedTrack : -1);
+        }
+        return (type == MEDIA_TRACK_TYPE_UNKNOWN ? mSelectedTrack : -1);
+    }
+
+    return -1;
+}
+
 bool NuPlayer::CCDecoder::isSelected() const {
     return mSelectedTrack >= 0 && mSelectedTrack < (int32_t)getTrackCount();
 }
@@ -542,7 +554,7 @@ void NuPlayer::CCDecoder::display(int64_t timeUs) {
 
         ccBuf->meta()->setInt32("track-index", mSelectedTrack);
         ccBuf->meta()->setInt64("timeUs", timeUs);
-        ccBuf->meta()->setInt64("durationUs", 0ll);
+        ccBuf->meta()->setInt64("durationUs", 0LL);
 
         sp<AMessage> msg = mNotify->dup();
         msg->setInt32("what", kWhatClosedCaptionData);

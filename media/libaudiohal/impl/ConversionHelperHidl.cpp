@@ -22,18 +22,11 @@
 
 #include "ConversionHelperHidl.h"
 
-using ::android::hardware::audio::CPP_VERSION::Result;
-
-#if MAJOR_VERSION == 4
-using ::android::hardware::audio::CPP_VERSION::AudioMicrophoneChannelMapping;
-using ::android::hardware::audio::CPP_VERSION::AudioMicrophoneDirectionality;
-using ::android::hardware::audio::CPP_VERSION::AudioMicrophoneLocation;
-using ::android::hardware::audio::CPP_VERSION::DeviceAddress;
-using ::android::hardware::audio::CPP_VERSION::MicrophoneInfo;
-#endif
-
 namespace android {
 namespace CPP_VERSION {
+
+using namespace ::android::hardware::audio::common::CPP_VERSION;
+using namespace ::android::hardware::audio::CPP_VERSION;
 
 // static
 status_t ConversionHelperHidl::keysFromHal(const String8& keys, hidl_vec<hidl_string> *hidlKeys) {
@@ -109,7 +102,7 @@ void ConversionHelperHidl::emitError(const char* funcName, const char* descripti
     ALOGE("%s %p %s: %s (from rpc)", mClassName, this, funcName, description);
 }
 
-#if MAJOR_VERSION == 4
+#if MAJOR_VERSION >= 4
 // TODO: Use the same implementation in the hal when it moves to a util library.
 static std::string deviceAddressToHal(const DeviceAddress& address) {
     // HAL assumes that the address is NUL-terminated.

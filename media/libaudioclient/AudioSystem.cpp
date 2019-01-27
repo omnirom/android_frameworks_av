@@ -917,11 +917,11 @@ status_t AudioSystem::getInputForAttr(const audio_attributes_t *attr,
             config, flags, selectedDeviceId, portId);
 }
 
-status_t AudioSystem::startInput(audio_port_handle_t portId, bool *silenced)
+status_t AudioSystem::startInput(audio_port_handle_t portId)
 {
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
     if (aps == 0) return PERMISSION_DENIED;
-    return aps->startInput(portId, silenced);
+    return aps->startInput(portId);
 }
 
 status_t AudioSystem::stopInput(audio_port_handle_t portId)
@@ -1236,6 +1236,19 @@ status_t AudioSystem::registerPolicyMixes(const Vector<AudioMix>& mixes, bool re
     return aps->registerPolicyMixes(mixes, registration);
 }
 
+status_t AudioSystem::setUidDeviceAffinities(uid_t uid, const Vector<AudioDeviceTypeAddr>& devices)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->setUidDeviceAffinities(uid, devices);
+}
+
+status_t AudioSystem::removeUidDeviceAffinities(uid_t uid) {
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->removeUidDeviceAffinities(uid);
+}
+
 status_t AudioSystem::startAudioSource(const struct audio_port_config *source,
                                        const audio_attributes_t *attributes,
                                        audio_port_handle_t *portId)
@@ -1297,6 +1310,31 @@ status_t AudioSystem::setSurroundFormatEnabled(audio_format_t audioFormat, bool 
     if (aps == 0) return PERMISSION_DENIED;
     return aps->setSurroundFormatEnabled(audioFormat, enabled);
 }
+
+
+status_t AudioSystem::setAssistantUid(uid_t uid)
+{
+    const sp <IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+
+    return aps->setAssistantUid(uid);
+}
+
+status_t AudioSystem::setA11yServicesUids(const std::vector<uid_t>& uids)
+{
+    const sp <IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+
+    return aps->setA11yServicesUids(uids);
+}
+
+bool AudioSystem::isHapticPlaybackSupported()
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return false;
+    return aps->isHapticPlaybackSupported();
+}
+
 
 // ---------------------------------------------------------------------------
 
@@ -1363,9 +1401,14 @@ void AudioSystem::AudioPolicyServiceClient::onDynamicPolicyMixStateUpdate(
 }
 
 void AudioSystem::AudioPolicyServiceClient::onRecordingConfigurationUpdate(
-        int event, const record_client_info_t *clientInfo,
-        const audio_config_base_t *clientConfig, const audio_config_base_t *deviceConfig,
-        audio_patch_handle_t patchHandle) {
+                                                int event,
+                                                const record_client_info_t *clientInfo,
+                                                const audio_config_base_t *clientConfig,
+                                                std::vector<effect_descriptor_t> clientEffects,
+                                                const audio_config_base_t *deviceConfig,
+                                                std::vector<effect_descriptor_t> effects,
+                                                audio_patch_handle_t patchHandle,
+                                                audio_source_t source) {
     record_config_callback cb = NULL;
     {
         Mutex::Autolock _l(AudioSystem::gLock);
@@ -1373,7 +1416,8 @@ void AudioSystem::AudioPolicyServiceClient::onRecordingConfigurationUpdate(
     }
 
     if (cb != NULL) {
-        cb(event, clientInfo, clientConfig, deviceConfig, patchHandle);
+        cb(event, clientInfo, clientConfig, clientEffects,
+           deviceConfig, effects, patchHandle, source);
     }
 }
 

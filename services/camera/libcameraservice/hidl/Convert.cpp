@@ -16,7 +16,8 @@
 
 #include <hidl/Convert.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
-#include <NdkImageReaderPriv.h>
+#include <cutils/native_handle.h>
+#include <mediautils/AImageReaderUtils.h>
 
 namespace android {
 namespace hardware {
@@ -25,6 +26,7 @@ namespace utils {
 namespace conversion {
 
 using hardware::graphics::bufferqueue::V1_0::utils::H2BGraphicBufferProducer;
+using aimg::AImageReader_getHGBPFromHandle;
 
 // Note: existing data in dst will be gone. Caller still owns the memory of src
 void convertToHidl(const camera_metadata_t *src, HCameraMetadata* dst) {
@@ -87,8 +89,9 @@ hardware::camera2::params::OutputConfiguration convertFromHidl(
     for (auto &handle : windowHandles) {
         iGBPs.push_back(new H2BGraphicBufferProducer(AImageReader_getHGBPFromHandle(handle)));
     }
+    String16 physicalCameraId16(hOutputConfiguration.physicalCameraId.c_str());
     hardware::camera2::params::OutputConfiguration outputConfiguration(
-        iGBPs, convertFromHidl(hOutputConfiguration.rotation),
+        iGBPs, convertFromHidl(hOutputConfiguration.rotation), physicalCameraId16,
         hOutputConfiguration.windowGroupId, OutputConfiguration::SURFACE_TYPE_UNKNOWN, 0, 0,
         (windowHandles.size() > 1));
     return outputConfiguration;
@@ -99,12 +102,14 @@ hardware::camera2::params::OutputConfiguration convertFromHidl(
 bool convertFromHidl(const HCameraMetadata &src, CameraMetadata *dst) {
     const camera_metadata_t *buffer = reinterpret_cast<const camera_metadata_t*>(src.data());
     size_t expectedSize = src.size();
-    int res = validate_camera_metadata_structure(buffer, &expectedSize);
-    if (res == OK || res == CAMERA_METADATA_VALIDATION_SHIFTED) {
-        *dst = buffer;
-    } else {
-        ALOGE("%s: Malformed camera metadata received from HAL", __FUNCTION__);
-        return false;
+    if (buffer != nullptr) {
+        int res = validate_camera_metadata_structure(buffer, &expectedSize);
+        if (res == OK || res == CAMERA_METADATA_VALIDATION_SHIFTED) {
+            *dst = buffer;
+        } else {
+            ALOGE("%s: Malformed camera metadata received from HAL", __FUNCTION__);
+            return false;
+        }
     }
     return true;
 }
@@ -132,6 +137,7 @@ HCameraDeviceStatus convertToHidlCameraDeviceStatus(int32_t status) {
 
 HCaptureResultExtras convertToHidl(const CaptureResultExtras &captureResultExtras) {
     HCaptureResultExtras hCaptureResultExtras;
+    hCaptureResultExtras.requestId = captureResultExtras.requestId;
     hCaptureResultExtras.burstId = captureResultExtras.burstId;
     hCaptureResultExtras.frameNumber = captureResultExtras.frameNumber;
     hCaptureResultExtras.partialResultCount = captureResultExtras.partialResultCount;

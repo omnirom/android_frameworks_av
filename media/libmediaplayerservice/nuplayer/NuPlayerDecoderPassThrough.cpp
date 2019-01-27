@@ -47,7 +47,7 @@ NuPlayer::DecoderPassThrough::DecoderPassThrough(
       mAggregateBufferSizeBytes(24 * 1024),
       mSource(source),
       mRenderer(renderer),
-      mSkipRenderingUntilMediaTimeUs(-1ll),
+      mSkipRenderingUntilMediaTimeUs(-1LL),
       mReachedEOS(true),
       mPendingAudioErr(OK),
       mPendingBuffersToDrain(0),

@@ -190,7 +190,9 @@ status_t CameraService::enumerateProviders() {
 
     for (auto& cameraId : deviceIds) {
         String8 id8 = String8(cameraId.c_str());
-        onDeviceStatusChanged(id8, CameraDeviceStatus::PRESENT);
+        if (getCameraState(id8) == nullptr) {
+            onDeviceStatusChanged(id8, CameraDeviceStatus::PRESENT);
+        }
     }
 
     return OK;
@@ -1579,6 +1581,24 @@ Status CameraService::setTorchMode(const String16& cameraId, bool enabled,
 
 Status CameraService::notifySystemEvent(int32_t eventId,
         const std::vector<int32_t>& args) {
+    const int pid = CameraThreadState::getCallingPid();
+    const int selfPid = getpid();
+
+    // Permission checks
+    if (pid != selfPid) {
+        // Ensure we're being called by system_server, or similar process with
+        // permissions to notify the camera service about system events
+        if (!checkCallingPermission(
+                String16("android.permission.CAMERA_SEND_SYSTEM_EVENTS"))) {
+            const int uid = CameraThreadState::getCallingUid();
+            ALOGE("Permission Denial: cannot send updates to camera service about system"
+                    " events from pid=%d, uid=%d", pid, uid);
+            return STATUS_ERROR_FMT(ERROR_PERMISSION_DENIED,
+                    "No permission to send updates to camera service about system events"
+                    " from pid=%d, uid=%d", pid, uid);
+        }
+    }
+
     ATRACE_CALL();
 
     switch(eventId) {
@@ -1994,9 +2014,6 @@ void CameraService::logServiceError(const char* msg, int errorCode) {
 status_t CameraService::onTransact(uint32_t code, const Parcel& data, Parcel* reply,
         uint32_t flags) {
 
-    const int pid = CameraThreadState::getCallingPid();
-    const int selfPid = getpid();
-
     // Permission checks
     switch (code) {
         case SHELL_COMMAND_TRANSACTION: {
@@ -2022,20 +2039,6 @@ status_t CameraService::onTransact(uint32_t code, const Parcel& data, Parcel* re
                 resultReceiver->send(status);
             }
             return NO_ERROR;
-        }
-        case BnCameraService::NOTIFYSYSTEMEVENT: {
-            if (pid != selfPid) {
-                // Ensure we're being called by system_server, or similar process with
-                // permissions to notify the camera service about system events
-                if (!checkCallingPermission(
-                        String16("android.permission.CAMERA_SEND_SYSTEM_EVENTS"))) {
-                    const int uid = CameraThreadState::getCallingUid();
-                    ALOGE("Permission Denial: cannot send updates to camera service about system"
-                            " events from pid=%d, uid=%d", pid, uid);
-                    return PERMISSION_DENIED;
-                }
-            }
-            break;
         }
     }
 
@@ -2213,6 +2216,8 @@ binder::Status CameraService::BasicClient::disconnect() {
     sCameraService->removeByClient(this);
     sCameraService->logDisconnected(mCameraIdStr, mClientPid,
             String8(mClientPackageName));
+    sCameraService->mCameraProviderManager->removeRef(CameraProviderManager::DeviceMode::CAMERA,
+            mCameraIdStr.c_str());
 
     sp<IBinder> remote = getRemote();
     if (remote != nullptr) {

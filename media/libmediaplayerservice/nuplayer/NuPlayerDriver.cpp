@@ -55,6 +55,7 @@ static const char *kPlayerWidth = "android.media.mediaplayer.width";
 static const char *kPlayerHeight = "android.media.mediaplayer.height";
 static const char *kPlayerFrames = "android.media.mediaplayer.frames";
 static const char *kPlayerFramesDropped = "android.media.mediaplayer.dropped";
+static const char *kPlayerFrameRate = "android.media.mediaplayer.fps";
 static const char *kPlayerAMime = "android.media.mediaplayer.audio.mime";
 static const char *kPlayerACodec = "android.media.mediaplayer.audio.codec";
 static const char *kPlayerDuration = "android.media.mediaplayer.durationMs";
@@ -476,7 +477,7 @@ status_t NuPlayerDriver::seekTo(int msec, MediaPlayerSeekMode mode) {
     ALOGD("seekTo(%p) (%d ms, %d) at state %d", this, msec, mode, mState);
     Mutex::Autolock autoLock(mLock);
 
-    int64_t seekTimeUs = msec * 1000ll;
+    int64_t seekTimeUs = msec * 1000LL;
 
     switch (mState) {
         case STATE_PREPARED:
@@ -533,7 +534,7 @@ status_t NuPlayerDriver::getDuration(int *msec) {
         return UNKNOWN_ERROR;
     }
 
-    *msec = (mDurationUs + 500ll) / 1000;
+    *msec = (mDurationUs + 500LL) / 1000;
 
     return OK;
 }
@@ -580,6 +581,10 @@ void NuPlayerDriver::updateMetrics(const char *where) {
                 mAnalyticsItem->setInt64(kPlayerFrames, numFramesTotal);
                 mAnalyticsItem->setInt64(kPlayerFramesDropped, numFramesDropped);
 
+                float frameRate = 0;
+                if (stats->findFloat("frame-rate-total", &frameRate)) {
+                    mAnalyticsItem->setDouble(kPlayerFrameRate, (double) frameRate);
+                }
 
             } else if (mime.startsWith("audio/")) {
                 mAnalyticsItem->setCString(kPlayerAMime, mime.c_str());
@@ -605,6 +610,7 @@ void NuPlayerDriver::updateMetrics(const char *where) {
         mAnalyticsItem->setInt64(kPlayerRebuffering, (mRebufferingTimeUs+500)/1000 );
         mAnalyticsItem->setInt32(kPlayerRebufferingCount, mRebufferingEvents);
         mAnalyticsItem->setInt32(kPlayerRebufferingAtExit, mRebufferingAtExit);
+
     }
 
     mAnalyticsItem->setCString(kPlayerDataSourceType, mPlayer->getDataSourceType());
@@ -741,7 +747,7 @@ status_t NuPlayerDriver::invoke(const Parcel &request, Parcel *reply) {
             int msec = 0;
             // getCurrentPosition should always return OK
             getCurrentPosition(&msec);
-            return mPlayer->selectTrack(trackIndex, true /* select */, msec * 1000ll);
+            return mPlayer->selectTrack(trackIndex, true /* select */, msec * 1000LL);
         }
 
         case INVOKE_ID_UNSELECT_TRACK:

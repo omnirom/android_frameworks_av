@@ -182,6 +182,7 @@ enum {
     kKeyPssh              = 'pssh',  // raw data
     kKeyCASystemID        = 'caid',  // int32_t
     kKeyCASessionID       = 'seid',  // raw data
+    kKeyCAPrivateData     = 'cadc',  // raw data
 
     kKeyEncryptedByteBlock = 'cblk',  // uint8_t
     kKeySkipByteBlock     = 'sblk',  // uint8_t
@@ -201,6 +202,7 @@ enum {
 
     // HDR related
     kKeyHdrStaticInfo    = 'hdrS', // HDRStaticInfo
+    kKeyHdr10PlusInfo    = 'hdrD', // raw data
 
     // color aspects
     kKeyColorRange       = 'cRng', // int32_t, color range, value defined by ColorAspects.Range
@@ -229,6 +231,8 @@ enum {
     kKeyAlacMagicCookie  = 'almc', // raw data
 
     kKeyFeatureNalLengthBitstream = 'nlbs', // int32_t key to check nal length bistream
+    // AC-4 AudioPresentationInfo
+    kKeyAudioPresentationInfo = 'audP',  // raw data
 };
 
 enum {

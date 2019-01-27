@@ -253,9 +253,21 @@ void Accessor::Impl::flush() {
 }
 
 void Accessor::Impl::handleInvalidateAck() {
-    std::lock_guard<std::mutex> lock(mBufferPool.mMutex);
-    mBufferPool.processStatusMessages();
-    mBufferPool.mInvalidation.onHandleAck();
+    std::map<ConnectionId, const sp<IObserver>> observers;
+    uint32_t invalidationId;
+    {
+        std::lock_guard<std::mutex> lock(mBufferPool.mMutex);
+        mBufferPool.processStatusMessages();
+        mBufferPool.mInvalidation.onHandleAck(&observers, &invalidationId);
+    }
+    // Do not hold lock for send invalidations
+    for (auto it = observers.begin(); it != observers.end(); ++it) {
+        const sp<IObserver> observer = it->second;
+        if (observer) {
+            Return<void> transResult = observer->onMessage(it->first, invalidationId);
+            (void) transResult;
+        }
+    }
 }
 
 bool Accessor::Impl::isValid() {
@@ -282,7 +294,7 @@ std::atomic<std::uint32_t> Accessor::Impl::BufferPool::Invalidation::sInvSeqId(0
 
 Accessor::Impl::Impl::BufferPool::~BufferPool() {
     std::lock_guard<std::mutex> lock(mMutex);
-    ALOGD("Destruction - bufferpool %p "
+    ALOGD("Destruction - bufferpool2 %p "
           "cached: %zu/%zuM, %zu/%d%% in use; "
           "allocs: %zu, %d%% recycled; "
           "transfers: %zu, %d%% unfetced",
@@ -308,7 +320,11 @@ void Accessor::Impl::BufferPool::Invalidation::onAck(
         ConnectionId conId,
         uint32_t msgId) {
     auto it = mAcks.find(conId);
-    if (it == mAcks.end() || isMessageLater(msgId, it->second)) {
+    if (it == mAcks.end()) {
+        ALOGW("ACK from inconsistent connection! %lld", (long long)conId);
+        return;
+    }
+    if (isMessageLater(msgId, it->second)) {
         mAcks[conId] = msgId;
     }
 }
@@ -327,7 +343,6 @@ void Accessor::Impl::BufferPool::Invalidation::onBufferInvalidated(
                 }
             }
             channel.postInvalidation(msgId, it->mFrom, it->mTo);
-            sInvalidator->addAccessor(mId, it->mImpl);
             it = mPendings.erase(it);
             continue;
         }
@@ -342,39 +357,44 @@ void Accessor::Impl::BufferPool::Invalidation::onInvalidationRequest(
         size_t left,
         BufferInvalidationChannel &channel,
         const std::shared_ptr<Accessor::Impl> &impl) {
-    if (left == 0) {
         uint32_t msgId = 0;
-        if (needsAck) {
+    if (needsAck) {
+        msgId = ++mInvalidationId;
+        if (msgId == 0) {
+            // wrap happens
             msgId = ++mInvalidationId;
-            if (msgId == 0) {
-                // wrap happens
-                msgId = ++mInvalidationId;
-            }
         }
-        ALOGV("bufferpool invalidation requested and queued");
+    }
+    ALOGV("bufferpool2 invalidation requested and queued");
+    if (left == 0) {
         channel.postInvalidation(msgId, from, to);
-        sInvalidator->addAccessor(mId, impl);
     } else {
         // TODO: sending hint message?
-        ALOGV("bufferpool invalidation requested and pending");
+        ALOGV("bufferpoo2 invalidation requested and pending");
         Pending pending(needsAck, from, to, left, impl);
         mPendings.push_back(pending);
     }
+    sInvalidator->addAccessor(mId, impl);
 }
 
-void Accessor::Impl::BufferPool::Invalidation::onHandleAck() {
+void Accessor::Impl::BufferPool::Invalidation::onHandleAck(
+        std::map<ConnectionId, const sp<IObserver>> *observers,
+        uint32_t *invalidationId) {
     if (mInvalidationId != 0) {
+        *invalidationId = mInvalidationId;
         std::set<int> deads;
         for (auto it = mAcks.begin(); it != mAcks.end(); ++it) {
             if (it->second != mInvalidationId) {
                 const sp<IObserver> observer = mObservers[it->first];
                 if (observer) {
-                    ALOGV("connection %lld call observer (%u: %u)",
+                    observers->emplace(it->first, observer);
+                    ALOGV("connection %lld will call observer (%u: %u)",
                           (long long)it->first, it->second, mInvalidationId);
-                    Return<void> transResult = observer->onMessage(it->first, mInvalidationId);
-                    (void) transResult;
+                    // N.B: onMessage will be called later. ignore possibility of
+                    // onMessage# oneway call being lost.
+                    it->second = mInvalidationId;
                 } else {
-                    ALOGV("bufferpool observer died %lld", (long long)it->first);
+                    ALOGV("bufferpool2 observer died %lld", (long long)it->first);
                     deads.insert(it->first);
                 }
             }
@@ -385,8 +405,10 @@ void Accessor::Impl::BufferPool::Invalidation::onHandleAck() {
             }
         }
     }
-    // All invalidation Ids are synced.
-    sInvalidator->delAccessor(mId);
+    if (mPendings.size() == 0) {
+        // All invalidation Ids are synced and no more pending invalidations.
+        sInvalidator->delAccessor(mId);
+    }
 }
 
 bool Accessor::Impl::BufferPool::handleOwnBuffer(
@@ -674,7 +696,7 @@ void Accessor::Impl::BufferPool::cleanUp(bool clearCache) {
         mLastCleanUpUs = mTimestampUs;
         if (mTimestampUs > mLastLogUs + kLogDurationUs) {
             mLastLogUs = mTimestampUs;
-            ALOGD("bufferpool %p : %zu(%zu size) total buffers - "
+            ALOGD("bufferpool2 %p : %zu(%zu size) total buffers - "
                   "%zu(%zu size) used buffers - %zu/%zu (recycle/alloc) - "
                   "%zu/%zu (fetch/transfer)",
                   this, mStats.mBuffersCached, mStats.mSizeCached,
@@ -695,7 +717,7 @@ void Accessor::Impl::BufferPool::cleanUp(bool clearCache) {
                 freeIt = mFreeBuffers.erase(freeIt);
             } else {
                 ++freeIt;
-                ALOGW("bufferpool inconsistent!");
+                ALOGW("bufferpool2 inconsistent!");
             }
         }
     }
@@ -714,7 +736,7 @@ void Accessor::Impl::BufferPool::invalidate(
                 freeIt = mFreeBuffers.erase(freeIt);
                 continue;
             } else {
-                ALOGW("bufferpool inconsistent!");
+                ALOGW("bufferpool2 inconsistent!");
             }
         }
         ++freeIt;
