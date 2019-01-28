@@ -35,9 +35,14 @@ namespace android {
 
 typedef void (*audio_error_callback)(status_t err);
 typedef void (*dynamic_policy_callback)(int event, String8 regId, int val);
-typedef void (*record_config_callback)(int event, const record_client_info_t *clientInfo,
-                const audio_config_base_t *clientConfig, const audio_config_base_t *deviceConfig,
-                audio_patch_handle_t patchHandle);
+typedef void (*record_config_callback)(int event,
+                                       const record_client_info_t *clientInfo,
+                                       const audio_config_base_t *clientConfig,
+                                       std::vector<effect_descriptor_t> clientEffects,
+                                       const audio_config_base_t *deviceConfig,
+                                       std::vector<effect_descriptor_t> effects,
+                                       audio_patch_handle_t patchHandle,
+                                       audio_source_t source);
 
 class IAudioFlinger;
 class IAudioPolicyService;
@@ -241,8 +246,7 @@ public:
                                     audio_port_handle_t *selectedDeviceId,
                                     audio_port_handle_t *portId);
 
-    static status_t startInput(audio_port_handle_t portId,
-                               bool *silenced);
+    static status_t startInput(audio_port_handle_t portId);
     static status_t stopInput(audio_port_handle_t portId);
     static void releaseInput(audio_port_handle_t portId);
     static status_t initStreamVolume(audio_stream_type_t stream,
@@ -321,6 +325,10 @@ public:
 
     static status_t registerPolicyMixes(const Vector<AudioMix>& mixes, bool registration);
 
+    static status_t setUidDeviceAffinities(uid_t uid, const Vector<AudioDeviceTypeAddr>& devices);
+
+    static status_t removeUidDeviceAffinities(uid_t uid);
+
     static status_t startAudioSource(const struct audio_port_config *source,
                                      const audio_attributes_t *attributes,
                                      audio_port_handle_t *portId);
@@ -342,6 +350,11 @@ public:
                                        bool *surroundFormatsEnabled,
                                        bool reported);
     static status_t setSurroundFormatEnabled(audio_format_t audioFormat, bool enabled);
+
+    static status_t setAssistantUid(uid_t uid);
+    static status_t setA11yServicesUids(const std::vector<uid_t>& uids);
+
+    static bool     isHapticPlaybackSupported();
 
     // ----------------------------------------------------------------------------
 
@@ -444,9 +457,13 @@ private:
         virtual void onAudioPatchListUpdate();
         virtual void onDynamicPolicyMixStateUpdate(String8 regId, int32_t state);
         virtual void onRecordingConfigurationUpdate(int event,
-                        const record_client_info_t *clientInfo,
-                        const audio_config_base_t *clientConfig,
-                        const audio_config_base_t *deviceConfig, audio_patch_handle_t patchHandle);
+                                                    const record_client_info_t *clientInfo,
+                                                    const audio_config_base_t *clientConfig,
+                                                    std::vector<effect_descriptor_t> clientEffects,
+                                                    const audio_config_base_t *deviceConfig,
+                                                    std::vector<effect_descriptor_t> effects,
+                                                    audio_patch_handle_t patchHandle,
+                                                    audio_source_t source);
 
     private:
         Mutex                               mLock;

@@ -108,7 +108,7 @@ sp<AAudioServiceEndpoint> AAudioEndpointManager::findExclusiveEndpoint_l(
         const AAudioStreamConfiguration &configuration) {
     sp<AAudioServiceEndpoint> endpoint;
     mExclusiveSearchCount++;
-    for (const auto ep : mExclusiveStreams) {
+    for (const auto& ep : mExclusiveStreams) {
         if (ep->matches(configuration)) {
             mExclusiveFoundCount++;
             endpoint = ep;
@@ -126,7 +126,7 @@ sp<AAudioServiceEndpointShared> AAudioEndpointManager::findSharedEndpoint_l(
         const AAudioStreamConfiguration &configuration) {
     sp<AAudioServiceEndpointShared> endpoint;
     mSharedSearchCount++;
-    for (const auto ep  : mSharedStreams) {
+    for (const auto& ep  : mSharedStreams) {
         if (ep->matches(configuration)) {
             mSharedFoundCount++;
             endpoint = ep;
@@ -172,7 +172,7 @@ sp<AAudioServiceEndpoint> AAudioEndpointManager::openExclusiveEndpoint(
 
         aaudio_result_t result = endpoint->open(request);
         if (result != AAUDIO_OK) {
-            ALOGE("openExclusiveEndpoint(), open failed");
+            ALOGV("openExclusiveEndpoint(), open failed");
             endpoint.clear();
         } else {
             mExclusiveStreams.push_back(endpointMMap);

@@ -864,7 +864,7 @@ static CodecBase *CreateCCodec() {
 sp<CodecBase> MediaCodec::GetCodecBase(const AString &name, const char *owner) {
     if (owner) {
         if (strncmp(owner, "default", 8) == 0) {
-            return new ACodec;
+            return AVFactory::get()->createACodec();
         } else if (strncmp(owner, "codec2", 7) == 0) {
             return CreateCCodec();
         }
@@ -875,8 +875,10 @@ sp<CodecBase> MediaCodec::GetCodecBase(const AString &name, const char *owner) {
     } else if (name.startsWithIgnoreCase("omx.")) {
         // at this time only ACodec specifies a mime type.
         return AVFactory::get()->createACodec();
-    } else if (name.startsWithIgnoreCase("android.filter.")) {
+    } else if (name.startsWithIgnoreCase("android.filter.qti")) {
         return AVFactory::get()->createMediaFilter();
+    } else if (name.startsWithIgnoreCase("android.filter")) {
+        return new MediaFilter;
     } else {
         return NULL;
     }
@@ -906,8 +908,9 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
     //as these components are not present in media_codecs.xml and MediaCodecList won't find
     //these component by findCodecByName
     //Video and Flac decoder are present in list so exclude them.
-    if (!(name.find("qcom", 0) > 0 || name.find("qti", 0) > 0)
-          || name.find("video", 0) > 0 || name.find("flac", 0) > 0) {
+    if ((!(name.find("qcom", 0) > 0 || name.find("qti", 0) > 0 || name.find("filter", 0) > 0)
+          || name.find("video", 0) > 0 || name.find("flac", 0) > 0)
+          && !(name.find("tme",0) > 0)) {
         const sp<IMediaCodecList> mcl = MediaCodecList::getInstance();
         if (mcl == NULL) {
             mCodec = NULL;  // remove the codec.
@@ -934,12 +937,14 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
             return NAME_NOT_FOUND;
         }
     }
+    const char *owner = "default";
+    if (mCodecInfo !=NULL)
+        owner = mCodecInfo->getOwnerName();
 
-    mCodec = GetCodecBase(name, mCodecInfo->getOwnerName());
+    mCodec = GetCodecBase(name, owner);
     if (mCodec == NULL) {
         return NAME_NOT_FOUND;
     }
-
     if (mIsVideo) {
         // video codec needs dedicated looper
         if (mCodecLooper == NULL) {
@@ -1961,8 +1966,9 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     if (mComponentName.c_str()) {
                         mAnalyticsItem->setCString(kCodecCodec, mComponentName.c_str());
                     }
-
-                    const char *owner = mCodecInfo->getOwnerName();
+                    const char *owner = "default";
+                    if (mCodecInfo !=NULL)
+                        owner = mCodecInfo->getOwnerName();
                     if (mComponentName.startsWith("OMX.google.")
                             && (owner == nullptr || strncmp(owner, "default", 8) == 0)) {
                         mFlags |= kFlagUsesSoftwareRenderer;
@@ -2214,6 +2220,13 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                                 if (ColorUtils::getHDRStaticInfoFromFormat(mOutputFormat, &info)) {
                                     setNativeWindowHdrMetadata(mSurface.get(), &info);
                                 }
+                            }
+
+                            sp<ABuffer> hdr10PlusInfo;
+                            if (mOutputFormat->findBuffer("hdr10-plus-info", &hdr10PlusInfo)
+                                    && hdr10PlusInfo != nullptr && hdr10PlusInfo->size() > 0) {
+                                native_window_set_buffers_hdr10_plus_metadata(mSurface.get(),
+                                        hdr10PlusInfo->size(), hdr10PlusInfo->data());
                             }
 
                             if (mime.startsWithIgnoreCase("video/")) {

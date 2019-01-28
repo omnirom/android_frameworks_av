@@ -23,10 +23,10 @@
 #include "ESQueue.h"
 
 #include <android/hardware/cas/native/1.0/IDescrambler.h>
-#include <binder/IMemory.h>
-#include <binder/MemoryDealer.h>
+#include <android/hidl/allocator/1.0/IAllocator.h>
+#include <android/hidl/memory/1.0/IMemory.h>
 #include <cutils/native_handle.h>
-#include <hidlmemory/FrameworkUtils.h>
+#include <hidlmemory/mapping.h>
 #include <media/cas/DescramblerAPI.h>
 #include <media/stagefright/foundation/ABitReader.h>
 #include <media/stagefright/foundation/ABuffer.h>
@@ -47,12 +47,13 @@
 #include <stagefright/AVExtensions.h>
 
 namespace android {
-using hardware::fromHeap;
 using hardware::hidl_string;
 using hardware::hidl_vec;
-using hardware::HidlMemory;
+using hardware::hidl_memory;
 using namespace hardware::cas::V1_0;
 using namespace hardware::cas::native::V1_0;
+typedef hidl::allocator::V1_0::IAllocator TAllocator;
+typedef hidl::memory::V1_0::IMemory TMemory;
 
 // I want the expression "y" evaluated even if verbose logging is off.
 #define MY_LOGV(x, y) \
@@ -118,16 +119,12 @@ struct ATSParser::Program : public RefBase {
     void signalNewSampleAesKey(const sp<AMessage> &keyItem);
 
 private:
-    struct StreamInfo {
-        unsigned mType;
-        unsigned mTypeExt;
-        unsigned mPID;
-        int32_t mCASystemId;
-    };
 
     ATSParser *mParser;
     unsigned mProgramNumber;
     unsigned mProgramMapPID;
+    uint32_t mPMTVersion;
+    uint32_t mPMT_CRC;
     KeyedVector<unsigned, sp<Stream> > mStreams;
     bool mFirstPTSValid;
     uint64_t mFirstPTS;
@@ -144,17 +141,15 @@ private:
 };
 
 struct ATSParser::Stream : public RefBase {
-    Stream(Program *program,
-           unsigned elementaryPID,
-           unsigned streamType,
-           unsigned streamTypeExt,
-           unsigned PCR_PID,
-           int32_t CA_system_ID);
+    Stream(Program *program, unsigned PCR_PID, const StreamInfo &info);
 
     unsigned type() const { return mStreamType; }
     unsigned typeExt() const { return mStreamTypeExt; }
     unsigned pid() const { return mElementaryPID; }
     void setPID(unsigned pid) { mElementaryPID = pid; }
+    void setAudioPresentations(AudioPresentationCollection audioPresentations) {
+        mAudioPresentations = audioPresentations;
+    }
 
     void setCasInfo(
             int32_t systemId,
@@ -215,13 +210,13 @@ private:
     bool mScrambled;
     bool mSampleEncrypted;
     sp<AMessage> mSampleAesKeyItem;
-    sp<IMemory> mMem;
-    sp<MemoryDealer> mDealer;
-    sp<HidlMemory> mHidlMemory;
+    sp<TMemory> mHidlMemory;
+    sp<TAllocator> mHidlAllocator;
     hardware::cas::native::V1_0::SharedBuffer mDescramblerSrcBuffer;
     sp<ABuffer> mDescrambledBuffer;
     List<SubSampleInfo> mSubSamples;
     sp<IDescrambler> mDescrambler;
+    AudioPresentationCollection mAudioPresentations;
 
     // Flush accumulated payload if necessary --- i.e. at EOS or at the start of
     // another payload. event is set if the flushed payload is PES with a sync
@@ -304,6 +299,8 @@ ATSParser::Program::Program(
     : mParser(parser),
       mProgramNumber(programNumber),
       mProgramMapPID(programMapPID),
+      mPMTVersion(0xffffffff),
+      mPMT_CRC(0xffffffff),
       mFirstPTSValid(false),
       mFirstPTS(0),
       mLastRecoveredPTS(lastRecoveredPTS) {
@@ -491,7 +488,13 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
 
     MY_LOGV("  program_number = %u", br->getBits(16));
     MY_LOGV("  reserved = %u", br->getBits(2));
-    MY_LOGV("  version_number = %u", br->getBits(5));
+    bool audioPresentationsChanged = false;
+    unsigned pmtVersion = br->getBits(5);
+    if (pmtVersion != mPMTVersion) {
+        audioPresentationsChanged = true;
+        mPMTVersion = pmtVersion;
+    }
+    MY_LOGV("  version_number = %u", pmtVersion);
     MY_LOGV("  current_next_indicator = %u", br->getBits(1));
     MY_LOGV("  section_number = %u", br->getBits(8));
     MY_LOGV("  last_section_number = %u", br->getBits(8));
@@ -537,6 +540,8 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
 
         CADescriptor streamCA;
         info.mTypeExt = EXT_DESCRIPTOR_DVB_RESERVED_MAX;
+
+        info.mAudioPresentations.clear();
         bool hasStreamCA = false;
         while (ES_info_length > 2 && infoBytesRemaining >= 0) {
             unsigned descriptor_tag = br->getBits(8);
@@ -561,12 +566,94 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
                        descriptor_tag == DESCRIPTOR_DVB_EXTENSION && descriptor_length >= 1) {
                 unsigned descTagExt = br->getBits(8);
                 ALOGV("      tag_ext = 0x%02x", descTagExt);
-                if (descTagExt == EXT_DESCRIPTOR_DVB_AC4) {
-                    info.mTypeExt = EXT_DESCRIPTOR_DVB_AC4;
-                }
                 ES_info_length -= descriptor_length;
                 descriptor_length--;
-                br->skipBits(descriptor_length * 8);
+                // The AC4 descriptor is used in the PSI PMT to identify streams which carry AC4
+                // audio.
+                if (descTagExt == EXT_DESCRIPTOR_DVB_AC4) {
+                    info.mTypeExt = EXT_DESCRIPTOR_DVB_AC4;
+                    br->skipBits(descriptor_length * 8);
+                } else if (descTagExt == EXT_DESCRIPTOR_DVB_AUDIO_PRESELECTION &&
+                           descriptor_length >= 1) {
+                    // DVB BlueBook A038 Table 110
+                    unsigned num_preselections = br->getBits(5);
+                    br->skipBits(3);  // reserved
+                    for (unsigned i = 0; i < num_preselections; ++i) {
+                        if (br->numBitsLeft() < 16) {
+                            ALOGE("Not enough data left in bitreader!");
+                            return ERROR_MALFORMED;
+                        }
+                        AudioPresentationV1 ap;
+                        ap.mPresentationId = br->getBits(5);  // preselection_id
+
+                        // audio_rendering_indication
+                        ap.mMasteringIndication = static_cast<MasteringIndication>(br->getBits(3));
+                        ap.mAudioDescriptionAvailable = (br->getBits(1) == 1);
+                        ap.mSpokenSubtitlesAvailable = (br->getBits(1) == 1);
+                        ap.mDialogueEnhancementAvailable = (br->getBits(1) == 1);
+
+                        bool interactivity_enabled = (br->getBits(1) == 1);
+                        MY_LOGV("      interactivity_enabled = %d", interactivity_enabled);
+
+                        bool language_code_present = (br->getBits(1) == 1);
+                        bool text_label_present = (br->getBits(1) == 1);
+
+                        bool multi_stream_info_present = (br->getBits(1) == 1);
+                        bool future_extension = (br->getBits(1) == 1);
+                        if (language_code_present) {
+                            if (br->numBitsLeft() < 24) {
+                                ALOGE("Not enough data left in bitreader!");
+                                return ERROR_MALFORMED;
+                            }
+                            char language[4];
+                            language[0] = br->getBits(8);
+                            language[1] = br->getBits(8);
+                            language[2] = br->getBits(8);
+                            language[3] = 0;
+                            ap.mLanguage = String8(language);
+                        }
+
+                        // This maps the presentation id to the message id in the
+                        // EXT_DESCRIPTOR_DVB_MESSAGE so that we can get the presentation label.
+                        if (text_label_present) {
+                            if (br->numBitsLeft() < 8) {
+                                ALOGE("Not enough data left in bitreader!");
+                                return ERROR_MALFORMED;
+                            }
+                            unsigned message_id = br->getBits(8);
+                            MY_LOGV("      message_id = %u", message_id);
+                        }
+
+                        if (multi_stream_info_present) {
+                            if (br->numBitsLeft() < 8) {
+                                ALOGE("Not enough data left in bitreader!");
+                                return ERROR_MALFORMED;
+                            }
+                            unsigned num_aux_components = br->getBits(3);
+                            br->skipBits(5);  // reserved
+                            if (br->numBitsLeft() < (num_aux_components * 8)) {
+                                ALOGE("Not enough data left in bitreader!");
+                                return ERROR_MALFORMED;
+                            }
+                            br->skipBits(num_aux_components * 8);  // component_tag
+                        }
+                        if (future_extension) {
+                            if (br->numBitsLeft() < 8) {
+                                return ERROR_MALFORMED;
+                            }
+                            br->skipBits(3);  // reserved
+                            unsigned future_extension_length = br->getBits(5);
+                            if (br->numBitsLeft() < (future_extension_length * 8)) {
+                                ALOGE("Not enough data left in bitreader!");
+                                return ERROR_MALFORMED;
+                            }
+                            br->skipBits(future_extension_length * 8);  // future_extension_byte
+                        }
+                        info.mAudioPresentations.push_back(std::move(ap));
+                    }
+                } else {
+                    br->skipBits(descriptor_length * 8);
+                }
             } else {
                 ES_info_length -= descriptor_length;
                 br->skipBits(descriptor_length * 8);
@@ -576,15 +663,24 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
                 mProgramNumber, info.mPID, streamCA)) {
             return ERROR_MALFORMED;
         }
-        info.mCASystemId = hasProgramCA ? programCA.mSystemID :
-                           hasStreamCA ? streamCA.mSystemID  : -1;
+        if (hasProgramCA) {
+            info.mCADescriptor = programCA;
+        } else if (hasStreamCA) {
+            info.mCADescriptor = streamCA;
+        }
+
         infos.push(info);
     }
 
     if (infoBytesRemaining != 0) {
         ALOGW("Section data remains unconsumed");
     }
-    MY_LOGV("  CRC = 0x%08x", br->getBits(32));
+    unsigned crc = br->getBits(32);
+    if (crc != mPMT_CRC) {
+        audioPresentationsChanged = true;
+        mPMT_CRC = crc;
+    }
+    MY_LOGV("  CRC = 0x%08x", crc);
 
     bool PIDsChanged = false;
     for (size_t i = 0; i < infos.size(); ++i) {
@@ -636,15 +732,18 @@ status_t ATSParser::Program::parseProgramMap(ABitReader *br) {
         ssize_t index = mStreams.indexOfKey(info.mPID);
 
         if (index < 0) {
-            sp<Stream> stream = new Stream(
-                    this, info.mPID, info.mType, info.mTypeExt, PCR_PID, info.mCASystemId);
+            sp<Stream> stream = new Stream(this, PCR_PID, info);
 
             if (mSampleAesKeyItem != NULL) {
                 stream->signalNewSampleAesKey(mSampleAesKeyItem);
             }
 
-            isAddingScrambledStream |= info.mCASystemId >= 0;
+            isAddingScrambledStream |= info.mCADescriptor.mSystemID >= 0;
             mStreams.add(info.mPID, stream);
+        }
+        else if (index >= 0 && mStreams.editValueAt(index)->isAudio()
+                 && audioPresentationsChanged) {
+            mStreams.editValueAt(index)->setAudioPresentations(info.mAudioPresentations);
         }
     }
 
@@ -752,31 +851,26 @@ void ATSParser::Program::updateCasSessions() {
 static const size_t kInitialStreamBufferSize = 192 * 1024;
 
 ATSParser::Stream::Stream(
-        Program *program,
-        unsigned elementaryPID,
-        unsigned streamType,
-        unsigned streamTypeExt,
-        unsigned PCR_PID,
-        int32_t CA_system_ID)
+        Program *program, unsigned PCR_PID, const StreamInfo &info)
     : mProgram(program),
-      mElementaryPID(elementaryPID),
-      mStreamType(streamType),
-      mStreamTypeExt(streamTypeExt),
+      mElementaryPID(info.mPID),
+      mStreamType(info.mType),
+      mStreamTypeExt(info.mTypeExt),
       mPCR_PID(PCR_PID),
       mExpectedContinuityCounter(-1),
       mPayloadStarted(false),
       mEOSReached(false),
       mPrevPTS(0),
       mQueue(NULL),
-      mScrambled(CA_system_ID >= 0) {
-
+      mScrambled(info.mCADescriptor.mSystemID >= 0),
+      mAudioPresentations(info.mAudioPresentations) {
     mSampleEncrypted =
             mStreamType == STREAMTYPE_H264_ENCRYPTED ||
             mStreamType == STREAMTYPE_AAC_ENCRYPTED  ||
             mStreamType == STREAMTYPE_AC3_ENCRYPTED;
 
     ALOGV("new stream PID 0x%02x, type 0x%02x, scrambled %d, SampleEncrypted: %d",
-            elementaryPID, streamType, mScrambled, mSampleEncrypted);
+            info.mPID, info.mType, mScrambled, mSampleEncrypted);
 
     uint32_t flags = 0;
     if (((isVideo() || isAudio()) && mScrambled)) {
@@ -840,7 +934,7 @@ ATSParser::Stream::Stream(
 
         default:
             ALOGE("stream PID 0x%02x has invalid stream type 0x%02x",
-                    elementaryPID, streamType);
+                    info.mPID, info.mType);
             return;
     }
 
@@ -863,7 +957,13 @@ ATSParser::Stream::Stream(
                     isAudio() ? MEDIA_MIMETYPE_AUDIO_SCRAMBLED
                               : MEDIA_MIMETYPE_VIDEO_SCRAMBLED);
             // for MediaExtractor.CasInfo
-            meta->setInt32(kKeyCASystemID, CA_system_ID);
+            const CADescriptor &descriptor = info.mCADescriptor;
+            meta->setInt32(kKeyCASystemID, descriptor.mSystemID);
+
+            meta->setData(kKeyCAPrivateData, 0,
+                    descriptor.mPrivateData.data(),
+                    descriptor.mPrivateData.size());
+
             mSource = new AnotherPacketSource(meta);
         }
     }
@@ -883,16 +983,43 @@ bool ATSParser::Stream::ensureBufferCapacity(size_t neededSize) {
             mBuffer == NULL ? 0 : mBuffer->capacity(), neededSize, mScrambled);
 
     sp<ABuffer> newBuffer, newScrambledBuffer;
-    sp<IMemory> newMem;
-    sp<MemoryDealer> newDealer;
+    sp<TMemory> newMem;
     if (mScrambled) {
-        size_t alignment = MemoryDealer::getAllocationAlignment();
-        neededSize = (neededSize + (alignment - 1)) & ~(alignment - 1);
-        // Align to multiples of 64K.
-        neededSize = (neededSize + 65535) & ~65535;
-        newDealer = new MemoryDealer(neededSize, "ATSParser");
-        newMem = newDealer->allocate(neededSize);
-        newScrambledBuffer = new ABuffer(newMem->pointer(), newMem->size());
+        if (mHidlAllocator == nullptr) {
+            mHidlAllocator = TAllocator::getService("ashmem");
+            if (mHidlAllocator == nullptr) {
+                ALOGE("[stream %d] can't get hidl allocator", mElementaryPID);
+                return false;
+            }
+        }
+
+        hidl_memory hidlMemToken;
+        bool success;
+        auto transStatus = mHidlAllocator->allocate(
+                neededSize,
+                [&success, &hidlMemToken](
+                        bool s,
+                        hidl_memory const& m) {
+                    success = s;
+                    hidlMemToken = m;
+                });
+
+        if (!transStatus.isOk()) {
+            ALOGE("[stream %d] hidl allocator failed at the transport: %s",
+                    mElementaryPID, transStatus.description().c_str());
+            return false;
+        }
+        if (!success) {
+            ALOGE("[stream %d] hidl allocator failed", mElementaryPID);
+            return false;
+        }
+        newMem = mapMemory(hidlMemToken);
+        if (newMem == nullptr || newMem->getPointer() == nullptr) {
+            ALOGE("[stream %d] hidl failed to map memory", mElementaryPID);
+            return false;
+        }
+
+        newScrambledBuffer = new ABuffer(newMem->getPointer(), newMem->getSize());
 
         if (mDescrambledBuffer != NULL) {
             memcpy(newScrambledBuffer->data(),
@@ -901,24 +1028,15 @@ bool ATSParser::Stream::ensureBufferCapacity(size_t neededSize) {
         } else {
             newScrambledBuffer->setRange(0, 0);
         }
-        mMem = newMem;
-        mDealer = newDealer;
+        mHidlMemory = newMem;
         mDescrambledBuffer = newScrambledBuffer;
 
-        ssize_t offset;
-        size_t size;
-        sp<IMemoryHeap> heap = newMem->getMemory(&offset, &size);
-        if (heap == NULL) {
-            return false;
-        }
+        mDescramblerSrcBuffer.heapBase = hidlMemToken;
+        mDescramblerSrcBuffer.offset = 0ULL;
+        mDescramblerSrcBuffer.size =  (uint64_t)neededSize;
 
-        mHidlMemory = fromHeap(heap);
-        mDescramblerSrcBuffer.heapBase = *mHidlMemory;
-        mDescramblerSrcBuffer.offset = (uint64_t) offset;
-        mDescramblerSrcBuffer.size = (uint64_t) size;
-
-        ALOGD("[stream %d] created shared buffer for descrambling, offset %zd, size %zu",
-                mElementaryPID, offset, size);
+        ALOGD("[stream %d] created shared buffer for descrambling, size %zu",
+                mElementaryPID, neededSize);
     } else {
         // Align to multiples of 64K.
         neededSize = (neededSize + 65535) & ~65535;
@@ -1407,7 +1525,7 @@ status_t ATSParser::Stream::flushScrambled(SyncEvent *event) {
         return UNKNOWN_ERROR;
     }
 
-    if (mDescrambledBuffer == NULL || mMem == NULL) {
+    if (mDescrambledBuffer == NULL || mHidlMemory == NULL) {
         ALOGE("received scrambled packets without shared memory!");
 
         return UNKNOWN_ERROR;
@@ -1501,9 +1619,9 @@ status_t ATSParser::Stream::flushScrambled(SyncEvent *event) {
                     detailedError = _detailedError;
                 });
 
-        if (!returnVoid.isOk()) {
-            ALOGE("[stream %d] descramble failed, trans=%s",
-                    mElementaryPID, returnVoid.description().c_str());
+        if (!returnVoid.isOk() || status != Status::OK) {
+            ALOGE("[stream %d] descramble failed, trans=%s, status=%d",
+                    mElementaryPID, returnVoid.description().c_str(), status);
             return UNKNOWN_ERROR;
         }
 
@@ -1650,6 +1768,7 @@ void ATSParser::Stream::onPayloadData(
                 }
                 mSource = new AnotherPacketSource(meta);
                 mSource->queueAccessUnit(accessUnit);
+                mSource->convertAudioPresentationInfoToMetadata(mAudioPresentations);
                 ALOGV("onPayloadData: created AnotherPacketSource PID 0x%08x of type 0x%02x",
                         mElementaryPID, mStreamType);
             }
@@ -1662,6 +1781,7 @@ void ATSParser::Stream::onPayloadData(
                 mSource->setFormat(mQueue->getFormat());
             }
             mSource->queueAccessUnit(accessUnit);
+            mSource->convertAudioPresentationInfoToMetadata(mAudioPresentations);
         }
 
         // Every access unit has a pesStartOffset queued in |mPesStartOffsets|.

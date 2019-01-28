@@ -69,6 +69,7 @@ AImageReader::isSupportedFormatAndUsage(int32_t format, uint64_t usage) {
         case AIMAGE_FORMAT_DEPTH16:
         case AIMAGE_FORMAT_DEPTH_POINT_CLOUD:
         case AIMAGE_FORMAT_Y8:
+        case AIMAGE_FORMAT_RAW_DEPTH:
             return true;
         case AIMAGE_FORMAT_PRIVATE:
             // For private format, cpu usage is prohibited.
@@ -96,6 +97,7 @@ AImageReader::getNumPlanesForFormat(int32_t format) {
         case AIMAGE_FORMAT_DEPTH16:
         case AIMAGE_FORMAT_DEPTH_POINT_CLOUD:
         case AIMAGE_FORMAT_Y8:
+        case AIMAGE_FORMAT_RAW_DEPTH:
             return 1;
         case AIMAGE_FORMAT_PRIVATE:
             return 0;
@@ -645,31 +647,6 @@ static native_handle_t *convertHalTokenToNativeHandle(
     nh->data[0] = nhDataByteSize;
     memcpy(&(nh->data[1]), halToken.data(), nhDataByteSize);
     return nh;
-}
-
-static sp<HGraphicBufferProducer> convertNativeHandleToHGBP (
-        const native_handle_t *handle) {
-    // Read the size of the halToken vec<uint8_t>
-    hidl_vec<uint8_t> halToken;
-    halToken.setToExternal(
-        reinterpret_cast<uint8_t *>(const_cast<int *>(&(handle->data[1]))),
-        handle->data[0]);
-    sp<HGraphicBufferProducer> hgbp =
-        HGraphicBufferProducer::castFrom(retrieveHalInterface(halToken));
-    return hgbp;
-}
-
-EXPORT
-sp<HGraphicBufferProducer> AImageReader_getHGBPFromHandle(
-    const native_handle_t *handle) {
-    if (handle == nullptr) {
-        return nullptr;
-    }
-    if (handle->numFds != 0  ||
-        handle->numInts < ceil(sizeof(size_t) / sizeof(int))) {
-        return nullptr;
-    }
-    return convertNativeHandleToHGBP(handle);
 }
 
 EXPORT

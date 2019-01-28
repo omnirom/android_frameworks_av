@@ -17,20 +17,19 @@
 #ifndef ANDROID_HARDWARE_EFFECTS_FACTORY_HAL_HIDL_H
 #define ANDROID_HARDWARE_EFFECTS_FACTORY_HAL_HIDL_H
 
-#include <android/hardware/audio/effect/2.0/IEffectsFactory.h>
-#include <android/hardware/audio/effect/4.0/IEffectsFactory.h>
-#include <android/hardware/audio/effect/2.0/types.h>
-#include <android/hardware/audio/effect/4.0/types.h>
+#include PATH(android/hardware/audio/effect/FILE_VERSION/IEffectsFactory.h)
+#include PATH(android/hardware/audio/effect/FILE_VERSION/types.h)
 #include <media/audiohal/EffectsFactoryHalInterface.h>
 
 #include "ConversionHelperHidl.h"
 
 namespace android {
+namespace effect {
 namespace CPP_VERSION {
 
-using ::android::hardware::audio::effect::CPP_VERSION::EffectDescriptor;
-using ::android::hardware::audio::effect::CPP_VERSION::IEffectsFactory;
 using ::android::hardware::hidl_vec;
+using ::android::CPP_VERSION::ConversionHelperHidl;
+using namespace ::android::hardware::audio::effect::CPP_VERSION;
 
 class EffectsFactoryHalHidl : public EffectsFactoryHalInterface, public ConversionHelperHidl
 {
@@ -72,6 +71,7 @@ sp<EffectsFactoryHalInterface> createEffectsFactoryHal() {
 }
 
 } // namespace CPP_VERSION
+} // namespace effect
 } // namespace android
 
 #endif // ANDROID_HARDWARE_EFFECTS_FACTORY_HAL_HIDL_H

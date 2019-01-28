@@ -48,7 +48,8 @@ const MediaProfiles::NameToTagMap MediaProfiles::sAudioEncoderNameMap[] = {
     {"amrwb",  AUDIO_ENCODER_AMR_WB},
     {"aac",    AUDIO_ENCODER_AAC},
     {"heaac",  AUDIO_ENCODER_HE_AAC},
-    {"aaceld", AUDIO_ENCODER_AAC_ELD},
+    {"aaceld", AUDIO_ENCODER_AAC_ELD}, 
+    {"opus",   AUDIO_ENCODER_OPUS},
     {"lpcm",  AUDIO_ENCODER_LPCM},
 };
 
@@ -633,6 +634,15 @@ MediaProfiles::getInstance()
                         if (property_get("vendor.media.msm8953.version", value, "0") &&
                             (atoi(value) == 1)){
                             strlcpy(value, "/vendor/etc/media_profiles_8953_v1.xml",
+                                    PROPERTY_VALUE_MAX);
+                        } else {
+                            strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",
+                                    PROPERTY_VALUE_MAX);
+                        }
+                    } else if (!strcmp(platform, "sdm660")) {
+                        property_get("vendor.media.sdm660.version", value, "0");
+                        if (atoi(value) == 1) {
+                            strlcpy(value, "/vendor/etc/media_profiles_sdm660_v1.xml",
                                     PROPERTY_VALUE_MAX);
                         } else {
                             strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",

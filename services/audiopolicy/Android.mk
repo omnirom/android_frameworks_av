@@ -25,7 +25,11 @@ LOCAL_SHARED_LIBRARIES := \
     libmedia_helper \
     libmediametrics \
     libmediautils \
-    libeffectsconfig
+    libeffectsconfig \
+    libsensorprivacy
+
+LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := \
+    libsensorprivacy
 
 LOCAL_STATIC_LIBRARIES := \
     libaudiopolicycomponents
@@ -47,6 +51,7 @@ LOCAL_SHARED_LIBRARIES := \
     libcutils \
     libutils \
     liblog \
+    libaudioclient \
     libsoundtrigger
 
 ifeq ($(USE_CONFIGURABLE_AUDIO_POLICY), 1)
@@ -81,9 +86,9 @@ LOCAL_STATIC_LIBRARIES := \
 LOCAL_SHARED_LIBRARIES += libmedia_helper
 LOCAL_SHARED_LIBRARIES += libmediametrics
 
-ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
 LOCAL_SHARED_LIBRARIES += libhidlbase libicuuc libxml2
 
+ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
 LOCAL_CFLAGS += -DUSE_XML_AUDIO_POLICY_CONF
 endif #ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
 

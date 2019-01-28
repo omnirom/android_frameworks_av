@@ -67,7 +67,7 @@ enum output_format {
     OUTPUT_FORMAT_AAC_ADTS = 6,
 
     OUTPUT_FORMAT_AUDIO_ONLY_END = 7, // Used in validating the output format.  Should be the
-                                      //  at the end of the audio only output formats.
+                                      // at the end of the audio only output formats.
 
     /* Stream over a socket, limited to a single stream */
     OUTPUT_FORMAT_RTP_AVP = 7,
@@ -80,6 +80,9 @@ enum output_format {
 
     /* HEIC data in a HEIF container */
     OUTPUT_FORMAT_HEIF = 10,
+
+    /* Opus data in a OGG container */
+    OUTPUT_FORMAT_OGG = 11,
 
     OUTPUT_FORMAT_QCP = 20,
     OUTPUT_FORMAT_WAVE = 21,
@@ -95,10 +98,10 @@ enum audio_encoder {
     AUDIO_ENCODER_HE_AAC = 4,
     AUDIO_ENCODER_AAC_ELD = 5,
     AUDIO_ENCODER_VORBIS = 6,
+    AUDIO_ENCODER_OPUS = 7,
     AUDIO_ENCODER_EVRC = 10,
     AUDIO_ENCODER_QCELP = 11,
     AUDIO_ENCODER_LPCM = 12,
-
     AUDIO_ENCODER_LIST_END // must be the last - used to validate the audio encoder type
 };
 
@@ -117,9 +120,6 @@ enum video_encoder {
  * The state machine of the media_recorder.
  */
 enum media_recorder_states {
-    // Error state.
-    MEDIA_RECORDER_ERROR                 =      0,
-
     // Recorder was just created.
     MEDIA_RECORDER_IDLE                  = 1 << 0,
 
@@ -134,6 +134,9 @@ enum media_recorder_states {
 
     // Recording is in progress.
     MEDIA_RECORDER_RECORDING             = 1 << 4,
+
+    // Error state.
+    MEDIA_RECORDER_ERROR                 = 1 << 5,
 };
 
 // The "msg" code passed to the listener in notify.
@@ -266,6 +269,7 @@ public:
     status_t    getRoutedDeviceId(audio_port_handle_t *deviceId);
     status_t    enableAudioDeviceCallback(bool enabled);
     status_t    getActiveMicrophones(std::vector<media::MicrophoneInfo>* activeMicrophones);
+    status_t    getPortId(audio_port_handle_t *portId) const;
 
 private:
     void                    doCleanUp();

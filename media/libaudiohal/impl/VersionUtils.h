@@ -17,8 +17,7 @@
 #ifndef ANDROID_HARDWARE_VERSION_UTILS_H
 #define ANDROID_HARDWARE_VERSION_UTILS_H
 
-#include <android/hardware/audio/2.0/types.h>
-#include <android/hardware/audio/4.0/types.h>
+#include PATH(android/hardware/audio/FILE_VERSION/types.h)
 #include <hidl/HidlSupport.h>
 
 using ::android::hardware::audio::CPP_VERSION::ParameterValue;
@@ -43,7 +42,7 @@ Return<Result> setParameters(T& object, hidl_vec<ParameterValue> /*context*/,
                              hidl_vec<ParameterValue> keys) {
     return object->setParameters(keys);
 }
-#elif MAJOR_VERSION == 4
+#elif MAJOR_VERSION >= 4
 template <class T, class Callback>
 Return<void> getParameters(T& object, hidl_vec<ParameterValue> context,
                            hidl_vec<hidl_string> keys, Callback callback) {

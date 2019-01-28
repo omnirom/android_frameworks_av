@@ -20,8 +20,7 @@
 #define LOG_TAG "DevicesFactoryHalHidl"
 //#define LOG_NDEBUG 0
 
-#include <android/hardware/audio/2.0/IDevice.h>
-#include <android/hardware/audio/4.0/IDevice.h>
+#include PATH(android/hardware/audio/FILE_VERSION/IDevice.h)
 #include <media/audiohal/hidl/HalDeathHandler.h>
 #include <utils/Log.h>
 
@@ -76,7 +75,7 @@ static IDevicesFactory::Device idFromHal(const char *name, status_t* status) {
     *status = BAD_VALUE;
     return {};
 }
-#elif MAJOR_VERSION == 4
+#elif MAJOR_VERSION >= 4
 static const char* idFromHal(const char *name, status_t* status) {
     *status = OK;
     return name;

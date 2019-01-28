@@ -111,6 +111,7 @@ protected:
     uint32_t mInterleaveDurationUs;
     int32_t mTimeScale;
     int64_t mStartTimestampUs;
+    int32_t mStartTimeOffsetBFramesUs; // Start time offset when B Frames are present
     int mLatitudex10000;
     int mLongitudex10000;
     bool mAreGeoTagsAvailable;
@@ -128,8 +129,10 @@ protected:
 
     sp<AMessage> mMetaKeys;
 
-    void setStartTimestampUs(int64_t timeUs);
+    void setStartTimestampUs(int64_t timeUs, int64_t *trackStartTime);
     int64_t getStartTimestampUs();  // Not const
+    int32_t getStartTimeOffsetBFramesUs();
+    int64_t getStartTimeOffsetTimeUs(int64_t startTime);
     status_t startTracks(MetaData *params);
     size_t numTracks();
     int64_t estimateMoovBoxSize(int32_t bitRate);
@@ -306,10 +309,6 @@ protected:
     static uint32_t getMpeg4Time();
 
     void onMessageReceived(const sp<AMessage> &msg);
-
-    int64_t mLastAudioTimeStampUs;
-    void setLastAudioTimeStamp(int64_t ts) {mLastAudioTimeStampUs = ts;}
-    int64_t getLastAudioTimeStamp() {return mLastAudioTimeStampUs;}
 
     MPEG4Writer(const MPEG4Writer &);
     MPEG4Writer &operator=(const MPEG4Writer &);

@@ -17,8 +17,7 @@
 #ifndef ANDROID_HARDWARE_CONVERSION_HELPER_HIDL_H
 #define ANDROID_HARDWARE_CONVERSION_HELPER_HIDL_H
 
-#include <android/hardware/audio/2.0/types.h>
-#include <android/hardware/audio/4.0/types.h>
+#include PATH(android/hardware/audio/FILE_VERSION/types.h)
 #include <hidl/HidlSupport.h>
 #include <system/audio.h>
 #include <utils/String8.h>
@@ -83,7 +82,7 @@ class ConversionHelperHidl {
     void emitError(const char* funcName, const char* description);
 };
 
-#if MAJOR_VERSION == 4
+#if MAJOR_VERSION >= 4
 using ::android::hardware::audio::CPP_VERSION::MicrophoneInfo;
 void microphoneInfoToHal(const MicrophoneInfo& src,
                          audio_microphone_characteristic_t *pDst);

@@ -50,6 +50,7 @@ ACameraMetadata::isNdkSupportedCapability(int32_t capability) {
         case ANDROID_REQUEST_AVAILABLE_CAPABILITIES_READ_SENSOR_SETTINGS:
         case ANDROID_REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE:
         case ANDROID_REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT:
+        case ANDROID_REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA:
             return true;
         case ANDROID_REQUEST_AVAILABLE_CAPABILITIES_YUV_REPROCESSING:
         case ANDROID_REQUEST_AVAILABLE_CAPABILITIES_PRIVATE_REPROCESSING:
@@ -79,11 +80,41 @@ ACameraMetadata::filterUnsupportedFeatures() {
         uint8_t capability = entry.data.u8[i];
         if (isNdkSupportedCapability(capability)) {
             capabilities.push(capability);
+
+            if (capability == ANDROID_REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) {
+                derivePhysicalCameraIds();
+            }
         }
     }
     mData.update(ANDROID_REQUEST_AVAILABLE_CAPABILITIES, capabilities);
 }
 
+void
+ACameraMetadata::derivePhysicalCameraIds() {
+    ACameraMetadata_const_entry entry;
+    auto ret = getConstEntry(ACAMERA_LOGICAL_MULTI_CAMERA_PHYSICAL_IDS, &entry);
+    if (ret != ACAMERA_OK) {
+        ALOGE("%s: Get ACAMERA_LOGICAL_MULTI_CAMERA_PHYSICAL_IDS key failed. ret %d",
+                __FUNCTION__, ret);
+        return;
+    }
+
+    const uint8_t* ids = entry.data.u8;
+    size_t start = 0;
+    for (size_t i = 0; i < entry.count; ++i) {
+        if (ids[i] == '\0') {
+            if (start != i) {
+                mStaticPhysicalCameraIds.push_back((const char*)ids+start);
+            }
+            start = i+1;
+        }
+    }
+
+    if (mStaticPhysicalCameraIds.size() < 2) {
+        ALOGW("%s: Logical multi-camera device only has %zu physical cameras",
+                __FUNCTION__, mStaticPhysicalCameraIds.size());
+    }
+}
 
 void
 ACameraMetadata::filterDurations(uint32_t tag) {
@@ -159,9 +190,13 @@ ACameraMetadata::filterStreamConfigurations() {
     const int STREAM_HEIGHT_OFFSET = 2;
     const int STREAM_IS_INPUT_OFFSET = 3;
     camera_metadata_entry entry = mData.find(ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS);
-    if (entry.count == 0 || entry.count % 4 || entry.type != TYPE_INT32) {
-        ALOGE("%s: malformed available stream configuration key! count %zu, type %d",
-                __FUNCTION__, entry.count, entry.type);
+    camera_metadata_entry depthEntry = mData.find(ANDROID_DEPTH_AVAILABLE_DEPTH_STREAM_CONFIGURATIONS);
+
+    if ((entry.count == 0 && depthEntry.count == 0) ||
+        (entry.count != 0 && (entry.count % 4 || entry.type != TYPE_INT32)) ||
+        (depthEntry.count != 0 && (depthEntry.count % 4 || depthEntry.type != TYPE_INT32))) {
+        ALOGE("%s: malformed available stream configuration key! scaler count %zu, type %d depth count %zu, type %d",
+                __FUNCTION__, entry.count, entry.type, depthEntry.count, depthEntry.type);
         return;
     }
 
@@ -189,15 +224,14 @@ ACameraMetadata::filterStreamConfigurations() {
 
     mData.update(ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, filteredStreamConfigs);
 
-    entry = mData.find(ANDROID_DEPTH_AVAILABLE_DEPTH_STREAM_CONFIGURATIONS);
     Vector<int32_t> filteredDepthStreamConfigs;
-    filteredDepthStreamConfigs.setCapacity(entry.count);
+    filteredDepthStreamConfigs.setCapacity(depthEntry.count);
 
-    for (size_t i=0; i < entry.count; i += STREAM_CONFIGURATION_SIZE) {
-        int32_t format = entry.data.i32[i + STREAM_FORMAT_OFFSET];
-        int32_t width = entry.data.i32[i + STREAM_WIDTH_OFFSET];
-        int32_t height = entry.data.i32[i + STREAM_HEIGHT_OFFSET];
-        int32_t isInput = entry.data.i32[i + STREAM_IS_INPUT_OFFSET];
+    for (size_t i=0; i < depthEntry.count; i += STREAM_CONFIGURATION_SIZE) {
+        int32_t format = depthEntry.data.i32[i + STREAM_FORMAT_OFFSET];
+        int32_t width = depthEntry.data.i32[i + STREAM_WIDTH_OFFSET];
+        int32_t height = depthEntry.data.i32[i + STREAM_HEIGHT_OFFSET];
+        int32_t isInput = depthEntry.data.i32[i + STREAM_IS_INPUT_OFFSET];
         if (isInput == ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_INPUT) {
             // Hide input streams
             continue;
@@ -207,6 +241,8 @@ ACameraMetadata::filterStreamConfigurations() {
             format = AIMAGE_FORMAT_DEPTH_POINT_CLOUD;
         } else if (format == HAL_PIXEL_FORMAT_Y16) {
             format = AIMAGE_FORMAT_DEPTH16;
+        } else if (format == HAL_PIXEL_FORMAT_RAW16) {
+            format = AIMAGE_FORMAT_RAW_DEPTH;
         }
 
         filteredDepthStreamConfigs.push_back(format);
@@ -307,6 +343,27 @@ ACameraMetadata::getTags(/*out*/int32_t* numTags,
 const CameraMetadata&
 ACameraMetadata::getInternalData() const {
     return mData;
+}
+
+bool
+ACameraMetadata::isLogicalMultiCamera(size_t* count, const char*const** physicalCameraIds) const {
+    if (mType != ACM_CHARACTERISTICS) {
+        ALOGE("%s must be called for a static metadata!", __FUNCTION__);
+        return false;
+    }
+    if (count == nullptr || physicalCameraIds == nullptr) {
+        ALOGE("%s: Invalid input count: %p, physicalCameraIds: %p", __FUNCTION__,
+                count, physicalCameraIds);
+        return false;
+    }
+
+    if (mStaticPhysicalCameraIds.size() >= 2) {
+        *count = mStaticPhysicalCameraIds.size();
+        *physicalCameraIds = mStaticPhysicalCameraIds.data();
+        return true;
+    }
+
+    return false;
 }
 
 // TODO: some of key below should be hidden from user

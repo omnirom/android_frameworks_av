@@ -679,19 +679,30 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
 
         case kWhatGetSelectedTrack:
         {
+            int32_t type32;
+            CHECK(msg->findInt32("type", (int32_t*)&type32));
+            media_track_type type = (media_track_type)type32;
+
+            size_t inbandTracks = 0;
             status_t err = INVALID_OPERATION;
+            ssize_t selectedTrack = -1;
             if (mSource != NULL) {
                 err = OK;
-
-                int32_t type32;
-                CHECK(msg->findInt32("type", (int32_t*)&type32));
-                media_track_type type = (media_track_type)type32;
-                ssize_t selectedTrack = mSource->getSelectedTrack(type);
-
-                Parcel* reply;
-                CHECK(msg->findPointer("reply", (void**)&reply));
-                reply->writeInt32(selectedTrack);
+                inbandTracks = mSource->getTrackCount();
+                selectedTrack = mSource->getSelectedTrack(type);
             }
+
+            if (selectedTrack == -1 && mCCDecoder != NULL) {
+                err = OK;
+                selectedTrack = mCCDecoder->getSelectedTrack(type);
+                if (selectedTrack != -1) {
+                    selectedTrack += inbandTracks;
+                }
+            }
+
+            Parcel* reply;
+            CHECK(msg->findPointer("reply", (void**)&reply));
+            reply->writeInt32(selectedTrack);
 
             sp<AMessage> response = new AMessage;
             response->setInt32("err", err);
@@ -770,7 +781,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 }
             }
 
-            msg->post(1000000ll);  // poll again in a second.
+            msg->post(1000000LL);  // poll again in a second.
             break;
         }
 
@@ -1059,7 +1070,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             if (rescan) {
-                msg->post(100000ll);
+                msg->post(100000LL);
                 mScanSourcesPending = true;
             }
             break;
@@ -2726,7 +2737,7 @@ void NuPlayer::onSourceNotify(const sp<AMessage> &msg) {
             int posMs;
             int64_t timeUs, posUs;
             driver->getCurrentPosition(&posMs);
-            posUs = (int64_t) posMs * 1000ll;
+            posUs = (int64_t) posMs * 1000LL;
             CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
 
             if (posUs < timeUs) {

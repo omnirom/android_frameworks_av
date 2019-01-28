@@ -30,9 +30,11 @@
 #include <utils/Log.h>
 #include <private/media/AudioTrackShared.h>
 #include <media/IAudioFlinger.h>
+#include <media/IAudioPolicyService.h>
 #include <media/AudioParameter.h>
 #include <media/AudioPolicyHelper.h>
 #include <media/AudioResamplerPublic.h>
+#include <media/AudioSystem.h>
 #include <media/MediaAnalyticsItem.h>
 #include <media/TypeConverter.h>
 #include <binder/MemoryDealer.h>
@@ -67,7 +69,7 @@ static inline nsecs_t framesToNanoseconds(ssize_t frames, uint32_t sampleRate, f
 
 static int64_t convertTimespecToUs(const struct timespec &tv)
 {
-    return tv.tv_sec * 1000000ll + tv.tv_nsec / 1000;
+    return tv.tv_sec * 1000000LL + tv.tv_nsec / 1000;
 }
 
 // TODO move to audio_utils.
@@ -158,6 +160,15 @@ status_t AudioTrack::getMinFrameCount(
     ALOGV("%s(): getMinFrameCount=%zu: afFrameCount=%zu, afSampleRate=%u, afLatency=%u",
             __func__, *frameCount, afFrameCount, afSampleRate, afLatency);
     return NO_ERROR;
+}
+
+// static
+bool AudioTrack::isDirectOutputSupported(const audio_config_base_t& config,
+                                         const audio_attributes_t& attributes) {
+    ALOGV("%s()", __FUNCTION__);
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return false;
+    return aps->isDirectOutputSupported(config, attributes);
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +371,7 @@ AudioTrack::~AudioTrack()
         mSharedBuffer.clear();
         IPCThreadState::self()->flushCommands();
         ALOGV("%s(%d), releasing session id %d from %d on behalf of %d",
-                __func__, mId,
+                __func__, mPortId,
                 mSessionId, IPCThreadState::self()->getCallingPid(), mClientPid);
         AudioSystem::releaseAudioSessionId(mSessionId, mClientPid);
     }
@@ -433,7 +444,7 @@ status_t AudioTrack::set(
     pid_t callingPid;
     pid_t myPid;
 
-    // Note mId is not valid until the track is created, so omit mId in ALOG for set.
+    // Note mPortId is not valid until the track is created, so omit mPortId in ALOG for set.
     ALOGV("%s(): streamType %d, sampleRate %u, format %#x, channelMask %#x, frameCount %zu, "
           "flags #%x, notificationFrames %d, sessionId %d, transferType %d, uid %d, pid %d",
           __func__,
@@ -512,7 +523,10 @@ status_t AudioTrack::set(
             goto exit;
         }
         mStreamType = streamType;
-
+        mAttributes.content_type = AUDIO_CONTENT_TYPE_UNKNOWN;
+        mAttributes.usage = AUDIO_USAGE_UNKNOWN;
+        mAttributes.flags = 0x0;
+        strcpy(mAttributes.tags, "");
     } else {
         // stream type shouldn't be looked at, this track has audio attributes
         memcpy(&mAttributes, pAttributes, sizeof(audio_attributes_t));
@@ -521,16 +535,7 @@ status_t AudioTrack::set(
                 __func__,
                  mAttributes.usage, mAttributes.content_type, mAttributes.flags, mAttributes.tags);
         mStreamType = AUDIO_STREAM_DEFAULT;
-        if ((mAttributes.flags & AUDIO_FLAG_HW_AV_SYNC) != 0) {
-            flags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_HW_AV_SYNC);
-        }
-        if ((mAttributes.flags & AUDIO_FLAG_LOW_LATENCY) != 0) {
-            flags = (audio_output_flags_t) (flags | AUDIO_OUTPUT_FLAG_FAST);
-        }
-        // check deep buffer after flags have been modified above
-        if (flags == AUDIO_OUTPUT_FLAG_NONE && (mAttributes.flags & AUDIO_FLAG_DEEP_BUFFER) != 0) {
-            flags = AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
-        }
+        audio_attributes_flags_to_audio_output_flags(mAttributes.flags, flags);
     }
 
     // these below should probably come from the audioFlinger too...
@@ -714,7 +719,7 @@ exit:
 status_t AudioTrack::start()
 {
     AutoMutex lock(mLock);
-    ALOGV("%s(%d): prior state:%s", __func__, mId, stateToString(mState));
+    ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
     if (mState == STATE_ACTIVE) {
         return INVALID_OPERATION;
@@ -756,7 +761,7 @@ status_t AudioTrack::start()
             // It is possible since flush and stop are asynchronous that the server
             // is still active at this point.
             ALOGV("%s(%d): server read:%lld  cumulative flushed:%lld  client written:%lld",
-                    __func__, mId,
+                    __func__, mPortId,
                     (long long)(mFramesWrittenServerOffset
                             + mStartEts.mPosition[ExtendedTimestamp::LOCATION_SERVER]),
                     (long long)mStartEts.mFlushed,
@@ -817,7 +822,7 @@ status_t AudioTrack::start()
         // Start our local VolumeHandler for restoration purposes.
         mVolumeHandler->setStarted();
     } else {
-        ALOGE("%s(%d): status %d", __func__, mId, status);
+        ALOGE("%s(%d): status %d", __func__, mPortId, status);
         mState = previousState;
         if (t != 0) {
             if (previousState != STATE_STOPPING) {
@@ -835,7 +840,7 @@ status_t AudioTrack::start()
 void AudioTrack::stop()
 {
     AutoMutex lock(mLock);
-    ALOGV("%s(%d): prior state:%s", __func__, mId, stateToString(mState));
+    ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
     if (mState != STATE_ACTIVE && mState != STATE_PAUSED) {
         return;
@@ -846,7 +851,7 @@ void AudioTrack::stop()
     } else {
         mState = STATE_STOPPED;
         ALOGD_IF(mSharedBuffer == nullptr,
-                "%s(%d): called with %u frames delivered", __func__, mId, mReleased.value());
+                "%s(%d): called with %u frames delivered", __func__, mPortId, mReleased.value());
         mReleased = 0;
     }
 
@@ -868,12 +873,9 @@ void AudioTrack::stop()
         if (!isOffloaded_l()) {
             t->pause();
         } else if (mTransfer == TRANSFER_SYNC_NOTIF_CALLBACK) {
-            const sp<AudioTrackThread> t = mAudioTrackThread;
-            if (t != 0) {
-                // causes wake up of the playback thread, that will callback the client for
-                // EVENT_STREAM_END in processAudioBuffer()
-                t->wake();
-            }
+            // causes wake up of the playback thread, that will callback the client for
+            // EVENT_STREAM_END in processAudioBuffer()
+            t->wake();
         }
     } else {
         setpriority(PRIO_PROCESS, 0, mPreviousPriority);
@@ -890,7 +892,7 @@ bool AudioTrack::stopped() const
 void AudioTrack::flush()
 {
     AutoMutex lock(mLock);
-    ALOGV("%s(%d): prior state:%s", __func__, mId, stateToString(mState));
+    ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
     if (mSharedBuffer != 0) {
         return;
@@ -923,7 +925,7 @@ void AudioTrack::flush_l()
 void AudioTrack::pause()
 {
     AutoMutex lock(mLock);
-    ALOGV("%s(%d): prior state:%s", __func__, mId, stateToString(mState));
+    ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
     if (mState == STATE_ACTIVE) {
         mState = STATE_PAUSED;
@@ -952,7 +954,7 @@ void AudioTrack::pause()
             uint32_t halFrames;
             AudioSystem::getRenderPosition(mOutput, &halFrames, &mPausedPosition);
             ALOGV("%s(%d): for offload, cache current position %u",
-                    __func__, mId, mPausedPosition);
+                    __func__, mPortId, mPausedPosition);
         }
     }
 }
@@ -1006,12 +1008,13 @@ void AudioTrack::getAuxEffectSendLevel(float* level) const
 status_t AudioTrack::setSampleRate(uint32_t rate)
 {
     AutoMutex lock(mLock);
-    ALOGV("%s(%d): prior state:%s rate:%u", __func__, mId, stateToString(mState), rate);
+    ALOGV("%s(%d): prior state:%s rate:%u", __func__, mPortId, stateToString(mState), rate);
 
     if (rate == mSampleRate) {
         return NO_ERROR;
     }
-    if (isOffloadedOrDirect_l() || (mFlags & AUDIO_OUTPUT_FLAG_FAST)) {
+    if (isOffloadedOrDirect_l() || (mFlags & AUDIO_OUTPUT_FLAG_FAST)
+            || (mChannelMask & AUDIO_CHANNEL_HAPTIC_ALL)) {
         return INVALID_OPERATION;
     }
     if (mOutput == AUDIO_IO_HANDLE_NONE) {
@@ -1074,7 +1077,7 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
     }
 
     ALOGV("%s(%d): mSampleRate:%u  mSpeed:%f  mPitch:%f",
-            __func__, mId, mSampleRate, playbackRate.mSpeed, playbackRate.mPitch);
+            __func__, mPortId, mSampleRate, playbackRate.mSpeed, playbackRate.mPitch);
     // pitch is emulated by adjusting speed and sampleRate
     const uint32_t effectiveRate = adjustSampleRate(mSampleRate, playbackRate.mPitch);
     const float effectiveSpeed = adjustSpeed(playbackRate.mSpeed, playbackRate.mPitch);
@@ -1084,17 +1087,17 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
     playbackRateTemp.mPitch = effectivePitch;
 
     ALOGV("%s(%d) (effective) mSampleRate:%u  mSpeed:%f  mPitch:%f",
-            __func__, mId, effectiveRate, effectiveSpeed, effectivePitch);
+            __func__, mPortId, effectiveRate, effectiveSpeed, effectivePitch);
 
     if (!isAudioPlaybackRateValid(playbackRateTemp)) {
         ALOGW("%s(%d) (%f, %f) failed (effective rate out of bounds)",
-                __func__, mId, playbackRate.mSpeed, playbackRate.mPitch);
+                __func__, mPortId, playbackRate.mSpeed, playbackRate.mPitch);
         return BAD_VALUE;
     }
     // Check if the buffer size is compatible.
     if (!isSampleRateSpeedAllowed_l(effectiveRate, effectiveSpeed)) {
         ALOGW("%s(%d) (%f, %f) failed (buffer size)",
-                __func__, mId, playbackRate.mSpeed, playbackRate.mPitch);
+                __func__, mPortId, playbackRate.mSpeed, playbackRate.mPitch);
         return BAD_VALUE;
     }
 
@@ -1102,13 +1105,13 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
     if ((uint64_t)effectiveRate > (uint64_t)mSampleRate *
             (uint64_t)AUDIO_RESAMPLER_DOWN_RATIO_MAX) {
         ALOGW("%s(%d) (%f, %f) failed. Resample rate exceeds max accepted value",
-                __func__, mId, playbackRate.mSpeed, playbackRate.mPitch);
+                __func__, mPortId, playbackRate.mSpeed, playbackRate.mPitch);
         return BAD_VALUE;
     }
 
     if ((uint64_t)effectiveRate * (uint64_t)AUDIO_RESAMPLER_UP_RATIO_MAX < (uint64_t)mSampleRate) {
         ALOGW("%s(%d) (%f, %f) failed. Resample rate below min accepted value",
-                __func__, mId, playbackRate.mSpeed, playbackRate.mPitch);
+                __func__, mPortId, playbackRate.mSpeed, playbackRate.mPitch);
         return BAD_VALUE;
     }
     mPlaybackRate = playbackRate;
@@ -1317,7 +1320,7 @@ status_t AudioTrack::getPosition(uint32_t *position)
 
         if (isOffloaded_l() && ((mState == STATE_PAUSED) || (mState == STATE_PAUSED_STOPPING))) {
             ALOGV("%s(%d): called in paused state, return cached position %u",
-                __func__, mId, mPausedPosition);
+                __func__, mPortId, mPausedPosition);
             *position = mPausedPosition;
             return NO_ERROR;
         }
@@ -1466,7 +1469,7 @@ void AudioTrack::updateLatency_l()
 {
     status_t status = AudioSystem::getLatency(mOutput, &mAfLatency);
     if (status != NO_ERROR) {
-        ALOGW("%s(%d): getLatency(%d) failed status %d", __func__, mId, mOutput, status);
+        ALOGW("%s(%d): getLatency(%d) failed status %d", __func__, mPortId, mOutput, status);
     } else {
         // FIXME don't believe this lie
         mLatency = mAfLatency + (1000LL * mFrameCount) / mSampleRate;
@@ -1496,7 +1499,7 @@ status_t AudioTrack::createTrack_l()
     const sp<IAudioFlinger>& audioFlinger = AudioSystem::get_audio_flinger();
     if (audioFlinger == 0) {
         ALOGE("%s(%d): Could not get audioflinger",
-                __func__, mId);
+                __func__, mPortId);
         status = NO_INIT;
         goto exit;
     }
@@ -1522,7 +1525,7 @@ status_t AudioTrack::createTrack_l()
         if (!fastAllowed) {
             ALOGW("%s(%d): AUDIO_OUTPUT_FLAG_FAST denied by client,"
                   " not shared buffer and transfer = %s",
-                  __func__, mId,
+                  __func__, mPortId,
                   convertTransferToText(mTransfer));
             mFlags = (audio_output_flags_t) (mFlags & ~AUDIO_OUTPUT_FLAG_FAST);
         }
@@ -1578,7 +1581,7 @@ status_t AudioTrack::createTrack_l()
 
     if (status != NO_ERROR || output.outputId == AUDIO_IO_HANDLE_NONE) {
         ALOGE("%s(%d): AudioFlinger could not create track, status: %d output %d",
-                __func__, mId, status, output.outputId);
+                __func__, mPortId, status, output.outputId);
         if (status == NO_ERROR) {
             status = NO_INIT;
         }
@@ -1600,7 +1603,7 @@ status_t AudioTrack::createTrack_l()
     mAfFrameCount = output.afFrameCount;
     mAfSampleRate = output.afSampleRate;
     mAfLatency = output.afLatencyMs;
-    mId = output.trackId;
+    mPortId = output.portId;
 
     mLatency = mAfLatency + (1000LL * mFrameCount) / mSampleRate;
 
@@ -1610,13 +1613,13 @@ status_t AudioTrack::createTrack_l()
     // FIXME compare to AudioRecord
     sp<IMemory> iMem = track->getCblk();
     if (iMem == 0) {
-        ALOGE("%s(%d): Could not get control block", __func__, mId);
+        ALOGE("%s(%d): Could not get control block", __func__, mPortId);
         status = NO_INIT;
         goto exit;
     }
     void *iMemPointer = iMem->pointer();
     if (iMemPointer == NULL) {
-        ALOGE("%s(%d): Could not get control block pointer", __func__, mId);
+        ALOGE("%s(%d): Could not get control block pointer", __func__, mPortId);
         status = NO_INIT;
         goto exit;
     }
@@ -1636,13 +1639,13 @@ status_t AudioTrack::createTrack_l()
     if (mFlags & AUDIO_OUTPUT_FLAG_FAST) {
         if (output.flags & AUDIO_OUTPUT_FLAG_FAST) {
             ALOGI("%s(%d): AUDIO_OUTPUT_FLAG_FAST successful; frameCount %zu -> %zu",
-                  __func__, mId, mReqFrameCount, mFrameCount);
+                  __func__, mPortId, mReqFrameCount, mFrameCount);
             if (!mThreadCanCallJava) {
                 mAwaitBoost = true;
             }
         } else {
             ALOGW("%s(%d): AUDIO_OUTPUT_FLAG_FAST denied by server; frameCount %zu -> %zu",
-                  __func__, mId, mReqFrameCount, mFrameCount);
+                  __func__, mPortId, mReqFrameCount, mFrameCount);
         }
     }
     mFlags = output.flags;
@@ -1670,7 +1673,7 @@ status_t AudioTrack::createTrack_l()
     } else {
         buffers = mSharedBuffer->pointer();
         if (buffers == NULL) {
-            ALOGE("%s(%d): Could not get buffer pointer", __func__, mId);
+            ALOGE("%s(%d): Could not get buffer pointer", __func__, mPortId);
             status = NO_INIT;
             goto exit;
         }
@@ -1759,7 +1762,7 @@ status_t AudioTrack::obtainBuffer(Buffer* audioBuffer, int32_t waitCount, size_t
         timeout.tv_nsec = (long) (ms % 1000) * 1000000;
         requested = &timeout;
     } else {
-        ALOGE("%s(%d): invalid waitCount %d", __func__, mId, waitCount);
+        ALOGE("%s(%d): invalid waitCount %d", __func__, mPortId, waitCount);
         requested = NULL;
     }
     return obtainBuffer(audioBuffer, requested, NULL /*elapsed*/, nonContig);
@@ -1870,7 +1873,7 @@ void AudioTrack::restartIfDisabled()
     int32_t flags = android_atomic_and(~CBLK_DISABLED, &mCblk->mFlags);
     if ((mState == STATE_ACTIVE) && (flags & CBLK_DISABLED)) {
         ALOGW("%s(%d): releaseBuffer() track %p disabled due to previous underrun, restarting",
-                __func__, mId, this);
+                __func__, mPortId, this);
         // FIXME ignoring status
         mAudioTrack->start();
     }
@@ -1898,7 +1901,7 @@ ssize_t AudioTrack::write(const void* buffer, size_t userSize, bool blocking)
         // Sanity-check: user is most-likely passing an error code, and it would
         // make the return value ambiguous (actualSize vs error).
         ALOGE("%s(%d): AudioTrack::write(buffer=%p, size=%zu (%zd)",
-                __func__, mId, buffer, userSize, userSize);
+                __func__, mPortId, buffer, userSize, userSize);
         return BAD_VALUE;
     }
 
@@ -1971,7 +1974,7 @@ nsecs_t AudioTrack::processAudioBuffer()
         } while (tryCounter-- > 0);
         if (tryCounter < 0) {
             ALOGE("%s(%d): did not receive expected priority boost on time",
-                    __func__, mId);
+                    __func__, mPortId);
         }
         // Run again immediately
         return 0;
@@ -2213,7 +2216,7 @@ nsecs_t AudioTrack::processAudioBuffer()
         timeout.tv_sec = ns / 1000000000LL;
         timeout.tv_nsec = ns % 1000000000LL;
         ALOGV("%s(%d): timeout %ld.%03d",
-                __func__, mId, timeout.tv_sec, (int) timeout.tv_nsec / 1000000);
+                __func__, mPortId, timeout.tv_sec, (int) timeout.tv_nsec / 1000000);
         requested = &timeout;
     }
 
@@ -2226,11 +2229,11 @@ nsecs_t AudioTrack::processAudioBuffer()
         status_t err = obtainBuffer(&audioBuffer, requested, NULL, &nonContig);
         LOG_ALWAYS_FATAL_IF((err != NO_ERROR) != (audioBuffer.frameCount == 0),
                 "%s(%d): obtainBuffer() err=%d frameCount=%zu",
-                 __func__, mId, err, audioBuffer.frameCount);
+                 __func__, mPortId, err, audioBuffer.frameCount);
         requested = &ClientProxy::kNonBlocking;
         size_t avail = audioBuffer.frameCount + nonContig;
         ALOGV("%s(%d): obtainBuffer(%u) returned %zu = %zu + %zu err %d",
-                __func__, mId, mRemainingFrames, avail, audioBuffer.frameCount, nonContig, err);
+                __func__, mPortId, mRemainingFrames, avail, audioBuffer.frameCount, nonContig, err);
         if (err != NO_ERROR) {
             if (err == TIMED_OUT || err == WOULD_BLOCK || err == -EINTR ||
                     (isOffloaded() && (err == DEAD_OBJECT))) {
@@ -2238,7 +2241,7 @@ nsecs_t AudioTrack::processAudioBuffer()
                 return 1000000;
             }
             ALOGE("%s(%d): Error %d obtaining an audio buffer, giving up.",
-                    __func__, mId, err);
+                    __func__, mPortId, err);
             return NS_NEVER;
         }
 
@@ -2270,7 +2273,7 @@ nsecs_t AudioTrack::processAudioBuffer()
         // Sanity check on returned size
         if (ssize_t(writtenSize) < 0 || writtenSize > reqSize) {
             ALOGE("%s(%d): EVENT_MORE_DATA requested %zu bytes but callback returned %zd bytes",
-                    __func__, mId, reqSize, ssize_t(writtenSize));
+                    __func__, mPortId, reqSize, ssize_t(writtenSize));
             return NS_NEVER;
         }
 
@@ -2374,7 +2377,7 @@ nsecs_t AudioTrack::processAudioBuffer()
 status_t AudioTrack::restoreTrack_l(const char *from)
 {
     ALOGW("%s(%d): dead IAudioTrack, %s, creating a new one from %s()",
-            __func__, mId, isOffloadedOrDirect_l() ? "Offloaded or Direct" : "PCM", from);
+            __func__, mPortId, isOffloadedOrDirect_l() ? "Offloaded or Direct" : "PCM", from);
     ++mSequence;
 
     // refresh the audio configuration cache in this process to make sure we get new
@@ -2440,7 +2443,7 @@ retry:
             } else {
                 mStaticProxy->setBufferPosition(bufferPosition);
                 if (bufferPosition == mFrameCount) {
-                    ALOGD("%s(%d): restoring track at end of static buffer", __func__, mId);
+                    ALOGD("%s(%d): restoring track at end of static buffer", __func__, mPortId);
                 }
             }
         }
@@ -2470,7 +2473,7 @@ retry:
         mFramesWrittenAtRestore = mFramesWrittenServerOffset;
     }
     if (result != NO_ERROR) {
-        ALOGW("%s(%d): failed status %d, retries %d", __func__, mId, result, retries);
+        ALOGW("%s(%d): failed status %d, retries %d", __func__, mPortId, result, retries);
         if (--retries > 0) {
             // leave time for an eventual race condition to clear before retrying
             usleep(500000);
@@ -2500,7 +2503,7 @@ Modulo<uint32_t> AudioTrack::updateAndGetPosition_l()
     //      in which case the use of uint32_t for these counters has bigger issues.
     ALOGE_IF(delta < 0,
             "%s(%d): detected illegal retrograde motion by the server: mServer advanced by %d",
-            __func__, mId, delta);
+            __func__, mPortId, delta);
     mServer = newServer;
     if (delta > 0) { // avoid retrograde
         mPosition += delta;
@@ -2523,7 +2526,7 @@ bool AudioTrack::isSampleRateSpeedAllowed_l(uint32_t sampleRate, float speed)
             "%s(%d): denied "
             "mAfLatency:%u  mAfFrameCount:%zu  mAfSampleRate:%u  sampleRate:%u  speed:%f "
             "mFrameCount:%zu < minFrameCount:%zu",
-            __func__, mId,
+            __func__, mPortId,
             mAfLatency, mAfFrameCount, mAfSampleRate, sampleRate, speed,
             mFrameCount, minFrameCount);
     return allowed;
@@ -2542,7 +2545,7 @@ status_t AudioTrack::selectPresentation(int presentationId, int programId)
     param.addInt(String8(AudioParameter::keyPresentationId), presentationId);
     param.addInt(String8(AudioParameter::keyProgramId), programId);
     ALOGV("%s(%d): PresentationId/ProgramId[%s]",
-            __func__, mId, param.toString().string());
+            __func__, mPortId, param.toString().string());
 
     return mAudioTrack->setParameters(param.toString());
 }
@@ -2569,7 +2572,7 @@ VolumeShaper::Status AudioTrack::applyVolumeShaper(
     } else {
         // warn only if not an expected restore failure.
         ALOGW_IF(!((isOffloadedOrDirect_l() || mDoNotReconnect) && status == DEAD_OBJECT),
-                "%s(%d): applyVolumeShaper failed: %d", __func__, mId, status);
+                "%s(%d): applyVolumeShaper failed: %d", __func__, mPortId, status);
     }
     return status;
 }
@@ -2611,7 +2614,7 @@ status_t AudioTrack::getTimestamp_l(ExtendedTimestamp *timestamp)
     }
     status_t status = mProxy->getTimestamp(timestamp);
     LOG_ALWAYS_FATAL_IF(status != OK, "%s(%d): status %d not allowed from proxy getTimestamp",
-            __func__, mId, status);
+            __func__, mPortId, status);
     bool found = false;
     timestamp->mPosition[ExtendedTimestamp::LOCATION_CLIENT] = mFramesWritten;
     timestamp->mTimeNs[ExtendedTimestamp::LOCATION_CLIENT] = 0;
@@ -2655,7 +2658,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
         break; // offloaded tracks handled below
     default:
         LOG_ALWAYS_FATAL("%s(%d): Invalid mState in getTimestamp(): %d",
-               __func__, mId, mState);
+               __func__, mPortId, mState);
         break;
     }
 
@@ -2690,7 +2693,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                 if (location == ExtendedTimestamp::LOCATION_SERVER) {
                     ALOGW_IF(mPreviousLocation == ExtendedTimestamp::LOCATION_KERNEL,
                             "%s(%d): location moved from kernel to server",
-                            __func__, mId);
+                            __func__, mPortId);
                     // check that the last kernel OK time info exists and the positions
                     // are valid (if they predate the current track, the positions may
                     // be zero or negative).
@@ -2706,7 +2709,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                             (ets.mPosition[ExtendedTimestamp::LOCATION_SERVER_LASTKERNELOK]
                             - ets.mPosition[ExtendedTimestamp::LOCATION_KERNEL_LASTKERNELOK]);
                     ALOGV("%s(%d): frame adjustment:%lld  timestamp:%s",
-                            __func__, mId, (long long)frames, ets.toString().c_str());
+                            __func__, mPortId, (long long)frames, ets.toString().c_str());
                     if (frames >= ets.mPosition[location]) {
                         timestamp.mPosition = 0;
                     } else {
@@ -2715,7 +2718,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                 } else if (location == ExtendedTimestamp::LOCATION_KERNEL) {
                     ALOGV_IF(mPreviousLocation == ExtendedTimestamp::LOCATION_SERVER,
                             "%s(%d): location moved from server to kernel",
-                            __func__, mId);
+                            __func__, mPortId);
                 }
 
                 // We update the timestamp time even when paused.
@@ -2739,7 +2742,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                 mPreviousLocation = location;
             } else {
                 // right after AudioTrack is started, one may not find a timestamp
-                ALOGV("%s(%d): getBestTimestamp did not find timestamp", __func__, mId);
+                ALOGV("%s(%d): getBestTimestamp did not find timestamp", __func__, mPortId);
             }
         }
         if (status == INVALID_OPERATION) {
@@ -2750,7 +2753,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
             // "zero" for NuPlayer).  We don't convert for track restoration as position
             // does not reset.
             ALOGV("%s(%d): timestamp server offset:%lld restore frames:%lld",
-                    __func__, mId,
+                    __func__, mPortId,
                     (long long)mFramesWrittenServerOffset, (long long)mFramesWrittenAtRestore);
             if (mFramesWrittenServerOffset != mFramesWrittenAtRestore) {
                 status = WOULD_BLOCK;
@@ -2758,7 +2761,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
         }
     }
     if (status != NO_ERROR) {
-        ALOGV_IF(status != WOULD_BLOCK, "%s(%d): getTimestamp error:%#x", __func__, mId, status);
+        ALOGV_IF(status != WOULD_BLOCK, "%s(%d): getTimestamp error:%#x", __func__, mPortId, status);
         return status;
     }
     if (isOffloadedOrDirect_l()) {
@@ -2799,7 +2802,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                     ALOGW_IF(!mTimestampStartupGlitchReported,
                             "%s(%d): startup glitch detected"
                             " deltaTimeUs(%lld) deltaPositionUs(%lld) tsmPosition(%u)",
-                            __func__, mId,
+                            __func__, mPortId,
                             (long long)deltaTimeUs, (long long)deltaPositionByUs,
                             timestamp.mPosition);
                     mTimestampStartupGlitchReported = true;
@@ -2869,7 +2872,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
             if (currentTimeNanos < limitNs) {
                 ALOGD("%s(%d): correcting timestamp time for pause, "
                         "currentTimeNanos: %lld < limitNs: %lld < mStartNs: %lld",
-                        __func__, mId,
+                        __func__, mPortId,
                         (long long)currentTimeNanos, (long long)limitNs, (long long)mStartNs);
                 timestamp.mTime = convertNsToTimespec(limitNs);
                 currentTimeNanos = limitNs;
@@ -2878,7 +2881,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
             // retrograde check
             if (currentTimeNanos < previousTimeNanos) {
                 ALOGW("%s(%d): retrograde timestamp time corrected, %lld < %lld",
-                        __func__, mId,
+                        __func__, mPortId,
                         (long long)currentTimeNanos, (long long)previousTimeNanos);
                 timestamp.mTime = mPreviousTimestamp.mTime;
                 // currentTimeNanos not used below.
@@ -2892,7 +2895,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                 // Only report once per position instead of spamming the log.
                 if (!mRetrogradeMotionReported) {
                     ALOGW("%s(%d): retrograde timestamp position corrected, %d = %u - %u",
-                            __func__, mId,
+                            __func__, mPortId,
                             deltaPosition,
                             timestamp.mPosition,
                             mPreviousTimestamp.mPosition);
@@ -2913,7 +2916,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                 const int64_t computedSampleRate =
                         deltaPosition * (long long)NANOS_PER_SECOND / deltaTime;
                 ALOGD("%s(%d): computedSampleRate:%u  sampleRate:%u",
-                        __func__, mId,
+                        __func__, mPortId,
                         (unsigned)computedSampleRate, mSampleRate);
             }
 #endif
@@ -2960,7 +2963,7 @@ status_t AudioTrack::dump(int fd, const Vector<String16>& args __unused) const
 
     result.append(" AudioTrack::dump\n");
     result.appendFormat("  id(%d) status(%d), state(%d), session Id(%d), flags(%#x)\n",
-                        mId, mStatus, mState, mSessionId, mFlags);
+                        mPortId, mStatus, mState, mSessionId, mFlags);
     result.appendFormat("  stream type(%d), left - right volume(%f, %f)\n",
                         (mStreamType == AUDIO_STREAM_DEFAULT) ?
                                 audio_attributes_to_stream_type(&mAttributes) : mStreamType,
@@ -3002,18 +3005,18 @@ uint32_t AudioTrack::getUnderrunFrames() const
 status_t AudioTrack::addAudioDeviceCallback(const sp<AudioSystem::AudioDeviceCallback>& callback)
 {
     if (callback == 0) {
-        ALOGW("%s(%d): adding NULL callback!", __func__, mId);
+        ALOGW("%s(%d): adding NULL callback!", __func__, mPortId);
         return BAD_VALUE;
     }
     AutoMutex lock(mLock);
     if (mDeviceCallback.unsafe_get() == callback.get()) {
-        ALOGW("%s(%d): adding same callback!", __func__, mId);
+        ALOGW("%s(%d): adding same callback!", __func__, mPortId);
         return INVALID_OPERATION;
     }
     status_t status = NO_ERROR;
     if (mOutput != AUDIO_IO_HANDLE_NONE) {
         if (mDeviceCallback != 0) {
-            ALOGW("%s(%d): callback already present!", __func__, mId);
+            ALOGW("%s(%d): callback already present!", __func__, mPortId);
             AudioSystem::removeAudioDeviceCallback(this, mOutput);
         }
         status = AudioSystem::addAudioDeviceCallback(this, mOutput);
@@ -3026,12 +3029,12 @@ status_t AudioTrack::removeAudioDeviceCallback(
         const sp<AudioSystem::AudioDeviceCallback>& callback)
 {
     if (callback == 0) {
-        ALOGW("%s(%d): removing NULL callback!", __func__, mId);
+        ALOGW("%s(%d): removing NULL callback!", __func__, mPortId);
         return BAD_VALUE;
     }
     AutoMutex lock(mLock);
     if (mDeviceCallback.unsafe_get() != callback.get()) {
-        ALOGW("%s(%d): removing different callback!", __func__, mId);
+        ALOGW("%s(%d): removing different callback!", __func__, mPortId);
         return INVALID_OPERATION;
     }
     mDeviceCallback.clear();
@@ -3137,7 +3140,7 @@ bool AudioTrack::hasStarted()
     case STATE_FLUSHED:
         return false;  // we're not active
     default:
-        LOG_ALWAYS_FATAL("%s(%d): Invalid mState in hasStarted(): %d", __func__, mId, mState);
+        LOG_ALWAYS_FATAL("%s(%d): Invalid mState in hasStarted(): %d", __func__, mPortId, mState);
         break;
     }
 
@@ -3154,7 +3157,7 @@ bool AudioTrack::hasStarted()
             wait = (ts.mPosition == 0 || ts.mPosition == mStartTs.mPosition);
         }
         ALOGV("%s(%d): hasStarted wait:%d  ts:%u  start position:%lld",
-                __func__, mId,
+                __func__, mPortId,
                 (int)wait,
                 ts.mPosition,
                 (long long)mStartTs.mPosition);
@@ -3176,7 +3179,7 @@ bool AudioTrack::hasStarted()
             }
         }
         ALOGV("%s(%d): hasStarted wait:%d  ets:%lld  start position:%lld",
-                __func__, mId,
+                __func__, mPortId,
                 (int)wait,
                 (long long)ets.mPosition[location],
                 (long long)mStartEts.mPosition[location]);
@@ -3252,7 +3255,7 @@ bool AudioTrack::AudioTrackThread::threadLoop()
         FALLTHROUGH_INTENDED;
     default:
         LOG_ALWAYS_FATAL_IF(ns < 0, "%s(%d): processAudioBuffer() returned %lld",
-                __func__, mReceiver.mId, (long long)ns);
+                __func__, mReceiver.mPortId, (long long)ns);
         pauseInternal(ns);
         return true;
     }
