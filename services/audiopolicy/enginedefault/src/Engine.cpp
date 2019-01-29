@@ -329,7 +329,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
             // a primary device
             // FIXME: this is not the right way of solving this problem
             audio_devices_t availPrimaryOutputDevices =
-                (primaryOutput->supportedDevices() | AUDIO_DEVICE_OUT_HEARING_AID) &
+                (primaryOutput->supportedDevices().types() | AUDIO_DEVICE_OUT_HEARING_AID) &
                 availableOutputDevices.types();
 
             if (((availableInputDevices.types() &
@@ -495,7 +495,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
             // compressed format as they would likely not be mixed and dropped.
             for (size_t i = 0; i < outputs.size(); i++) {
                 sp<AudioOutputDescriptor> desc = outputs.valueAt(i);
-                audio_devices_t devices = desc->device() &
+                audio_devices_t devices = desc->devices().types() &
                     (AUDIO_DEVICE_OUT_HDMI | AUDIO_DEVICE_OUT_SPDIF | AUDIO_DEVICE_OUT_HDMI_ARC);
                 if (desc->isActive() && !audio_is_linear_pcm(desc->mFormat) &&
                         devices != AUDIO_DEVICE_NONE) {
@@ -533,7 +533,7 @@ audio_devices_t Engine::getDeviceForStrategyInt(routing_strategy strategy,
         if (strategy != STRATEGY_SONIFICATION) {
             // no sonification on remote submix (e.g. WFD)
             if (availableOutputDevices.getDevice(AUDIO_DEVICE_OUT_REMOTE_SUBMIX,
-                                                 String8("0")) != 0) {
+                                                 String8("0"), AUDIO_FORMAT_DEFAULT) != 0) {
                 device2 = availableOutputDevices.types() & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
             }
         }
@@ -664,6 +664,7 @@ audio_devices_t Engine::getDeviceForInputSource(audio_source_t inputSource) cons
         case AUDIO_SOURCE_UNPROCESSED:
         case AUDIO_SOURCE_HOTWORD:
         case AUDIO_SOURCE_CAMCORDER:
+        case AUDIO_SOURCE_VOICE_PERFORMANCE:
             inputSource = AUDIO_SOURCE_VOICE_COMMUNICATION;
             break;
         default:
@@ -778,14 +779,30 @@ audio_devices_t Engine::getDeviceForInputSource(audio_source_t inputSource) cons
             device = AUDIO_DEVICE_IN_VOICE_CALL;
         }
         break;
+    case AUDIO_SOURCE_VOICE_PERFORMANCE:
+        if (availableDeviceTypes & AUDIO_DEVICE_IN_WIRED_HEADSET) {
+            device = AUDIO_DEVICE_IN_WIRED_HEADSET;
+        } else if (availableDeviceTypes & AUDIO_DEVICE_IN_USB_HEADSET) {
+            device = AUDIO_DEVICE_IN_USB_HEADSET;
+        } else if (availableDeviceTypes & AUDIO_DEVICE_IN_USB_DEVICE) {
+            device = AUDIO_DEVICE_IN_USB_DEVICE;
+        } else if (availableDeviceTypes & AUDIO_DEVICE_IN_BUILTIN_MIC) {
+            device = AUDIO_DEVICE_IN_BUILTIN_MIC;
+        }
+        break;
     case AUDIO_SOURCE_REMOTE_SUBMIX:
         if (availableDeviceTypes & AUDIO_DEVICE_IN_REMOTE_SUBMIX) {
             device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
         }
         break;
-     case AUDIO_SOURCE_FM_TUNER:
+    case AUDIO_SOURCE_FM_TUNER:
         if (availableDeviceTypes & AUDIO_DEVICE_IN_FM_TUNER) {
             device = AUDIO_DEVICE_IN_FM_TUNER;
+        }
+        break;
+    case AUDIO_SOURCE_ECHO_REFERENCE:
+        if (availableDeviceTypes & AUDIO_DEVICE_IN_ECHO_REFERENCE) {
+            device = AUDIO_DEVICE_IN_ECHO_REFERENCE;
         }
         break;
     default:

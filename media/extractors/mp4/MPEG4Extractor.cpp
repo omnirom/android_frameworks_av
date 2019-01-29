@@ -985,6 +985,22 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             off64_t stop_offset = *offset + chunk_size;
             *offset = data_offset;
             while (*offset < stop_offset) {
+
+                // pass udata terminate
+                if (mIsQT && stop_offset - *offset == 4 && chunk_type == FOURCC("udta")) {
+                    // handle the case that udta terminates with terminate code x00000000
+                    // note that 0 terminator is optional and we just handle this case.
+                    uint32_t terminate_code = 1;
+                    mDataSource->readAt(*offset, &terminate_code, 4);
+                    if (0 == terminate_code) {
+                        *offset += 4;
+                        ALOGD("Terminal code for udta");
+                        continue;
+                    } else {
+                        ALOGW("invalid udta Terminal code");
+                    }
+                }
+
                 status_t err = parseChunk(offset, depth + 1);
                 if (err != OK) {
                     if (isTrack) {
@@ -5142,7 +5158,7 @@ status_t MPEG4Source::parseTrackFragmentRun(off64_t offset, off64_t size) {
         sampleCtsOffset = 0;
     }
 
-    if (size < (off64_t)(sampleCount * bytesPerSample)) {
+    if (size < (off64_t)sampleCount * bytesPerSample) {
         return -EINVAL;
     }
 
@@ -6183,6 +6199,19 @@ static CreatorFunc Sniff(
     return NULL;
 }
 
+static const char *extensions[] = {
+    "3g2",
+    "3gp",
+    "3gpp",
+    "3gpp2",
+    "m4a",
+    "m4r",
+    "m4v",
+    "mov",
+    "mp4",
+    NULL
+};
+
 extern "C" {
 // This is the only symbol that needs to be exported
 __attribute__ ((visibility ("default")))
@@ -6192,7 +6221,7 @@ ExtractorDef GETEXTRACTORDEF() {
         UUID("27575c67-4417-4c54-8d3d-8e626985a164"),
         2, // version
         "MP4 Extractor",
-        { .v2 = Sniff }
+        { .v3 = {Sniff, extensions} },
     };
 }
 

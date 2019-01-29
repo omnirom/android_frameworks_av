@@ -494,6 +494,8 @@ const char *sourceToString(audio_source_t source)
     case AUDIO_SOURCE_VOICE_COMMUNICATION:  return "voice communication";
     case AUDIO_SOURCE_REMOTE_SUBMIX:        return "remote submix";
     case AUDIO_SOURCE_UNPROCESSED:          return "unprocessed";
+    case AUDIO_SOURCE_VOICE_PERFORMANCE:    return "voice performance";
+    case AUDIO_SOURCE_ECHO_REFERENCE:       return "echo reference";
     case AUDIO_SOURCE_FM_TUNER:             return "FM tuner";
     case AUDIO_SOURCE_HOTWORD:              return "hotword";
     default:                                return "unknown";
@@ -3870,6 +3872,7 @@ status_t AudioFlinger::PlaybackThread::createAudioPatch_l(const struct audio_pat
         type |= patch->sinks[i].ext.device.type;
     }
 
+    audio_port_handle_t sinkPortId = patch->sinks[0].id;
 #ifdef ADD_BATTERY_DATA
     // when changing the audio output device, call addBatteryData to notify
     // the change
@@ -3899,7 +3902,7 @@ status_t AudioFlinger::PlaybackThread::createAudioPatch_l(const struct audio_pat
 
     // mPrevOutDevice is the latest device set by createAudioPatch_l(). It is not set when
     // the thread is created so that the first patch creation triggers an ioConfigChanged callback
-    bool configChanged = mPrevOutDevice != type;
+    bool configChanged = (mPrevOutDevice != type) || (mDeviceId != sinkPortId);
     mOutDevice = type;
     mPatch = *patch;
 
@@ -3928,6 +3931,7 @@ status_t AudioFlinger::PlaybackThread::createAudioPatch_l(const struct audio_pat
     }
     if (configChanged) {
         mPrevOutDevice = type;
+        mDeviceId = sinkPortId;
         sendIoConfigEvent_l(AUDIO_OUTPUT_CONFIG_CHANGED);
     }
     return status;
@@ -7649,6 +7653,20 @@ status_t AudioFlinger::RecordThread::getActiveMicrophones(
     return status;
 }
 
+status_t AudioFlinger::RecordThread::setMicrophoneDirection(audio_microphone_direction_t direction)
+{
+    ALOGV("RecordThread::setMicrophoneDirection");
+    AutoMutex _l(mLock);
+    return mInput->stream->setMicrophoneDirection(direction);
+}
+
+status_t AudioFlinger::RecordThread::setMicrophoneFieldDimension(float zoom)
+{
+    ALOGV("RecordThread::setMicrophoneFieldDimension");
+    AutoMutex _l(mLock);
+    return mInput->stream->setMicrophoneFieldDimension(zoom);
+}
+
 void AudioFlinger::RecordThread::updateMetadata_l()
 {
     if (mInput == nullptr || mInput->stream == nullptr ||
@@ -8216,6 +8234,7 @@ status_t AudioFlinger::RecordThread::createAudioPatch_l(const struct audio_patch
 
     // store new device and send to effects
     mInDevice = patch->sources[0].ext.device.type;
+    audio_port_handle_t deviceId = patch->sources[0].id;
     mPatch = *patch;
     for (size_t i = 0; i < mEffectChains.size(); i++) {
         mEffectChains[i]->setDevice_l(mInDevice);
@@ -8257,9 +8276,10 @@ status_t AudioFlinger::RecordThread::createAudioPatch_l(const struct audio_patch
         *handle = AUDIO_PATCH_HANDLE_NONE;
     }
 
-    if (mInDevice != mPrevInDevice) {
+    if ((mInDevice != mPrevInDevice) || (mDeviceId != deviceId)) {
         sendIoConfigEvent_l(AUDIO_INPUT_CONFIG_CHANGED);
         mPrevInDevice = mInDevice;
+        mDeviceId = deviceId;
     }
 
     return status;
@@ -8356,7 +8376,7 @@ AudioFlinger::MmapThread::MmapThread(
         audio_devices_t outDevice, audio_devices_t inDevice, bool systemReady)
     : ThreadBase(audioFlinger, id, outDevice, inDevice, MMAP, systemReady),
       mSessionId(AUDIO_SESSION_NONE),
-      mDeviceId(AUDIO_PORT_HANDLE_NONE), mPortId(AUDIO_PORT_HANDLE_NONE),
+      mPortId(AUDIO_PORT_HANDLE_NONE),
       mHalStream(stream), mHalDevice(hwDev->hwDevice()), mAudioHwDev(hwDev),
       mActiveTracks(&this->mLocalLog),
       mHalVolFloat(-1.0f), // Initialize to illegal value so it always gets set properly later.
@@ -8840,7 +8860,7 @@ status_t AudioFlinger::MmapThread::createAudioPatch_l(const struct audio_patch *
         *handle = AUDIO_PATCH_HANDLE_NONE;
     }
 
-    if (isOutput() && mPrevOutDevice != mOutDevice) {
+    if (isOutput() && (mPrevOutDevice != mOutDevice || mDeviceId != deviceId)) {
         mPrevOutDevice = type;
         sendIoConfigEvent_l(AUDIO_OUTPUT_CONFIG_CHANGED);
         sp<MmapStreamCallback> callback = mCallback.promote();
@@ -8851,7 +8871,7 @@ status_t AudioFlinger::MmapThread::createAudioPatch_l(const struct audio_patch *
         }
         mDeviceId = deviceId;
     }
-    if (!isOutput() && mPrevInDevice != mInDevice) {
+    if (!isOutput() && (mPrevInDevice != mInDevice || mDeviceId != deviceId)) {
         mPrevInDevice = type;
         sendIoConfigEvent_l(AUDIO_INPUT_CONFIG_CHANGED);
         sp<MmapStreamCallback> callback = mCallback.promote();

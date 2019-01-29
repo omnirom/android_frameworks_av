@@ -22,7 +22,6 @@
 #include <media/MediaRecorderBase.h>
 #include <camera/CameraParameters.h>
 #include <utils/String8.h>
-#include <include/media/MediaSource.h>
 #include <system/audio.h>
 
 #include <media/hardware/MetadataBufferType.h>

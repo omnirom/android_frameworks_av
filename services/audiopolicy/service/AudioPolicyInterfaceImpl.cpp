@@ -33,7 +33,8 @@ namespace android {
 status_t AudioPolicyService::setDeviceConnectionState(audio_devices_t device,
                                                   audio_policy_dev_state_t state,
                                                   const char *device_address,
-                                                  const char *device_name)
+                                                  const char *device_name,
+                                                  audio_format_t encodedFormat)
 {
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
@@ -50,7 +51,7 @@ status_t AudioPolicyService::setDeviceConnectionState(audio_devices_t device,
     Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
     return mAudioPolicyManager->setDeviceConnectionState(device, state,
-                                                         device_address, device_name);
+                                                         device_address, device_name, encodedFormat);
 }
 
 audio_policy_dev_state_t AudioPolicyService::getDeviceConnectionState(
@@ -67,7 +68,8 @@ audio_policy_dev_state_t AudioPolicyService::getDeviceConnectionState(
 
 status_t AudioPolicyService::handleDeviceConfigChange(audio_devices_t device,
                                                   const char *device_address,
-                                                  const char *device_name)
+                                                  const char *device_name,
+                                                  audio_format_t encodedFormat)
 {
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
@@ -80,7 +82,7 @@ status_t AudioPolicyService::handleDeviceConfigChange(audio_devices_t device,
     Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
     return mAudioPolicyManager->handleDeviceConfigChange(device, device_address,
-                                                         device_name);
+                                                         device_name, encodedFormat);
 }
 
 status_t AudioPolicyService::setPhoneState(audio_mode_t state)
@@ -346,8 +348,11 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
     }
 
     // already checked by client, but double-check in case the client wrapper is bypassed
-    if (attr->source < AUDIO_SOURCE_DEFAULT && attr->source >= AUDIO_SOURCE_CNT &&
-            attr->source != AUDIO_SOURCE_HOTWORD && attr->source != AUDIO_SOURCE_FM_TUNER) {
+    if ((attr->source < AUDIO_SOURCE_DEFAULT)
+            || (attr->source >= AUDIO_SOURCE_CNT
+                && attr->source != AUDIO_SOURCE_HOTWORD
+                && attr->source != AUDIO_SOURCE_FM_TUNER
+                && attr->source != AUDIO_SOURCE_ECHO_REFERENCE)) {
         return BAD_VALUE;
     }
 
@@ -377,7 +382,8 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
 
     if ((attr->source == AUDIO_SOURCE_VOICE_UPLINK ||
         attr->source == AUDIO_SOURCE_VOICE_DOWNLINK ||
-        attr->source == AUDIO_SOURCE_VOICE_CALL) &&
+        attr->source == AUDIO_SOURCE_VOICE_CALL ||
+        attr->source == AUDIO_SOURCE_ECHO_REFERENCE) &&
         !captureAudioOutputAllowed(pid, uid)) {
         return PERMISSION_DENIED;
     }
@@ -1150,6 +1156,17 @@ status_t AudioPolicyService::getSurroundFormats(unsigned int *numSurroundFormats
     AutoCallerClear acc;
     return mAudioPolicyManager->getSurroundFormats(numSurroundFormats, surroundFormats,
                                                    surroundFormatsEnabled, reported);
+}
+
+status_t AudioPolicyService::getHwOffloadEncodingFormatsSupportedForA2DP(
+                                        std::vector<audio_format_t> *formats)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    AutoCallerClear acc;
+    return mAudioPolicyManager->getHwOffloadEncodingFormatsSupportedForA2DP(formats);
 }
 
 status_t AudioPolicyService::setSurroundFormatEnabled(audio_format_t audioFormat, bool enabled)
