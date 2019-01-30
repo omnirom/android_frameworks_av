@@ -399,7 +399,7 @@ protected:
         // when a device is disconnected, checks if an output is not used any more and
         // returns its handle if any.
         // transfers the audio tracks and effects from one output thread to another accordingly.
-        virtual status_t checkOutputsForDevice(const sp<DeviceDescriptor>& device,
+        status_t checkOutputsForDevice(const sp<DeviceDescriptor>& device,
                                        audio_policy_dev_state_t state,
                                        SortedVector<audio_io_handle_t>& outputs);
 
@@ -703,7 +703,7 @@ protected:
                 audio_output_flags_t *flags,
                 audio_port_handle_t *selectedDeviceId);
         // internal method to return the output handle for the given device and format
-        virtual audio_io_handle_t getOutputForDevices(
+        audio_io_handle_t getOutputForDevices(
                 const DeviceVector &devices,
                 audio_session_t session,
                 audio_stream_type_t stream,
@@ -732,7 +732,7 @@ protected:
                                                           AudioMix **policyMix = NULL);
 
         // Called by setDeviceConnectionState().
-        virtual status_t setDeviceConnectionStateInt(audio_devices_t deviceType,
+        status_t setDeviceConnectionStateInt(audio_devices_t deviceType,
                                              audio_policy_dev_state_t state,
                                              const char *device_address,
                                              const char *device_name,
