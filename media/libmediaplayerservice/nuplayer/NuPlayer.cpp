@@ -62,6 +62,7 @@
 #include "ESDS.h"
 #include <media/stagefright/Utils.h>
 #include "mediaplayerservice/AVNuExtensions.h"
+#define MAX_OUTPUT_FRAME_RATE 60
 
 namespace android {
 
@@ -1649,6 +1650,7 @@ void NuPlayer::onStart(int64_t startPositionUs, MediaPlayerSeekMode mode) {
 
     float rate = getFrameRate();
     if (rate > 0) {
+        rate = (rate > 60) ? MAX_OUTPUT_FRAME_RATE : rate;
         mRenderer->setVideoFrameRate(rate);
     }
 
@@ -1990,6 +1992,8 @@ status_t NuPlayer::instantiateDecoder(
         if (rate > 0) {
             format->setFloat("operating-rate", rate * mPlaybackSettings.mSpeed);
         }
+        rate = (rate > 0 && rate <= 60) ? rate : MAX_OUTPUT_FRAME_RATE;
+        format->setInt32("output-frame-rate", rate);
     }
 
     Mutex::Autolock autoLock(mDecoderLock);
