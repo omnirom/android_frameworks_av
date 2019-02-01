@@ -718,10 +718,12 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
     }
 
     // further format checks are performed by createTrack_l() depending on the thread type
-    if (!audio_is_valid_format(input.config.format)) {
-        ALOGE("createTrack() invalid format %#x", input.config.format);
-        lStatus = BAD_VALUE;
-        goto Exit;
+    if ((!audio_is_valid_format(input.config.format)) &&
+         ((property_get_bool("audio.aptx.aac_latm.decoder.enabled", false)) &&
+         (!(input.config.format == AUDIO_FORMAT_AAC_LATM_LC || input.config.format == AUDIO_FORMAT_APTX)))) {
+            ALOGE("createTrack() invalid format %#x", input.config.format);
+            lStatus = BAD_VALUE;
+            goto Exit;
     }
 
     {

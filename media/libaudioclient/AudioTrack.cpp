@@ -534,12 +534,15 @@ status_t AudioTrack::set(
     }
 
     // validate parameters
-    if (!audio_is_valid_format(format)) {
-        ALOGE("Invalid format %#x", format);
-        status = BAD_VALUE;
-        goto exit;
+    if ((!audio_is_valid_format(format)) &&
+        ((property_get_bool("audio.aptx.aac_latm.decoder.enabled", false)) &&
+        (!(format == AUDIO_FORMAT_AAC_LATM_LC || format == AUDIO_FORMAT_APTX)))) {
+            ALOGE("Invalid format %#x", format);
+            status = BAD_VALUE;
+            goto exit;
     }
-    mFormat = format;
+
+     mFormat = format;
 
     if (!audio_is_output_channel(channelMask)) {
         ALOGE("Invalid channel mask %#x", channelMask);

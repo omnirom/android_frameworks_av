@@ -21,6 +21,7 @@
 #include "HwModule.h"
 #include "AudioGain.h"
 #include "TypeConverter.h"
+#include <cutils/properties.h>
 
 namespace android {
 
@@ -58,10 +59,13 @@ bool IOProfile::isCompatibleProfile(audio_devices_t device,
         }
     }
 
-    if (!audio_is_valid_format(format) ||
-            (isPlaybackThread && (samplingRate == 0 || !audio_is_output_channel(channelMask))) ||
-            (isRecordThread && (!audio_is_input_channel(channelMask)))) {
-         return false;
+    if ((!(audio_is_valid_format(format))||
+         (isPlaybackThread && (samplingRate == 0 || !audio_is_output_channel(channelMask))) ||
+         (isRecordThread && (!audio_is_input_channel(channelMask)))) &&
+         ((property_get_bool("audio.aptx.aac_latm.decoder.enabled", false)) &&
+         (!(format == AUDIO_FORMAT_AAC_LATM_LC || format == AUDIO_FORMAT_APTX)))) {
+             ALOGE("Invalid audio format");
+             return false;
     }
 
     audio_format_t myUpdatedFormat = format;
