@@ -6,6 +6,10 @@ cc_library_headers {
 
 cc_defaults {
     name: "libstagefright_foundation_defaults",
+    vendor_available: true,
+    vndk: {
+        enabled: true,
+    },
     double_loadable: true,
     include_dirs: [
         "frameworks/av/include",
@@ -21,6 +25,7 @@ cc_defaults {
     header_libs: [
         "libhardware_headers",
         "libstagefright_foundation_headers",
+        "media_ndk_headers",
         "media_plugin_headers",
     ],
     export_header_lib_headers: [
@@ -52,8 +57,13 @@ cc_defaults {
         "AudioPresentationInfo.cpp",
         "ByteUtils.cpp",
         "ColorUtils.cpp",
+        "MediaBuffer.cpp",
+        "MediaBufferBase.cpp",
+        "MediaBufferGroup.cpp",
         "MediaDefs.cpp",
         "MediaKeys.cpp",
+        "MetaData.cpp",
+        "MetaDataBase.cpp",
         "avc_utils.cpp",
         "base64.cpp",
         "hexdump.cpp",
@@ -92,16 +102,23 @@ cc_library {
 
 cc_library {
     name: "libstagefright_foundation_ext",
-    vendor: true,
-    vndk: {
-        enabled: true,
-        extends: "libstagefright_foundation"
-    },
     defaults: ["libstagefright_foundation_defaults"],
     cflags: [
         "-Wno-multichar",
         "-Werror",
         "-Wall",
         "-D__ANDROID_VNDK_EXT__"
+    ],
+}
+
+cc_library_static {
+    name: "libstagefright_foundation_without_imemory",
+    defaults: ["libstagefright_foundation_defaults"],
+
+    cflags: [
+        "-Wno-multichar",
+        "-Werror",
+        "-Wall",
+        "-DNO_IMEMORY",
     ],
 }

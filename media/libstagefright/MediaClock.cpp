@@ -28,7 +28,7 @@ namespace android {
 
 // Maximum allowed time backwards from anchor change.
 // If larger than this threshold, it's treated as discontinuity.
-static const int64_t kAnchorFluctuationAllowedUs = 10000ll;
+static const int64_t kAnchorFluctuationAllowedUs = 10000LL;
 
 MediaClock::Timer::Timer(const sp<AMessage> &notify, int64_t mediaTimeUs, int64_t adjustRealUs)
     : mNotify(notify),
@@ -110,7 +110,7 @@ void MediaClock::updateAnchor(
     if (mAnchorTimeRealUs != -1) {
         int64_t oldNowMediaUs =
             mAnchorTimeMediaUs + (nowUs - mAnchorTimeRealUs) * (double)mPlaybackRate;
-        if (nowMediaUs < oldNowMediaUs
+        if (nowMediaUs < oldNowMediaUs + kAnchorFluctuationAllowedUs
                 && nowMediaUs > oldNowMediaUs - kAnchorFluctuationAllowedUs) {
             return;
         }

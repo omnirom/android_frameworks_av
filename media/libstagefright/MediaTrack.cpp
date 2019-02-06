@@ -65,6 +65,13 @@ MediaTrackCUnwrapper::MediaTrackCUnwrapper(CMediaTrack *cmediatrack) {
     bufferGroup = nullptr;
 }
 
+MediaTrackCUnwrapper *MediaTrackCUnwrapper::create(CMediaTrack *cmediatrack) {
+    if (cmediatrack == nullptr) {
+        return nullptr;
+    }
+    return new MediaTrackCUnwrapper(cmediatrack);
+}
+
 MediaTrackCUnwrapper::~MediaTrackCUnwrapper() {
     wrapper->free(wrapper->data);
     free(wrapper);
@@ -170,6 +177,10 @@ status_t MediaTrackCUnwrapper::read(MediaBufferBase **buffer, const ReadOptions 
         }
         if (format->mFormat->findBuffer("sei", &valbuf)) {
             meta.setData(kKeySEI,
+                    MetaDataBase::Type::TYPE_NONE, valbuf->data(), valbuf->size());
+        }
+        if (format->mFormat->findBuffer("audio-presentation-info", &valbuf)) {
+            meta.setData(kKeyAudioPresentationInfo,
                     MetaDataBase::Type::TYPE_NONE, valbuf->data(), valbuf->size());
         }
     } else {

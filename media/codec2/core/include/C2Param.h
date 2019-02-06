@@ -988,7 +988,10 @@ struct C2FieldDescriptor {
     /** specialization for easy enums */
     template<typename E>
     inline static NamedValuesType namedValuesFor(const C2EasyEnum<E> &) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
         return namedValuesFor(*(E*)nullptr);
+#pragma GCC diagnostic pop
     }
 
 private:
@@ -1104,7 +1107,10 @@ struct C2FieldDescriptor::_NamedValuesGetter<B, false> {
 template<typename B>
 struct C2FieldDescriptor::_NamedValuesGetter<B, true> {
     inline static C2FieldDescriptor::NamedValuesType getNamedValues() {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
         return C2FieldDescriptor::namedValuesFor(*(B*)nullptr);
+#pragma GCC diagnostic pop
     }
 };
 
@@ -1599,11 +1605,13 @@ struct C2FieldSupportedValues {
     /// \internal
     /// \todo: create separate values vs. flags initializer as for flags we want
     /// to list both allowed and required flags
-    template<typename T, typename E=decltype(C2FieldDescriptor::namedValuesFor(*(T*)0))>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+    template<typename T, typename E=decltype(C2FieldDescriptor::namedValuesFor(*(T*)nullptr))>
     C2FieldSupportedValues(bool flags, const T*)
         : type(flags ? FLAGS : VALUES),
           range{(T)0, (T)0, (T)0, (T)0, (T)0} {
-              C2FieldDescriptor::NamedValuesType named = C2FieldDescriptor::namedValuesFor(*(T*)0);
+              C2FieldDescriptor::NamedValuesType named = C2FieldDescriptor::namedValuesFor(*(T*)nullptr);
         if (flags) {
             values.emplace_back(0); // min-mask defaults to 0
         }
@@ -1612,6 +1620,7 @@ struct C2FieldSupportedValues {
         }
     }
 };
+#pragma GCC diagnostic pop
 
 /**
  * Supported values for a specific field.

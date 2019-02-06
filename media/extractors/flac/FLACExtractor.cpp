@@ -806,14 +806,42 @@ media_status_t FLACExtractor::getMetaData(AMediaFormat *meta)
 
 bool SniffFLAC(DataSourceHelper *source, float *confidence)
 {
-    // first 4 is the signature word
-    // second 4 is the sizeof STREAMINFO
-    // 042 is the mandatory STREAMINFO
-    // no need to read rest of the header, as a premature EOF will be caught later
-    uint8_t header[4+4];
-    if (source->readAt(0, header, sizeof(header)) != sizeof(header)
-            || memcmp("fLaC\0\0\0\042", header, 4+4))
-    {
+    // Skip ID3 tags
+    off64_t pos = 0;
+    uint8_t header[10];
+    for (;;) {
+        if (source->readAt(pos, header, sizeof(header)) != sizeof(header)) {
+            return false; // no more file to read.
+        }
+
+        // check for ID3 tag
+        if (memcmp("ID3", header, 3) != 0) {
+            break; // not an ID3 tag.
+        }
+
+        // skip the ID3v2 data and check again
+        const unsigned id3Len = 10 +
+                (((header[6] & 0x7f) << 21)
+                 | ((header[7] & 0x7f) << 14)
+                 | ((header[8] & 0x7f) << 7)
+                 | (header[9] & 0x7f));
+        pos += id3Len;
+
+        ALOGV("skipped ID3 tag of len %u new starting offset is %#016llx",
+                id3Len, (long long)pos);
+    }
+
+    // Check FLAC header.
+    // https://xiph.org/flac/format.html#stream
+    //
+    // Note: content stored big endian.
+    // byte offset  bit size  content
+    // 0            32        fLaC
+    // 4            8         metadata type STREAMINFO (0) (note: OR with 0x80 if last metadata)
+    // 5            24        size of metadata, for STREAMINFO (0x22).
+
+    if (memcmp("fLaC\x00\x00\x00\x22", header, 8) != 0 &&
+        memcmp("fLaC\x80\x00\x00\x22", header, 8) != 0) {
         return false;
     }
 
@@ -822,6 +850,11 @@ bool SniffFLAC(DataSourceHelper *source, float *confidence)
     return true;
 }
 
+static const char *extensions[] = {
+    "flac",
+    "fl",
+    NULL
+};
 
 extern "C" {
 // This is the only symbol that needs to be exported
@@ -833,21 +866,24 @@ ExtractorDef GETEXTRACTORDEF() {
             1,
             "FLAC Extractor",
             {
-                .v2 = [](
+                .v3 = {
+                    [](
                         CDataSource *source,
                         float *confidence,
                         void **,
                         FreeMetaFunc *) -> CreatorFunc {
-                    DataSourceHelper helper(source);
-                    if (SniffFLAC(&helper, confidence)) {
-                        return [](
-                                CDataSource *source,
-                                void *) -> CMediaExtractor* {
-                            return wrap(new FLACExtractor(new DataSourceHelper(source)));};
-                    }
-                    return NULL;
+                        DataSourceHelper helper(source);
+                        if (SniffFLAC(&helper, confidence)) {
+                            return [](
+                                    CDataSource *source,
+                                    void *) -> CMediaExtractor* {
+                                return wrap(new FLACExtractor(new DataSourceHelper(source)));};
+                        }
+                        return NULL;
+                    },
+                    extensions
                 }
-            }
+            },
      };
 }
 
