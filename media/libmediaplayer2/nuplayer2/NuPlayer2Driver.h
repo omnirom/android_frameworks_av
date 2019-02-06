@@ -18,6 +18,7 @@
 
 #include <media/MediaAnalyticsItem.h>
 #include <media/stagefright/foundation/ABase.h>
+#include <mediaplayer2/JObjectHolder.h>
 
 namespace android {
 
@@ -26,7 +27,7 @@ struct MediaClock;
 struct NuPlayer2;
 
 struct NuPlayer2Driver : public MediaPlayer2Interface {
-    explicit NuPlayer2Driver(pid_t pid, uid_t uid);
+    explicit NuPlayer2Driver(pid_t pid, uid_t uid, const sp<JObjectHolder> &context);
 
     virtual status_t initCheck() override;
 
@@ -60,9 +61,6 @@ struct NuPlayer2Driver : public MediaPlayer2Interface {
     virtual void setAudioSink(const sp<AudioSink> &audioSink) override;
     virtual status_t setParameter(int key, const Parcel &request) override;
     virtual status_t getParameter(int key, Parcel *reply) override;
-
-    virtual status_t getMetadata(
-            const media::Metadata::Filter& ids, Parcel *records) override;
 
     virtual status_t dump(int fd, const Vector<String16> &args) const override;
 
