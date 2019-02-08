@@ -5484,6 +5484,11 @@ sp<IOProfile> AudioPolicyManager::getInputProfile(audio_devices_t device,
         for (const auto& profile : hwModule->getInputProfiles()) {
             // profile->log();
             //updatedFormat = format;
+            // Choose the input profile based on this priority:
+            // 1. exact match with both channel mask and format
+            // 2. exact match with channel mask and best match with format
+            // 3. exact match with format and best match with channel mask
+            // 4. best match with both channel mask and format
             if (profile->isCompatibleProfile(device, address, samplingRate,
                                              &samplingRate  /*updatedSamplingRate*/,
                                              format,
@@ -5493,11 +5498,12 @@ sp<IOProfile> AudioPolicyManager::getInputProfile(audio_devices_t device,
                                              // FIXME ugly cast
                                              (audio_output_flags_t) flags,
                                              true /*exactMatchRequiredForInputFlags*/,
+                                             true,
                                              true)) {
 
                 return profile;
             }
-			if (firstInexact == nullptr && profile->isCompatibleProfile(device, address,
+            if (firstInexact == nullptr && profile->isCompatibleProfile(device, address,
                                              samplingRate,
                                              &updatedSamplingRate,
                                              format,
@@ -5507,14 +5513,41 @@ sp<IOProfile> AudioPolicyManager::getInputProfile(audio_devices_t device,
                                              // FIXME ugly cast
                                              (audio_output_flags_t) flags,
                                              false /*exactMatchRequiredForInputFlags*/,
+                                             false,
+                                             true)) {
+                firstInexact = profile;
+            }
+            if (firstInexact == nullptr && profile->isCompatibleProfile(device, address,
+                                             samplingRate,
+                                             &updatedSamplingRate,
+                                             format,
+                                             &updatedFormat,
+                                             channelMask,
+                                             &updatedChannelMask,
+                                             // FIXME ugly cast
+                                             (audio_output_flags_t) flags,
+                                             false /*exactMatchRequiredForInputFlags*/,
+                                             true,
+                                             false)) {
+                firstInexact = profile;
+            }
+            if (firstInexact == nullptr && profile->isCompatibleProfile(device, address,
+                                             samplingRate,
+                                             &updatedSamplingRate,
+                                             format,
+                                             &updatedFormat,
+                                             channelMask,
+                                             &updatedChannelMask,
+                                             // FIXME ugly cast
+                                             (audio_output_flags_t) flags,
+                                             false /*exactMatchRequiredForInputFlags*/,
+                                             false,
                                              false)) {
                 firstInexact = profile;
             }
         }
-
-
-
     }
+
     if (firstInexact != nullptr) {
         samplingRate = updatedSamplingRate;
         format = updatedFormat;

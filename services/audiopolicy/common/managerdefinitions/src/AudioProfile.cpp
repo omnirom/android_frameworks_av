@@ -246,7 +246,8 @@ status_t AudioProfileVector::checkCompatibleProfile(uint32_t &samplingRate,
                                                     audio_format_t &format,
                                                     audio_port_type_t portType,
                                                     audio_port_role_t portRole,
-                                                    bool checkExactFormat) const
+                                                    bool checkExactFormat,
+                                                    bool checkExactChannelMask) const
 {
     if (isEmpty()) {
         return NO_ERROR;
@@ -271,12 +272,19 @@ status_t AudioProfileVector::checkCompatibleProfile(uint32_t &samplingRate,
 
             if ((checkExactFormat) && (formatToCompare != format))
                 continue;
-            if (profile->checkCompatibleChannelMask(channelMask, updatedChannels,
-                                                    portType, portRole) == NO_ERROR &&
-                    profile->checkCompatibleSamplingRate(samplingRate, updatedRate) == NO_ERROR) {
+            if (checkExactChannelMask) {
+                if (!profile->supportsChannels(channelMask))
+                    continue;
+            } else {
+                if (profile->checkCompatibleChannelMask(channelMask, updatedChannels,
+                                                        portType, portRole) == NO_ERROR)
+                    channelMask = updatedChannels;
+                else
+                    return BAD_VALUE;
+            }
+            if (profile->checkCompatibleSamplingRate(samplingRate, updatedRate) == NO_ERROR) {
                 // for inexact checks we take the first linear pcm format due to sorting.
                 format = formatToCompare;
-                channelMask = updatedChannels;
                 samplingRate = updatedRate;
                 return NO_ERROR;
             }

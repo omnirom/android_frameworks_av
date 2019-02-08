@@ -201,7 +201,8 @@ public:
                                     audio_format_t &format,
                                     audio_port_type_t portType,
                                     audio_port_role_t portRole,
-                                    bool checkExactFormat = false) const;
+                                    bool checkExactFormat = false,
+                                    bool checkExactChannelMask = false) const;
 
     FormatVector getSupportedFormats() const
     {
