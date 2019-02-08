@@ -90,6 +90,22 @@ cc_library_static {
         "liblog",
         "libmedia",
         "libmedia_omx",
+
+        // for libavextensions
+        "android.hidl.memory@1.0",
+    ],
+
+    static_libs: [
+        // for libavextensions
+        "libstagefright_mpeg2support",
+        "libavextensions",
+    ],
+
+    include_dirs: [
+        // for libavextensions
+        "frameworks/av/media/libavextensions",
+        "frameworks/av/media/libmediaextractor",
+        "frameworks/av/media/libstagefright/mpeg2ts",
     ],
 
     export_include_dirs: [
