@@ -451,6 +451,9 @@ public:
     }
 
     bool setBackBuffer(const sp<ABuffer> &backBuffer) {
+        if (backBuffer == nullptr) {
+            return false;
+        }
         if (backBuffer->capacity() < mBackBufferSize) {
             return false;
         }
@@ -578,7 +581,7 @@ std::shared_ptr<C2Buffer> GraphicMetadataBuffer::asC2Buffer() {
 
     ALOGV("VideoNativeMetadata: %dx%d", buffer->width, buffer->height);
     C2Handle *handle = WrapNativeCodec2GrallocHandle(
-            native_handle_clone(buffer->handle),
+            buffer->handle,
             buffer->width,
             buffer->height,
             buffer->format,

@@ -20,7 +20,6 @@
 #include "AudioPolicyService.h"
 #include "TypeConverter.h"
 #include <cutils/properties.h>
-#include <media/AudioPolicyHelper.h>
 #include <media/MediaAnalyticsItem.h>
 #include <mediautils/ServiceUtilities.h>
 #include <utils/Log.h>
@@ -543,7 +542,7 @@ status_t AudioPolicyService::startInput(audio_port_handle_t portId)
         static constexpr char kAudioPolicyActiveDevice[] =
                 "android.media.audiopolicy.active.device";
 
-        MediaAnalyticsItem *item = new MediaAnalyticsItem(kAudioPolicy);
+        MediaAnalyticsItem *item = MediaAnalyticsItem::create(kAudioPolicy);
         if (item != NULL) {
 
             item->setInt32(kAudioPolicyStatus, status);
@@ -721,11 +720,12 @@ status_t AudioPolicyService::getStreamVolumeIndex(audio_stream_type_t stream,
 uint32_t AudioPolicyService::getStrategyForStream(audio_stream_type_t stream)
 {
     if (uint32_t(stream) >= AUDIO_STREAM_PUBLIC_CNT) {
-        return 0;
+        return PRODUCT_STRATEGY_NONE;
     }
     if (mAudioPolicyManager == NULL) {
-        return 0;
+        return PRODUCT_STRATEGY_NONE;
     }
+    // DO NOT LOCK, may be called from AudioFlinger with lock held, reaching deadlock
     AutoCallerClear acc;
     return mAudioPolicyManager->getStrategyForStream(stream);
 }
@@ -1204,4 +1204,22 @@ bool AudioPolicyService::isHapticPlaybackSupported()
     return mAudioPolicyManager->isHapticPlaybackSupported();
 }
 
+status_t AudioPolicyService::listAudioProductStrategies(AudioProductStrategyVector &strategies)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    return mAudioPolicyManager->listAudioProductStrategies(strategies);
+}
+
+product_strategy_t AudioPolicyService::getProductStrategyFromAudioAttributes(
+        const AudioAttributes &aa)
+{
+    if (mAudioPolicyManager == NULL) {
+        return PRODUCT_STRATEGY_NONE;
+    }
+    Mutex::Autolock _l(mLock);
+    return mAudioPolicyManager->getProductStrategyFromAudioAttributes(aa);
+}
 } // namespace android
