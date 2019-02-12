@@ -36,6 +36,8 @@ ACameraMetadata::ACameraMetadata(camera_metadata_t* buffer, ACAMERA_METADATA_TYP
         filterDurations(ANDROID_SCALER_AVAILABLE_STALL_DURATIONS);
         filterDurations(ANDROID_DEPTH_AVAILABLE_DEPTH_MIN_FRAME_DURATIONS);
         filterDurations(ANDROID_DEPTH_AVAILABLE_DEPTH_STALL_DURATIONS);
+        filterDurations(ANDROID_HEIC_AVAILABLE_HEIC_MIN_FRAME_DURATIONS);
+        filterDurations(ANDROID_HEIC_AVAILABLE_HEIC_STALL_DURATIONS);
     }
     // TODO: filter request/result keys
 }
@@ -104,7 +106,8 @@ ACameraMetadata::derivePhysicalCameraIds() {
     for (size_t i = 0; i < entry.count; ++i) {
         if (ids[i] == '\0') {
             if (start != i) {
-                mStaticPhysicalCameraIds.push_back((const char*)ids+start);
+                mStaticPhysicalCameraIdValues.push_back(String8((const char *)ids+start));
+                mStaticPhysicalCameraIds.push_back(mStaticPhysicalCameraIdValues.back().string());
             }
             start = i+1;
         }
@@ -167,6 +170,16 @@ ACameraMetadata::filterDurations(uint32_t tag) {
                     filteredDurations.push_back(duration);
                 } else if (format == HAL_PIXEL_FORMAT_Y16) {
                     format = AIMAGE_FORMAT_DEPTH16;
+                    filteredDurations.push_back(format);
+                    filteredDurations.push_back(width);
+                    filteredDurations.push_back(height);
+                    filteredDurations.push_back(duration);
+                }
+                break;
+            case ANDROID_HEIC_AVAILABLE_HEIC_MIN_FRAME_DURATIONS:
+            case ANDROID_HEIC_AVAILABLE_HEIC_STALL_DURATIONS:
+                if (format == HAL_PIXEL_FORMAT_BLOB) {
+                    format = AIMAGE_FORMAT_HEIC;
                     filteredDurations.push_back(format);
                     filteredDurations.push_back(width);
                     filteredDurations.push_back(height);
@@ -251,6 +264,31 @@ ACameraMetadata::filterStreamConfigurations() {
         filteredDepthStreamConfigs.push_back(isInput);
     }
     mData.update(ANDROID_DEPTH_AVAILABLE_DEPTH_STREAM_CONFIGURATIONS, filteredDepthStreamConfigs);
+
+    entry = mData.find(ANDROID_HEIC_AVAILABLE_HEIC_STREAM_CONFIGURATIONS);
+    Vector<int32_t> filteredHeicStreamConfigs;
+    filteredHeicStreamConfigs.setCapacity(entry.count);
+
+    for (size_t i=0; i < entry.count; i += STREAM_CONFIGURATION_SIZE) {
+        int32_t format = entry.data.i32[i + STREAM_FORMAT_OFFSET];
+        int32_t width = entry.data.i32[i + STREAM_WIDTH_OFFSET];
+        int32_t height = entry.data.i32[i + STREAM_HEIGHT_OFFSET];
+        int32_t isInput = entry.data.i32[i + STREAM_IS_INPUT_OFFSET];
+        if (isInput == ACAMERA_HEIC_AVAILABLE_HEIC_STREAM_CONFIGURATIONS_INPUT) {
+            // Hide input streams
+            continue;
+        }
+        // Translate HAL formats to NDK format
+        if (format == HAL_PIXEL_FORMAT_BLOB) {
+            format = AIMAGE_FORMAT_HEIC;
+        }
+
+        filteredHeicStreamConfigs.push_back(format);
+        filteredHeicStreamConfigs.push_back(width);
+        filteredHeicStreamConfigs.push_back(height);
+        filteredHeicStreamConfigs.push_back(isInput);
+    }
+    mData.update(ANDROID_HEIC_AVAILABLE_HEIC_STREAM_CONFIGURATIONS, filteredHeicStreamConfigs);
 }
 
 bool
@@ -489,6 +527,8 @@ std::unordered_set<uint32_t> ACameraMetadata::sSystemTags ({
     ANDROID_STATISTICS_INFO_SHARPNESS_MAP_SIZE,
     ANDROID_INFO_SUPPORTED_BUFFER_MANAGEMENT_VERSION,
     ANDROID_DEPTH_MAX_DEPTH_SAMPLES,
+    ANDROID_HEIC_INFO_SUPPORTED,
+    ANDROID_HEIC_INFO_MAX_JPEG_APP_SEGMENTS_COUNT,
 });
 
 /*~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~

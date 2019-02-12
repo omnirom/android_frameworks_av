@@ -49,6 +49,7 @@
 #include <hardware/hardware.h>
 #include "hidl/HidlCameraService.h"
 #include <hidl/HidlTransportSupport.h>
+#include <hwbinder/IPCThreadState.h>
 #include <memunreachable/memunreachable.h>
 #include <media/AudioSystem.h>
 #include <media/IMediaHTTPService.h>
@@ -226,7 +227,7 @@ void CameraService::broadcastTorchModeStatus(const String8& cameraId, TorchModeS
     Mutex::Autolock lock(mStatusListenerLock);
 
     for (auto& i : mListenerList) {
-        i->onTorchStatusChanged(mapToInterface(status), String16{cameraId});
+        i.second->onTorchStatusChanged(mapToInterface(status), String16{cameraId});
     }
 }
 
@@ -1287,6 +1288,18 @@ Status CameraService::connectLegacy(
     return ret;
 }
 
+bool CameraService::shouldRejectHiddenCameraConnection(const String8 & cameraId) {
+    // If the thread serving this call is not a hwbinder thread and the caller
+    // isn't the cameraserver itself, and the camera id being requested is to be
+    // publically hidden, we should reject the connection.
+    if (!hardware::IPCThreadState::self()->isServingCall() &&
+            CameraThreadState::getCallingPid() != getpid() &&
+            mCameraProviderManager->isPublicallyHiddenSecureCamera(cameraId.c_str())) {
+        return true;
+    }
+    return false;
+}
+
 Status CameraService::connectDevice(
         const sp<hardware::camera2::ICameraDeviceCallbacks>& cameraCb,
         const String16& cameraId,
@@ -1299,6 +1312,7 @@ Status CameraService::connectDevice(
     Status ret = Status::ok();
     String8 id = String8(cameraId);
     sp<CameraDeviceClient> client = nullptr;
+
     ret = connectHelper<hardware::camera2::ICameraDeviceCallbacks,CameraDeviceClient>(cameraCb, id,
             /*api1CameraId*/-1,
             CAMERA_HAL_API_VERSION_UNSPECIFIED, clientPackageName,
@@ -1330,6 +1344,14 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
             (halVersion == -1) ? "default" : std::to_string(halVersion).c_str(),
             static_cast<int>(effectiveApiLevel));
 
+    if (shouldRejectHiddenCameraConnection(cameraId)) {
+        ALOGW("Attempting to connect to system-only camera id %s, connection rejected",
+              cameraId.c_str());
+        return STATUS_ERROR_FMT(ERROR_DISCONNECTED,
+                                "No camera device with ID \"%s\" currently available",
+                                cameraId.string());
+
+    }
     sp<CLIENT> client = nullptr;
     {
         // Acquire mServiceLock and prevent other clients from connecting
@@ -1632,9 +1654,60 @@ Status CameraService::notifySystemEvent(int32_t eventId,
     return Status::ok();
 }
 
+Status CameraService::notifyDeviceStateChange(int64_t newState) {
+    const int pid = CameraThreadState::getCallingPid();
+    const int selfPid = getpid();
+
+    // Permission checks
+    if (pid != selfPid) {
+        // Ensure we're being called by system_server, or similar process with
+        // permissions to notify the camera service about system events
+        if (!checkCallingPermission(
+                String16("android.permission.CAMERA_SEND_SYSTEM_EVENTS"))) {
+            const int uid = CameraThreadState::getCallingUid();
+            ALOGE("Permission Denial: cannot send updates to camera service about device"
+                    " state changes from pid=%d, uid=%d", pid, uid);
+            return STATUS_ERROR_FMT(ERROR_PERMISSION_DENIED,
+                    "No permission to send updates to camera service about device state"
+                    " changes from pid=%d, uid=%d", pid, uid);
+        }
+    }
+
+    ATRACE_CALL();
+
+    using hardware::camera::provider::V2_5::DeviceState;
+    hardware::hidl_bitfield<DeviceState> newDeviceState{};
+    if (newState & ICameraService::DEVICE_STATE_BACK_COVERED) {
+        newDeviceState |= DeviceState::BACK_COVERED;
+    }
+    if (newState & ICameraService::DEVICE_STATE_FRONT_COVERED) {
+        newDeviceState |= DeviceState::FRONT_COVERED;
+    }
+    if (newState & ICameraService::DEVICE_STATE_FOLDED) {
+        newDeviceState |= DeviceState::FOLDED;
+    }
+    // Only map vendor bits directly
+    uint64_t vendorBits = static_cast<uint64_t>(newState) & 0xFFFFFFFF00000000l;
+    newDeviceState |= vendorBits;
+
+    ALOGV("%s: New device state 0x%" PRIx64, __FUNCTION__, newDeviceState);
+    Mutex::Autolock l(mServiceLock);
+    mCameraProviderManager->notifyDeviceStateChange(newDeviceState);
+
+    return Status::ok();
+}
+
 Status CameraService::addListener(const sp<ICameraServiceListener>& listener,
         /*out*/
         std::vector<hardware::CameraStatus> *cameraStatuses) {
+    return addListenerHelper(listener, cameraStatuses);
+}
+
+Status CameraService::addListenerHelper(const sp<ICameraServiceListener>& listener,
+        /*out*/
+        std::vector<hardware::CameraStatus> *cameraStatuses,
+        bool isVendorListener) {
+
     ATRACE_CALL();
 
     ALOGV("%s: Add listener %p", __FUNCTION__, listener.get());
@@ -1649,20 +1722,26 @@ Status CameraService::addListener(const sp<ICameraServiceListener>& listener,
     {
         Mutex::Autolock lock(mStatusListenerLock);
         for (auto& it : mListenerList) {
-            if (IInterface::asBinder(it) == IInterface::asBinder(listener)) {
+            if (IInterface::asBinder(it.second) == IInterface::asBinder(listener)) {
                 ALOGW("%s: Tried to add listener %p which was already subscribed",
                       __FUNCTION__, listener.get());
                 return STATUS_ERROR(ERROR_ALREADY_EXISTS, "Listener already registered");
             }
         }
 
-        mListenerList.push_back(listener);
+        mListenerList.emplace_back(isVendorListener, listener);
     }
 
     /* Collect current devices and status */
     {
         Mutex::Autolock lock(mCameraStatesLock);
         for (auto& i : mCameraStates) {
+            if (!isVendorListener &&
+                mCameraProviderManager->isPublicallyHiddenSecureCamera(i.first.c_str())) {
+                ALOGV("Cannot add public listener for hidden system-only %s for pid %d",
+                      i.first.c_str(), CameraThreadState::getCallingPid());
+                continue;
+            }
             cameraStatuses->emplace_back(i.first, mapToInterface(i.second->getStatus()));
         }
     }
@@ -1697,7 +1776,7 @@ Status CameraService::removeListener(const sp<ICameraServiceListener>& listener)
     {
         Mutex::Autolock lock(mStatusListenerLock);
         for (auto it = mListenerList.begin(); it != mListenerList.end(); it++) {
-            if (IInterface::asBinder(*it) == IInterface::asBinder(listener)) {
+            if (IInterface::asBinder(it->second) == IInterface::asBinder(listener)) {
                 mListenerList.erase(it);
                 return Status::ok();
             }
@@ -3034,7 +3113,13 @@ void CameraService::updateStatus(StatusInternal status, const String8& cameraId,
             Mutex::Autolock lock(mStatusListenerLock);
 
             for (auto& listener : mListenerList) {
-                listener->onStatusChanged(mapToInterface(status), String16(cameraId));
+                if (!listener.first &&
+                    mCameraProviderManager->isPublicallyHiddenSecureCamera(cameraId.c_str())) {
+                    ALOGV("Skipping camera discovery callback for system-only camera %s",
+                          cameraId.c_str());
+                    continue;
+                }
+                listener.second->onStatusChanged(mapToInterface(status), String16(cameraId));
             }
         });
 }
