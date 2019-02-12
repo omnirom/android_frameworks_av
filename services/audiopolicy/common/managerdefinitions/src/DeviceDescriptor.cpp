@@ -42,16 +42,14 @@ DeviceDescriptor::DeviceDescriptor(audio_devices_t type, const FormatVector &enc
     if (type == AUDIO_DEVICE_IN_REMOTE_SUBMIX || type == AUDIO_DEVICE_OUT_REMOTE_SUBMIX ) {
         mAddress = String8("0");
     }
-    /* FIXME: read from APM config file */
-    if (type == AUDIO_DEVICE_OUT_HDMI) {
+    /* If framework runs against a pre 5.0 Audio HAL, encoded formats are absent from the config.
+     * FIXME: APM should know the version of the HAL and don't add the formats for V5.0.
+     * For now, the workaround to remove AC3 and IEC61937 support on HDMI is to declare
+     * something like 'encodedFormats="AUDIO_FORMAT_PCM_16_BIT"' on the HDMI devicePort.
+     */
+    if (type == AUDIO_DEVICE_OUT_HDMI && mEncodedFormats.isEmpty()) {
         mEncodedFormats.add(AUDIO_FORMAT_AC3);
         mEncodedFormats.add(AUDIO_FORMAT_IEC61937);
-    }
-    // For backward compatibility always indicate support for SBC and AAC if no
-    // supported format is listed in the configuration file
-    if ((type & AUDIO_DEVICE_OUT_ALL_A2DP) != 0 && mEncodedFormats.isEmpty()) {
-        mEncodedFormats.add(AUDIO_FORMAT_SBC);
-        mEncodedFormats.add(AUDIO_FORMAT_AAC);
     }
 }
 
@@ -98,11 +96,19 @@ bool DeviceDescriptor::hasCurrentEncodedFormat() const
     if (!device_has_encoding_capability(type())) {
         return true;
     }
+    if (mEncodedFormats.isEmpty()) {
+        return true;
+    }
+
     return (mCurrentEncodedFormat != AUDIO_FORMAT_DEFAULT);
 }
 
 bool DeviceDescriptor::supportsFormat(audio_format_t format)
 {
+    if (mEncodedFormats.isEmpty()) {
+        return true;
+    }
+
     for (const auto& devFormat : mEncodedFormats) {
         if (devFormat == format) {
             return true;
@@ -123,7 +129,7 @@ void DeviceVector::refreshTypes()
 ssize_t DeviceVector::indexOf(const sp<DeviceDescriptor>& item) const
 {
     for (size_t i = 0; i < size(); i++) {
-        if (item->equals(itemAt(i))) {
+        if (itemAt(i)->equals(item)) { // item may be null sp<>, i.e. AUDIO_DEVICE_NONE
             return i;
         }
     }

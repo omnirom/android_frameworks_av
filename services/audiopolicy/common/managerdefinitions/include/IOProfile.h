@@ -123,6 +123,9 @@ public:
 
     bool deviceSupportsEncodedFormats(audio_devices_t device) const
     {
+        if (device == AUDIO_DEVICE_NONE) {
+            return true; // required for isOffloadSupported() check
+        }
         DeviceVector deviceList =
             mSupportedDevices.getDevicesFromTypeMask(device);
         if (!deviceList.empty()) {

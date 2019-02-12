@@ -37,6 +37,8 @@
 
 namespace android {
 
+class MemoryDealer;
+
 class CCodecCallback {
 public:
     virtual ~CCodecCallback() = default;
@@ -233,6 +235,9 @@ private:
     QueueSync mQueueSync;
     std::vector<std::unique_ptr<C2Param>> mParamsToBeSet;
 
+    size_t mNumInputSlots;
+    size_t mNumOutputSlots;
+
     Mutexed<std::unique_ptr<InputBuffers>> mInputBuffers;
     Mutexed<std::list<sp<ABuffer>>> mFlushedConfigs;
     Mutexed<std::unique_ptr<OutputBuffers>> mOutputBuffers;
@@ -354,6 +359,7 @@ private:
         ReorderStash();
 
         void clear();
+        void flush();
         void setDepth(uint32_t depth);
         void setKey(C2Config::ordinal_key_t key);
         bool pop(Entry *entry);

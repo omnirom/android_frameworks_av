@@ -733,6 +733,7 @@ public:
 
                 // VolumeInterface
     virtual     void        setMasterVolume(float value);
+    virtual     void        setMasterBalance(float balance);
     virtual     void        setMasterMute(bool muted);
     virtual     void        setStreamVolume(audio_stream_type_t stream, float value);
     virtual     void        setStreamMute(audio_stream_type_t stream, bool muted);
@@ -1027,6 +1028,8 @@ private:
     AudioStreamOut                  *mOutput;
 
     float                           mMasterVolume;
+    std::atomic<float>              mMasterBalance{};
+    audio_utils::Balance            mBalance;
     nsecs_t                         mLastWriteTime;
     int                             mNumWrites;
     int                             mNumDelayedWrites;
@@ -1201,13 +1204,22 @@ protected:
                 // Blending with limiter is not idempotent,
                 // and blending without limiter is idempotent but inefficient to do twice.
     virtual     bool       requireMonoBlend() { return mMasterMono.load() && !hasFastMixer(); }
+
+                void       setMasterBalance(float balance) override {
+                               mMasterBalance.store(balance);
+                               if (hasFastMixer()) {
+                                   mFastMixer->setMasterBalance(balance);
+                               }
+                           }
 };
 
 class DirectOutputThread : public PlaybackThread {
 public:
 
     DirectOutputThread(const sp<AudioFlinger>& audioFlinger, AudioStreamOut* output,
-                       audio_io_handle_t id, audio_devices_t device, bool systemReady);
+                       audio_io_handle_t id, audio_devices_t device, bool systemReady)
+        : DirectOutputThread(audioFlinger, output, id, device, DIRECT, systemReady) { }
+
     virtual                 ~DirectOutputThread();
 
                 status_t    selectPresentation(int presentationId, int programId);
@@ -1216,7 +1228,12 @@ public:
 
     virtual     bool        checkForNewParameter_l(const String8& keyValuePair,
                                                    status_t& status);
+
+                void        dumpInternals(int fd, const Vector<String16>& args) override;
+
     virtual     void        flushHw_l();
+
+                void        setMasterBalance(float balance) override;
 
 protected:
     virtual     uint32_t    activeSleepTimeUs() const;
@@ -1233,10 +1250,10 @@ protected:
 
     virtual     void        onAddNewTrack_l();
 
-    bool mVolumeShaperActive;
+    bool mVolumeShaperActive = false;
 
     DirectOutputThread(const sp<AudioFlinger>& audioFlinger, AudioStreamOut* output,
-                        audio_io_handle_t id, uint32_t device, ThreadBase::type_t type,
+                        audio_io_handle_t id, audio_devices_t device, ThreadBase::type_t type,
                         bool systemReady);
     void processVolume_l(Track *track, bool lastTrack);
 
@@ -1244,6 +1261,10 @@ protected:
     sp<Track>               mActiveTrack;
 
     wp<Track>               mPreviousTrack;         // used to detect track switch
+
+    // This must be initialized for initial condition of mMasterBalance = 0 (disabled).
+    float                   mMasterBalanceLeft = 1.f;
+    float                   mMasterBalanceRight = 1.f;
 
     uint64_t                mFramesWrittenAtStandby;// used to reset frames on track reset
     uint64_t                mFramesWrittenForSleep; // used to reset frames on track removal

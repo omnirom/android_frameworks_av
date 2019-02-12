@@ -89,7 +89,7 @@ sp<IMediaExtractor> MediaExtractorFactory::CreateFromService(
 
     ALOGV("MediaExtractorFactory::CreateFromService %s", mime);
 
-    UpdateExtractors(nullptr);
+    UpdateExtractors();
 
     // initialize source decryption if needed
     source->DrmInitialization(nullptr /* mime */);
@@ -120,13 +120,6 @@ sp<IMediaExtractor> MediaExtractorFactory::CreateFromService(
          ex != nullptr ? ex->name() : "<null>", confidence);
 
     return CreateIMediaExtractorFromMediaExtractor(ex, source, plugin);
-}
-
-//static
-void MediaExtractorFactory::LoadPlugins(const ::std::string& apkPath) {
-    // TODO: Verify apk path with package manager in extractor process.
-    ALOGV("Load plugins from: %s", apkPath.c_str());
-    UpdateExtractors(apkPath.empty() ? nullptr : apkPath.c_str());
 }
 
 struct ExtractorPlugin : public RefBase {
@@ -258,54 +251,6 @@ void MediaExtractorFactory::RegisterExtractor(const sp<ExtractorPlugin> &plugin,
 }
 
 //static
-void MediaExtractorFactory::RegisterExtractorsInApk(
-        const char *apkPath, std::list<sp<ExtractorPlugin>> &pluginList) {
-    ALOGV("search for plugins at %s", apkPath);
-    ZipArchiveHandle zipHandle;
-    int32_t ret = OpenArchive(apkPath, &zipHandle);
-    if (ret == 0) {
-        char abi[PROPERTY_VALUE_MAX];
-        property_get("ro.product.cpu.abi", abi, "arm64-v8a");
-        String8 prefix8 = String8::format("lib/%s/", abi);
-        ZipString prefix(prefix8.c_str());
-        ZipString suffix("extractor.so");
-        void* cookie;
-        ret = StartIteration(zipHandle, &cookie, &prefix, &suffix);
-        if (ret == 0) {
-            ZipEntry entry;
-            ZipString name;
-            while (Next(cookie, &entry, &name) == 0) {
-                String8 libPath = String8(apkPath) + "!/" +
-                    String8(reinterpret_cast<const char*>(name.name), name.name_length);
-                // TODO: Open with a linker namespace so that it can be linked with sub-libraries
-                // within the apk instead of system libraries already loaded.
-                void *libHandle = dlopen(libPath.string(), RTLD_NOW | RTLD_LOCAL);
-                if (libHandle) {
-                    GetExtractorDef getDef =
-                        (GetExtractorDef) dlsym(libHandle, "GETEXTRACTORDEF");
-                    if (getDef) {
-                        ALOGV("registering sniffer for %s", libPath.string());
-                        RegisterExtractor(
-                                new ExtractorPlugin(getDef(), libHandle, libPath), pluginList);
-                    } else {
-                        ALOGW("%s does not contain sniffer", libPath.string());
-                        dlclose(libHandle);
-                    }
-                } else {
-                    ALOGW("couldn't dlopen(%s) %s", libPath.string(), strerror(errno));
-                }
-            }
-            EndIteration(cookie);
-        } else {
-            ALOGW("couldn't find plugins from %s, %d", apkPath, ret);
-        }
-        CloseArchive(zipHandle);
-    } else {
-        ALOGW("couldn't open(%s) %d", apkPath, ret);
-    }
-}
-
-//static
 void MediaExtractorFactory::RegisterExtractorsInSystem(
         const char *libDirPath, std::list<sp<ExtractorPlugin>> &pluginList) {
     ALOGV("search for plugins at %s", libDirPath);
@@ -346,11 +291,13 @@ void MediaExtractorFactory::RegisterExtractorsInApex(
     ALOGV("search for plugins at %s", libDirPath);
     ALOGV("linked libs %s", gLinkedLibraries.c_str());
 
+    std::string libDirPathEx = libDirPath;
+    libDirPathEx += "/extractors";
     android_namespace_t *extractorNs = android_create_namespace("extractor",
             nullptr,  // ld_library_path
-            libDirPath,
+            libDirPath,  // default_library_path
             ANDROID_NAMESPACE_TYPE_ISOLATED,
-            nullptr,  // permitted_when_isolated_path
+            libDirPathEx.c_str(),  // permitted_when_isolated_path
             nullptr); // parent
     if (!android_link_namespaces(extractorNs, nullptr, gLinkedLibraries.c_str())) {
         ALOGE("Failed to link namespace. Failed to load extractor plug-ins in apex.");
@@ -361,7 +308,14 @@ void MediaExtractorFactory::RegisterExtractorsInApex(
         .library_namespace = extractorNs,
     };
 
-    DIR *libDir = opendir(libDirPath);
+    // try extractors subfolder first
+    DIR *libDir = opendir(libDirPathEx.c_str());
+
+    if (libDir) {
+        libDirPath = libDirPathEx.c_str();
+    } else {
+        libDir = opendir(libDirPath);
+    }
     if (libDir) {
         struct dirent* libEntry;
         while ((libEntry = readdir(libDir))) {
@@ -403,11 +357,9 @@ static bool compareFunc(const sp<ExtractorPlugin>& first, const sp<ExtractorPlug
 static std::unordered_set<std::string> gSupportedExtensions;
 
 // static
-void MediaExtractorFactory::UpdateExtractors(const char *newUpdateApkPath) {
+void MediaExtractorFactory::UpdateExtractors() {
     Mutex::Autolock autoLock(gPluginMutex);
-    if (newUpdateApkPath != nullptr) {
-        gPluginsRegistered = false;
-    }
+
     if (gPluginsRegistered) {
         return;
     }
@@ -427,10 +379,6 @@ void MediaExtractorFactory::UpdateExtractors(const char *newUpdateApkPath) {
             "64"
 #endif
             "/extractors", *newList);
-
-    if (newUpdateApkPath != nullptr) {
-        RegisterExtractorsInApk(newUpdateApkPath, *newList);
-    }
 
     newList->sort(compareFunc);
     gPlugins = newList;

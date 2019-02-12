@@ -259,7 +259,9 @@ protected:
     void initInternal(int fd, bool isFirstSession);
 
     // Acquire lock before calling these methods
-    off64_t addSample_l(MediaBuffer *buffer, bool usePrefix, bool isExif, size_t *bytesWritten);
+    off64_t addSample_l(
+            MediaBuffer *buffer, bool usePrefix,
+            uint32_t tiffHdrOffset, size_t *bytesWritten);
     static void StripStartcode(MediaBuffer *buffer);
     virtual void addLengthPrefixedSample_l(MediaBuffer *buffer);
     void addMultipleLengthPrefixedSamples_l(MediaBuffer *buffer);

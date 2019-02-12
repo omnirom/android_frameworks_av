@@ -145,13 +145,30 @@ static DrmPlugin::SecurityLevel toSecurityLevel(SecurityLevel level) {
     }
 }
 
+static SecurityLevel toHidlSecurityLevel(DrmPlugin::SecurityLevel level) {
+    switch(level) {
+    case DrmPlugin::kSecurityLevelSwSecureCrypto:
+        return SecurityLevel::SW_SECURE_CRYPTO;
+    case DrmPlugin::kSecurityLevelSwSecureDecode:
+        return SecurityLevel::SW_SECURE_DECODE;
+    case DrmPlugin::kSecurityLevelHwSecureCrypto:
+        return SecurityLevel::HW_SECURE_CRYPTO;
+    case DrmPlugin::kSecurityLevelHwSecureDecode:
+        return SecurityLevel::HW_SECURE_DECODE;
+    case DrmPlugin::kSecurityLevelHwSecureAll:
+        return SecurityLevel::HW_SECURE_ALL;
+    default:
+        return SecurityLevel::UNKNOWN;
+    }
+}
+
 static DrmPlugin::OfflineLicenseState toOfflineLicenseState(
         OfflineLicenseState licenseState) {
     switch(licenseState) {
     case OfflineLicenseState::USABLE:
         return DrmPlugin::kOfflineLicenseStateUsable;
     case OfflineLicenseState::INACTIVE:
-        return DrmPlugin::kOfflineLicenseStateInactive;
+        return DrmPlugin::kOfflineLicenseStateReleased;
     default:
         return DrmPlugin::kOfflineLicenseStateUnknown;
     }
@@ -569,28 +586,57 @@ Return<void> DrmHal::sendSessionLostState(
     return Void();
 }
 
-bool DrmHal::isCryptoSchemeSupported(const uint8_t uuid[16], const String8 &mimeType) {
-    Mutex::Autolock autoLock(mLock);
+status_t DrmHal::matchMimeTypeAndSecurityLevel(const sp<IDrmFactory> &factory,
+                                               const uint8_t uuid[16],
+                                               const String8 &mimeType,
+                                               DrmPlugin::SecurityLevel level,
+                                               bool *isSupported) {
+    *isSupported = false;
 
-    for (size_t i = 0; i < mFactories.size(); i++) {
+    // handle default value cases
+    if (level == DrmPlugin::kSecurityLevelUnknown) {
+        if (mimeType == "") {
+            // isCryptoSchemeSupported(uuid)
+            *isSupported = true;
+        } else {
+            // isCryptoSchemeSupported(uuid, mimeType)
+            *isSupported = factory->isContentTypeSupported(mimeType.string());
+        }
+        return OK;
+    } else if (mimeType == "") {
+        return BAD_VALUE;
+    }
+
+    sp<drm::V1_2::IDrmFactory> factoryV1_2 = drm::V1_2::IDrmFactory::castFrom(factory);
+    if (factoryV1_2 == NULL) {
+        return ERROR_UNSUPPORTED;
+    } else {
+        *isSupported = factoryV1_2->isCryptoSchemeSupported_1_2(uuid,
+                mimeType.string(), toHidlSecurityLevel(level));
+        return OK;
+    }
+}
+
+status_t DrmHal::isCryptoSchemeSupported(const uint8_t uuid[16],
+                                         const String8 &mimeType,
+                                         DrmPlugin::SecurityLevel level,
+                                         bool *isSupported) {
+    Mutex::Autolock autoLock(mLock);
+    *isSupported = false;
+    for (ssize_t i = mFactories.size() - 1; i >= 0; i--) {
         if (mFactories[i]->isCryptoSchemeSupported(uuid)) {
-            if (mimeType != "") {
-                if (mFactories[i]->isContentTypeSupported(mimeType.string())) {
-                    return true;
-                }
-            } else {
-                return true;
-            }
+            return matchMimeTypeAndSecurityLevel(mFactories[i],
+                    uuid, mimeType, level, isSupported);
         }
     }
-    return false;
+    return OK;
 }
 
 status_t DrmHal::createPlugin(const uint8_t uuid[16],
         const String8& appPackageName) {
     Mutex::Autolock autoLock(mLock);
 
-    for (size_t i = mFactories.size() - 1; i >= 0; i--) {
+    for (ssize_t i = mFactories.size() - 1; i >= 0; i--) {
         if (mFactories[i]->isCryptoSchemeSupported(uuid)) {
             auto plugin = makeDrmPlugin(mFactories[i], uuid, appPackageName);
             if (plugin != NULL) {
@@ -634,30 +680,15 @@ status_t DrmHal::openSession(DrmPlugin::SecurityLevel level,
     Mutex::Autolock autoLock(mLock);
     INIT_CHECK();
 
-    SecurityLevel hSecurityLevel;
+    SecurityLevel hSecurityLevel = toHidlSecurityLevel(level);
     bool setSecurityLevel = true;
 
-    switch(level) {
-    case DrmPlugin::kSecurityLevelSwSecureCrypto:
-        hSecurityLevel = SecurityLevel::SW_SECURE_CRYPTO;
-        break;
-    case DrmPlugin::kSecurityLevelSwSecureDecode:
-        hSecurityLevel = SecurityLevel::SW_SECURE_DECODE;
-        break;
-    case DrmPlugin::kSecurityLevelHwSecureCrypto:
-        hSecurityLevel = SecurityLevel::HW_SECURE_CRYPTO;
-        break;
-    case DrmPlugin::kSecurityLevelHwSecureDecode:
-        hSecurityLevel = SecurityLevel::HW_SECURE_DECODE;
-        break;
-    case DrmPlugin::kSecurityLevelHwSecureAll:
-        hSecurityLevel = SecurityLevel::HW_SECURE_ALL;
-        break;
-    case DrmPlugin::kSecurityLevelMax:
+    if (level == DrmPlugin::kSecurityLevelMax) {
         setSecurityLevel = false;
-        break;
-    default:
-        return ERROR_DRM_CANNOT_HANDLE;
+    } else {
+        if (hSecurityLevel == SecurityLevel::UNKNOWN) {
+            return ERROR_DRM_CANNOT_HANDLE;
+        }
     }
 
     status_t  err = UNKNOWN_ERROR;
@@ -1188,7 +1219,7 @@ status_t DrmHal::getOfflineLicenseKeySetIds(List<Vector<uint8_t>> &keySetIds) co
     }
 
     if (mPluginV1_2 == NULL) {
-        return ERROR_DRM_CANNOT_HANDLE;
+        return ERROR_UNSUPPORTED;
     }
 
     status_t err = UNKNOWN_ERROR;
@@ -1213,7 +1244,7 @@ status_t DrmHal::removeOfflineLicense(Vector<uint8_t> const &keySetId) {
     }
 
     if (mPluginV1_2 == NULL) {
-        return ERROR_DRM_CANNOT_HANDLE;
+        return ERROR_UNSUPPORTED;
     }
 
     Return<Status> status = mPluginV1_2->removeOfflineLicense(toHidlVec(keySetId));
@@ -1229,7 +1260,7 @@ status_t DrmHal::getOfflineLicenseState(Vector<uint8_t> const &keySetId,
     }
 
     if (mPluginV1_2 == NULL) {
-        return ERROR_DRM_CANNOT_HANDLE;
+        return ERROR_UNSUPPORTED;
     }
     *licenseState = DrmPlugin::kOfflineLicenseStateUnknown;
 
@@ -1525,22 +1556,22 @@ void DrmHal::writeByteArray(Parcel &obj, hidl_vec<uint8_t> const &vec)
 
 void DrmHal::reportFrameworkMetrics() const
 {
-    MediaAnalyticsItem item("mediadrm");
-    item.generateSessionID();
-    item.setPkgName(mMetrics.GetAppPackageName().c_str());
+    std::unique_ptr<MediaAnalyticsItem> item(MediaAnalyticsItem::create("mediadrm"));
+    item->generateSessionID();
+    item->setPkgName(mMetrics.GetAppPackageName().c_str());
     String8 vendor;
     String8 description;
     status_t result = getPropertyStringInternal(String8("vendor"), vendor);
     if (result != OK) {
         ALOGE("Failed to get vendor from drm plugin: %d", result);
     } else {
-        item.setCString("vendor", vendor.c_str());
+        item->setCString("vendor", vendor.c_str());
     }
     result = getPropertyStringInternal(String8("description"), description);
     if (result != OK) {
         ALOGE("Failed to get description from drm plugin: %d", result);
     } else {
-        item.setCString("description", description.c_str());
+        item->setCString("description", description.c_str());
     }
 
     std::string serializedMetrics;
@@ -1551,9 +1582,9 @@ void DrmHal::reportFrameworkMetrics() const
     std::string b64EncodedMetrics = toBase64StringNoPad(serializedMetrics.data(),
                                                         serializedMetrics.size());
     if (!b64EncodedMetrics.empty()) {
-        item.setCString("serialized_metrics", b64EncodedMetrics.c_str());
+        item->setCString("serialized_metrics", b64EncodedMetrics.c_str());
     }
-    if (!item.selfrecord()) {
+    if (!item->selfrecord()) {
         ALOGE("Failed to self record framework metrics");
     }
 }

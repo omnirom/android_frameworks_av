@@ -37,4 +37,10 @@
 
     <!-- End of Volume section -->
 
+    <!-- Surround Sound configuration -->
+
+    <xi:include href="surround_sound_configuration_5_0.xml"/>
+
+    <!-- End of Surround Sound configuration -->
+
 </audioPolicyConfiguration>
