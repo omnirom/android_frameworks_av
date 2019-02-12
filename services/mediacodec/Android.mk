@@ -74,9 +74,12 @@ include $(BUILD_EXECUTABLE)
 include $(CLEAR_VARS)
 # seccomp is not required for coverage build.
 ifneq ($(NATIVE_COVERAGE),true)
-LOCAL_REQUIRED_MODULES_arm := crash_dump.policy mediacodec.policy
-LOCAL_REQUIRED_MODULES_x86 := crash_dump.policy mediacodec.policy
+LOCAL_REQUIRED_MODULES_arm := crash_dump.policy mediaswcodec.policy
+LOCAL_REQUIRED_MODULES_arm64 := crash_dump.policy mediaswcodec.policy
+LOCAL_REQUIRED_MODULES_x86 := crash_dump.policy mediaswcodec.policy
+LOCAL_REQUIRED_MODULES_x86_64 := crash_dump.policy mediaswcodec.policy
 endif
+
 LOCAL_SRC_FILES := \
     main_swcodecservice.cpp \
     MediaCodecUpdateService.cpp \
@@ -112,8 +115,12 @@ LOCAL_SHARED_LIBRARIES := \
 
 LOCAL_MODULE := mediaswcodec
 LOCAL_INIT_RC := mediaswcodec.rc
-LOCAL_32_BIT_ONLY := true
 LOCAL_SANITIZE := scudo
+ifeq ($(TARGET_ARCH), $(filter $(TARGET_ARCH), x86_64 arm64))
+  LOCAL_MULTILIB := both
+  LOCAL_MODULE_STEM_32 := $(LOCAL_MODULE)32
+  LOCAL_MODULE_STEM_64 := $(LOCAL_MODULE)
+endif
 
 sanitizer_runtime_libraries :=
 llndk_libraries :=
@@ -139,6 +146,18 @@ ifdef TARGET_2ND_ARCH
 else
     LOCAL_SRC_FILES := seccomp_policy/mediacodec-$(TARGET_ARCH).policy
 endif
+include $(BUILD_PREBUILT)
+endif
+
+####################################################################
+
+# sw service seccomp policy
+ifeq ($(TARGET_ARCH), $(filter $(TARGET_ARCH), x86 x86_64 arm arm64))
+include $(CLEAR_VARS)
+LOCAL_MODULE := mediaswcodec.policy
+LOCAL_MODULE_CLASS := ETC
+LOCAL_MODULE_PATH := $(TARGET_OUT)/etc/seccomp_policy
+LOCAL_SRC_FILES := seccomp_policy/mediaswcodec-$(TARGET_ARCH).policy
 include $(BUILD_PREBUILT)
 endif
 

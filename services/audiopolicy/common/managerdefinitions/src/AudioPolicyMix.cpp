@@ -280,8 +280,29 @@ status_t AudioPolicyMixCollection::getOutputForAttr(audio_attributes_t attribute
     return BAD_VALUE;
 }
 
+sp<DeviceDescriptor> AudioPolicyMixCollection::getDeviceAndMixForOutput(
+        const sp<SwAudioOutputDescriptor> &output,
+        const DeviceVector &availableOutputDevices,
+        AudioMix **policyMix)
+{
+    for (size_t i = 0; i < size(); i++) {
+        if (valueAt(i)->getOutput() == output) {
+            AudioMix *mix = valueAt(i)->getMix();
+            if (policyMix != nullptr)
+                *policyMix = mix;
+            // This Desc is involved in a Mix, which has the highest prio
+            audio_devices_t deviceType = mix->mDeviceType;
+            String8 address = mix->mDeviceAddress;
+            ALOGV("%s: device (0x%x, addr=%s) forced by mix",
+                  __FUNCTION__, deviceType, address.c_str());
+            return availableOutputDevices.getDevice(deviceType, address, AUDIO_FORMAT_DEFAULT);
+        }
+    }
+    return nullptr;
+}
+
 sp<DeviceDescriptor> AudioPolicyMixCollection::getDeviceAndMixForInputSource(
-        audio_source_t inputSource, const DeviceVector &availDevices, AudioMix **policyMix)
+        audio_source_t inputSource, const DeviceVector &availDevices, AudioMix **policyMix) const
 {
     for (size_t i = 0; i < size(); i++) {
         AudioMix *mix = valueAt(i)->getMix();
@@ -390,11 +411,11 @@ status_t AudioPolicyMixCollection::removeUidDeviceAffinities(uid_t uid) {
             if ((rule == RULE_EXCLUDE_UID || rule == RULE_MATCH_UID)
                     && uid == mix->mCriteria[j].mValue.mUid) {
                 foundUidRule = true;
-                criteriaToRemove.push_back(j);
+                criteriaToRemove.insert(criteriaToRemove.begin(), j);
             }
         }
         if (foundUidRule) {
-            for (size_t j = criteriaToRemove.size() - 1; j >= 0; j--) {
+            for (size_t j = 0; j < criteriaToRemove.size(); j++) {
                 mix->mCriteria.removeAt(criteriaToRemove[j]);
             }
         }

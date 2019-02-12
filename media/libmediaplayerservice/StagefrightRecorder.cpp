@@ -206,7 +206,7 @@ void StagefrightRecorder::flushAndResetMetrics(bool reinitialize) {
     }
     mAnalyticsDirty = false;
     if (reinitialize) {
-        mAnalyticsItem = new MediaAnalyticsItem(kKeyRecorder);
+        mAnalyticsItem = MediaAnalyticsItem::create(kKeyRecorder);
     }
 }
 

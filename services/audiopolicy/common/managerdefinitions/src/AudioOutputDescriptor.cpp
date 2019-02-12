@@ -44,9 +44,6 @@ AudioOutputDescriptor::AudioOutputDescriptor(const sp<AudioPort>& port,
         mMuteCount[i] = 0;
         mStopTime[i] = 0;
     }
-    for (int i = 0; i < NUM_STRATEGIES; i++) {
-        mStrategyMutedByDevice[i] = false;
-    }
     if (mPort.get() != nullptr) {
         mPort->pickAudioProfile(mSamplingRate, mChannelMask, mFormat);
         if (mPort->mGains.size() > 0) {
@@ -101,6 +98,7 @@ void AudioOutputDescriptor::changeStreamActiveCount(const sp<TrackClientDescript
         // return;
     }
     mActiveCount[stream] += delta;
+    mRoutingActivities[client->strategy()].changeActivityCount(delta);
 
     if (delta > 0) {
         mActiveClients[client] += delta;
@@ -120,6 +118,12 @@ void AudioOutputDescriptor::changeStreamActiveCount(const sp<TrackClientDescript
     }
 
     ALOGV("%s stream %d, count %d", __FUNCTION__, stream, mActiveCount[stream]);
+}
+
+void AudioOutputDescriptor::setStopTime(const sp<TrackClientDescriptor>& client, nsecs_t sysTime)
+{
+    mStopTime[client->stream()] = sysTime;
+    mRoutingActivities[client->strategy()].setStopTime(sysTime);
 }
 
 void AudioOutputDescriptor::setClientActive(const sp<TrackClientDescriptor>& client, bool active)
@@ -247,14 +251,15 @@ void AudioOutputDescriptor::toAudioPort(struct audio_port *port) const
     port->ext.mix.hw_module = getModuleHandle();
 }
 
-TrackClientVector AudioOutputDescriptor::clientsList(bool activeOnly, routing_strategy strategy,
+TrackClientVector AudioOutputDescriptor::clientsList(bool activeOnly, product_strategy_t strategy,
                                                      bool preferredDeviceOnly) const
 {
     TrackClientVector clients;
     for (const auto &client : getClientIterable()) {
         if ((!activeOnly || client->active())
-            && (strategy == STRATEGY_NONE || strategy == client->strategy())
-            && (!preferredDeviceOnly || client->hasPreferredDevice())) {
+            && (strategy == PRODUCT_STRATEGY_NONE || strategy == client->strategy())
+            && (!preferredDeviceOnly ||
+                (client->hasPreferredDevice() && !client->isPreferredDeviceForExclusiveUse()))) {
             clients.push_back(client);
         }
     }
@@ -563,6 +568,17 @@ void SwAudioOutputDescriptor::stop()
 void SwAudioOutputDescriptor::close()
 {
     if (mIoHandle != AUDIO_IO_HANDLE_NONE) {
+        // clean up active clients if any (can happen if close() is called to force
+        // clients to reconnect
+        for (const auto &client : getClientIterable()) {
+            if (client->active()) {
+                ALOGW("%s client with port ID %d still active on output %d",
+                      __func__, client->portId(), mId);
+                setClientActive(client, false);
+                stop();
+            }
+        }
+
         AudioParameter param;
         param.add(String8("closing"), String8("true"));
         mClientInterface->setParameters(mIoHandle, param.toString());
@@ -571,11 +587,6 @@ void SwAudioOutputDescriptor::close()
 
         LOG_ALWAYS_FATAL_IF(mProfile->curOpenCount < 1, "%s profile open count %u",
                             __FUNCTION__, mProfile->curOpenCount);
-        // do not call stop() here as stop() is supposed to be called after setClientActive(false)
-        // and we don't know how many streams are still active at this time
-        if (isActive()) {
-            mProfile->curActiveCount--;
-        }
         mProfile->curOpenCount--;
         mIoHandle = AUDIO_IO_HANDLE_NONE;
     }
@@ -687,6 +698,20 @@ bool SwAudioOutputCollection::isStreamActiveRemotely(audio_stream_type_t stream,
             if (outputDesc->mPolicyMix == NULL) {
                 return true;
             }
+        }
+    }
+    return false;
+}
+
+bool SwAudioOutputCollection::isStrategyActiveOnSameModule(product_strategy_t ps,
+                                                           const sp<SwAudioOutputDescriptor>& desc,
+                                                           uint32_t inPastMs, nsecs_t sysTime) const
+{
+    for (size_t i = 0; i < size(); i++) {
+        const sp<SwAudioOutputDescriptor> otherDesc = valueAt(i);
+        if (desc->sharesHwModuleWith(otherDesc) &&
+                otherDesc->isStrategyActive(ps, inPastMs, sysTime)) {
+            return true;
         }
     }
     return false;
