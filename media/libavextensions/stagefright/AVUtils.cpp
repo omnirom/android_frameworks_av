@@ -113,7 +113,7 @@ bool AVUtils::mapAACProfileToAudioFormat(const sp<AMessage> &,  audio_format_t &
     return false ;
 }
 
-bool AVUtils::canOffloadAPE(const sp<MetaData> &) {
+bool AVUtils::canOffloadStream(const sp<MetaData> &) {
    return true;
 }
 
