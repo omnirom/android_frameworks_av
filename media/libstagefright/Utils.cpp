@@ -1676,7 +1676,7 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo,
         return false;
     }
 
-    if (AVUtils::get()->canOffloadAPE(meta) != true) {
+    if (AVUtils::get()->canOffloadStream(meta) != true) {
         return false;
     }
     // Redefine aac format according to its profile
