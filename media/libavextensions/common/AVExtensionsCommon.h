@@ -33,8 +33,6 @@ namespace android {
 
 static const char * CUSTOMIZATION_LIB_NAME = "libavenhancements.so";
 
-typedef void *(*createFunction_t)(void);
-
 template <typename T>
 struct ExtensionsLoader {
 
@@ -42,7 +40,6 @@ struct ExtensionsLoader {
 
 private:
     static void loadLib();
-    static createFunction_t loadCreateFunction(const char *createFunctionName);
     static void *mLibHandle;
 };
 
