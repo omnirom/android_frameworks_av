@@ -65,6 +65,7 @@ public:
     uint32_t getFlags() const { return mFlags; }
 
     virtual void attach(const sp<HwModule>& module);
+    virtual void detach();
     bool isAttached() { return mModule != 0; }
 
     // Audio port IDs are in a different namespace than AudioFlinger unique IDs
@@ -91,10 +92,11 @@ public:
     status_t checkCompatibleAudioProfile(uint32_t &samplingRate,
                                          audio_channel_mask_t &channelMask,
                                          audio_format_t &format,
-                                         bool checkExactFormat) const
+                                         bool checkExactFormat,
+                                         bool checkExactChannelMask) const
     {
         return mProfiles.checkCompatibleProfile(samplingRate, channelMask, format, mType,
-                                                  mRole, checkExactFormat);
+                                                  mRole, checkExactFormat, checkExactChannelMask);
     }
 
     void clearAudioProfiles() { return mProfiles.clearProfiles(); }
@@ -163,7 +165,7 @@ public:
                                    const struct audio_port_config *srcConfig = NULL) const = 0;
     virtual sp<AudioPort> getAudioPort() const = 0;
     virtual bool hasSameHwModuleAs(const sp<AudioPortConfig>& other) const {
-        return (other != 0) &&
+        return (other != 0) && (other->getAudioPort() != 0) && (getAudioPort() != 0) &&
                 (other->getAudioPort()->getModuleHandle() == getAudioPort()->getModuleHandle());
     }
     unsigned int mSamplingRate = 0u;

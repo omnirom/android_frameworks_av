@@ -439,7 +439,7 @@ OMX_ERRORTYPE SoftAAC2::internalSetParameter(
 
             // for the following parameters of the OMX_AUDIO_PARAM_AACPROFILETYPE structure,
             // a value of -1 implies the parameter is not set by the application:
-            //   nMaxOutputChannels     -1 by default 
+            //   nMaxOutputChannels     -1 by default
             //   nDrcCut                uses default platform properties, see initDecoder()
             //   nDrcBoost                idem
             //   nHeavyCompression        idem
@@ -763,7 +763,7 @@ void SoftAAC2::onQueueFilled(OMX_U32 /* portIndex */) {
                 } else {
                     int64_t currentTime = mBufferTimestamps.top();
                     currentTime += mStreamInfo->aacSamplesPerFrame *
-                            1000000ll / mStreamInfo->aacSampleRate;
+                            1000000LL / mStreamInfo->aacSampleRate;
                     mBufferTimestamps.add(currentTime);
                 }
             } else {
@@ -1021,7 +1021,7 @@ void SoftAAC2::onQueueFilled(OMX_U32 /* portIndex */) {
                         // adjust/interpolate next time stamp
                         *currentBufLeft -= decodedSize;
                         *nextTimeStamp += mStreamInfo->aacSamplesPerFrame *
-                                1000000ll / mStreamInfo->aacSampleRate;
+                                1000000LL / mStreamInfo->aacSampleRate;
                          mNextOutBufferTimeUs = *nextTimeStamp;
                         ALOGV("adjusted nextTimeStamp/size to %lld/%d",
                                 (long long) *nextTimeStamp, *currentBufLeft);

@@ -423,7 +423,8 @@ void SoftMP3::onQueueFilled(OMX_U32 /* portIndex */) {
         }
 
         outHeader->nTimeStamp =
-            mAnchorTimeUs + (mNumFramesOutput * 1000000ll) / mSamplingRate;
+            mAnchorTimeUs + (mNumFramesOutput * 1000000LL) / mSamplingRate;
+
         tmpTime = outHeader->nTimeStamp;
         if (inHeader) {
             CHECK_GE((int32_t)inHeader->nFilledLen, mConfig->inputBufferUsedLength);

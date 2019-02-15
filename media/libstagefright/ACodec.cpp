@@ -569,8 +569,8 @@ ACodec::ACodec()
       mDequeueCounter(0),
       mMetadataBuffersToSubmit(0),
       mNumUndequeuedBuffers(0),
-      mRepeatFrameDelayUs(-1ll),
-      mMaxPtsGapUs(0ll),
+      mRepeatFrameDelayUs(-1LL),
+      mMaxPtsGapUs(0LL),
       mMaxFps(-1),
       mFps(-1.0),
       mCaptureFps(-1.0),
@@ -1840,15 +1840,15 @@ status_t ACodec::configureCodec(
         if (!msg->findInt64(
                     "repeat-previous-frame-after",
                     &mRepeatFrameDelayUs)) {
-            mRepeatFrameDelayUs = -1ll;
+            mRepeatFrameDelayUs = -1LL;
         }
 
         // only allow 32-bit value, since we pass it as U32 to OMX.
         if (!msg->findInt64("max-pts-gap-to-encoder", &mMaxPtsGapUs)) {
-            mMaxPtsGapUs = 0ll;
+            mMaxPtsGapUs = 0LL;
         } else if (mMaxPtsGapUs > INT32_MAX || mMaxPtsGapUs < INT32_MIN) {
             ALOGW("Unsupported value for max pts gap %lld", (long long) mMaxPtsGapUs);
-            mMaxPtsGapUs = 0ll;
+            mMaxPtsGapUs = 0LL;
         }
 
         if (!msg->findFloat("max-fps-to-encoder", &mMaxFps)) {
@@ -1856,7 +1856,7 @@ status_t ACodec::configureCodec(
         }
 
         // notify GraphicBufferSource to allow backward frames
-        if (mMaxPtsGapUs < 0ll) {
+        if (mMaxPtsGapUs < 0LL) {
             mMaxFps = -1;
         }
 
@@ -2206,7 +2206,8 @@ status_t ACodec::configureCodec(
 #else
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC)) {
 #endif
-        int32_t numChannels = 0, sampleRate = 0, compressionLevel = -1;
+        // numChannels needs to be set to properly communicate PCM values.
+        int32_t numChannels = 2, sampleRate = 44100, compressionLevel = -1;
         if (encoder &&
                 (!msg->findInt32("channel-count", &numChannels)
                         || !msg->findInt32("sample-rate", &sampleRate))) {
@@ -2232,7 +2233,7 @@ status_t ACodec::configureCodec(
                 }
             }
             err = setupFlacCodec(
-                    encoder, numChannels, sampleRate, compressionLevel);
+                    encoder, numChannels, sampleRate, compressionLevel, pcmEncoding);
         }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
         int32_t numChannels, sampleRate;
@@ -3060,8 +3061,8 @@ status_t ACodec::setupG711Codec(bool encoder, int32_t sampleRate, int32_t numCha
 }
 
 status_t ACodec::setupFlacCodec(
-        bool encoder, int32_t numChannels, int32_t sampleRate, int32_t compressionLevel) {
-
+        bool encoder, int32_t numChannels, int32_t sampleRate, int32_t compressionLevel,
+        AudioEncoding encoding) {
     if (encoder) {
         OMX_AUDIO_PARAM_FLACTYPE def;
         InitOMXParams(&def);
@@ -3084,7 +3085,8 @@ status_t ACodec::setupFlacCodec(
     return setupRawAudioFormat(
             encoder ? kPortIndexInput : kPortIndexOutput,
             sampleRate,
-            numChannels);
+            numChannels,
+            encoding);
 }
 
 status_t ACodec::setupRawAudioFormat(
@@ -3150,6 +3152,7 @@ status_t ACodec::setupRawAudioFormat(
     pcmParams.ePCMMode = OMX_AUDIO_PCMModeLinear;
 
     if (getOMXChannelMapping(numChannels, pcmParams.eChannelMapping) != OK) {
+        ALOGE("%s: incorrect numChannels: %d", __func__, numChannels);
         return OMX_ErrorNone;
     }
 
@@ -6779,7 +6782,7 @@ void ACodec::LoadedState::stateEntered() {
 
     mCodec->mDequeueCounter = 0;
     mCodec->mMetadataBuffersToSubmit = 0;
-    mCodec->mRepeatFrameDelayUs = -1ll;
+    mCodec->mRepeatFrameDelayUs = -1LL;
     mCodec->mInputFormat.clear();
     mCodec->mOutputFormat.clear();
     mCodec->mBaseOutputFormat.clear();
@@ -6921,7 +6924,7 @@ status_t ACodec::LoadedState::setupInputSurface() {
         return err;
     }
 
-    if (mCodec->mRepeatFrameDelayUs > 0ll) {
+    if (mCodec->mRepeatFrameDelayUs > 0LL) {
         err = statusFromBinderStatus(
                 mCodec->mGraphicBufferSource->setRepeatPreviousFrameDelayUs(
                         mCodec->mRepeatFrameDelayUs));
@@ -6934,7 +6937,7 @@ status_t ACodec::LoadedState::setupInputSurface() {
         }
     }
 
-    if (mCodec->mMaxPtsGapUs != 0ll) {
+    if (mCodec->mMaxPtsGapUs != 0LL) {
         OMX_PARAM_U32TYPE maxPtsGapParams;
         InitOMXParams(&maxPtsGapParams);
         maxPtsGapParams.nPortIndex = kPortIndexInput;
@@ -8787,14 +8790,17 @@ status_t ACodec::queryCapabilities(
         if (omxNode->configureVideoTunnelMode(
                 kPortIndexOutput, OMX_TRUE, 0, &sidebandHandle) == OK) {
             // tunneled playback includes adaptive playback
-            caps->addFlags(MediaCodecInfo::Capabilities::kFlagSupportsAdaptivePlayback
-                    | MediaCodecInfo::Capabilities::kFlagSupportsTunneledPlayback);
-        } else if (omxNode->setPortMode(
-                kPortIndexOutput, IOMX::kPortModeDynamicANWBuffer) == OK ||
-                omxNode->prepareForAdaptivePlayback(
-                kPortIndexOutput, OMX_TRUE,
-                1280 /* width */, 720 /* height */) == OK) {
-            caps->addFlags(MediaCodecInfo::Capabilities::kFlagSupportsAdaptivePlayback);
+        } else {
+            // tunneled playback is not supported
+            caps->removeDetail(MediaCodecInfo::Capabilities::FEATURE_TUNNELED_PLAYBACK);
+            if (omxNode->setPortMode(
+                    kPortIndexOutput, IOMX::kPortModeDynamicANWBuffer) != OK &&
+                    omxNode->prepareForAdaptivePlayback(
+                        kPortIndexOutput, OMX_TRUE,
+                        1280 /* width */, 720 /* height */) != OK) {
+                // adaptive playback is not supported
+                caps->removeDetail(MediaCodecInfo::Capabilities::FEATURE_ADAPTIVE_PLAYBACK);
+            }
         }
     }
 
@@ -8802,11 +8808,20 @@ status_t ACodec::queryCapabilities(
         OMX_VIDEO_CONFIG_ANDROID_INTRAREFRESHTYPE params;
         InitOMXParams(&params);
         params.nPortIndex = kPortIndexOutput;
-        // TODO: should we verify if fallback is supported?
+
+        OMX_VIDEO_PARAM_INTRAREFRESHTYPE fallbackParams;
+        InitOMXParams(&fallbackParams);
+        fallbackParams.nPortIndex = kPortIndexOutput;
+        fallbackParams.eRefreshMode = OMX_VIDEO_IntraRefreshCyclic;
+
         if (omxNode->getConfig(
                 (OMX_INDEXTYPE)OMX_IndexConfigAndroidIntraRefresh,
-                &params, sizeof(params)) == OK) {
-            caps->addFlags(MediaCodecInfo::Capabilities::kFlagSupportsIntraRefresh);
+                &params, sizeof(params)) != OK &&
+                omxNode->getParameter(
+                    OMX_IndexParamVideoIntraRefresh, &fallbackParams,
+                    sizeof(fallbackParams)) != OK) {
+            // intra refresh is not supported
+            caps->removeDetail(MediaCodecInfo::Capabilities::FEATURE_INTRA_REFRESH);
         }
     }
 
