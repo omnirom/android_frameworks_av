@@ -485,6 +485,10 @@ protected:
                 audio_devices_t         mPrevOutDevice;   // previous output device
                 audio_devices_t         mPrevInDevice;    // previous input device
                 struct audio_patch      mPatch;
+                /**
+                 * @brief mDeviceId  current device port unique identifier
+                 */
+                audio_port_handle_t     mDeviceId = AUDIO_PORT_HANDLE_NONE;
                 audio_source_t          mAudioSource;
 
                 const audio_io_handle_t mId;
@@ -1548,6 +1552,9 @@ public:
 
             status_t    getActiveMicrophones(std::vector<media::MicrophoneInfo>* activeMicrophones);
 
+            status_t    setMicrophoneDirection(audio_microphone_direction_t direction);
+            status_t    setMicrophoneFieldDimension(float zoom);
+
             void        updateMetadata_l() override;
 
             bool        fastTrackAvailable() const { return mFastTrackAvail; }
@@ -1711,7 +1718,6 @@ class MmapThread : public ThreadBase
 
                 audio_attributes_t      mAttr;
                 audio_session_t         mSessionId;
-                audio_port_handle_t     mDeviceId;
                 audio_port_handle_t     mPortId;
 
                 wp<MmapStreamCallback>  mCallback;

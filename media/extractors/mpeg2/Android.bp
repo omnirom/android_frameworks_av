@@ -30,9 +30,8 @@ cc_library_shared {
 
     static_libs: [
         "libcrypto",
-        "libstagefright_foundation",
+        "libstagefright_foundation_without_imemory",
         "libstagefright_mpeg2support",
-        "libmediaextractor",
         "libutils",
         "libstagefright_esds",
     ],

@@ -76,6 +76,21 @@ static inline bool device_distinguishes_on_address(audio_devices_t device)
 }
 
 /**
+ * Check whether audio device has encoding capability.
+ *
+ * @param[in] device to consider
+ *
+ * @return true if device has encoding capability, false otherwise..
+ */
+static inline bool device_has_encoding_capability(audio_devices_t device)
+{
+    if (device & AUDIO_DEVICE_OUT_ALL_A2DP) {
+        return true;
+    }
+    return false;
+}
+
+/**
  * Returns the priority of a given audio source for capture. The priority is used when more than one
  * capture session is active on a given input stream to determine which session drives routing and
  * effect configuration.
@@ -83,7 +98,10 @@ static inline bool device_distinguishes_on_address(audio_devices_t device)
  * @param[in] inputSource to consider. Valid sources are:
  * - AUDIO_SOURCE_VOICE_COMMUNICATION
  * - AUDIO_SOURCE_CAMCORDER
+ * - AUDIO_SOURCE_VOICE_PERFORMANCE
+ * - AUDIO_SOURCE_UNPROCESSED
  * - AUDIO_SOURCE_MIC
+ * - AUDIO_SOURCE_ECHO_REFERENCE
  * - AUDIO_SOURCE_FM_TUNER
  * - AUDIO_SOURCE_VOICE_RECOGNITION
  * - AUDIO_SOURCE_HOTWORD
@@ -96,10 +114,16 @@ static inline int32_t source_priority(audio_source_t inputSource)
 {
     switch (inputSource) {
     case AUDIO_SOURCE_VOICE_COMMUNICATION:
-        return 6;
+        return 9;
     case AUDIO_SOURCE_CAMCORDER:
-        return 5;
+        return 8;
+    case AUDIO_SOURCE_VOICE_PERFORMANCE:
+        return 7;
+    case AUDIO_SOURCE_UNPROCESSED:
+        return 6;
     case AUDIO_SOURCE_MIC:
+        return 5;
+    case AUDIO_SOURCE_ECHO_REFERENCE:
         return 4;
     case AUDIO_SOURCE_FM_TUNER:
         return 3;
