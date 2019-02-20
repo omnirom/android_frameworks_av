@@ -48,9 +48,20 @@ template <typename T>
 T *ExtensionsLoader<T>::createInstance(const char *createFunctionName) {
         ALOGV("createInstance(%lubit) : %s", (unsigned long)sizeof(intptr_t)*8, createFunctionName);
         // create extended object if extensions-lib is available
-        createFunction_t createFunc = loadCreateFunction(createFunctionName);
+        using CreateFunc_t = T*(*)(void);
+
+        CreateFunc_t createFunc = nullptr;
+
+        loadLib();
+        if (mLibHandle) {
+            createFunc = (CreateFunc_t)::dlsym(mLibHandle, createFunctionName);
+            if (!createFunc) {
+                ALOGW("symbol %s not found:  %s",createFunctionName, dlerror());
+            }
+        }
+
         if (createFunc) {
-            return reinterpret_cast<T *>((*createFunc)());
+            return (*createFunc)();
         }
         // Else, create the default object
         return new T;
@@ -66,19 +77,6 @@ void ExtensionsLoader<T>::loadLib() {
             }
             ALOGV("Opened %s", CUSTOMIZATION_LIB_NAME);
         }
-}
-
-template <typename T>
-createFunction_t ExtensionsLoader<T>::loadCreateFunction(const char *createFunctionName) {
-        loadLib();
-        if (!mLibHandle) {
-            return NULL;
-        }
-        createFunction_t func = (createFunction_t)dlsym(mLibHandle, createFunctionName);
-        if (!func) {
-            ALOGW("symbol %s not found:  %s",createFunctionName, dlerror());
-        }
-        return func;
 }
 
 //static
