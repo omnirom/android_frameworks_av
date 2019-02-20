@@ -28,9 +28,8 @@
 #include <camera/CameraBase.h>
 #include <utils/Errors.h>
 #include <android/hardware/camera/common/1.0/types.h>
-#include <android/hardware/camera/provider/2.4/ICameraProvider.h>
+#include <android/hardware/camera/provider/2.5/ICameraProvider.h>
 #include <android/hardware/camera/device/3.4/ICameraDeviceSession.h>
-//#include <android/hardware/camera/provider/2.4/ICameraProviderCallbacks.h>
 #include <android/hidl/manager/1.0/IServiceNotification.h>
 #include <camera/VendorTagDescriptor.h>
 
@@ -206,6 +205,12 @@ public:
     status_t setUpVendorTags();
 
     /**
+     * Inform registered providers about a device state change, such as folding or unfolding
+     */
+    status_t notifyDeviceStateChange(
+        android::hardware::hidl_bitfield<hardware::camera::provider::V2_5::DeviceState> newState);
+
+    /**
      * Open an active session to a camera device.
      *
      * This fully powers on the camera device hardware, and returns a handle to a
@@ -264,6 +269,7 @@ public:
      */
     bool isLogicalCamera(const std::string& id, std::vector<std::string>* physicalCameraIds);
 
+    bool isPublicallyHiddenSecureCamera(const std::string& id);
     bool isHiddenPhysicalCamera(const std::string& cameraId);
 
     static const float kDepthARTolerance;
@@ -275,6 +281,9 @@ private:
     mutable std::mutex mStatusListenerMutex;
     wp<StatusListener> mListener;
     ServiceInteractionProxy* mServiceProxy;
+
+    // Current overall Android device physical status
+    android::hardware::hidl_bitfield<hardware::camera::provider::V2_5::DeviceState> mDeviceState;
 
     // mProviderLifecycleLock is locked during onRegistration and removeProvider
     mutable std::mutex mProviderLifecycleLock;
@@ -302,9 +311,13 @@ private:
     {
         const std::string mProviderName;
         const metadata_vendor_id_t mProviderTagid;
+        int mMinorVersion;
         sp<VendorTagDescriptor> mVendorTagDescriptor;
         bool mSetTorchModeSupported;
         bool mIsRemote;
+
+        // Current overall Android device physical status
+        hardware::hidl_bitfield<hardware::camera::provider::V2_5::DeviceState> mDeviceState;
 
         // This pointer is used to keep a reference to the ICameraProvider that was last accessed.
         wp<hardware::camera::provider::V2_4::ICameraProvider> mActiveInterface;
@@ -315,7 +328,9 @@ private:
                 CameraProviderManager *manager);
         ~ProviderInfo();
 
-        status_t initialize(sp<hardware::camera::provider::V2_4::ICameraProvider>& interface);
+        status_t initialize(sp<hardware::camera::provider::V2_4::ICameraProvider>& interface,
+                hardware::hidl_bitfield<hardware::camera::provider::V2_5::DeviceState>
+                    currentDeviceState);
 
         const sp<hardware::camera::provider::V2_4::ICameraProvider> startProviderInterface();
 
@@ -344,6 +359,13 @@ private:
          */
         status_t setUpVendorTags();
 
+        /**
+         * Notify provider about top-level device physical state changes
+         */
+        status_t notifyDeviceStateChange(
+                hardware::hidl_bitfield<hardware::camera::provider::V2_5::DeviceState>
+                    newDeviceState);
+
         // Basic device information, common to all camera devices
         struct DeviceInfo {
             const std::string mName;  // Full instance name
@@ -354,6 +376,7 @@ private:
             std::vector<std::string> mPhysicalIds;
             hardware::CameraInfo mInfo;
             sp<IBase> mSavedInterface;
+            bool mIsPublicallyHiddenSecureCamera = false;
 
             const hardware::camera::common::V1_0::CameraResourceCost mResourceCost;
 
@@ -471,6 +494,7 @@ private:
             CameraMetadata mCameraCharacteristics;
             std::unordered_map<std::string, CameraMetadata> mPhysicalCameraCharacteristics;
             void queryPhysicalCameraIds();
+            bool isPublicallyHiddenSecureCamera();
             status_t fixupMonochromeTags();
             status_t addDynamicDepthTags();
             static void getSupportedSizes(const CameraMetadata& ch, uint32_t tag,
@@ -491,6 +515,12 @@ private:
                     std::vector<std::tuple<size_t, size_t>> *internalDepthSizes /*out*/);
             status_t removeAvailableKeys(CameraMetadata& c, const std::vector<uint32_t>& keys,
                     uint32_t keyTag);
+            status_t fillHeicStreamCombinations(std::vector<int32_t>* outputs,
+                    std::vector<int64_t>* durations,
+                    std::vector<int64_t>* stallDurations,
+                    const camera_metadata_entry& halStreamConfigs,
+                    const camera_metadata_entry& halStreamDurations);
+            status_t deriveHeicTags();
         };
 
     private:

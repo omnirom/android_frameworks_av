@@ -176,7 +176,8 @@ status_t AudioPolicyService::getOutputForAttr(const audio_attributes_t *attr,
                                               const audio_config_t *config,
                                               audio_output_flags_t flags,
                                               audio_port_handle_t *selectedDeviceId,
-                                              audio_port_handle_t *portId)
+                                              audio_port_handle_t *portId,
+                                              std::vector<audio_io_handle_t> *secondaryOutputs)
 {
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
@@ -194,7 +195,8 @@ status_t AudioPolicyService::getOutputForAttr(const audio_attributes_t *attr,
     AutoCallerClear acc;
     status_t result = mAudioPolicyManager->getOutputForAttr(attr, output, session, stream, uid,
                                                  config,
-                                                 &flags, selectedDeviceId, portId);
+                                                 &flags, selectedDeviceId, portId,
+                                                 secondaryOutputs);
 
     // FIXME: Introduce a way to check for the the telephony device before opening the output
     if ((result == NO_ERROR) &&
@@ -206,9 +208,10 @@ status_t AudioPolicyService::getOutputForAttr(const audio_attributes_t *attr,
         flags = originalFlags;
         *selectedDeviceId = AUDIO_PORT_HANDLE_NONE;
         *portId = AUDIO_PORT_HANDLE_NONE;
-        result = mAudioPolicyManager->getOutputForAttr(attr, output, session, stream, uid,
-                                                 config,
-                                                 &flags, selectedDeviceId, portId);
+        secondaryOutputs->clear();
+        result = mAudioPolicyManager->getOutputForAttr(attr, output, session, stream, uid, config,
+                                                       &flags, selectedDeviceId, portId,
+                                                       secondaryOutputs);
     }
 
     if (result == NO_ERROR) {
