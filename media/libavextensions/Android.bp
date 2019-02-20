@@ -23,6 +23,9 @@ cc_library_static {
         "-Wno-multichar",
         "-Werror",
     ],
+    sanitize: {
+        cfi: true,
+    },
 }
 
 cc_library_static {
@@ -66,6 +69,9 @@ cc_library_static {
         "-Wno-multichar",
         "-Werror",
     ],
+    sanitize: {
+        cfi: true,
+    },
 }
 
 cc_library_static {
@@ -104,4 +110,7 @@ cc_library_static {
         "-Wno-multichar",
         "-Werror",
     ],
+    sanitize: {
+        cfi: true,
+    },
 }

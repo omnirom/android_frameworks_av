@@ -66,9 +66,8 @@ public:
     virtual void signalRequestIDRFrame() override;
 
     void initiateReleaseIfStuck();
-    void onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems,
-                    size_t numDiscardedInputBuffers);
-    void onInputBufferDone(const std::shared_ptr<C2Buffer>& buffer);
+    void onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems);
+    void onInputBufferDone(uint64_t frameIndex, size_t arrayIndex);
 
 protected:
     virtual ~CCodec();
@@ -76,7 +75,7 @@ protected:
     virtual void onMessageReceived(const sp<AMessage> &msg) override;
 
 private:
-    typedef std::chrono::time_point<std::chrono::steady_clock> TimePoint;
+    typedef std::chrono::steady_clock::time_point TimePoint;
 
     status_t tryAndReportOnError(std::function<status_t()> job);
 
@@ -90,6 +89,16 @@ private:
     void flush();
     void release(bool sendCallback);
 
+    /**
+     * Creates an input surface for the current device configuration compatible with CCodec.
+     * This could be backed by the C2 HAL or the OMX HAL.
+     */
+    static sp<PersistentSurface> CreateCompatibleInputSurface();
+
+    /// Creates an input surface to the OMX HAL
+    static sp<PersistentSurface> CreateOmxInputSurface();
+
+    /// handle a create input surface call
     void createInputSurface();
     void setInputSurface(const sp<PersistentSurface> &surface);
     status_t setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &surface);
@@ -99,9 +108,6 @@ private:
             const TimePoint &now,
             const std::chrono::milliseconds &timeout,
             const char *name);
-
-    void onWorkQueued(bool eos);
-    void subQueuedWorkCount(uint32_t count);
 
     enum {
         kWhatAllocate,
@@ -167,13 +173,9 @@ private:
     struct ClientListener;
 
     Mutexed<NamedTimePoint> mDeadline;
-    std::atomic_int32_t mQueuedWorkCount;
-    Mutexed<NamedTimePoint> mQueueDeadline;
-    Mutexed<NamedTimePoint> mEosDeadline;
     typedef CCodecConfig Config;
     Mutexed<Config> mConfig;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;
-    Mutexed<std::list<size_t>> mNumDiscardedInputBuffersQueue;
 
     friend class CCodecCallbackImpl;
 
