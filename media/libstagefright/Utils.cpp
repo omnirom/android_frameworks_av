@@ -1189,6 +1189,16 @@ status_t convertMetaDataToMessage(
         }
 
         parseHevcProfileLevelFromHvcc((const uint8_t *)data, dataSize, msg);
+    } else if (meta->findData(kKeyAV1C, &type, &data, &size)) {
+        sp<ABuffer> buffer = new (std::nothrow) ABuffer(size);
+        if (buffer.get() == NULL || buffer->base() == NULL) {
+            return NO_MEMORY;
+        }
+        memcpy(buffer->data(), data, size);
+
+        buffer->meta()->setInt32("csd", true);
+        buffer->meta()->setInt64("timeUs", 0);
+        msg->setBuffer("csd-0", buffer);
     } else if (meta->findData(kKeyESDS, &type, &data, &size)) {
         ESDS esds((const char *)data, size);
         if (esds.InitCheck() != (status_t)OK) {
@@ -1696,6 +1706,11 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
             meta->setInt32(kKeyIsADTS, isADTS);
         }
 
+        int32_t aacProfile = -1;
+        if (msg->findInt32("aac-profile", &aacProfile)) {
+            meta->setInt32(kKeyAACAOT, aacProfile);
+        }
+
         int32_t pcmEncoding;
         if (msg->findInt32("pcm-encoding", &pcmEncoding)) {
             meta->setInt32(kKeyPcmEncoding, pcmEncoding);
@@ -1761,6 +1776,8 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
             std::vector<uint8_t> hvcc(csd0size + 1024);
             size_t outsize = reassembleHVCC(csd0, hvcc.data(), hvcc.size(), 4);
             meta->setData(kKeyHVCC, kTypeHVCC, hvcc.data(), outsize);
+        } else if (mime == MEDIA_MIMETYPE_VIDEO_AV1) {
+            meta->setData(kKeyAV1C, 0, csd0->data(), csd0->size());
         } else if (mime == MEDIA_MIMETYPE_VIDEO_VP9) {
             meta->setData(kKeyVp9CodecPrivate, 0, csd0->data(), csd0->size());
         } else if (mime == MEDIA_MIMETYPE_AUDIO_OPUS) {

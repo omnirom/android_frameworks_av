@@ -2236,7 +2236,29 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             *offset += chunk_size;
             break;
         }
+        case FOURCC("av1C"):
+        {
+            auto buffer = heapbuffer<uint8_t>(chunk_data_size);
 
+            if (buffer.get() == NULL) {
+                ALOGE("b/28471206");
+                return NO_MEMORY;
+            }
+
+            if (mDataSource->readAt(
+                        data_offset, buffer.get(), chunk_data_size) < chunk_data_size) {
+                return ERROR_IO;
+            }
+
+            if (mLastTrack == NULL)
+                return ERROR_MALFORMED;
+
+            AMediaFormat_setBuffer(mLastTrack->meta,
+                   AMEDIAFORMAT_KEY_CSD_0, buffer.get(), chunk_data_size);
+
+            *offset += chunk_size;
+            break;
+        }
         case FOURCC("d263"):
         {
             *offset += chunk_size;
@@ -2663,19 +2685,40 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC("ac-3"):
         {
             *offset += chunk_size;
-            return parseAC3SpecificBox(data_offset);
+            // bypass ac-3 if parse fail
+            if (parseAC3SpecificBox(data_offset) != OK) {
+                if (mLastTrack != NULL) {
+                    ALOGW("Fail to parse ac-3");
+                    mLastTrack->skipTrack = true;
+                }
+            }
+            return OK;
         }
 
         case FOURCC("ec-3"):
         {
             *offset += chunk_size;
-            return parseEAC3SpecificBox(data_offset);
+            // bypass ec-3 if parse fail
+            if (parseEAC3SpecificBox(data_offset) != OK) {
+                if (mLastTrack != NULL) {
+                    ALOGW("Fail to parse ec-3");
+                    mLastTrack->skipTrack = true;
+                }
+            }
+            return OK;
         }
 
         case FOURCC("ac-4"):
         {
             *offset += chunk_size;
-            return parseAC4SpecificBox(data_offset);
+            // bypass ac-4 if parse fail
+            if (parseAC4SpecificBox(data_offset) != OK) {
+                if (mLastTrack != NULL) {
+                    ALOGW("Fail to parse ac-4");
+                    mLastTrack->skipTrack = true;
+                }
+            }
+            return OK;
         }
 
         case FOURCC("ftyp"):
@@ -3972,6 +4015,18 @@ MediaTrackHelper *MPEG4Extractor::getTrack(size_t index) {
         if (!strcasecmp(mime, MEDIA_MIMETYPE_IMAGE_ANDROID_HEIC)) {
             itemTable = mItemTable;
         }
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AV1)) {
+        void *data;
+        size_t size;
+        if (!AMediaFormat_getBuffer(track->meta, AMEDIAFORMAT_KEY_CSD_0, &data, &size)) {
+            return NULL;
+        }
+
+        const uint8_t *ptr = (const uint8_t *)data;
+
+        if (size < 5 || ptr[0] != 0x81) {  // configurationVersion == 1
+            return NULL;
+        }
     }
 
     if (track->has_elst and !strncasecmp("video/", mime, 6) and track->elst_media_time > 0) {
@@ -4003,6 +4058,10 @@ status_t MPEG4Extractor::verifyTrack(Track *track) {
         }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC)) {
         if (!AMediaFormat_getBuffer(track->meta, AMEDIAFORMAT_KEY_CSD_HEVC, &data, &size)) {
+            return ERROR_MALFORMED;
+        }
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AV1)) {
+        if (!AMediaFormat_getBuffer(track->meta, AMEDIAFORMAT_KEY_CSD_0, &data, &size)) {
             return ERROR_MALFORMED;
         }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_MPEG4)
@@ -5621,10 +5680,10 @@ media_status_t MPEG4Source::read(
             }
 
             if (isMalFormed) {
-                ALOGE("Video is malformed");
-                mBuffer->release();
-                mBuffer = NULL;
-                return AMEDIA_ERROR_MALFORMED;
+                //if nallength abnormal,ignore it.
+                ALOGW("abnormal nallength, ignore this NAL");
+                srcOffset = size;
+                break;
             }
 
             if (nalLength == 0) {
