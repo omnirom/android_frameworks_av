@@ -67,6 +67,9 @@ public:
         return mName;
     }
     virtual sp<DecryptHandle> DrmInitialization(const char *mime) {
+        if (mSource == nullptr) {
+            return nullptr;
+        }
         return mSource->DrmInitialization(mime);
     }
 
