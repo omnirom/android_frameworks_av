@@ -26,12 +26,10 @@
 
 using namespace android;
 
-// TODO: replace policy with software codec-only policies
-// Must match location in Android.mk.
 static const char kSystemSeccompPolicyPath[] =
-        "/system/etc/seccomp_policy/mediacodec.policy";
+        "/system/etc/seccomp_policy/mediaswcodec.policy";
 static const char kVendorSeccompPolicyPath[] =
-        "/vendor/etc/seccomp_policy/mediacodec.policy";
+        "/vendor/etc/seccomp_policy/mediaswcodec.policy";
 
 // Disable Scudo's mismatch allocation check, as it is being triggered
 // by some third party code.
@@ -47,8 +45,11 @@ int main(int argc __unused, char** /*argv*/)
 
     ::android::hardware::configureRpcThreadpool(64, false);
 
-    // codec libs are currently 32-bit only
+#ifdef __LP64__
+    loadFromApex("/apex/com.android.media.swcodec/lib64");
+#else
     loadFromApex("/apex/com.android.media.swcodec/lib");
+#endif
 
     ::android::hardware::joinRpcThreadpool();
 }

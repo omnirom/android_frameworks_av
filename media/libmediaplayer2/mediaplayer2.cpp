@@ -21,7 +21,6 @@
 #include <android/binder_ibinder.h>
 #include <media/AudioSystem.h>
 #include <media/DataSourceDesc.h>
-#include <media/MediaAnalyticsItem.h>
 #include <media/MemoryLeakTrackUtil.h>
 #include <media/NdkWrapper.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -979,6 +978,22 @@ status_t MediaPlayer2::getParameter(int key, Parcel *reply) {
     return status;
 }
 
+// for mediametrics
+status_t MediaPlayer2::getMetrics(char **buffer, size_t *length) {
+    ALOGD("MediaPlayer2::getMetrics()");
+    Mutex::Autolock _l(mLock);
+    if (mPlayer == NULL) {
+        ALOGV("getMetrics: no active player");
+        return INVALID_OPERATION;
+    }
+
+    status_t status =  mPlayer->getMetrics(buffer, length);
+    if (status != OK) {
+        ALOGD("getMetrics returns %d", status);
+    }
+    return status;
+}
+
 void MediaPlayer2::notify(int64_t srcId, int msg, int ext1, int ext2, const PlayerMessage *obj) {
     ALOGV("message received srcId=%lld, msg=%d, ext1=%d, ext2=%d",
           (long long)srcId, msg, ext1, ext2);
@@ -1109,8 +1124,10 @@ status_t MediaPlayer2::prepareDrm(
     // completed) so the state change to "prepared" might not have happened yet (e.g., buffering).
     // Still, we can allow prepareDrm for the use case of being called in OnDrmInfoListener.
     if (!(mCurrentState & (MEDIA_PLAYER2_PREPARING | MEDIA_PLAYER2_PREPARED))) {
-        ALOGE("prepareDrm is called in the wrong state (%d).", mCurrentState);
-        return INVALID_OPERATION;
+        ALOGW("prepareDrm(%lld) called in non-prepare state(%d)", (long long)srcId, mCurrentState);
+        if (srcId == mSrcId) {
+            return INVALID_OPERATION;
+        }
     }
 
     if (drmSessionId.isEmpty()) {

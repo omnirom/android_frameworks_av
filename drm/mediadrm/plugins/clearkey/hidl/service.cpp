@@ -13,13 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define LOG_TAG "android.hardware.drm@1.2-service.clearkey"
-
 #include <CryptoFactory.h>
 #include <DrmFactory.h>
 
 #include <android-base/logging.h>
 #include <binder/ProcessState.h>
+#include <hidl/HidlLazyUtils.h>
 #include <hidl/HidlTransportSupport.h>
 
 using ::android::hardware::configureRpcThreadpool;
@@ -31,14 +30,7 @@ using android::hardware::drm::V1_2::IDrmFactory;
 using android::hardware::drm::V1_2::clearkey::CryptoFactory;
 using android::hardware::drm::V1_2::clearkey::DrmFactory;
 
-
 int main(int /* argc */, char** /* argv */) {
-    ALOGD("android.hardware.drm@1.2-service.clearkey starting...");
-
-    // The DRM HAL may communicate to other vendor components via
-    // /dev/vndbinder
-    android::ProcessState::initWithDriver("/dev/vndbinder");
-
     sp<IDrmFactory> drmFactory = new DrmFactory;
     sp<ICryptoFactory> cryptoFactory = new CryptoFactory;
 

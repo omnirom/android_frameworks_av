@@ -64,6 +64,7 @@ cc_defaults {
         "MediaKeys.cpp",
         "MetaData.cpp",
         "MetaDataBase.cpp",
+        "OpusHeader.cpp",
         "avc_utils.cpp",
         "base64.cpp",
         "hexdump.cpp",
