@@ -25,7 +25,7 @@
 #include <media/MediaAnalyticsItem.h>
 #include <media/Modulo.h>
 #include <utils/threads.h>
-
+#include <media/TypeConverter.h>
 namespace android {
 
 // ----------------------------------------------------------------------------

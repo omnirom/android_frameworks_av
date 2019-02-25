@@ -28,6 +28,16 @@
 #include <media/AudioParameter.h>
 #include "convert.h"
 
+#ifndef AUDIO_FORMAT_AAC_LATM
+#define AUDIO_FORMAT_AAC_LATM (audio_format_t)0x80000000UL
+#define AUDIO_FORMAT_AAC_LATM_LC (audio_format_t)(AUDIO_FORMAT_AAC_LATM |\
+                                      AUDIO_FORMAT_AAC_SUB_LC)
+#define AUDIO_FORMAT_AAC_LATM_HE_V1 (audio_format_t)(AUDIO_FORMAT_AAC_LATM |\
+                                      AUDIO_FORMAT_AAC_SUB_HE_V1)
+#define AUDIO_FORMAT_AAC_LATM_HE_V2 (audio_format_t)(AUDIO_FORMAT_AAC_LATM |\
+                                      AUDIO_FORMAT_AAC_SUB_HE_V2)
+#endif
+
 namespace android {
 
 struct SampleRateTraits

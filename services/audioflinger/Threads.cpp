@@ -2480,8 +2480,10 @@ void AudioFlinger::PlaybackThread::readOutputParameters_l()
     // Get format from the shim, which will be different than the HAL format
     // if playing compressed audio over HDMI passthrough.
     mFormat = mOutput->getFormat();
-    if (!audio_is_valid_format(mFormat)) {
-        LOG_ALWAYS_FATAL("HAL format %#x not valid for output", mFormat);
+    if ((!audio_is_valid_format(mFormat)) &&
+        ((property_get_bool("audio.aptx.aac_latm.decoder.enabled", false)) &&
+        (!(mFormat == AUDIO_FORMAT_AAC_LATM_LC || mFormat == AUDIO_FORMAT_APTX)))) {
+            LOG_ALWAYS_FATAL("HAL format %#x not valid for output", mFormat);
     }
     if ((mType == MIXER || mType == DUPLICATING)
             && !isValidPcmSinkFormat(mFormat)) {
