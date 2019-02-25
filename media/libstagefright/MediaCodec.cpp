@@ -551,7 +551,7 @@ MediaCodec::~MediaCodec() {
 
 void MediaCodec::initAnalyticsItem() {
     if (mAnalyticsItem == NULL) {
-        mAnalyticsItem = new MediaAnalyticsItem(kCodecKeyName);
+        mAnalyticsItem = MediaAnalyticsItem::create(kCodecKeyName);
     }
 
     mLatencyHist.setup(kLatencyHistBuckets, kLatencyHistWidth, kLatencyHistFloor);
@@ -2092,6 +2092,10 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
                 case kWhatStartCompleted:
                 {
+                    if (mState == RELEASING) {
+                        ALOGW("start interrupted by error, current state %d", mState);
+                        break;
+                    }
                     CHECK_EQ(mState, STARTING);
                     if (mIsVideo) {
                         addResource(

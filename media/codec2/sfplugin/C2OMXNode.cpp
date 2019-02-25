@@ -226,7 +226,7 @@ status_t C2OMXNode::emptyBuffer(
             && omxBuf.mGraphicBuffer != nullptr) {
         std::shared_ptr<C2GraphicAllocation> alloc;
         handle = WrapNativeCodec2GrallocHandle(
-                native_handle_clone(omxBuf.mGraphicBuffer->handle),
+                omxBuf.mGraphicBuffer->handle,
                 omxBuf.mGraphicBuffer->width,
                 omxBuf.mGraphicBuffer->height,
                 omxBuf.mGraphicBuffer->format,

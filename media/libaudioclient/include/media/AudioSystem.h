@@ -20,6 +20,7 @@
 #include <sys/types.h>
 
 #include <media/AudioPolicy.h>
+#include <media/AudioProductStrategy.h>
 #include <media/AudioIoDescriptor.h>
 #include <media/IAudioFlingerClient.h>
 #include <media/IAudioPolicyServiceClient.h>
@@ -339,6 +340,9 @@ public:
     static status_t setMasterMono(bool mono);
     static status_t getMasterMono(bool *mono);
 
+    static status_t setMasterBalance(float balance);
+    static status_t getMasterBalance(float *balance);
+
     static float    getStreamVolumeDB(
             audio_stream_type_t stream, int index, audio_devices_t device);
 
@@ -360,6 +364,12 @@ public:
     static status_t setA11yServicesUids(const std::vector<uid_t>& uids);
 
     static bool     isHapticPlaybackSupported();
+
+    static status_t listAudioProductStrategies(AudioProductStrategyVector &strategies);
+    static product_strategy_t getProductStrategyFromAudioAttributes(const AudioAttributes &aa);
+
+    static audio_attributes_t streamTypeToAttributes(audio_stream_type_t stream);
+    static audio_stream_type_t attributesToStreamType(const audio_attributes_t &attr);
 
     // ----------------------------------------------------------------------------
 
