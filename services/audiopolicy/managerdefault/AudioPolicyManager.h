@@ -774,7 +774,7 @@ protected:
                 bool *isRequestedDeviceForExclusiveUse,
                 std::vector<sp<SwAudioOutputDescriptor>> *secondaryDescs);
         // internal method to return the output handle for the given device and format
-        audio_io_handle_t getOutputForDevices(
+        virtual audio_io_handle_t getOutputForDevices(
                 const DeviceVector &devices,
                 audio_session_t session,
                 audio_stream_type_t stream,
@@ -808,7 +808,7 @@ protected:
         bool     isValidAttributes(const audio_attributes_t *paa);
 
         // Called by setDeviceConnectionState().
-        status_t setDeviceConnectionStateInt(audio_devices_t deviceType,
+        virtual status_t setDeviceConnectionStateInt(audio_devices_t deviceType,
                                              audio_policy_dev_state_t state,
                                              const char *device_address,
                                              const char *device_name,
