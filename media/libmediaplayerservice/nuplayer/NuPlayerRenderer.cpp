@@ -1439,6 +1439,19 @@ void NuPlayer::Renderer::notifyEOS_l(bool audio, status_t finalResult, int64_t d
             if (mNextVideoTimeMediaUs > mediaUs) {
                 mMediaClock->updateMaxTimeMedia(mNextVideoTimeMediaUs);
             }
+
+            // calculated media time is smaller than current video actual media time, current
+            // kWhatDrainVideoQueue message in MediaClock will be post with delay (in some
+            // corner case such as seeking to end of specific clip that audio duration is very
+            // short than video duration, the delay will be very large), then will see playback
+            // stuck. Need to post kWhatDrainVideoQueue immediately and let video update anchor
+            // time to avoid such stuck.
+            if (mediaUs < mNextVideoTimeMediaUs - 100000 /* current video buffer media time*/) {
+                mNeedVideoClearAnchor = true;
+                sp<AMessage> msg = new AMessage(kWhatDrainVideoQueue, this);
+                msg->setInt32("drainGeneration", mVideoDrainGeneration);
+                msg->post();
+            }
         }
     }
 }
