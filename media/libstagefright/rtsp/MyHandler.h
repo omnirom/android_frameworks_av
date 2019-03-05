@@ -350,8 +350,7 @@ struct MyHandler : public AHandler {
 
             struct hostent *ent = gethostbyname(mSessionHost.c_str());
             if (ent == NULL) {
-                ALOGE("Failed to look up address of session host '%s'",
-                     mSessionHost.c_str());
+                ALOGE("Failed to look up address of session host");
 
                 return false;
             }
@@ -536,7 +535,7 @@ struct MyHandler : public AHandler {
                             mSessionURL.append(AStringPrintf("%u", port));
                             mSessionURL.append(path);
 
-                            ALOGI("rewritten session url: '%s'", mSessionURL.c_str());
+                            ALOGV("rewritten session url: '%s'", mSessionURL.c_str());
                         }
 
                         sp<AMessage> reply = new AMessage('conn', this);

@@ -67,35 +67,6 @@ Engine::Engine()
     }
 }
 
-status_t Engine::setPhoneState(audio_mode_t state)
-{
-    ALOGV("setPhoneState() state %d", state);
-
-    if (state < 0 || state >= AUDIO_MODE_CNT) {
-        ALOGW("setPhoneState() invalid state %d", state);
-        return BAD_VALUE;
-    }
-
-    if (state == getPhoneState()) {
-        ALOGW("setPhoneState() setting same state %d", state);
-        return BAD_VALUE;
-    }
-
-    // store previous phone state for management of sonification strategy below
-    int oldState = getPhoneState();
-    EngineBase::setPhoneState(state);
-
-    if (!is_state_in_call(oldState) && is_state_in_call(state)) {
-        ALOGV("  Entering call in setPhoneState()");
-        getApmObserver()->getVolumeCurves().switchVolumeCurve(AUDIO_STREAM_VOICE_CALL,
-                                                          AUDIO_STREAM_DTMF);
-    } else if (is_state_in_call(oldState) && !is_state_in_call(state)) {
-        ALOGV("  Exiting call in setPhoneState()");
-        getApmObserver()->getVolumeCurves().restoreOriginVolumeCurve(AUDIO_STREAM_DTMF);
-    }
-    return NO_ERROR;
-}
-
 status_t Engine::setForceUse(audio_policy_force_use_t usage, audio_policy_forced_cfg_t config)
 {
     switch(usage) {
@@ -183,16 +154,17 @@ audio_devices_t Engine::getDeviceForStrategyInt(legacy_strategy strategy,
         break;
 
     case STRATEGY_SONIFICATION_RESPECTFUL:
-        if (isInCall() || outputs.isStreamActiveLocally(AUDIO_STREAM_VOICE_CALL)) {
+        if (isInCall() || outputs.isActiveLocally(streamToVolumeSource(AUDIO_STREAM_VOICE_CALL))) {
             device = getDeviceForStrategyInt(
                     STRATEGY_SONIFICATION, availableOutputDevices, availableInputDevices, outputs,
                     outputDeviceTypesToIgnore);
         } else {
             bool media_active_locally =
-                    outputs.isStreamActiveLocally(
-                            AUDIO_STREAM_MUSIC, SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY)
-                    || outputs.isStreamActiveLocally(
-                            AUDIO_STREAM_ACCESSIBILITY, SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY);
+                    outputs.isActiveLocally(streamToVolumeSource(AUDIO_STREAM_MUSIC),
+                                            SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY)
+                    || outputs.isActiveLocally(
+                        streamToVolumeSource(AUDIO_STREAM_ACCESSIBILITY),
+                        SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY);
             // routing is same as media without the "remote" device
             device = getDeviceForStrategyInt(STRATEGY_MEDIA,
                     availableOutputDevices,
@@ -325,7 +297,8 @@ audio_devices_t Engine::getDeviceForStrategyInt(legacy_strategy strategy,
     case STRATEGY_SONIFICATION:
 
         // If incall, just select the STRATEGY_PHONE device
-        if (isInCall() || outputs.isStreamActiveLocally(AUDIO_STREAM_VOICE_CALL)) {
+        if (isInCall() ||
+                outputs.isActiveLocally(streamToVolumeSource(AUDIO_STREAM_VOICE_CALL))) {
             device = getDeviceForStrategyInt(
                     STRATEGY_PHONE, availableOutputDevices, availableInputDevices, outputs,
                     outputDeviceTypesToIgnore);
@@ -398,8 +371,8 @@ audio_devices_t Engine::getDeviceForStrategyInt(legacy_strategy strategy,
             }
             availableOutputDevices =
                     availableOutputDevices.getDevicesFromTypeMask(availableOutputDevicesType);
-            if (outputs.isStreamActive(AUDIO_STREAM_RING) ||
-                    outputs.isStreamActive(AUDIO_STREAM_ALARM)) {
+            if (outputs.isActive(streamToVolumeSource(AUDIO_STREAM_RING)) ||
+                    outputs.isActive(streamToVolumeSource(AUDIO_STREAM_ALARM))) {
                 return getDeviceForStrategyInt(
                     STRATEGY_SONIFICATION, availableOutputDevices, availableInputDevices, outputs,
                     outputDeviceTypesToIgnore);
@@ -438,7 +411,9 @@ audio_devices_t Engine::getDeviceForStrategyInt(legacy_strategy strategy,
                     outputDeviceTypesToIgnore);
             break;
         }
-        if (device2 == AUDIO_DEVICE_NONE) {
+        // FIXME: Find a better solution to prevent routing to BT hearing aid(b/122931261).
+        if ((device2 == AUDIO_DEVICE_NONE) &&
+                (getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) != AUDIO_POLICY_FORCE_NO_BT_A2DP)) {
             device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_HEARING_AID;
         }
         if ((device2 == AUDIO_DEVICE_NONE) &&

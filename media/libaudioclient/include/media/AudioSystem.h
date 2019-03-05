@@ -21,6 +21,7 @@
 
 #include <media/AudioPolicy.h>
 #include <media/AudioProductStrategy.h>
+#include <media/AudioVolumeGroup.h>
 #include <media/AudioIoDescriptor.h>
 #include <media/IAudioFlingerClient.h>
 #include <media/IAudioPolicyServiceClient.h>
@@ -263,6 +264,17 @@ public:
                                          int *index,
                                          audio_devices_t device);
 
+    static status_t setVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                int index,
+                                                audio_devices_t device);
+    static status_t getVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                int &index,
+                                                audio_devices_t device);
+
+    static status_t getMaxVolumeIndexForAttributes(const audio_attributes_t &attr, int &index);
+
+    static status_t getMinVolumeIndexForAttributes(const audio_attributes_t &attr, int &index);
+
     static uint32_t getStrategyForStream(audio_stream_type_t stream);
     static audio_devices_t getDevicesForStream(audio_stream_type_t stream);
 
@@ -367,12 +379,33 @@ public:
     static bool     isHapticPlaybackSupported();
 
     static status_t listAudioProductStrategies(AudioProductStrategyVector &strategies);
-    static product_strategy_t getProductStrategyFromAudioAttributes(const AudioAttributes &aa);
+    static status_t getProductStrategyFromAudioAttributes(const AudioAttributes &aa,
+                                                        product_strategy_t &productStrategy);
 
     static audio_attributes_t streamTypeToAttributes(audio_stream_type_t stream);
     static audio_stream_type_t attributesToStreamType(const audio_attributes_t &attr);
 
+    static status_t listAudioVolumeGroups(AudioVolumeGroupVector &groups);
+
+    static status_t getVolumeGroupFromAudioAttributes(const AudioAttributes &aa,
+                                                      volume_group_t &volumeGroup);
+
     // ----------------------------------------------------------------------------
+
+    class AudioVolumeGroupCallback : public RefBase
+    {
+    public:
+
+        AudioVolumeGroupCallback() {}
+        virtual ~AudioVolumeGroupCallback() {}
+
+        virtual void onAudioVolumeGroupChanged(volume_group_t group, int flags) = 0;
+        virtual void onServiceDied() = 0;
+
+    };
+
+    static status_t addAudioVolumeGroupCallback(const sp<AudioVolumeGroupCallback>& callback);
+    static status_t removeAudioVolumeGroupCallback(const sp<AudioVolumeGroupCallback>& callback);
 
     class AudioPortCallback : public RefBase
     {
@@ -506,12 +539,17 @@ private:
         int removeAudioPortCallback(const sp<AudioPortCallback>& callback);
         bool isAudioPortCbEnabled() const { return (mAudioPortCallbacks.size() != 0); }
 
+        int addAudioVolumeGroupCallback(const sp<AudioVolumeGroupCallback>& callback);
+        int removeAudioVolumeGroupCallback(const sp<AudioVolumeGroupCallback>& callback);
+        bool isAudioVolumeGroupCbEnabled() const { return (mAudioVolumeGroupCallback.size() != 0); }
+
         // DeathRecipient
         virtual void binderDied(const wp<IBinder>& who);
 
         // IAudioPolicyServiceClient
         virtual void onAudioPortListUpdate();
         virtual void onAudioPatchListUpdate();
+        virtual void onAudioVolumeGroupChanged(volume_group_t group, int flags);
         virtual void onDynamicPolicyMixStateUpdate(String8 regId, int32_t state);
         virtual void onRecordingConfigurationUpdate(int event,
                                                     const record_client_info_t *clientInfo,
@@ -525,6 +563,7 @@ private:
     private:
         Mutex                               mLock;
         Vector <sp <AudioPortCallback> >    mAudioPortCallbacks;
+        Vector <sp <AudioVolumeGroupCallback> > mAudioVolumeGroupCallback;
     };
 
     static audio_io_handle_t getOutput(audio_stream_type_t stream);

@@ -37,6 +37,7 @@
 
 #include <media/stagefright/BufferProducerWrapper.h>
 #include <media/stagefright/MediaCodec.h>
+#include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/OMXClient.h>
 #include <media/stagefright/PersistentSurface.h>
@@ -174,11 +175,7 @@ static sp<DataConverter> getCopyConverter() {
 }
 
 struct CodecObserver : public BnOMXObserver {
-    CodecObserver() {}
-
-    void setNotificationMessage(const sp<AMessage> &msg) {
-        mNotify = msg;
-    }
+    explicit CodecObserver(const sp<AMessage> &msg) : mNotify(msg) {}
 
     // from IOMXObserver
     virtual void onMessages(const std::list<omx_message> &messages) {
@@ -254,7 +251,7 @@ protected:
     virtual ~CodecObserver() {}
 
 private:
-    sp<AMessage> mNotify;
+    const sp<AMessage> mNotify;
 
     DISALLOW_EVIL_CONSTRUCTORS(CodecObserver);
 };
@@ -1838,20 +1835,19 @@ status_t ACodec::configureCodec(
         }
 
         if (!msg->findInt64(
-                    "repeat-previous-frame-after",
-                    &mRepeatFrameDelayUs)) {
+                KEY_REPEAT_PREVIOUS_FRAME_AFTER, &mRepeatFrameDelayUs)) {
             mRepeatFrameDelayUs = -1LL;
         }
 
         // only allow 32-bit value, since we pass it as U32 to OMX.
-        if (!msg->findInt64("max-pts-gap-to-encoder", &mMaxPtsGapUs)) {
+        if (!msg->findInt64(KEY_MAX_PTS_GAP_TO_ENCODER, &mMaxPtsGapUs)) {
             mMaxPtsGapUs = 0LL;
         } else if (mMaxPtsGapUs > INT32_MAX || mMaxPtsGapUs < INT32_MIN) {
             ALOGW("Unsupported value for max pts gap %lld", (long long) mMaxPtsGapUs);
             mMaxPtsGapUs = 0LL;
         }
 
-        if (!msg->findFloat("max-fps-to-encoder", &mMaxFps)) {
+        if (!msg->findFloat(KEY_MAX_FPS_TO_ENCODER, &mMaxFps)) {
             mMaxFps = -1;
         }
 
@@ -1865,8 +1861,8 @@ status_t ACodec::configureCodec(
         }
 
         if (!msg->findInt32(
-                    "create-input-buffers-suspended",
-                    (int32_t*)&mCreateInputBuffersSuspended)) {
+                KEY_CREATE_INPUT_SURFACE_SUSPENDED,
+                (int32_t*)&mCreateInputBuffersSuspended)) {
             mCreateInputBuffersSuspended = false;
         }
     }
@@ -6692,7 +6688,8 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
 
     CHECK(mCodec->mOMXNode == NULL);
 
-    sp<AMessage> notify = new AMessage(kWhatOMXDied, mCodec);
+    sp<AMessage> notify = new AMessage(kWhatOMXMessageList, mCodec);
+    notify->setInt32("generation", mCodec->mNodeGeneration + 1);
 
     sp<RefBase> obj;
     CHECK(msg->findObject("codecInfo", &obj));
@@ -6716,7 +6713,7 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
         owner = (info->getOwnerName() == nullptr) ? "default" : info->getOwnerName();
     }
 
-    sp<CodecObserver> observer = new CodecObserver;
+    sp<CodecObserver> observer = new CodecObserver(notify);
     sp<IOMX> omx;
     sp<IOMXNode> omxNode;
 
@@ -6747,9 +6744,7 @@ bool ACodec::UninitializedState::onAllocateComponent(const sp<AMessage> &msg) {
         mDeathNotifier.clear();
     }
 
-    notify = new AMessage(kWhatOMXMessageList, mCodec);
-    notify->setInt32("generation", ++mCodec->mNodeGeneration);
-    observer->setNotificationMessage(notify);
+    ++mCodec->mNodeGeneration;
 
     mCodec->mComponentName = componentName;
     mCodec->mRenderTracker.setComponentName(componentName);
@@ -7518,7 +7513,7 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
     }
 
     int64_t timeOffsetUs;
-    if (params->findInt64("time-offset-us", &timeOffsetUs)) {
+    if (params->findInt64(PARAMETER_KEY_OFFSET_TIME, &timeOffsetUs)) {
         if (mGraphicBufferSource == NULL) {
             ALOGE("[%s] Invalid to set input buffer time offset without surface",
                     mComponentName.c_str());
@@ -7554,7 +7549,7 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
     }
 
     int32_t dropInputFrames;
-    if (params->findInt32("drop-input-frames", &dropInputFrames)) {
+    if (params->findInt32(PARAMETER_KEY_SUSPEND, &dropInputFrames)) {
         if (mGraphicBufferSource == NULL) {
             ALOGE("[%s] Invalid to set suspend without surface",
                     mComponentName.c_str());
@@ -7562,7 +7557,7 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
         }
 
         int64_t suspendStartTimeUs = -1;
-        (void) params->findInt64("drop-start-time-us", &suspendStartTimeUs);
+        (void) params->findInt64(PARAMETER_KEY_SUSPEND_TIME, &suspendStartTimeUs);
         status_t err = statusFromBinderStatus(
                 mGraphicBufferSource->setSuspend(dropInputFrames != 0, suspendStartTimeUs));
 
@@ -8258,9 +8253,8 @@ bool ACodec::OutputPortSettingsChangedState::onOMXEvent(
                             OMX_CommandPortEnable, kPortIndexOutput);
                 }
 
-                /* Clear the RenderQueue in which queued GraphicBuffers hold the
-                 * actual buffer references in order to free them early.
-                 */
+                // Clear the RenderQueue in which queued GraphicBuffers hold the
+                // actual buffer references in order to free them early.
                 mCodec->mRenderTracker.clear(systemTime(CLOCK_MONOTONIC));
 
                 if (err == OK) {
@@ -8677,7 +8671,7 @@ status_t ACodec::queryCapabilities(
     }
 
     sp<IOMX> omx = client.interface();
-    sp<CodecObserver> observer = new CodecObserver;
+    sp<CodecObserver> observer = new CodecObserver(new AMessage);
     sp<IOMXNode> omxNode;
 
     err = omx->allocateNode(name, observer, &omxNode);

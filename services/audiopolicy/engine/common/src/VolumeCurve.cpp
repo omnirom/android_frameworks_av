@@ -19,13 +19,17 @@
 
 #include "VolumeCurve.h"
 #include "TypeConverter.h"
+#include <media/TypeConverter.h>
 
 namespace android {
 
 float VolumeCurve::volIndexToDb(int indexInUi, int volIndexMin, int volIndexMax) const
 {
     ALOG_ASSERT(!mCurvePoints.isEmpty(), "Invalid volume curve");
-
+    if (volIndexMin < 0 || volIndexMax < 0) {
+        // In order to let AudioService initialize the min and max, convention is to use -1
+        return NAN;
+    }
     if (indexInUi < volIndexMin) {
         // an index of 0 means mute request when volIndexMin > 0
         if (indexInUi == 0) {
@@ -64,8 +68,7 @@ float VolumeCurve::volIndexToDb(int indexInUi, int volIndexMin, int volIndexMax)
                     ((float)(mCurvePoints[indexInUiPosition].mIndex -
                             mCurvePoints[indexInUiPosition - 1].mIndex)) );
 
-    ALOGV("VOLUME mDeviceCategory %d, mStreamType %d vol index=[%d %d %d], dB=[%.1f %.1f %.1f]",
-            mDeviceCategory, mStreamType,
+    ALOGV("VOLUME vol index=[%d %d %d], dB=[%.1f %.1f %.1f]",
             mCurvePoints[indexInUiPosition - 1].mIndex, volIdx,
             mCurvePoints[indexInUiPosition].mIndex,
             ((float)mCurvePoints[indexInUiPosition - 1].mAttenuationInMb / 100.0f), decibels,
@@ -74,55 +77,52 @@ float VolumeCurve::volIndexToDb(int indexInUi, int volIndexMin, int volIndexMax)
     return decibels;
 }
 
-void VolumeCurve::dump(String8 *dst) const
+void VolumeCurve::dump(String8 *dst, int spaces, bool curvePoints) const
 {
+    if (!curvePoints) {
+        return;
+    }
     dst->append(" {");
     for (size_t i = 0; i < mCurvePoints.size(); i++) {
-        dst->appendFormat("(%3d, %5d)",
-                 mCurvePoints[i].mIndex, mCurvePoints[i].mAttenuationInMb);
-        dst->append(i == (mCurvePoints.size() - 1) ? " }\n" : ", ");
+        dst->appendFormat("%*s(%3d, %5d)", spaces, "", mCurvePoints[i].mIndex,
+                          mCurvePoints[i].mAttenuationInMb);
+        dst->appendFormat(i == (mCurvePoints.size() - 1) ? " }\n" : ", ");
     }
 }
 
-void VolumeCurvesForStream::dump(String8 *dst, int spaces = 0, bool curvePoints) const
+void VolumeCurves::dump(String8 *dst, int spaces, bool curvePoints) const
 {
     if (!curvePoints) {
-        dst->appendFormat("%s         %02d         %02d         ",
-                 mCanBeMuted ? "true " : "false", mIndexMin, mIndexMax);
-        for (size_t i = 0; i < mIndexCur.size(); i++) {
-            dst->appendFormat("%04x : %02d, ", mIndexCur.keyAt(i), mIndexCur.valueAt(i));
+//        dst->appendFormat("%*s%02d      %s         %03d        %03d        ", spaces, "",
+//                          mStream, mCanBeMuted ? "true " : "false", mIndexMin, mIndexMax);
+        dst->appendFormat("%*s Can be muted  Index Min  Index Max  Index Cur [device : index]...\n",
+                          spaces + 1, "");
+        dst->appendFormat("%*s %s         %02d         %02d         ", spaces + 1, "",
+                          mCanBeMuted ? "true " : "false", mIndexMin, mIndexMax);
+        for (const auto &pair : mIndexCur) {
+            dst->appendFormat("%04x : %02d, ", pair.first, pair.second);
         }
-        dst->append("\n");
+        dst->appendFormat("\n");
         return;
     }
-
+    std::string streamNames;
+    for (const auto &stream : mStreams) {
+        streamNames += android::toString(stream) + "("+std::to_string(stream)+") ";
+    }
+    dst->appendFormat("%*sVolume Curves Streams/Attributes, Curve points Streams for device"
+                      " category (index, attenuation in millibel)\n", spaces, "");
+    dst->appendFormat("%*s Streams: %s \n", spaces, "", streamNames.c_str());
+    if (!mAttributes.empty()) dst->appendFormat("%*s Attributes:", spaces, "");
+    for (const auto &attributes : mAttributes) {
+        std::string attStr = attributes == defaultAttr ? "{ Any }" : android::toString(attributes);
+        dst->appendFormat("%*s %s\n", attributes == mAttributes.front() ? 0 : spaces + 13, "",
+                          attStr.c_str());
+    }
     for (size_t i = 0; i < size(); i++) {
         std::string deviceCatLiteral;
         DeviceCategoryConverter::toString(keyAt(i), deviceCatLiteral);
-        dst->appendFormat("%*s %s :",
-                 spaces, "", deviceCatLiteral.c_str());
-        valueAt(i)->dump(dst);
-    }
-    dst->append("\n");
-}
-
-void VolumeCurvesCollection::dump(String8 *dst) const
-{
-    dst->append("\nStreams dump:\n");
-    dst->append(
-             " Stream  Can be muted  Index Min  Index Max  Index Cur [device : index]...\n");
-    for (size_t i = 0; i < size(); i++) {
-        dst->appendFormat(" %02zu      ", i);
-        valueAt(i).dump(dst);
-    }
-    dst->append("\nVolume Curves for Use Cases (aka Stream types) dump:\n");
-    for (size_t i = 0; i < size(); i++) {
-        std::string streamTypeLiteral;
-        StreamTypeConverter::toString(keyAt(i), streamTypeLiteral);
-        dst->appendFormat(
-                 " %s (%02zu): Curve points for device category (index, attenuation in millibel)\n",
-                 streamTypeLiteral.c_str(), i);
-        valueAt(i).dump(dst, 2, true);
+        dst->appendFormat("%*s %s :", spaces, "", deviceCatLiteral.c_str());
+        valueAt(i)->dump(dst, 1, true);
     }
 }
 

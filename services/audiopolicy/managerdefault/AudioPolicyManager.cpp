@@ -33,8 +33,8 @@
 #define AUDIO_POLICY_XML_CONFIG_FILE_NAME "audio_policy_configuration.xml"
 #define AUDIO_POLICY_A2DP_OFFLOAD_DISABLED_XML_CONFIG_FILE_NAME \
         "audio_policy_configuration_a2dp_offload_disabled.xml"
-#define AUDIO_POLICY_BLUETOOTH_HAL_ENABLED_XML_CONFIG_FILE_NAME \
-        "audio_policy_configuration_bluetooth_hal_enabled.xml"
+#define AUDIO_POLICY_BLUETOOTH_LEGACY_HAL_XML_CONFIG_FILE_NAME \
+        "audio_policy_configuration_bluetooth_legacy_hal.xml"
 
 #include <inttypes.h>
 #include <math.h>
@@ -209,7 +209,26 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t deviceT
             return BAD_VALUE;
         }
 
-        checkForDeviceAndOutputChanges([&]() {
+        // No need to evaluate playback routing when connecting a remote submix
+        // output device used by a dynamic policy of type recorder as no
+        // playback use case is affected.
+        bool doCheckForDeviceAndOutputChanges = true;
+        if (device->type() == AUDIO_DEVICE_OUT_REMOTE_SUBMIX
+                && strncmp(device_address, "0", AUDIO_DEVICE_MAX_ADDRESS_LEN) != 0) {
+            for (audio_io_handle_t output : outputs) {
+                sp<SwAudioOutputDescriptor> desc = mOutputs.valueFor(output);
+                if (desc->mPolicyMix != nullptr
+                        && desc->mPolicyMix->mMixType == MIX_TYPE_RECORDERS
+                        && strncmp(device_address,
+                                   desc->mPolicyMix->mDeviceAddress.string(),
+                                   AUDIO_DEVICE_MAX_ADDRESS_LEN) == 0) {
+                    doCheckForDeviceAndOutputChanges = false;
+                    break;
+                }
+            }
+        }
+
+        auto checkCloseOutputs = [&]() {
             // outputs must be closed after checkOutputForAllStrategies() is executed
             if (!outputs.isEmpty()) {
                 for (audio_io_handle_t output : outputs) {
@@ -218,7 +237,7 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t deviceT
                     // been opened by checkOutputsForDevice() to query dynamic parameters
                     if ((state == AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE) ||
                             (((desc->mFlags & AUDIO_OUTPUT_FLAG_DIRECT) != 0) &&
-                             (desc->mDirectOpenCount == 0))) {
+                                (desc->mDirectOpenCount == 0))) {
                         closeOutput(output);
                     }
                 }
@@ -226,7 +245,13 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t deviceT
                 return true;
             }
             return false;
-        });
+        };
+
+        if (doCheckForDeviceAndOutputChanges) {
+            checkForDeviceAndOutputChanges(checkCloseOutputs);
+        } else {
+            checkCloseOutputs();
+        }
 
         if (mEngine->getPhoneState() == AUDIO_MODE_IN_CALL && hasPrimaryOutput()) {
             DeviceVector newDevices = getNewOutputDevices(mPrimaryOutput, false /*fromCache*/);
@@ -352,7 +377,7 @@ audio_policy_dev_state_t AudioPolicyManager::getDeviceConnectionState(audio_devi
                                            (strlen(device_address) != 0)/*matchAddress*/);
 
     if (devDesc == 0) {
-        ALOGW("getDeviceConnectionState() undeclared device, type %08x, address: %s",
+        ALOGV("getDeviceConnectionState() undeclared device, type %08x, address: %s",
               device, device_address);
         return AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE;
     }
@@ -1088,6 +1113,7 @@ status_t AudioPolicyManager::getOutputForAttr(const audio_attributes_t *attr,
         new TrackClientDescriptor(*portId, uid, session, resultAttr, clientConfig,
                                   sanitizedRequestedPortId, *stream,
                                   mEngine->getProductStrategyForAttributes(resultAttr),
+                                  streamToVolumeSource(*stream),
                                   *flags, isRequestedDeviceForExclusiveUse,
                                   std::move(weakSecondaryOutputDescs));
     sp<SwAudioOutputDescriptor> outputDesc = mOutputs.valueFor(*output);
@@ -1579,11 +1605,13 @@ status_t AudioPolicyManager::startSource(const sp<SwAudioOutputDescriptor>& outp
 
     *delayMs = 0;
     audio_stream_type_t stream = client->stream();
+    auto clientVolSrc = client->volumeSource();
     auto clientStrategy = client->strategy();
     auto clientAttr = client->attributes();
     if (stream == AUDIO_STREAM_TTS) {
         ALOGV("\t found BEACON stream");
-        if (!mTtsOutputAvailable && mOutputs.isAnyOutputActive(AUDIO_STREAM_TTS /*streamToIgnore*/)) {
+        if (!mTtsOutputAvailable && mOutputs.isAnyOutputActive(
+                                    streamToVolumeSource(AUDIO_STREAM_TTS) /*sourceToIgnore*/)) {
             return INVALID_OPERATION;
         } else {
             beaconMuteLatency = handleEventForBeacon(STARTING_BEACON);
@@ -1638,7 +1666,7 @@ status_t AudioPolicyManager::startSource(const sp<SwAudioOutputDescriptor>& outp
         selectOutputForMusicEffects();
     }
 
-    if (outputDesc->streamActiveCount(stream) == 1 || !devices.isEmpty()) {
+    if (outputDesc->getActivityCount(clientVolSrc) == 1 || !devices.isEmpty()) {
         // starting an output being rerouted?
         if (devices.isEmpty()) {
             devices = getNewOutputDevices(outputDesc, false /*fromCache*/);
@@ -1692,7 +1720,7 @@ status_t AudioPolicyManager::startSource(const sp<SwAudioOutputDescriptor>& outp
 
         // apply volume rules for current stream and device if necessary
         checkAndSetVolume(stream,
-                          mVolumeCurves->getVolumeIndex(stream, outputDesc->devices().types()),
+                          getVolumeCurves(stream).getVolumeIndex(outputDesc->devices().types()),
                           outputDesc,
                           outputDesc->devices().types());
 
@@ -1764,11 +1792,12 @@ status_t AudioPolicyManager::stopSource(const sp<SwAudioOutputDescriptor>& outpu
 {
     // always handle stream stop, check which stream type is stopping
     audio_stream_type_t stream = client->stream();
+    auto clientVolSrc = client->volumeSource();
 
     handleEventForBeacon(stream == AUDIO_STREAM_TTS ? STOPPING_BEACON : STOPPING_OUTPUT);
 
-    if (outputDesc->streamActiveCount(stream) > 0) {
-        if (outputDesc->streamActiveCount(stream) == 1) {
+    if (outputDesc->getActivityCount(clientVolSrc) > 0) {
+        if (outputDesc->getActivityCount(clientVolSrc) == 1) {
             // Automatically disable the remote submix input when output is stopped on a
             // re routing mix of type MIX_TYPE_RECORDERS
             if (audio_is_remote_submix_device(outputDesc->devices().types()) &&
@@ -1790,7 +1819,7 @@ status_t AudioPolicyManager::stopSource(const sp<SwAudioOutputDescriptor>& outpu
         outputDesc->setClientActive(client, false);
 
         // store time at which the stream was stopped - see isStreamActive()
-        if (outputDesc->streamActiveCount(stream) == 0 || forceDeviceUpdate) {
+        if (outputDesc->getActivityCount(clientVolSrc) == 0 || forceDeviceUpdate) {
             outputDesc->setStopTime(client, systemTime());
             DeviceVector newDevices = getNewOutputDevices(outputDesc, false /*fromCache*/);
             // delay the device switch by twice the latency because stopOutput() is executed when
@@ -2354,23 +2383,21 @@ void AudioPolicyManager::closeAllInputs() {
     }
 }
 
-void AudioPolicyManager::initStreamVolume(audio_stream_type_t stream,
-                                            int indexMin,
-                                            int indexMax)
+void AudioPolicyManager::initStreamVolume(audio_stream_type_t stream, int indexMin, int indexMax)
 {
     ALOGV("initStreamVolume() stream %d, min %d, max %d", stream , indexMin, indexMax);
     if (indexMin < 0 || indexMax < 0) {
         ALOGE("%s for stream %d: invalid min %d or max %d", __func__, stream , indexMin, indexMax);
         return;
     }
-    mVolumeCurves->initStreamVolume(stream, indexMin, indexMax);
+    getVolumeCurves(stream).initVolume(indexMin, indexMax);
 
     // initialize other private stream volumes which follow this one
     for (int curStream = 0; curStream < AUDIO_STREAM_FOR_POLICY_CNT; curStream++) {
         if (!streamsMatchForvolume(stream, (audio_stream_type_t)curStream)) {
             continue;
         }
-        mVolumeCurves->initStreamVolume((audio_stream_type_t)curStream, indexMin, indexMax);
+        getVolumeCurves((audio_stream_type_t)curStream).initVolume(indexMin, indexMax);
     }
 }
 
@@ -2378,13 +2405,13 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
                                                   int index,
                                                   audio_devices_t device)
 {
-
+    auto &curves = getVolumeCurves(stream);
     // VOICE_CALL and BLUETOOTH_SCO stream have minVolumeIndex > 0 but
     // can be muted directly by an app that has MODIFY_PHONE_STATE permission.
-    if (((index < mVolumeCurves->getVolumeIndexMin(stream)) &&
+    if (((index < curves.getVolumeIndexMin()) &&
             !((stream == AUDIO_STREAM_VOICE_CALL || stream == AUDIO_STREAM_BLUETOOTH_SCO) &&
             index == 0)) ||
-            (index > mVolumeCurves->getVolumeIndexMax(stream))) {
+            (index > curves.getVolumeIndexMax())) {
         return BAD_VALUE;
     }
     if (!audio_is_output_device(device)) {
@@ -2392,7 +2419,7 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
     }
 
     // Force max volume if stream cannot be muted
-    if (!mVolumeCurves->canBeMuted(stream)) index = mVolumeCurves->getVolumeIndexMax(stream);
+    if (!curves.canBeMuted()) index = curves.getVolumeIndexMax();
 
     ALOGV("setStreamVolumeIndex() stream %d, device %08x, index %d",
           stream, device, index);
@@ -2402,7 +2429,8 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
         if (!streamsMatchForvolume(stream, (audio_stream_type_t)curStream)) {
             continue;
         }
-        mVolumeCurves->addCurrentVolumeIndex((audio_stream_type_t)curStream, device, index);
+        auto &curCurves = getVolumeCurves(static_cast<audio_stream_type_t>(curStream));
+        curCurves.addCurrentVolumeIndex(device, index);
     }
 
     // update volume on all outputs and streams matching the following:
@@ -2421,7 +2449,7 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
             if (!(streamsMatchForvolume(stream, (audio_stream_type_t)curStream))) {
                 continue;
             }
-            if (!(desc->isStreamActive((audio_stream_type_t)curStream) || isInCall())) {
+            if (!(desc->isActive(streamToVolumeSource((audio_stream_type_t)curStream)) || isInCall())) {
                 continue;
             }
             audio_devices_t curStreamDevice = Volume::getDeviceForVolume(
@@ -2436,8 +2464,7 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
                 curStreamDevice |= device;
                 applyVolume = (Volume::getDeviceForVolume(curDevice) & curStreamDevice) != 0;
             } else {
-                applyVolume = !mVolumeCurves->hasVolumeIndexForDevice(
-                        stream, curStreamDevice);
+                applyVolume = !curves.hasVolumeIndexForDevice(curStreamDevice);
             }
             // rescale index before applying to curStream as ranges may be different for
             // stream and curStream
@@ -2446,9 +2473,10 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
                 //FIXME: workaround for truncated touch sounds
                 // delayed volume change for system stream to be removed when the problem is
                 // handled by system UI
-                status_t volStatus =
-                        checkAndSetVolume((audio_stream_type_t)curStream, idx, desc, curDevice,
-                            (stream == AUDIO_STREAM_SYSTEM) ? TOUCH_SOUND_FIXED_DELAY_MS : 0);
+                status_t volStatus = checkAndSetVolume(
+                            (audio_stream_type_t)curStream, idx, desc, curDevice,
+                            (stream == AUDIO_STREAM_SYSTEM) ?
+                                TOUCH_SOUND_FIXED_DELAY_MS : 0);
                 if (volStatus != NO_ERROR) {
                     status = volStatus;
                 }
@@ -2475,8 +2503,109 @@ status_t AudioPolicyManager::getStreamVolumeIndex(audio_stream_type_t stream,
     }
     device = Volume::getDeviceForVolume(device);
 
-    *index =  mVolumeCurves->getVolumeIndex(stream, device);
+    *index =  getVolumeCurves(stream).getVolumeIndex(device);
     ALOGV("getStreamVolumeIndex() stream %d device %08x index %d", stream, device, *index);
+    return NO_ERROR;
+}
+
+status_t AudioPolicyManager::setVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                         int index,
+                                                         audio_devices_t device)
+{
+    // Get Volume group matching the Audio Attributes
+    auto volumeGroup = mEngine->getVolumeGroupForAttributes(attr);
+    if (volumeGroup == VOLUME_GROUP_NONE) {
+        ALOGD("%s: could not find group matching with %s", __FUNCTION__, toString(attr).c_str());
+        return BAD_VALUE;
+    }
+    ALOGD("%s: FOUND group %d matching with %s", __FUNCTION__, volumeGroup, toString(attr).c_str());
+    return setVolumeGroupIndex(getVolumeCurves(attr), volumeGroup, index, device, attr);
+}
+
+status_t AudioPolicyManager::setVolumeGroupIndex(IVolumeCurves &curves, volume_group_t group,
+                                                 int index,
+                                                 audio_devices_t device,
+                                                 const audio_attributes_t /*attributes*/)
+{
+    ALOGVV("%s: group=%d", __func__, group);
+    status_t status = NO_ERROR;
+    setVolumeCurveIndex(group, index, device, curves);
+    // update volume on all outputs and streams matching the following:
+    // - The requested stream (or a stream matching for volume control) is active on the output
+    // - The device (or devices) selected by the engine for this stream includes
+    // the requested device
+    // - For non default requested device, currently selected device on the output is either the
+    // requested device or one of the devices selected by the engine for this stream
+    // - For default requested device (AUDIO_DEVICE_OUT_DEFAULT_FOR_VOLUME), apply volume only if
+    // no specific device volume value exists for currently selected device.
+    // @TODO
+    mpClientInterface->onAudioVolumeGroupChanged(group, 0 /*flags*/);
+    return status;
+}
+
+status_t AudioPolicyManager::setVolumeCurveIndex(volume_group_t volumeGroup,
+                                                 int index,
+                                                 audio_devices_t device,
+                                                 IVolumeCurves &volumeCurves)
+{
+    // VOICE_CALL stream has minVolumeIndex > 0  but can be muted directly by an
+    // app that has MODIFY_PHONE_STATE permission.
+    // If voice is member of the volume group, it will contaminate all the member of this group
+    auto streams = mEngine->getStreamTypesForVolumeGroup(volumeGroup);
+    if (((index < volumeCurves.getVolumeIndexMin()) && !(hasVoiceStream(streams) && index == 0)) ||
+            (index > volumeCurves.getVolumeIndexMax())) {
+        ALOGD("%s: wrong index %d min=%d max=%d", __FUNCTION__, index,
+              volumeCurves.getVolumeIndexMin(), volumeCurves.getVolumeIndexMax());
+        return BAD_VALUE;
+    }
+    if (!audio_is_output_device(device)) {
+        return BAD_VALUE;
+    }
+
+    // Force max volume if stream cannot be muted
+    if (!volumeCurves.canBeMuted()) index = volumeCurves.getVolumeIndexMax();
+
+    ALOGD("%s device %08x, index %d", __FUNCTION__ , device, index);
+    volumeCurves.addCurrentVolumeIndex(device, index);
+    return NO_ERROR;
+}
+
+status_t AudioPolicyManager::getVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                         int &index,
+                                                         audio_devices_t device)
+{
+    // if device is AUDIO_DEVICE_OUT_DEFAULT_FOR_VOLUME, return volume for device selected for this
+    // stream by the engine.
+    if (device == AUDIO_DEVICE_OUT_DEFAULT_FOR_VOLUME) {
+        device = mEngine->getOutputDevicesForAttributes(attr, nullptr, true /*fromCache*/).types();
+    }
+    return getVolumeIndex(getVolumeCurves(attr), index, device);
+}
+
+status_t AudioPolicyManager::getVolumeIndex(const IVolumeCurves &curves,
+                                            int &index,
+                                            audio_devices_t device) const
+{
+    if (!audio_is_output_device(device)) {
+        return BAD_VALUE;
+    }
+    device = Volume::getDeviceForVolume(device);
+    index = curves.getVolumeIndex(device);
+    ALOGV("%s: device %08x index %d", __FUNCTION__, device, index);
+    return NO_ERROR;
+}
+
+status_t AudioPolicyManager::getMinVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                            int &index)
+{
+    index = getVolumeCurves(attr).getVolumeIndexMin();
+    return NO_ERROR;
+}
+
+status_t AudioPolicyManager::getMaxVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                            int &index)
+{
+    index = getVolumeCurves(attr).getVolumeIndexMax();
     return NO_ERROR;
 }
 
@@ -2511,7 +2640,7 @@ audio_io_handle_t AudioPolicyManager::selectOutputForMusicEffects()
 
         for (audio_io_handle_t output : outputs) {
             sp<SwAudioOutputDescriptor> desc = mOutputs.valueFor(output);
-            if (activeOnly && !desc->isStreamActive(AUDIO_STREAM_MUSIC)) {
+            if (activeOnly && !desc->isActive(streamToVolumeSource(AUDIO_STREAM_MUSIC))) {
                 continue;
             }
             ALOGV("selectOutputForMusicEffects activeOnly %d output %d flags 0x%08x",
@@ -2610,14 +2739,14 @@ bool AudioPolicyManager::isStreamActive(audio_stream_type_t stream, uint32_t inP
         if (!streamsMatchForvolume(stream, (audio_stream_type_t)curStream)) {
             continue;
         }
-        active = mOutputs.isStreamActive((audio_stream_type_t)curStream, inPastMs);
+        active = mOutputs.isActive(streamToVolumeSource((audio_stream_type_t)curStream), inPastMs);
     }
     return active;
 }
 
 bool AudioPolicyManager::isStreamActiveRemotely(audio_stream_type_t stream, uint32_t inPastMs) const
 {
-    return mOutputs.isStreamActiveRemotely(stream, inPastMs);
+    return mOutputs.isActiveRemotely(streamToVolumeSource((audio_stream_type_t)stream), inPastMs);
 }
 
 bool AudioPolicyManager::isSourceActive(audio_source_t source) const
@@ -2915,7 +3044,6 @@ void AudioPolicyManager::dump(String8 *dst) const
     mHwModulesAll.dump(dst);
     mOutputs.dump(dst);
     mInputs.dump(dst);
-    mVolumeCurves->dump(dst);
     mEffects.dump(dst);
     mAudioPatches.dump(dst);
     mPolicyMixes.dump(dst);
@@ -3647,10 +3775,11 @@ status_t AudioPolicyManager::startAudioSource(const struct audio_port_config *so
     struct audio_patch dummyPatch = {};
     sp<AudioPatch> patchDesc = new AudioPatch(&dummyPatch, uid);
 
-    sp<SourceClientDescriptor> sourceDesc =
-        new SourceClientDescriptor(*portId, uid, *attributes, patchDesc, srcDevice,
-                                   mEngine->getStreamTypeForAttributes(*attributes),
-                                   mEngine->getProductStrategyForAttributes(*attributes));
+    sp<SourceClientDescriptor> sourceDesc = new SourceClientDescriptor(
+                *portId, uid, *attributes, patchDesc, srcDevice,
+                mEngine->getStreamTypeForAttributes(*attributes),
+                mEngine->getProductStrategyForAttributes(*attributes),
+                streamToVolumeSource(mEngine->getStreamTypeForAttributes(*attributes)));
 
     status_t status = connectAudioSource(sourceDesc);
     if (status == NO_ERROR) {
@@ -4066,14 +4195,18 @@ static status_t deserializeAudioPolicyXmlConfig(AudioPolicyConfig &config) {
     std::vector<const char*> fileNames;
     status_t ret;
 
-    if (property_get_bool("ro.bluetooth.a2dp_offload.supported", false) &&
-        property_get_bool("persist.bluetooth.a2dp_offload.disabled", false)) {
-        // A2DP offload supported but disabled: try to use special XML file
-        if (property_get_bool("persist.bluetooth.bluetooth_audio_hal.enabled", false)) {
-            fileNames.push_back(AUDIO_POLICY_BLUETOOTH_HAL_ENABLED_XML_CONFIG_FILE_NAME);
-        } else {
+    if (property_get_bool("ro.bluetooth.a2dp_offload.supported", false)) {
+        if (property_get_bool("persist.bluetooth.bluetooth_audio_hal.disabled", false) &&
+            property_get_bool("persist.bluetooth.a2dp_offload.disabled", false)) {
+            // Both BluetoothAudio@2.0 and BluetoothA2dp@1.0 (Offlaod) are disabled, and uses
+            // the legacy hardware module for A2DP and hearing aid.
+            fileNames.push_back(AUDIO_POLICY_BLUETOOTH_LEGACY_HAL_XML_CONFIG_FILE_NAME);
+        } else if (property_get_bool("persist.bluetooth.a2dp_offload.disabled", false)) {
+            // A2DP offload supported but disabled: try to use special XML file
             fileNames.push_back(AUDIO_POLICY_A2DP_OFFLOAD_DISABLED_XML_CONFIG_FILE_NAME);
         }
+    } else if (property_get_bool("persist.bluetooth.bluetooth_audio_hal.disabled", false)) {
+        fileNames.push_back(AUDIO_POLICY_BLUETOOTH_LEGACY_HAL_XML_CONFIG_FILE_NAME);
     }
     fileNames.push_back(AUDIO_POLICY_XML_CONFIG_FILE_NAME);
 
@@ -4098,9 +4231,7 @@ AudioPolicyManager::AudioPolicyManager(AudioPolicyClientInterface *clientInterfa
     mpClientInterface(clientInterface),
     mLimitRingtoneVolume(false), mLastVoiceVolume(-1.0f),
     mA2dpSuspended(false),
-    mVolumeCurves(new VolumeCurvesCollection()),
-    mConfig(mHwModulesAll, mAvailableOutputDevices, mAvailableInputDevices,
-            mDefaultOutputDevice, static_cast<VolumeCurvesCollection*>(mVolumeCurves.get())),
+    mConfig(mHwModulesAll, mAvailableOutputDevices, mAvailableInputDevices, mDefaultOutputDevice),
     mAudioPortGeneration(1),
     mBeaconMuteRefCount(0),
     mBeaconPlayingRefCount(0),
@@ -4134,8 +4265,6 @@ void AudioPolicyManager::loadConfig() {
 }
 
 status_t AudioPolicyManager::initialize() {
-    mVolumeCurves->initializeVolumeCurves(getConfig().isSpeakerDrcEnabled());
-
     // Once policy config has been parsed, retrieve an instance of the engine and initialize it.
     audio_policy::EngineInstance *engineInstance = audio_policy::EngineInstance::getInstance();
     if (!engineInstance) {
@@ -4722,37 +4851,31 @@ void AudioPolicyManager::closeOutput(audio_io_handle_t output)
 {
     ALOGV("closeOutput(%d)", output);
 
-    sp<SwAudioOutputDescriptor> outputDesc = mOutputs.valueFor(output);
-    if (outputDesc == NULL) {
+    sp<SwAudioOutputDescriptor> closingOutput = mOutputs.valueFor(output);
+    if (closingOutput == NULL) {
         ALOGW("closeOutput() unknown output %d", output);
         return;
     }
-    mPolicyMixes.closeOutput(outputDesc);
+    mPolicyMixes.closeOutput(closingOutput);
 
     // look for duplicated outputs connected to the output being removed.
     for (size_t i = 0; i < mOutputs.size(); i++) {
-        sp<SwAudioOutputDescriptor> dupOutputDesc = mOutputs.valueAt(i);
-        if (dupOutputDesc->isDuplicated() &&
-                (dupOutputDesc->mOutput1 == outputDesc ||
-                dupOutputDesc->mOutput2 == outputDesc)) {
-            sp<SwAudioOutputDescriptor> outputDesc2;
-            if (dupOutputDesc->mOutput1 == outputDesc) {
-                outputDesc2 = dupOutputDesc->mOutput2;
-            } else {
-                outputDesc2 = dupOutputDesc->mOutput1;
-            }
+        sp<SwAudioOutputDescriptor> dupOutput = mOutputs.valueAt(i);
+        if (dupOutput->isDuplicated() &&
+                (dupOutput->mOutput1 == closingOutput || dupOutput->mOutput2 == closingOutput)) {
+            sp<SwAudioOutputDescriptor> remainingOutput =
+                dupOutput->mOutput1 == closingOutput ? dupOutput->mOutput2 : dupOutput->mOutput1;
             // As all active tracks on duplicated output will be deleted,
             // and as they were also referenced on the other output, the reference
             // count for their stream type must be adjusted accordingly on
             // the other output.
-            const bool wasActive = outputDesc2->isActive();
-            for (const auto &clientPair : dupOutputDesc->getActiveClients()) {
-                outputDesc2->changeStreamActiveCount(clientPair.first, -clientPair.second);
-            }
+            const bool wasActive = remainingOutput->isActive();
+            // Note: no-op on the closing output where all clients has already been set inactive
+            dupOutput->setAllClientsInactive();
             // stop() will be a no op if the output is still active but is needed in case all
             // active streams refcounts where cleared above
             if (wasActive) {
-                outputDesc2->stop();
+                remainingOutput->stop();
             }
             audio_io_handle_t duplicatedOutput = mOutputs.keyAt(i);
             ALOGV("closeOutput() closing also duplicated output %d", duplicatedOutput);
@@ -4764,7 +4887,7 @@ void AudioPolicyManager::closeOutput(audio_io_handle_t output)
 
     nextAudioPortGeneration();
 
-    ssize_t index = mAudioPatches.indexOfKey(outputDesc->getPatchHandle());
+    ssize_t index = mAudioPatches.indexOfKey(closingOutput->getPatchHandle());
     if (index >= 0) {
         sp<AudioPatch> patchDesc = mAudioPatches.valueAt(index);
         (void) /*status_t status*/ mpClientInterface->releaseAudioPatch(patchDesc->mAfPatchHandle, 0);
@@ -4772,7 +4895,7 @@ void AudioPolicyManager::closeOutput(audio_io_handle_t output)
         mpClientInterface->onAudioPatchListUpdate();
     }
 
-    outputDesc->close();
+    closingOutput->close();
 
     removeOutput(output);
     mPreviousOutputs = mOutputs;
@@ -5129,7 +5252,7 @@ audio_devices_t AudioPolicyManager::getDevicesForStream(audio_stream_type_t stre
         devices.merge(curDevices);
         for (audio_io_handle_t output : getOutputsForDevices(curDevices, mOutputs)) {
             sp<AudioOutputDescriptor> outputDesc = mOutputs.valueFor(output);
-            if (outputDesc->isStreamActive((audio_stream_type_t)curStream)) {
+            if (outputDesc->isActive(streamToVolumeSource((audio_stream_type_t)curStream))) {
                 activeDevices.merge(outputDesc->devices());
             }
         }
@@ -5566,7 +5689,8 @@ float AudioPolicyManager::computeVolume(audio_stream_type_t stream,
                                         int index,
                                         audio_devices_t device)
 {
-    float volumeDB = mVolumeCurves->volIndexToDb(stream, Volume::getDeviceCategory(device), index);
+    auto &curves = getVolumeCurves(stream);
+    float volumeDB = curves.volIndexToDb(Volume::getDeviceCategory(device), index);
 
     // handle the case of accessibility active while a ringtone is playing: if the ringtone is much
     // louder than the accessibility prompt, the prompt cannot be heard, thus masking the touch
@@ -5581,7 +5705,7 @@ float AudioPolicyManager::computeVolume(audio_stream_type_t stream,
 
     // in-call: always cap volume by voice volume + some low headroom
     if ((stream != AUDIO_STREAM_VOICE_CALL) &&
-            (isInCall() || mOutputs.isStreamActiveLocally(AUDIO_STREAM_VOICE_CALL))) {
+            (isInCall() || mOutputs.isActiveLocally(streamToVolumeSource(AUDIO_STREAM_VOICE_CALL)))) {
         switch (stream) {
         case AUDIO_STREAM_SYSTEM:
         case AUDIO_STREAM_RING:
@@ -5591,8 +5715,7 @@ float AudioPolicyManager::computeVolume(audio_stream_type_t stream,
         case AUDIO_STREAM_ENFORCED_AUDIBLE:
         case AUDIO_STREAM_DTMF:
         case AUDIO_STREAM_ACCESSIBILITY: {
-            int voiceVolumeIndex =
-                mVolumeCurves->getVolumeIndex(AUDIO_STREAM_VOICE_CALL, device);
+            int voiceVolumeIndex = getVolumeCurves(AUDIO_STREAM_VOICE_CALL).getVolumeIndex(device);
             const float maxVoiceVolDb =
                 computeVolume(AUDIO_STREAM_VOICE_CALL, voiceVolumeIndex, device)
                 + IN_CALL_EARPIECE_HEADROOM_DB;
@@ -5626,7 +5749,7 @@ float AudioPolicyManager::computeVolume(audio_stream_type_t stream,
                 || ((stream == AUDIO_STREAM_ENFORCED_AUDIBLE) &&
                     (mEngine->getForceUse(AUDIO_POLICY_FORCE_FOR_SYSTEM) ==
                      AUDIO_POLICY_FORCE_NONE))) &&
-            mVolumeCurves->canBeMuted(stream)) {
+            getVolumeCurves(stream).canBeMuted()) {
         // when the phone is ringing we must consider that music could have been paused just before
         // by the music application and behave as if music was active if the last music track was
         // just stopped
@@ -5637,9 +5760,8 @@ float AudioPolicyManager::computeVolume(audio_stream_type_t stream,
                     mEngine->getOutputDevicesForAttributes(attributes_initializer(AUDIO_USAGE_MEDIA),
                                                            nullptr, true /*fromCache*/).types();
             float musicVolDB = computeVolume(AUDIO_STREAM_MUSIC,
-                                             mVolumeCurves->getVolumeIndex(AUDIO_STREAM_MUSIC,
-                                                                              musicDevice),
-                                             musicDevice);
+                                   getVolumeCurves(AUDIO_STREAM_MUSIC).getVolumeIndex(musicDevice),
+                                   musicDevice);
             float minVolDB = (musicVolDB > SONIFICATION_HEADSET_VOLUME_MIN_DB) ?
                     musicVolDB : SONIFICATION_HEADSET_VOLUME_MIN_DB;
             if (volumeDB > minVolDB) {
@@ -5674,10 +5796,12 @@ int AudioPolicyManager::rescaleVolumeIndex(int srcIndex,
     if (srcStream == dstStream) {
         return srcIndex;
     }
-    float minSrc = (float)mVolumeCurves->getVolumeIndexMin(srcStream);
-    float maxSrc = (float)mVolumeCurves->getVolumeIndexMax(srcStream);
-    float minDst = (float)mVolumeCurves->getVolumeIndexMin(dstStream);
-    float maxDst = (float)mVolumeCurves->getVolumeIndexMax(dstStream);
+    auto &srcCurves = getVolumeCurves(srcStream);
+    auto &dstCurves = getVolumeCurves(dstStream);
+    float minSrc = (float)srcCurves.getVolumeIndexMin();
+    float maxSrc = (float)srcCurves.getVolumeIndexMax();
+    float minDst = (float)dstCurves.getVolumeIndexMin();
+    float maxDst = (float)dstCurves.getVolumeIndexMax();
 
     // preserve mute request or correct range
     if (srcIndex < minSrc) {
@@ -5692,16 +5816,15 @@ int AudioPolicyManager::rescaleVolumeIndex(int srcIndex,
 }
 
 status_t AudioPolicyManager::checkAndSetVolume(audio_stream_type_t stream,
-                                                   int index,
-                                                   const sp<AudioOutputDescriptor>& outputDesc,
-                                                   audio_devices_t device,
-                                                   int delayMs,
-                                                   bool force)
+                                               int index,
+                                               const sp<AudioOutputDescriptor>& outputDesc,
+                                               audio_devices_t device,
+                                               int delayMs,
+                                               bool force)
 {
     // do not change actual stream volume if the stream is muted
-    if (outputDesc->mMuteCount[stream] != 0) {
-        ALOGVV("checkAndSetVolume() stream %d muted count %d",
-              stream, outputDesc->mMuteCount[stream]);
+    if (outputDesc->isMuted(streamToVolumeSource(stream))) {
+        ALOGVV("%s() stream %d muted count %d", __func__, stream, outputDesc->getMuteCount(stream));
         return NO_ERROR;
     }
     audio_policy_forced_cfg_t forceUseForComm =
@@ -5733,7 +5856,7 @@ status_t AudioPolicyManager::checkAndSetVolume(audio_stream_type_t stream,
         float voiceVolume;
         // Force voice volume to max for bluetooth SCO as volume is managed by the headset
         if (stream == AUDIO_STREAM_VOICE_CALL) {
-            voiceVolume = (float)index/(float)mVolumeCurves->getVolumeIndexMax(stream);
+            voiceVolume = (float)index/(float)getVolumeCurves(stream).getVolumeIndexMax();
         } else {
             voiceVolume = 1.0;
         }
@@ -5756,7 +5879,7 @@ void AudioPolicyManager::applyStreamVolumes(const sp<AudioOutputDescriptor>& out
 
     for (int stream = 0; stream < AUDIO_STREAM_FOR_POLICY_CNT; stream++) {
         checkAndSetVolume((audio_stream_type_t)stream,
-                          mVolumeCurves->getVolumeIndex((audio_stream_type_t)stream, device),
+                          getVolumeCurves((audio_stream_type_t)stream).getVolumeIndex(device),
                           outputDesc,
                           device,
                           delayMs,
@@ -5788,26 +5911,26 @@ void AudioPolicyManager::setStreamMute(audio_stream_type_t stream,
     }
 
     ALOGVV("setStreamMute() stream %d, mute %d, mMuteCount %d device %04x",
-          stream, on, outputDesc->mMuteCount[stream], device);
-
+          stream, on, outputDesc->getMuteCount(stream), device);
+    auto &curves = getVolumeCurves(stream);
     if (on) {
-        if (outputDesc->mMuteCount[stream] == 0) {
-            if (mVolumeCurves->canBeMuted(stream) &&
+        if (!outputDesc->isMuted(streamToVolumeSource(stream))) {
+            if (curves.canBeMuted() &&
                     ((stream != AUDIO_STREAM_ENFORCED_AUDIBLE) ||
                      (mEngine->getForceUse(AUDIO_POLICY_FORCE_FOR_SYSTEM) == AUDIO_POLICY_FORCE_NONE))) {
                 checkAndSetVolume(stream, 0, outputDesc, device, delayMs);
             }
         }
         // increment mMuteCount after calling checkAndSetVolume() so that volume change is not ignored
-        outputDesc->mMuteCount[stream]++;
+        outputDesc->incMuteCount(streamToVolumeSource(stream));
     } else {
-        if (outputDesc->mMuteCount[stream] == 0) {
+        if (!outputDesc->isMuted(streamToVolumeSource(stream))) {
             ALOGV("setStreamMute() unmuting non muted stream!");
             return;
         }
-        if (--outputDesc->mMuteCount[stream] == 0) {
+        if (outputDesc->decMuteCount(streamToVolumeSource(stream)) == 0) {
             checkAndSetVolume(stream,
-                              mVolumeCurves->getVolumeIndex(stream, device),
+                              curves.getVolumeIndex(device),
                               outputDesc,
                               device,
                               delayMs);

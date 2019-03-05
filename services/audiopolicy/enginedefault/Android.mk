@@ -8,8 +8,10 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := \
     src/Engine.cpp \
     src/EngineInstance.cpp \
+    ../engine/common/src/VolumeCurve.cpp \
     ../engine/common/src/ProductStrategy.cpp \
-    ../engine/common/src/EngineBase.cpp
+    ../engine/common/src/EngineBase.cpp \
+    ../engine/common/src/VolumeGroup.cpp
 
 audio_policy_engine_includes_common := \
     $(LOCAL_PATH)/include

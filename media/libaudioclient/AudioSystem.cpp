@@ -792,6 +792,7 @@ const sp<IAudioPolicyService> AudioSystem::get_audio_policy_service()
         int64_t token = IPCThreadState::self()->clearCallingIdentity();
         ap->registerClient(apc);
         ap->setAudioPortCallbacksEnabled(apc->isAudioPortCbEnabled());
+        ap->setAudioVolumeGroupCallbacksEnabled(apc->isAudioVolumeGroupCbEnabled());
         IPCThreadState::self()->restoreCallingIdentity(token);
     }
 
@@ -985,6 +986,38 @@ status_t AudioSystem::getStreamVolumeIndex(audio_stream_type_t stream,
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
     if (aps == 0) return PERMISSION_DENIED;
     return aps->getStreamVolumeIndex(stream, index, device);
+}
+
+status_t AudioSystem::setVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                  int index,
+                                                  audio_devices_t device)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->setVolumeIndexForAttributes(attr, index, device);
+}
+
+status_t AudioSystem::getVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                  int &index,
+                                                  audio_devices_t device)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->getVolumeIndexForAttributes(attr, index, device);
+}
+
+status_t AudioSystem::getMaxVolumeIndexForAttributes(const audio_attributes_t &attr, int &index)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->getMaxVolumeIndexForAttributes(attr, index);
+}
+
+status_t AudioSystem::getMinVolumeIndexForAttributes(const audio_attributes_t &attr, int &index)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->getMinVolumeIndexForAttributes(attr, index);
 }
 
 uint32_t AudioSystem::getStrategyForStream(audio_stream_type_t stream)
@@ -1186,6 +1219,38 @@ status_t AudioSystem::removeAudioPortCallback(const sp<AudioPortCallback>& callb
     int ret = gAudioPolicyServiceClient->removeAudioPortCallback(callback);
     if (ret == 0) {
         aps->setAudioPortCallbacksEnabled(false);
+    }
+    return (ret < 0) ? INVALID_OPERATION : NO_ERROR;
+}
+
+status_t AudioSystem::addAudioVolumeGroupCallback(const sp<AudioVolumeGroupCallback>& callback)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+
+    Mutex::Autolock _l(gLockAPS);
+    if (gAudioPolicyServiceClient == 0) {
+        return NO_INIT;
+    }
+    int ret = gAudioPolicyServiceClient->addAudioVolumeGroupCallback(callback);
+    if (ret == 1) {
+        aps->setAudioVolumeGroupCallbacksEnabled(true);
+    }
+    return (ret < 0) ? INVALID_OPERATION : NO_ERROR;
+}
+
+status_t AudioSystem::removeAudioVolumeGroupCallback(const sp<AudioVolumeGroupCallback>& callback)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+
+    Mutex::Autolock _l(gLockAPS);
+    if (gAudioPolicyServiceClient == 0) {
+        return NO_INIT;
+    }
+    int ret = gAudioPolicyServiceClient->removeAudioVolumeGroupCallback(callback);
+    if (ret == 0) {
+        aps->setAudioVolumeGroupCallbacksEnabled(false);
     }
     return (ret < 0) ? INVALID_OPERATION : NO_ERROR;
 }
@@ -1403,12 +1468,16 @@ audio_attributes_t AudioSystem::streamTypeToAttributes(audio_stream_type_t strea
 
 audio_stream_type_t AudioSystem::attributesToStreamType(const audio_attributes_t &attr)
 {
-    product_strategy_t strategyId =
-            AudioSystem::getProductStrategyFromAudioAttributes(AudioAttributes(attr));
+    product_strategy_t psId;
+    status_t ret = AudioSystem::getProductStrategyFromAudioAttributes(AudioAttributes(attr), psId);
+    if (ret != NO_ERROR) {
+        ALOGE("no strategy found for attributes %s",  toString(attr).c_str());
+        return AUDIO_STREAM_MUSIC;
+    }
     AudioProductStrategyVector strategies;
     listAudioProductStrategies(strategies);
     for (const auto &strategy : strategies) {
-        if (strategy.getId() == strategyId) {
+        if (strategy.getId() == psId) {
             auto attrVect = strategy.getAudioAttributes();
             auto iter = std::find_if(begin(attrVect), end(attrVect), [&attr](const auto &refAttr) {
                              return AudioProductStrategy::attributesMatches(
@@ -1422,11 +1491,27 @@ audio_stream_type_t AudioSystem::attributesToStreamType(const audio_attributes_t
     return AUDIO_STREAM_MUSIC;
 }
 
-product_strategy_t AudioSystem::getProductStrategyFromAudioAttributes(const AudioAttributes &aa)
+status_t AudioSystem::getProductStrategyFromAudioAttributes(const AudioAttributes &aa,
+                                                            product_strategy_t &productStrategy)
 {
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
-    if (aps == 0) return PRODUCT_STRATEGY_NONE;
-    return aps->getProductStrategyFromAudioAttributes(aa);
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->getProductStrategyFromAudioAttributes(aa,productStrategy);
+}
+
+status_t AudioSystem::listAudioVolumeGroups(AudioVolumeGroupVector &groups)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->listAudioVolumeGroups(groups);
+}
+
+status_t AudioSystem::getVolumeGroupFromAudioAttributes(const AudioAttributes &aa,
+                                                        volume_group_t &volumeGroup)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    return aps->getVolumeGroupFromAudioAttributes(aa, volumeGroup);
 }
 
 // ---------------------------------------------------------------------------
@@ -1478,6 +1563,47 @@ void AudioSystem::AudioPolicyServiceClient::onAudioPatchListUpdate()
     }
 }
 
+// ----------------------------------------------------------------------------
+int AudioSystem::AudioPolicyServiceClient::addAudioVolumeGroupCallback(
+        const sp<AudioVolumeGroupCallback>& callback)
+{
+    Mutex::Autolock _l(mLock);
+    for (size_t i = 0; i < mAudioVolumeGroupCallback.size(); i++) {
+        if (mAudioVolumeGroupCallback[i] == callback) {
+            return -1;
+        }
+    }
+    mAudioVolumeGroupCallback.add(callback);
+    return mAudioVolumeGroupCallback.size();
+}
+
+int AudioSystem::AudioPolicyServiceClient::removeAudioVolumeGroupCallback(
+        const sp<AudioVolumeGroupCallback>& callback)
+{
+    Mutex::Autolock _l(mLock);
+    size_t i;
+    for (i = 0; i < mAudioVolumeGroupCallback.size(); i++) {
+        if (mAudioVolumeGroupCallback[i] == callback) {
+            break;
+        }
+    }
+    if (i == mAudioVolumeGroupCallback.size()) {
+        return -1;
+    }
+    mAudioVolumeGroupCallback.removeAt(i);
+    return mAudioVolumeGroupCallback.size();
+}
+
+void AudioSystem::AudioPolicyServiceClient::onAudioVolumeGroupChanged(volume_group_t group,
+                                                                      int flags)
+{
+    Mutex::Autolock _l(mLock);
+    for (size_t i = 0; i < mAudioVolumeGroupCallback.size(); i++) {
+        mAudioVolumeGroupCallback[i]->onAudioVolumeGroupChanged(group, flags);
+    }
+}
+// ----------------------------------------------------------------------------
+
 void AudioSystem::AudioPolicyServiceClient::onDynamicPolicyMixStateUpdate(
         String8 regId, int32_t state)
 {
@@ -1520,6 +1646,9 @@ void AudioSystem::AudioPolicyServiceClient::binderDied(const wp<IBinder>& who __
         Mutex::Autolock _l(mLock);
         for (size_t i = 0; i < mAudioPortCallbacks.size(); i++) {
             mAudioPortCallbacks[i]->onServiceDied();
+        }
+        for (size_t i = 0; i < mAudioVolumeGroupCallback.size(); i++) {
+            mAudioVolumeGroupCallback[i]->onServiceDied();
         }
     }
     {

@@ -26,7 +26,7 @@
 #include <utils/Log.h>
 #include <android_media_Utils.h>
 #include <android_runtime/android_view_Surface.h>
-#include <android_runtime/android_hardware_HardwareBuffer.h>
+#include <private/android/AHardwareBufferHelpers.h>
 #include <grallocusage/GrallocUsageConversion.h>
 #include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
 
@@ -71,6 +71,7 @@ AImageReader::isSupportedFormatAndUsage(int32_t format, uint64_t usage) {
         case AIMAGE_FORMAT_Y8:
         case AIMAGE_FORMAT_RAW_DEPTH:
         case AIMAGE_FORMAT_HEIC:
+        case AIMAGE_FORMAT_DEPTH_JPEG:
             return true;
         case AIMAGE_FORMAT_PRIVATE:
             // For private format, cpu usage is prohibited.
@@ -100,6 +101,7 @@ AImageReader::getNumPlanesForFormat(int32_t format) {
         case AIMAGE_FORMAT_Y8:
         case AIMAGE_FORMAT_RAW_DEPTH:
         case AIMAGE_FORMAT_HEIC:
+        case AIMAGE_FORMAT_DEPTH_JPEG:
             return 1;
         case AIMAGE_FORMAT_PRIVATE:
             return 0;
@@ -274,7 +276,7 @@ AImageReader::init() {
     PublicFormat publicFormat = static_cast<PublicFormat>(mFormat);
     mHalFormat = android_view_Surface_mapPublicFormatToHalFormat(publicFormat);
     mHalDataSpace = android_view_Surface_mapPublicFormatToHalDataspace(publicFormat);
-    mHalUsage = android_hardware_HardwareBuffer_convertToGrallocUsageBits(mUsage);
+    mHalUsage = AHardwareBuffer_convertToGrallocUsageBits(mUsage);
 
     sp<IGraphicBufferProducer> gbProducer;
     sp<IGraphicBufferConsumer> gbConsumer;
