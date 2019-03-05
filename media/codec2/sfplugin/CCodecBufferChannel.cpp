@@ -255,6 +255,34 @@ public:
         mSkipCutBuffer = scb;
     }
 
+    void handleImageData(const sp<Codec2Buffer> &buffer) {
+        sp<ABuffer> imageDataCandidate = buffer->getImageData();
+        if (imageDataCandidate == nullptr) {
+            return;
+        }
+        sp<ABuffer> imageData;
+        if (!mFormat->findBuffer("image-data", &imageData)
+                || imageDataCandidate->size() != imageData->size()
+                || memcmp(imageDataCandidate->data(), imageData->data(), imageData->size()) != 0) {
+            ALOGD("[%s] updating image-data", mName);
+            sp<AMessage> newFormat = dupFormat();
+            newFormat->setBuffer("image-data", imageDataCandidate);
+            MediaImage2 *img = (MediaImage2*)imageDataCandidate->data();
+            if (img->mNumPlanes > 0 && img->mType != img->MEDIA_IMAGE_TYPE_UNKNOWN) {
+                int32_t stride = img->mPlane[0].mRowInc;
+                newFormat->setInt32(KEY_STRIDE, stride);
+                ALOGD("[%s] updating stride = %d", mName, stride);
+                if (img->mNumPlanes > 1 && stride > 0) {
+                    int32_t vstride = (img->mPlane[1].mOffset - img->mPlane[0].mOffset) / stride;
+                    newFormat->setInt32(KEY_SLICE_HEIGHT, vstride);
+                    ALOGD("[%s] updating vstride = %d", mName, vstride);
+                }
+            }
+            setFormat(newFormat);
+            buffer->setFormat(newFormat);
+        }
+    }
+
 protected:
     sp<SkipCutBuffer> mSkipCutBuffer;
 
@@ -1152,6 +1180,7 @@ public:
             return WOULD_BLOCK;
         }
         submit(c2Buffer);
+        handleImageData(c2Buffer);
         *clientBuffer = c2Buffer;
         ALOGV("[%s] grabbed buffer %zu", mName, *index);
         return OK;
@@ -1250,6 +1279,7 @@ public:
         }
         newBuffer->setFormat(mFormat);
         *index = mImpl.assignSlot(newBuffer);
+        handleImageData(newBuffer);
         *clientBuffer = newBuffer;
         ALOGV("[%s] registered buffer %zu", mName, *index);
         return OK;
@@ -1557,6 +1587,7 @@ CCodecBufferChannel::CCodecBufferChannel(
       mCCodecCallback(callback),
       mNumInputSlots(kSmoothnessFactor),
       mNumOutputSlots(kSmoothnessFactor),
+      mDelay(0),
       mFrameIndex(0u),
       mFirstValidFrameIndex(0u),
       mMetaMode(MODE_NONE),
@@ -2104,11 +2135,13 @@ status_t CCodecBufferChannel::start(
         }
     }
 
-    mNumInputSlots =
-        (inputDelay ? inputDelay.value : 0) +
-        (pipelineDelay ? pipelineDelay.value : 0) +
-        kSmoothnessFactor;
-    mNumOutputSlots = (outputDelay ? outputDelay.value : 0) + kSmoothnessFactor;
+    uint32_t inputDelayValue = inputDelay ? inputDelay.value : 0;
+    uint32_t pipelineDelayValue = pipelineDelay ? pipelineDelay.value : 0;
+    uint32_t outputDelayValue = outputDelay ? outputDelay.value : 0;
+
+    mNumInputSlots = inputDelayValue + pipelineDelayValue + kSmoothnessFactor;
+    mNumOutputSlots = outputDelayValue + kSmoothnessFactor;
+    mDelay = inputDelayValue + pipelineDelayValue + outputDelayValue;
 
     // TODO: get this from input format
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
@@ -2397,9 +2430,9 @@ status_t CCodecBufferChannel::start(
 
     {
         Mutexed<PipelineWatcher>::Locked watcher(mPipelineWatcher);
-        watcher->inputDelay(inputDelay ? inputDelay.value : 0)
-                .pipelineDelay(pipelineDelay ? pipelineDelay.value : 0)
-                .outputDelay(outputDelay ? outputDelay.value : 0)
+        watcher->inputDelay(inputDelayValue)
+                .pipelineDelay(pipelineDelayValue)
+                .outputDelay(outputDelayValue)
                 .smoothnessFactor(kSmoothnessFactor);
         watcher->flush();
     }
@@ -2816,7 +2849,11 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
 }
 
 PipelineWatcher::Clock::duration CCodecBufferChannel::elapsed() {
-    return mPipelineWatcher.lock()->elapsed(PipelineWatcher::Clock::now());
+    // When client pushed EOS, we want all the work to be done quickly.
+    // Otherwise, component may have stalled work due to input starvation up to
+    // the sum of the delay in the pipeline.
+    size_t n = mInputMetEos ? 0 : mDelay;
+    return mPipelineWatcher.lock()->elapsed(PipelineWatcher::Clock::now(), n);
 }
 
 void CCodecBufferChannel::setMetaMode(MetaMode mode) {

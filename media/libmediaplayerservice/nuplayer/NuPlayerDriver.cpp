@@ -781,7 +781,7 @@ status_t NuPlayerDriver::setParameter(
 
 status_t NuPlayerDriver::getParameter(int key, Parcel *reply) {
 
-    if (key == FOURCC('m','t','r','X')) {
+    if (key == FOURCC('m','t','r','X') && mAnalyticsItem != NULL) {
         // mtrX -- a play on 'metrics' (not matrix)
         // gather current info all together, parcel it, and send it back
         if (mAnalyticsItem != NULL) {
