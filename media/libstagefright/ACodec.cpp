@@ -8054,10 +8054,9 @@ void ACodec::onSignalEndOfInputStream() {
 }
 
 sp<IOMXObserver> ACodec::createObserver() {
-    sp<CodecObserver> observer = new CodecObserver;
     sp<AMessage> notify = new AMessage(kWhatOMXMessageList, this);
-    notify->setInt32("generation", this->mNodeGeneration);
-    observer->setNotificationMessage(notify);
+    notify->setInt32("generation", this->mNodeGeneration + 1);
+    sp<CodecObserver> observer = new CodecObserver(notify);
     return observer;
 }
 
