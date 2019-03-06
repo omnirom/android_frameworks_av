@@ -38,6 +38,10 @@ LOCAL_SHARED_LIBRARIES := \
     libnblog \
     libsonic \
     libutils \
+    libvibrator \
+
+LOCAL_HEADER_LIBRARIES := \
+    libbase_headers \
 
 LOCAL_MODULE := libaudioprocessing
 
