@@ -168,6 +168,9 @@ sp<IMemory> StagefrightMetadataRetriever::getImageInternal(
 
     for (i = 0; i < n; ++i) {
         sp<MetaData> meta = mExtractor->getTrackMetaData(i);
+        if (!meta) {
+            continue;
+        }
         ALOGV("getting track %zu of %zu, meta=%s", i, n, meta->toString().c_str());
 
         const char *mime;
@@ -189,6 +192,9 @@ sp<IMemory> StagefrightMetadataRetriever::getImageInternal(
     }
 
     sp<MetaData> trackMeta = mExtractor->getTrackMetaData(i);
+    if (!trackMeta) {
+        return NULL;
+    }
 
     if (metaOnly) {
         return FrameDecoder::getMetadataOnly(trackMeta, colorFormat, thumbnail);
@@ -283,6 +289,9 @@ status_t StagefrightMetadataRetriever::getFrameInternal(
     size_t i;
     for (i = 0; i < n; ++i) {
         sp<MetaData> meta = mExtractor->getTrackMetaData(i);
+        if (!meta) {
+            continue;
+        }
 
         if (meta == NULL) {
             continue;
@@ -303,6 +312,9 @@ status_t StagefrightMetadataRetriever::getFrameInternal(
 
     sp<MetaData> trackMeta = mExtractor->getTrackMetaData(
             i, MediaExtractor::kIncludeExtensiveMetaData);
+    if (!trackMeta) {
+        return UNKNOWN_ERROR;
+    }
 
     if (metaOnly) {
         if (outFrame != NULL) {
@@ -536,6 +548,9 @@ void StagefrightMetadataRetriever::parseMetaData() {
     String8 timedTextLang;
     for (size_t i = 0; i < numTracks; ++i) {
         sp<MetaData> trackMeta = mExtractor->getTrackMetaData(i);
+        if (!trackMeta) {
+            continue;
+        }
 
         if (trackMeta == NULL) {
             continue;
@@ -678,9 +693,9 @@ void StagefrightMetadataRetriever::parseMetaData() {
                 !strcasecmp(fileMIME, "video/x-matroska")) {
             sp<MetaData> trackMeta = mExtractor->getTrackMetaData(0);
             const char *trackMIME;
-            CHECK(trackMeta != NULL
-                  && trackMeta->findCString(kKeyMIMEType, &trackMIME));
-
+            if (trackMeta != nullptr) {
+                CHECK(trackMeta->findCString(kKeyMIMEType, &trackMIME));
+            }
             if (!strncasecmp("audio/", trackMIME, 6)) {
                 // The matroska file only contains a single audio track,
                 // rewrite its mime type.
