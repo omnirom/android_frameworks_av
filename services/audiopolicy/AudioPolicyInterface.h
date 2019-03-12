@@ -159,6 +159,19 @@ public:
                                           int *index,
                                           audio_devices_t device) = 0;
 
+    virtual status_t setVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                 int index,
+                                                 audio_devices_t device) = 0;
+    virtual status_t getVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                 int &index,
+                                                 audio_devices_t device) = 0;
+
+    virtual status_t getMaxVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                    int &index) = 0;
+
+    virtual status_t getMinVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                    int &index) = 0;
+
     // return the strategy corresponding to a given stream type
     virtual uint32_t getStrategyForStream(audio_stream_type_t stream) = 0;
 
@@ -244,7 +257,13 @@ public:
 
     virtual status_t listAudioProductStrategies(AudioProductStrategyVector &strategies) = 0;
 
-    virtual product_strategy_t getProductStrategyFromAudioAttributes(const AudioAttributes &aa) = 0;
+    virtual status_t getProductStrategyFromAudioAttributes(const AudioAttributes &aa,
+                                                           product_strategy_t &productStrategy) = 0;
+
+    virtual status_t listAudioVolumeGroups(AudioVolumeGroupVector &groups) = 0;
+
+    virtual status_t getVolumeGroupFromAudioAttributes(const AudioAttributes &aa,
+                                                       volume_group_t &volumeGroup) = 0;
 };
 
 
@@ -340,6 +359,8 @@ public:
     virtual void onAudioPortListUpdate() = 0;
 
     virtual void onAudioPatchListUpdate() = 0;
+
+    virtual void onAudioVolumeGroupChanged(volume_group_t group, int flags) = 0;
 
     virtual audio_unique_id_t newAudioUniqueId(audio_unique_id_use_t use) = 0;
 
