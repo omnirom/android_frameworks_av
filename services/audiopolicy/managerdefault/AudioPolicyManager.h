@@ -49,7 +49,7 @@
 #include <AudioPolicyMix.h>
 #include <EffectDescriptor.h>
 #include <SoundTriggerSession.h>
-#include <VolumeCurve.h>
+#include "TypeConverter.h"
 
 namespace android {
 
@@ -143,15 +143,44 @@ public:
         virtual status_t stopInput(audio_port_handle_t portId);
         virtual void releaseInput(audio_port_handle_t portId);
         virtual void closeAllInputs();
-        virtual void initStreamVolume(audio_stream_type_t stream,
-                                                    int indexMin,
-                                                    int indexMax);
+        /**
+         * @brief initStreamVolume: even if the engine volume files provides min and max, keep this
+         * api for compatibility reason.
+         * AudioServer will get the min and max and may overwrite them if:
+         *      -using property (highest priority)
+         *      -not defined (-1 by convention), case when still using apm volume tables XML files
+         * @param stream to be considered
+         * @param indexMin to set
+         * @param indexMax to set
+         */
+        virtual void initStreamVolume(audio_stream_type_t stream, int indexMin, int indexMax);
         virtual status_t setStreamVolumeIndex(audio_stream_type_t stream,
                                               int index,
                                               audio_devices_t device);
         virtual status_t getStreamVolumeIndex(audio_stream_type_t stream,
                                               int *index,
                                               audio_devices_t device);
+
+        virtual status_t setVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                     int index,
+                                                     audio_devices_t device);
+        virtual status_t getVolumeIndexForAttributes(const audio_attributes_t &attr,
+                                                     int &index,
+                                                     audio_devices_t device);
+        virtual status_t getMaxVolumeIndexForAttributes(const audio_attributes_t &attr, int &index);
+
+        virtual status_t getMinVolumeIndexForAttributes(const audio_attributes_t &attr, int &index);
+
+        status_t setVolumeGroupIndex(IVolumeCurves &volumeCurves, volume_group_t group, int index,
+                                     audio_devices_t device, const audio_attributes_t attributes);
+
+        status_t setVolumeCurveIndex(volume_group_t volumeGroup,
+                                     int index,
+                                     audio_devices_t device,
+                                     IVolumeCurves &volumeCurves);
+
+        status_t getVolumeIndex(const IVolumeCurves &curves, int &index,
+                                audio_devices_t device) const;
 
         // return the strategy corresponding to a given stream type
         virtual uint32_t getStrategyForStream(audio_stream_type_t stream)
@@ -260,9 +289,23 @@ public:
             return mEngine->listAudioProductStrategies(strategies);
         }
 
-        virtual product_strategy_t getProductStrategyFromAudioAttributes(const AudioAttributes &aa)
+        virtual status_t getProductStrategyFromAudioAttributes(const AudioAttributes &aa,
+                                                               product_strategy_t &productStrategy)
         {
-            return mEngine->getProductStrategyForAttributes(aa.getAttributes());
+            productStrategy = mEngine->getProductStrategyForAttributes(aa.getAttributes());
+            return productStrategy != PRODUCT_STRATEGY_NONE ? NO_ERROR : BAD_VALUE;
+        }
+
+        virtual status_t listAudioVolumeGroups(AudioVolumeGroupVector &groups)
+        {
+            return mEngine->listAudioVolumeGroups(groups);
+        }
+
+        virtual status_t getVolumeGroupFromAudioAttributes(const AudioAttributes &aa,
+                                                           volume_group_t &volumeGroup)
+        {
+            volumeGroup = mEngine->getVolumeGroupForAttributes(aa.getAttributes());
+            return volumeGroup != VOLUME_GROUP_NONE ? NO_ERROR : BAD_VALUE;
         }
 
 protected:
@@ -310,11 +353,24 @@ protected:
         {
             return mAvailableInputDevices;
         }
-        virtual IVolumeCurvesCollection &getVolumeCurves() { return *mVolumeCurves; }
         virtual const sp<DeviceDescriptor> &getDefaultOutputDevice() const
         {
             return mDefaultOutputDevice;
         }
+
+        IVolumeCurves &getVolumeCurves(const audio_attributes_t &attr)
+        {
+            auto *curves = mEngine->getVolumeCurvesForAttributes(attr);
+            ALOG_ASSERT(curves != nullptr, "No curves for attributes %s", toString(attr).c_str());
+            return *curves;
+        }
+        IVolumeCurves &getVolumeCurves(audio_stream_type_t stream)
+        {
+            auto *curves = mEngine->getVolumeCurvesForStreamType(stream);
+            ALOG_ASSERT(curves != nullptr, "No curves for stream %s", toString(stream).c_str());
+            return *curves;
+        }
+
         void addOutput(audio_io_handle_t output, const sp<SwAudioOutputDescriptor>& outputDesc);
         void removeOutput(audio_io_handle_t output);
         void addInput(audio_io_handle_t input, const sp<AudioInputDescriptor>& inputDesc);
@@ -623,12 +679,12 @@ protected:
         float   mLastVoiceVolume;            // last voice volume value sent to audio HAL
         bool    mA2dpSuspended;  // true if A2DP output is suspended
 
-        std::unique_ptr<IVolumeCurvesCollection> mVolumeCurves; // Volume Curves per use case and device category
         EffectDescriptorCollection mEffects;  // list of registered audio effects
         sp<DeviceDescriptor> mDefaultOutputDevice; // output device selected by default at boot time
         HwModuleCollection mHwModules; // contains only modules that have been loaded successfully
         HwModuleCollection mHwModulesAll; // normally not needed, used during construction and for
                                           // dumps
+
         AudioPolicyConfig mConfig;
 
         std::atomic<uint32_t> mAudioPortGeneration;

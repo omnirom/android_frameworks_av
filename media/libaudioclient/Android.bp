@@ -10,6 +10,7 @@ cc_library_shared {
         "AudioAttributes.cpp",
         "AudioPolicy.cpp",
         "AudioProductStrategy.cpp",
+        "AudioVolumeGroup.cpp",
     ],
     shared_libs: [
         "libaudioutils",
@@ -74,6 +75,7 @@ cc_library_shared {
         "libnblog",
         "libprocessgroup",
         "libutils",
+        "libvibrator",
     ],
     export_shared_lib_headers: ["libbinder"],
 

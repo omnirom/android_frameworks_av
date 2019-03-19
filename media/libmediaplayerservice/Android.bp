@@ -12,6 +12,7 @@ cc_library_shared {
 
     shared_libs: [
         "android.hardware.media.omx@1.0",
+        "libbase",
         "libaudioclient",
         "libbinder",
         "libcamera_client",
@@ -70,8 +71,6 @@ cc_library_shared {
     ],
 
     name: "libmediaplayerservice",
-
-    //compile_multilib: "32",
 
     sanitize: {
         cfi: true,

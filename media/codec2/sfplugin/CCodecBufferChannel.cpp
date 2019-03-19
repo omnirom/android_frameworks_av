@@ -186,7 +186,7 @@ public:
      * MediaCodec behavior.
      */
     virtual status_t registerCsd(
-            const C2StreamCsdInfo::output * /* csd */,
+            const C2StreamInitDataInfo::output * /* csd */,
             size_t * /* index */,
             sp<MediaCodecBuffer> * /* clientBuffer */) = 0;
 
@@ -253,6 +253,34 @@ public:
      */
     void transferSkipCutBuffer(const sp<SkipCutBuffer> &scb) {
         mSkipCutBuffer = scb;
+    }
+
+    void handleImageData(const sp<Codec2Buffer> &buffer) {
+        sp<ABuffer> imageDataCandidate = buffer->getImageData();
+        if (imageDataCandidate == nullptr) {
+            return;
+        }
+        sp<ABuffer> imageData;
+        if (!mFormat->findBuffer("image-data", &imageData)
+                || imageDataCandidate->size() != imageData->size()
+                || memcmp(imageDataCandidate->data(), imageData->data(), imageData->size()) != 0) {
+            ALOGD("[%s] updating image-data", mName);
+            sp<AMessage> newFormat = dupFormat();
+            newFormat->setBuffer("image-data", imageDataCandidate);
+            MediaImage2 *img = (MediaImage2*)imageDataCandidate->data();
+            if (img->mNumPlanes > 0 && img->mType != img->MEDIA_IMAGE_TYPE_UNKNOWN) {
+                int32_t stride = img->mPlane[0].mRowInc;
+                newFormat->setInt32(KEY_STRIDE, stride);
+                ALOGD("[%s] updating stride = %d", mName, stride);
+                if (img->mNumPlanes > 1 && stride > 0) {
+                    int32_t vstride = (img->mPlane[1].mOffset - img->mPlane[0].mOffset) / stride;
+                    newFormat->setInt32(KEY_SLICE_HEIGHT, vstride);
+                    ALOGD("[%s] updating vstride = %d", mName, vstride);
+                }
+            }
+            setFormat(newFormat);
+            buffer->setFormat(newFormat);
+        }
     }
 
 protected:
@@ -1152,13 +1180,14 @@ public:
             return WOULD_BLOCK;
         }
         submit(c2Buffer);
+        handleImageData(c2Buffer);
         *clientBuffer = c2Buffer;
         ALOGV("[%s] grabbed buffer %zu", mName, *index);
         return OK;
     }
 
     status_t registerCsd(
-            const C2StreamCsdInfo::output *csd,
+            const C2StreamInitDataInfo::output *csd,
             size_t *index,
             sp<MediaCodecBuffer> *clientBuffer) final {
         sp<Codec2Buffer> c2Buffer;
@@ -1250,13 +1279,14 @@ public:
         }
         newBuffer->setFormat(mFormat);
         *index = mImpl.assignSlot(newBuffer);
+        handleImageData(newBuffer);
         *clientBuffer = newBuffer;
         ALOGV("[%s] registered buffer %zu", mName, *index);
         return OK;
     }
 
     status_t registerCsd(
-            const C2StreamCsdInfo::output *csd,
+            const C2StreamInitDataInfo::output *csd,
             size_t *index,
             sp<MediaCodecBuffer> *clientBuffer) final {
         sp<Codec2Buffer> newBuffer = new LocalLinearBuffer(
@@ -1557,10 +1587,12 @@ CCodecBufferChannel::CCodecBufferChannel(
       mCCodecCallback(callback),
       mNumInputSlots(kSmoothnessFactor),
       mNumOutputSlots(kSmoothnessFactor),
+      mDelay(0),
       mFrameIndex(0u),
       mFirstValidFrameIndex(0u),
       mMetaMode(MODE_NONE),
       mInputMetEos(false) {
+    mOutputSurface.lock()->maxDequeueBuffers = kSmoothnessFactor + kRenderingDepth;
     Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
     buffers->reset(new DummyInputBuffers(""));
 }
@@ -2104,11 +2136,13 @@ status_t CCodecBufferChannel::start(
         }
     }
 
-    mNumInputSlots =
-        (inputDelay ? inputDelay.value : 0) +
-        (pipelineDelay ? pipelineDelay.value : 0) +
-        kSmoothnessFactor;
-    mNumOutputSlots = (outputDelay ? outputDelay.value : 0) + kSmoothnessFactor;
+    uint32_t inputDelayValue = inputDelay ? inputDelay.value : 0;
+    uint32_t pipelineDelayValue = pipelineDelay ? pipelineDelay.value : 0;
+    uint32_t outputDelayValue = outputDelay ? outputDelay.value : 0;
+
+    mNumInputSlots = inputDelayValue + pipelineDelayValue + kSmoothnessFactor;
+    mNumOutputSlots = outputDelayValue + kSmoothnessFactor;
+    mDelay = inputDelayValue + pipelineDelayValue + outputDelayValue;
 
     // TODO: get this from input format
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
@@ -2120,7 +2154,7 @@ status_t CCodecBufferChannel::start(
             1 << C2PlatformAllocatorStore::BUFFERQUEUE);
 
     if (inputFormat != nullptr) {
-        bool graphic = (iStreamFormat.value == C2FormatVideo);
+        bool graphic = (iStreamFormat.value == C2BufferData::GRAPHIC);
         std::shared_ptr<C2BlockPool> pool;
         {
             Mutexed<BlockPools>::Locked pools(mBlockPools);
@@ -2236,12 +2270,16 @@ status_t CCodecBufferChannel::start(
         uint32_t outputGeneration;
         {
             Mutexed<OutputSurface>::Locked output(mOutputSurface);
+            output->maxDequeueBuffers = mNumOutputSlots + reorderDepth.value + kRenderingDepth;
             outputSurface = output->surface ?
                     output->surface->getIGraphicBufferProducer() : nullptr;
+            if (outputSurface) {
+                output->surface->setMaxDequeuedBufferCount(output->maxDequeueBuffers);
+            }
             outputGeneration = output->generation;
         }
 
-        bool graphic = (oStreamFormat.value == C2FormatVideo);
+        bool graphic = (oStreamFormat.value == C2BufferData::GRAPHIC);
         C2BlockPool::local_id_t outputPoolId_;
 
         {
@@ -2397,9 +2435,9 @@ status_t CCodecBufferChannel::start(
 
     {
         Mutexed<PipelineWatcher>::Locked watcher(mPipelineWatcher);
-        watcher->inputDelay(inputDelay ? inputDelay.value : 0)
-                .pipelineDelay(pipelineDelay ? pipelineDelay.value : 0)
-                .outputDelay(outputDelay ? outputDelay.value : 0)
+        watcher->inputDelay(inputDelayValue)
+                .pipelineDelay(pipelineDelayValue)
+                .outputDelay(outputDelayValue)
                 .smoothnessFactor(kSmoothnessFactor);
         watcher->flush();
     }
@@ -2414,7 +2452,7 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
         return OK;
     }
 
-    C2StreamFormatConfig::output oStreamFormat(0u);
+    C2StreamBufferTypeSetting::output oStreamFormat(0u);
     c2_status_t err = mComponent->query({ &oStreamFormat }, {}, C2_DONT_BLOCK, nullptr);
     if (err != C2_OK) {
         return UNKNOWN_ERROR;
@@ -2605,6 +2643,11 @@ bool CCodecBufferChannel::handleWork(
                     mReorderStash.lock()->setDepth(reorderDepth.value);
                     ALOGV("[%s] onWorkDone: updated reorder depth to %u",
                           mName, reorderDepth.value);
+                    Mutexed<OutputSurface>::Locked output(mOutputSurface);
+                    output->maxDequeueBuffers = mNumOutputSlots + reorderDepth.value + kRenderingDepth;
+                    if (output->surface) {
+                        output->surface->setMaxDequeuedBufferCount(output->maxDequeueBuffers);
+                    }
                 } else {
                     ALOGD("[%s] onWorkDone: failed to read reorder depth", mName);
                 }
@@ -2701,7 +2744,7 @@ bool CCodecBufferChannel::handleWork(
             // TODO: properly translate these to metadata
             switch (info->coreIndex().coreIndex()) {
                 case C2StreamPictureTypeMaskInfo::CORE_INDEX:
-                    if (((C2StreamPictureTypeMaskInfo *)info.get())->value & C2PictureTypeKeyFrame) {
+                    if (((C2StreamPictureTypeMaskInfo *)info.get())->value & C2Config::SYNC_FRAME) {
                         flags |= MediaCodec::BUFFER_FLAG_SYNCFRAME;
                     }
                     break;
@@ -2780,7 +2823,6 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     sp<IGraphicBufferProducer> producer;
     if (newSurface) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        newSurface->setMaxDequeuedBufferCount(mNumOutputSlots + kRenderingDepth);
         producer = newSurface->getIGraphicBufferProducer();
         producer->setGenerationNumber(generation);
     } else {
@@ -2808,6 +2850,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
 
     {
         Mutexed<OutputSurface>::Locked output(mOutputSurface);
+        newSurface->setMaxDequeuedBufferCount(output->maxDequeueBuffers);
         output->surface = newSurface;
         output->generation = generation;
     }
@@ -2816,7 +2859,11 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
 }
 
 PipelineWatcher::Clock::duration CCodecBufferChannel::elapsed() {
-    return mPipelineWatcher.lock()->elapsed(PipelineWatcher::Clock::now());
+    // When client pushed EOS, we want all the work to be done quickly.
+    // Otherwise, component may have stalled work due to input starvation up to
+    // the sum of the delay in the pipeline.
+    size_t n = mInputMetEos ? 0 : mDelay;
+    return mPipelineWatcher.lock()->elapsed(PipelineWatcher::Clock::now(), n);
 }
 
 void CCodecBufferChannel::setMetaMode(MetaMode mode) {

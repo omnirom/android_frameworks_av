@@ -93,36 +93,38 @@ void workDone(
         std::vector<std::unique_ptr<C2SettingResult>> failures;
         for (size_t i = 0; i < updates.size(); ++i) {
             C2Param* param = updates[i].get();
-            if (param->index() == C2StreamCsdInfo::output::PARAM_TYPE) {
+            if (param->index() == C2StreamInitDataInfo::output::PARAM_TYPE) {
                 csd = true;
             } else if ((param->index() ==
                         C2StreamSampleRateInfo::output::PARAM_TYPE) ||
                        (param->index() ==
                         C2StreamChannelCountInfo::output::PARAM_TYPE) ||
                        (param->index() ==
-                        C2VideoSizeStreamInfo::output::PARAM_TYPE)) {
+                        C2StreamPictureSizeInfo::output::PARAM_TYPE)) {
                 configParam.push_back(param);
             }
         }
         component->config(configParam, C2_DONT_BLOCK, &failures);
         ASSERT_EQ(failures.size(), 0u);
     }
-    framesReceived++;
-    eos = (work->worklets.front()->output.flags &
-           C2FrameData::FLAG_END_OF_STREAM) != 0;
-    auto frameIndexIt = std::find(flushedIndices.begin(), flushedIndices.end(),
-                                  work->input.ordinal.frameIndex.peeku());
-    ALOGV("WorkDone: frameID received %d",
-          (int)work->worklets.front()->output.ordinal.frameIndex.peeku());
-    work->input.buffers.clear();
-    work->worklets.clear();
-    {
-        typedef std::unique_lock<std::mutex> ULock;
-        ULock l(queueLock);
-        workQueue.push_back(std::move(work));
-        if (!flushedIndices.empty()) {
-            flushedIndices.erase(frameIndexIt);
+    if (work->worklets.front()->output.flags != C2FrameData::FLAG_INCOMPLETE) {
+        framesReceived++;
+        eos = (work->worklets.front()->output.flags &
+               C2FrameData::FLAG_END_OF_STREAM) != 0;
+        auto frameIndexIt = std::find(flushedIndices.begin(), flushedIndices.end(),
+                                      work->input.ordinal.frameIndex.peeku());
+        ALOGV("WorkDone: frameID received %d",
+              (int)work->worklets.front()->output.ordinal.frameIndex.peeku());
+        work->input.buffers.clear();
+        work->worklets.clear();
+        {
+            typedef std::unique_lock<std::mutex> ULock;
+            ULock l(queueLock);
+            workQueue.push_back(std::move(work));
+            if (!flushedIndices.empty()) {
+                flushedIndices.erase(frameIndexIt);
+            }
+            queueCondition.notify_all();
         }
-        queueCondition.notify_all();
     }
 }
