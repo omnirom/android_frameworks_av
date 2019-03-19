@@ -77,7 +77,7 @@ protected:
 
     bool threadLoop() override;
     bool onStreamBufferError(const CaptureResultExtras& resultExtras) override;
-    void onResultError(const CaptureResultExtras& /*resultExtras*/) override {}
+    void onResultError(const CaptureResultExtras& resultExtras) override;
 
 private:
     //
@@ -145,12 +145,13 @@ private:
         int32_t                   orientation;
         int32_t                   quality;
 
-        CpuConsumer::LockedBuffer     appSegmentBuffer;
+        CpuConsumer::LockedBuffer          appSegmentBuffer;
         std::vector<CodecOutputBufferInfo> codecOutputBuffers;
+        std::unique_ptr<CameraMetadata>    result;
 
         // Fields that are only applicable to HEVC tiling.
-        CpuConsumer::LockedBuffer     yuvBuffer;
-        std::vector<CodecInputBufferInfo> codecInputBuffers;
+        CpuConsumer::LockedBuffer          yuvBuffer;
+        std::vector<CodecInputBufferInfo>  codecInputBuffers;
 
         bool                      error;
         bool                      errorNotified;
@@ -194,6 +195,7 @@ private:
     status_t copyOneYuvTile(sp<MediaCodecBuffer>& codecBuffer,
             const CpuConsumer::LockedBuffer& yuvBuffer,
             size_t top, size_t left, size_t width, size_t height);
+    void initCopyRowFunction(int32_t width);
     static size_t calcAppSegmentMaxSize(const CameraMetadata& info);
 
     static const nsecs_t kWaitDuration = 10000000; // 10 ms
@@ -209,6 +211,7 @@ private:
     sp<Surface>       mAppSegmentSurface;
     bool              mAppSegmentBufferAcquired;
     size_t            mAppSegmentMaxSize;
+    CameraMetadata    mStaticInfo;
 
     int               mMainImageStreamId, mMainImageSurfaceId;
     sp<Surface>       mMainImageSurface;
@@ -242,6 +245,9 @@ private:
 
     // In most common use case, entries are accessed in order.
     std::map<int64_t, InputFrame> mPendingInputFrames;
+
+    // Function pointer of libyuv row copy.
+    void (*mFnCopyRow)(const uint8_t* src, uint8_t* dst, int width);
 };
 
 }; // namespace camera3

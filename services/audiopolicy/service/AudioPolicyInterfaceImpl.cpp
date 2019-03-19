@@ -22,6 +22,7 @@
 #include <cutils/properties.h>
 #include <media/MediaAnalyticsItem.h>
 #include <mediautils/ServiceUtilities.h>
+#include <media/AudioPolicy.h>
 #include <utils/Log.h>
 
 namespace android {
@@ -467,28 +468,14 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
     return NO_ERROR;
 }
 
-// this is replicated from frameworks/av/media/libaudioclient/AudioRecord.cpp
-// XXX -- figure out how to put it into a common, shared location
-
-static std::string audioSourceString(audio_source_t value) {
-    std::string source;
-    if (SourceTypeConverter::toString(value, source)) {
-        return source;
-    }
-    char rawbuffer[16];  // room for "%d"
-    snprintf(rawbuffer, sizeof(rawbuffer), "%d", value);
-    return rawbuffer;
-}
-
 std::string AudioPolicyService::getDeviceTypeStrForPortId(audio_port_handle_t portId) {
-    std::string typeStr;
     struct audio_port port = {};
     port.id = portId;
     status_t status = mAudioPolicyManager->getAudioPort(&port);
     if (status == NO_ERROR && port.type == AUDIO_PORT_TYPE_DEVICE) {
-        deviceToString(port.ext.device.type, typeStr);
+        return toString(port.ext.device.type);
     }
-    return typeStr;
+    return {};
 }
 
 status_t AudioPolicyService::startInput(audio_port_handle_t portId)
@@ -551,7 +538,7 @@ status_t AudioPolicyService::startInput(audio_port_handle_t portId)
             item->setInt32(kAudioPolicyStatus, status);
 
             item->setCString(kAudioPolicyRqstSrc,
-                             audioSourceString(client->attributes.source).c_str());
+                             toString(client->attributes.source).c_str());
             item->setInt32(kAudioPolicyRqstSession, client->session);
             if (client->opPackageName.size() != 0) {
                 item->setCString(kAudioPolicyRqstPkg,
@@ -571,7 +558,7 @@ status_t AudioPolicyService::startInput(audio_port_handle_t portId)
                 if (other->active) {
                     // keeps the last of the clients marked active
                     item->setCString(kAudioPolicyActiveSrc,
-                                     audioSourceString(other->attributes.source).c_str());
+                                     toString(other->attributes.source).c_str());
                     item->setInt32(kAudioPolicyActiveSession, other->session);
                     if (other->opPackageName.size() != 0) {
                         item->setCString(kAudioPolicyActivePkg,
@@ -718,6 +705,53 @@ status_t AudioPolicyService::getStreamVolumeIndex(audio_stream_type_t stream,
     return mAudioPolicyManager->getStreamVolumeIndex(stream,
                                                     index,
                                                     device);
+}
+
+status_t AudioPolicyService::setVolumeIndexForAttributes(const audio_attributes_t &attributes,
+                                                         int index, audio_devices_t device)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    if (!settingsAllowed()) {
+        return PERMISSION_DENIED;
+    }
+    Mutex::Autolock _l(mLock);
+    AutoCallerClear acc;
+    return mAudioPolicyManager->setVolumeIndexForAttributes(attributes, index, device);
+}
+
+status_t AudioPolicyService::getVolumeIndexForAttributes(const audio_attributes_t &attributes,
+                                                         int &index, audio_devices_t device)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    AutoCallerClear acc;
+    return mAudioPolicyManager->getVolumeIndexForAttributes(attributes, index, device);
+}
+
+status_t AudioPolicyService::getMinVolumeIndexForAttributes(const audio_attributes_t &attributes,
+                                                            int &index)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    AutoCallerClear acc;
+    return mAudioPolicyManager->getMinVolumeIndexForAttributes(attributes, index);
+}
+
+status_t AudioPolicyService::getMaxVolumeIndexForAttributes(const audio_attributes_t &attributes,
+                                                            int &index)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    AutoCallerClear acc;
+    return mAudioPolicyManager->getMaxVolumeIndexForAttributes(attributes, index);
 }
 
 uint32_t AudioPolicyService::getStrategyForStream(audio_stream_type_t stream)
@@ -1050,9 +1084,14 @@ status_t AudioPolicyService::releaseSoundTriggerSession(audio_session_t session)
 status_t AudioPolicyService::registerPolicyMixes(const Vector<AudioMix>& mixes, bool registration)
 {
     Mutex::Autolock _l(mLock);
-    if(!modifyAudioRoutingAllowed()) {
+
+    // loopback|render only need a MediaProjection (checked in caller AudioService.java)
+    bool needModifyAudioRouting = std::any_of(mixes.begin(), mixes.end(), [](auto& mix) {
+            return !is_mix_loopback_render(mix.mRouteFlags); });
+    if (needModifyAudioRouting && !modifyAudioRoutingAllowed()) {
         return PERMISSION_DENIED;
     }
+
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
@@ -1216,13 +1255,32 @@ status_t AudioPolicyService::listAudioProductStrategies(AudioProductStrategyVect
     return mAudioPolicyManager->listAudioProductStrategies(strategies);
 }
 
-product_strategy_t AudioPolicyService::getProductStrategyFromAudioAttributes(
-        const AudioAttributes &aa)
+status_t AudioPolicyService::getProductStrategyFromAudioAttributes(
+        const AudioAttributes &aa, product_strategy_t &productStrategy)
 {
     if (mAudioPolicyManager == NULL) {
-        return PRODUCT_STRATEGY_NONE;
+        return NO_INIT;
     }
     Mutex::Autolock _l(mLock);
-    return mAudioPolicyManager->getProductStrategyFromAudioAttributes(aa);
+    return mAudioPolicyManager->getProductStrategyFromAudioAttributes(aa, productStrategy);
+}
+
+status_t AudioPolicyService::listAudioVolumeGroups(AudioVolumeGroupVector &groups)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    return mAudioPolicyManager->listAudioVolumeGroups(groups);
+}
+
+status_t AudioPolicyService::getVolumeGroupFromAudioAttributes(const AudioAttributes &aa,
+                                                               volume_group_t &volumeGroup)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    return mAudioPolicyManager->getVolumeGroupFromAudioAttributes(aa, volumeGroup);
 }
 } // namespace android

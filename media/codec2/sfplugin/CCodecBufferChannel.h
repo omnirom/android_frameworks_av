@@ -236,6 +236,7 @@ private:
 
     size_t mNumInputSlots;
     size_t mNumOutputSlots;
+    size_t mDelay;
 
     Mutexed<std::unique_ptr<InputBuffers>> mInputBuffers;
     Mutexed<std::list<sp<ABuffer>>> mFlushedConfigs;
@@ -249,6 +250,7 @@ private:
     struct OutputSurface {
         sp<Surface> surface;
         uint32_t generation;
+        int maxDequeueBuffers;
     };
     Mutexed<OutputSurface> mOutputSurface;
 

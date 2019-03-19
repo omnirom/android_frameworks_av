@@ -228,6 +228,9 @@ const OutputChannelConverter::Table OutputChannelConverter::mTable[] = {
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_2POINT1),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_2POINT0POINT2),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_2POINT1POINT2),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_TRI),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_TRI_BACK),
+    MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_3POINT1),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_3POINT0POINT2),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_3POINT1POINT2),
     MAKE_STRING_FROM_ENUM(AUDIO_CHANNEL_OUT_QUAD),
@@ -410,14 +413,6 @@ template class TypeConverter<AudioFlagTraits>;
 bool deviceFromString(const std::string& literalDevice, audio_devices_t& device) {
     return InputDeviceConverter::fromString(literalDevice, device) ||
             OutputDeviceConverter::fromString(literalDevice, device);
-}
-
-bool deviceToString(audio_devices_t device, std::string& literalDevice) {
-    if (device & AUDIO_DEVICE_BIT_IN) {
-        return InputDeviceConverter::toString(device, literalDevice);
-    } else {
-        return OutputDeviceConverter::toString(device, literalDevice);
-    }
 }
 
 SampleRateTraits::Collection samplingRatesFromString(
