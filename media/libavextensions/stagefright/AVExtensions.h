@@ -147,11 +147,14 @@ struct AVUtils {
             const CameraParameters& /*params*/, sp<MetaData> &/*meta*/) {}
     virtual void printFileName(int /*fd*/) {}
 
-    // deprecate this and use one with MediaBufferBase
+    // deprecate these two use one with 3 arguments
     virtual void addDecodingTimesFromBatch(MediaBuffer * /*buf*/,
             List<int64_t> &/*decodeTimeQueue*/) {}
     virtual void addDecodingTimesFromBatch(MediaBufferBase * /*buf*/,
             List<int64_t> &/*decodeTimeQueue*/) {}
+
+    virtual void addDecodingTimesFromBatch(MediaBufferBase * /*buf*/,
+            List<int64_t> &/*decodeTimeQueue*/, int64_t /*time-offset-us*/) {}
 
     virtual bool canDeferRelease(const sp<MetaData> &/*meta*/) { return false; }
     virtual void setDeferRelease(sp<MetaData> &/*meta*/) {}
