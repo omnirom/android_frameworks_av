@@ -2593,9 +2593,9 @@ bool CCodecBufferChannel::handleWork(
         return false;
     }
 
-    if (work->worklets.size() != 1u
+    if (mInputSurface == nullptr && (work->worklets.size() != 1u
             || !work->worklets.front()
-            || !(work->worklets.front()->output.flags & C2FrameData::FLAG_INCOMPLETE)) {
+            || !(work->worklets.front()->output.flags & C2FrameData::FLAG_INCOMPLETE))) {
         mPipelineWatcher.lock()->onWorkDone(work->input.ordinal.frameIndex.peeku());
     }
 
@@ -2709,6 +2709,10 @@ bool CCodecBufferChannel::handleWork(
     c2_cntr64_t timestamp =
         worklet->output.ordinal.timestamp + work->input.ordinal.customOrdinal
                 - work->input.ordinal.timestamp;
+    if (mInputSurface != nullptr) {
+        // When using input surface we need to restore the original input timestamp.
+        timestamp = work->input.ordinal.customOrdinal;
+    }
     ALOGV("[%s] onWorkDone: input %lld, codec %lld => output %lld => %lld",
           mName,
           work->input.ordinal.customOrdinal.peekll(),

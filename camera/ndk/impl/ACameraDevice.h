@@ -35,6 +35,7 @@
 #include <media/stagefright/foundation/AMessage.h>
 #include <camera/CaptureResult.h>
 #include <camera/camera2/OutputConfiguration.h>
+#include <camera/camera2/SessionConfiguration.h>
 #include <camera/camera2/CaptureRequest.h>
 
 #include <camera/NdkCameraManager.h>
@@ -68,6 +69,7 @@ class CameraDevice final : public RefBase {
 
     camera_status_t createCaptureRequest(
             ACameraDevice_request_template templateId,
+            const ACameraIdList* physicalIdList,
             ACaptureRequest** request) const;
 
     camera_status_t createCaptureSession(
@@ -75,6 +77,9 @@ class CameraDevice final : public RefBase {
             const ACaptureRequest* sessionParameters,
             const ACameraCaptureSession_stateCallbacks* callbacks,
             /*out*/ACameraCaptureSession** session);
+
+    camera_status_t isSessionConfigurationSupported(
+            const ACaptureSessionOutputContainer* sessionOutputContainer) const;
 
     // Callbacks from camera service
     class ServiceCallback : public hardware::camera2::BnCameraDeviceCallbacks {
@@ -145,7 +150,8 @@ class CameraDevice final : public RefBase {
     camera_status_t allocateCaptureRequest(
             const ACaptureRequest* request, sp<CaptureRequest>& outReq);
 
-    static ACaptureRequest* allocateACaptureRequest(sp<CaptureRequest>& req);
+    static ACaptureRequest* allocateACaptureRequest(sp<CaptureRequest>& req,
+            const std::string& deviceId);
     static void freeACaptureRequest(ACaptureRequest*);
 
     // only For session to hold device lock
@@ -230,9 +236,11 @@ class CameraDevice final : public RefBase {
 
     class CallbackHandler : public AHandler {
       public:
+        explicit CallbackHandler(const char* id);
         void onMessageReceived(const sp<AMessage> &msg) override;
 
       private:
+        std::string mId;
         // This handler will cache all capture session sp until kWhatCleanUpSessions
         // is processed. This is used to guarantee the last session reference is always
         // being removed in callback thread without holding camera device lock
@@ -327,6 +335,7 @@ class CameraDevice final : public RefBase {
     // Misc variables
     int32_t mShadingMapSize[2];   // const after constructor
     int32_t mPartialResultCount;  // const after constructor
+    std::vector<std::string> mPhysicalIds; // const after constructor
 
 };
 
@@ -351,8 +360,9 @@ struct ACameraDevice {
 
     camera_status_t createCaptureRequest(
             ACameraDevice_request_template templateId,
+            const ACameraIdList* physicalCameraIdList,
             ACaptureRequest** request) const {
-        return mDevice->createCaptureRequest(templateId, request);
+        return mDevice->createCaptureRequest(templateId, physicalCameraIdList, request);
     }
 
     camera_status_t createCaptureSession(
@@ -361,6 +371,11 @@ struct ACameraDevice {
             const ACameraCaptureSession_stateCallbacks* callbacks,
             /*out*/ACameraCaptureSession** session) {
         return mDevice->createCaptureSession(outputs, sessionParameters, callbacks, session);
+    }
+
+    camera_status_t isSessionConfigurationSupported(
+            const ACaptureSessionOutputContainer* sessionOutputContainer) const {
+        return mDevice->isSessionConfigurationSupported(sessionOutputContainer);
     }
 
     /***********************
