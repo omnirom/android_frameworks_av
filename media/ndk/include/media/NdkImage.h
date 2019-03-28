@@ -488,14 +488,6 @@ enum AIMAGE_FORMATS {
      */
     AIMAGE_FORMAT_DEPTH_POINT_CLOUD = 0x101,
 
-     /**
-     * Unprocessed implementation-dependent raw
-     * depth measurements, opaque with 16 bit
-     * samples.
-     *
-     * @hide
-     */
-    AIMAGE_FORMAT_RAW_DEPTH = 0x1002,
     /**
      * Android private opaque image format.
      *

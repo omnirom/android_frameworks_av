@@ -71,7 +71,6 @@ AImageReader::isSupportedFormatAndUsage(int32_t format, uint64_t usage) {
         case AIMAGE_FORMAT_DEPTH16:
         case AIMAGE_FORMAT_DEPTH_POINT_CLOUD:
         case AIMAGE_FORMAT_Y8:
-        case AIMAGE_FORMAT_RAW_DEPTH:
         case AIMAGE_FORMAT_HEIC:
         case AIMAGE_FORMAT_DEPTH_JPEG:
             return true;
@@ -102,7 +101,6 @@ AImageReader::getNumPlanesForFormat(int32_t format) {
         case AIMAGE_FORMAT_DEPTH16:
         case AIMAGE_FORMAT_DEPTH_POINT_CLOUD:
         case AIMAGE_FORMAT_Y8:
-        case AIMAGE_FORMAT_RAW_DEPTH:
         case AIMAGE_FORMAT_HEIC:
         case AIMAGE_FORMAT_DEPTH_JPEG:
             return 1;
