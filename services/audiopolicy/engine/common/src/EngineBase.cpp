@@ -35,6 +35,11 @@ status_t EngineBase::initCheck()
     return (mApmObserver != nullptr)? NO_ERROR : NO_INIT;
 }
 
+void EngineBase::setDpConnAndAllowedForVoice(bool connAndAllowed)
+{
+    mDpConnAndAllowedForVoice = connAndAllowed;
+}
+
 status_t EngineBase::setPhoneState(audio_mode_t state)
 {
     ALOGV("setPhoneState() state %d", state);
