@@ -77,6 +77,8 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual void setAudioDeviceCallback(const sp<AudioSystem::AudioDeviceCallback>& callback);
     virtual status_t enableAudioDeviceCallback(bool enabled);
     virtual status_t getActiveMicrophones(std::vector<media::MicrophoneInfo>* activeMicrophones);
+    virtual status_t setPreferredMicrophoneDirection(audio_microphone_direction_t direction);
+    virtual status_t setPreferredMicrophoneFieldDimension(float zoom);
             status_t getPortId(audio_port_handle_t *portId) const override;
 
 protected:
@@ -158,6 +160,9 @@ protected:
     audio_port_handle_t mSelectedDeviceId;
     bool mDeviceCallbackEnabled;
     wp<AudioSystem::AudioDeviceCallback> mAudioDeviceCallback;
+
+    audio_microphone_direction_t mSelectedMicDirection;
+    float mSelectedMicFieldDimension;
 
     static const int kMaxHighSpeedFps = 1000;
 

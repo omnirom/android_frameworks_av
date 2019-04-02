@@ -386,15 +386,17 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
         return PERMISSION_DENIED;
     }
 
+    bool canCaptureOutput = captureAudioOutputAllowed(pid, uid);
     if ((attr->source == AUDIO_SOURCE_VOICE_UPLINK ||
         attr->source == AUDIO_SOURCE_VOICE_DOWNLINK ||
         attr->source == AUDIO_SOURCE_VOICE_CALL ||
         attr->source == AUDIO_SOURCE_ECHO_REFERENCE) &&
-        !captureAudioOutputAllowed(pid, uid)) {
+        !canCaptureOutput) {
         return PERMISSION_DENIED;
     }
 
-    if ((attr->source == AUDIO_SOURCE_HOTWORD) && !captureHotwordAllowed(pid, uid)) {
+    bool canCaptureHotword = captureHotwordAllowed(pid, uid);
+    if ((attr->source == AUDIO_SOURCE_HOTWORD) && !canCaptureHotword) {
         return BAD_VALUE;
     }
 
@@ -427,13 +429,12 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
                 // Do not deny permission when SUBMIX_IN is unavailable for input type
                 // API_INPUT_MIX_CAPTURE as SUBMIX_IN does not 'capture' audio
             case AudioPolicyInterface::API_INPUT_MIX_CAPTURE:
-                if (!captureAudioOutputAllowed(pid, uid)) {
+                if (!canCaptureOutput) {
                     if (property_get_bool("vendor.audio.enable.mirrorlink", false) &&
                         getDeviceConnectionState(AUDIO_DEVICE_IN_REMOTE_SUBMIX, "") !=
                                                  AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE) {
                         break;
                     }
-
                     ALOGE("getInputForAttr() permission denied: capture not allowed");
                     status = PERMISSION_DENIED;
                 }
@@ -460,7 +461,8 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
         }
 
         sp<AudioRecordClient> client = new AudioRecordClient(*attr, *input, uid, pid, session,
-                                                             *selectedDeviceId, opPackageName);
+                                                             *selectedDeviceId, opPackageName,
+                                                             canCaptureOutput, canCaptureHotword);
         mAudioRecordClients.add(*portId, client);
     }
 

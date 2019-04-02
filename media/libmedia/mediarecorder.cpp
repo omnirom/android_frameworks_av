@@ -842,6 +842,16 @@ status_t MediaRecorder::getActiveMicrophones(std::vector<media::MicrophoneInfo>*
     return mMediaRecorder->getActiveMicrophones(activeMicrophones);
 }
 
+status_t MediaRecorder::setPreferredMicrophoneDirection(audio_microphone_direction_t direction) {
+    ALOGV("setPreferredMicrophoneDirection(%d)", direction);
+    return mMediaRecorder->setPreferredMicrophoneDirection(direction);
+}
+
+status_t MediaRecorder::setPreferredMicrophoneFieldDimension(float zoom) {
+    ALOGV("setPreferredMicrophoneFieldDimension(%f)", zoom);
+    return mMediaRecorder->setPreferredMicrophoneFieldDimension(zoom);
+}
+
 status_t MediaRecorder::getPortId(audio_port_handle_t *portId) const
 {
     ALOGV("getPortId");

@@ -356,6 +356,27 @@ public:
                     return hasAudioSession_l(sessionId);
                 }
 
+                template <typename T>
+                uint32_t hasAudioSession_l(audio_session_t sessionId, const T& tracks) const {
+                    uint32_t result = 0;
+                    if (getEffectChain_l(sessionId) != 0) {
+                        result = EFFECT_SESSION;
+                    }
+                    for (size_t i = 0; i < tracks.size(); ++i) {
+                        const sp<TrackBase>& track = tracks[i];
+                        if (sessionId == track->sessionId()
+                                && !track->isInvalid()       // not yet removed from tracks.
+                                && !track->isTerminated()) {
+                            result |= TRACK_SESSION;
+                            if (track->isFastTrack()) {
+                                result |= FAST_SESSION;  // caution, only represents first track.
+                            }
+                            break;
+                        }
+                    }
+                    return result;
+                }
+
                 // the value returned by default implementation is not important as the
                 // strategy is only meaningful for PlaybackThread which implements this method
                 virtual uint32_t getStrategyForSession_l(audio_session_t sessionId __unused)
@@ -398,6 +419,9 @@ public:
                 bool                isMsdDevice() const { return mIsMsdDevice; }
 
     virtual     void                dump(int fd, const Vector<String16>& args) = 0;
+
+                // deliver stats to mediametrics.
+                void                sendStatistics(bool force);
 
     mutable     Mutex                   mLock;
 
@@ -521,6 +545,10 @@ protected:
                 audio_utils::Statistics<double> mIoJitterMs{0.995 /* alpha */};
                 audio_utils::Statistics<double> mProcessTimeMs{0.995 /* alpha */};
                 audio_utils::Statistics<double> mLatencyMs{0.995 /* alpha */};
+
+                // Save the last count when we delivered statistics to mediametrics.
+                int64_t                 mLastRecordedTimestampVerifierN = 0;
+                int64_t                 mLastRecordedTimeNs = 0;  // BOOTTIME to include suspend.
 
                 bool                    mIsMsdDevice = false;
                 // A condition that must be evaluated by the thread loop has changed and
@@ -803,7 +831,9 @@ public:
 
                 virtual status_t addEffectChain_l(const sp<EffectChain>& chain);
                 virtual size_t removeEffectChain_l(const sp<EffectChain>& chain);
-                virtual uint32_t hasAudioSession_l(audio_session_t sessionId) const;
+                        uint32_t hasAudioSession_l(audio_session_t sessionId) const override {
+                            return ThreadBase::hasAudioSession_l(sessionId, mTracks);
+                        }
                 virtual uint32_t getStrategyForSession_l(audio_session_t sessionId);
 
 
@@ -1550,7 +1580,9 @@ public:
 
     virtual status_t addEffectChain_l(const sp<EffectChain>& chain);
     virtual size_t removeEffectChain_l(const sp<EffectChain>& chain);
-    virtual uint32_t hasAudioSession_l(audio_session_t sessionId) const;
+            uint32_t hasAudioSession_l(audio_session_t sessionId) const override {
+                         return ThreadBase::hasAudioSession_l(sessionId, mTracks);
+                     }
 
             // Return the set of unique session IDs across all tracks.
             // The keys are the session IDs, and the associated values are meaningless.
@@ -1582,8 +1614,8 @@ public:
 
             status_t    getActiveMicrophones(std::vector<media::MicrophoneInfo>* activeMicrophones);
 
-            status_t    setMicrophoneDirection(audio_microphone_direction_t direction);
-            status_t    setMicrophoneFieldDimension(float zoom);
+            status_t    setPreferredMicrophoneDirection(audio_microphone_direction_t direction);
+            status_t    setPreferredMicrophoneFieldDimension(float zoom);
 
             void        updateMetadata_l() override;
 
@@ -1725,7 +1757,10 @@ class MmapThread : public ThreadBase
     virtual     status_t    checkEffectCompatibility_l(const effect_descriptor_t *desc,
                                                                audio_session_t sessionId);
 
-    virtual     uint32_t    hasAudioSession_l(audio_session_t sessionId) const;
+                uint32_t    hasAudioSession_l(audio_session_t sessionId) const override {
+                                // Note: using mActiveTracks as no mTracks here.
+                                return ThreadBase::hasAudioSession_l(sessionId, mActiveTracks);
+                            }
     virtual     status_t    setSyncEvent(const sp<SyncEvent>& event);
     virtual     bool        isValidSyncEvent(const sp<SyncEvent>& event) const;
 

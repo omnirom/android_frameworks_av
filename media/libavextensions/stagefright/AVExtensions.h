@@ -98,7 +98,9 @@ struct AVFactory {
             uint32_t outSampleRate = 0,
             uid_t clientUid = -1,
             pid_t clientPid = -1,
-            audio_port_handle_t selectedDeviceId = AUDIO_PORT_HANDLE_NONE);
+            audio_port_handle_t selectedDeviceId = AUDIO_PORT_HANDLE_NONE,
+            audio_microphone_direction_t selectedMicDirection = MIC_DIRECTION_UNSPECIFIED,
+            float selectedMicFieldDimension = MIC_FIELD_DIMENSION_NORMAL);
     virtual MPEG4Writer *CreateMPEG4Writer(int fd);
 
     // ----- NO TRESSPASSING BEYOND THIS LINE ------

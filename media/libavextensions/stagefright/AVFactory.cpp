@@ -106,7 +106,10 @@ AudioSource* AVFactory::createAudioSource(
             uint32_t outSampleRate,
             uid_t clientUid,
             pid_t clientPid,
-            audio_port_handle_t selectedDeviceId) {
+            audio_port_handle_t selectedDeviceId,
+            audio_microphone_direction_t /*selectedMicDirection*/,
+            float /*selectedMicFieldDimension*/) {
+    // TODO(b/129493645): use new selectedMicDirection and selectedMicFieldDimension params
     return new AudioSource(inputSource, opPackageName, sampleRate,
                             channels, outSampleRate, clientUid, clientPid, selectedDeviceId);
 }

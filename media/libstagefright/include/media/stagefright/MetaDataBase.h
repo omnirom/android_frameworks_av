@@ -62,12 +62,9 @@ enum {
     kKeyAV1C              = 'av1c',  // raw data
     kKeyThumbnailHVCC     = 'thvc',  // raw data
     kKeyD263              = 'd263',  // raw data
-    kKeyVorbisInfo        = 'vinf',  // raw data
-    kKeyVorbisBooks       = 'vboo',  // raw data
     kKeyOpusHeader        = 'ohdr',  // raw data
     kKeyOpusCodecDelay    = 'ocod',  // uint64_t (codec delay in ns)
     kKeyOpusSeekPreRoll   = 'ospr',  // uint64_t (seek preroll in ns)
-    kKeyFlacMetadata      = 'flMd',  // raw data
     kKeyVp9CodecPrivate   = 'vp9p',  // raw data (vp9 csd information)
     kKeyIsSyncFrame       = 'sync',  // int32_t (bool)
     kKeyIsCodecConfig     = 'conf',  // int32_t (bool)
@@ -235,6 +232,13 @@ enum {
     kKeyFeatureNalLengthBitstream = 'nlbs', // int32_t key to check nal length bistream
     // AC-4 AudioPresentationInfo
     kKeyAudioPresentationInfo = 'audP',  // raw data
+
+    // opaque codec specific data being passed from extractor to codec
+    kKeyOpaqueCSD0       = 'csd0',
+    kKeyOpaqueCSD1       = 'csd1',
+    kKeyOpaqueCSD2       = 'csd2',
+
+    kKeyHapticChannelCount = 'hapC',
 };
 
 enum {
