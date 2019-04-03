@@ -571,10 +571,9 @@ status_t JAudioTrack::removeAudioDeviceCallback(jobject listener) {
 }
 
 void JAudioTrack::registerRoutingDelegates(
-        std::vector<std::pair<jobject, jobject>>& routingDelegates) {
-    for (std::vector<std::pair<jobject, jobject>>::iterator it = routingDelegates.begin();
-            it != routingDelegates.end(); it++) {
-        addAudioDeviceCallback(it->second, getHandler(it->second));
+        Vector<std::pair<sp<JObjectHolder>, sp<JObjectHolder>>>& routingDelegates) {
+    for (auto it = routingDelegates.begin(); it != routingDelegates.end(); it++) {
+        addAudioDeviceCallback(it->second->getJObject(), getHandler(it->second->getJObject()));
     }
 }
 
@@ -597,34 +596,22 @@ jobject JAudioTrack::getHandler(const jobject routingDelegateObj) {
     return env->CallObjectMethod(routingDelegateObj, jGetHandler);
 }
 
-jobject JAudioTrack::addGlobalRef(const jobject obj) {
+jobject JAudioTrack::findByKey(
+        Vector<std::pair<sp<JObjectHolder>, sp<JObjectHolder>>>& mp, const jobject key) {
     JNIEnv *env = JavaVMHelper::getJNIEnv();
-    return reinterpret_cast<jobject>(env->NewGlobalRef(obj));
-}
-
-status_t JAudioTrack::removeGlobalRef(const jobject obj) {
-    if (obj == NULL) {
-        return BAD_VALUE;
-    }
-    JNIEnv *env = JavaVMHelper::getJNIEnv();
-    env->DeleteGlobalRef(obj);
-    return NO_ERROR;
-}
-
-jobject JAudioTrack::findByKey(std::vector<std::pair<jobject, jobject>>& mp, const jobject key) {
-    JNIEnv *env = JavaVMHelper::getJNIEnv();
-    for (std::vector<std::pair<jobject, jobject>>::iterator it = mp.begin(); it != mp.end(); it++) {
-        if (env->IsSameObject(it->first, key)) {
-            return it->second;
+    for (auto it = mp.begin(); it != mp.end(); it++) {
+        if (env->IsSameObject(it->first->getJObject(), key)) {
+            return it->second->getJObject();
         }
     }
     return nullptr;
 }
 
-void JAudioTrack::eraseByKey(std::vector<std::pair<jobject, jobject>>& mp, const jobject key) {
+void JAudioTrack::eraseByKey(
+        Vector<std::pair<sp<JObjectHolder>, sp<JObjectHolder>>>& mp, const jobject key) {
     JNIEnv *env = JavaVMHelper::getJNIEnv();
-    for (std::vector<std::pair<jobject, jobject>>::iterator it = mp.begin(); it != mp.end(); it++) {
-        if (env->IsSameObject(it->first, key)) {
+    for (auto it = mp.begin(); it != mp.end(); it++) {
+        if (env->IsSameObject(it->first->getJObject(), key)) {
             mp.erase(it);
             return;
         }

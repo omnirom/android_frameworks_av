@@ -488,6 +488,8 @@ AudioFlinger::ThreadBase::~ThreadBase()
         sp<IBinder> binder = IInterface::asBinder(mPowerManager);
         binder->unlinkToDeath(mDeathRecipient);
     }
+
+    sendStatistics(true /* force */);
 }
 
 status_t AudioFlinger::ThreadBase::readyToRun()
@@ -571,6 +573,15 @@ void AudioFlinger::ThreadBase::sendIoConfigEvent(audio_io_config_event event, pi
 // sendIoConfigEvent_l() must be called with ThreadBase::mLock held
 void AudioFlinger::ThreadBase::sendIoConfigEvent_l(audio_io_config_event event, pid_t pid)
 {
+    // The audio statistics history is exponentially weighted to forget events
+    // about five or more seconds in the past.  In order to have
+    // crisper statistics for mediametrics, we reset the statistics on
+    // an IoConfigEvent, to reflect different properties for a new device.
+    mIoJitterMs.reset();
+    mLatencyMs.reset();
+    mProcessTimeMs.reset();
+    mTimestampVerifier.discontinuity();
+
     sp<ConfigEvent> configEvent = (ConfigEvent *)new IoConfigEvent(event, pid);
     sendConfigEvent_l(configEvent);
 }
@@ -1646,6 +1657,65 @@ void AudioFlinger::ThreadBase::broadcast_l()
     // be lost so we also flag to prevent it blocking on mWaitWorkCV
     mSignalPending = true;
     mWaitWorkCV.broadcast();
+}
+
+// Call only from threadLoop() or when it is idle.
+// Do not call from high performance code as this may do binder rpc to the MediaMetrics service.
+void AudioFlinger::ThreadBase::sendStatistics(bool force)
+{
+    // Do not log if we have no stats.
+    // We choose the timestamp verifier because it is the most likely item to be present.
+    const int64_t nstats = mTimestampVerifier.getN() - mLastRecordedTimestampVerifierN;
+    if (nstats == 0) {
+        return;
+    }
+
+    // Don't log more frequently than once per 12 hours.
+    // We use BOOTTIME to include suspend time.
+    const int64_t timeNs = systemTime(SYSTEM_TIME_BOOTTIME);
+    const int64_t sinceNs = timeNs - mLastRecordedTimeNs; // ok if mLastRecordedTimeNs = 0
+    if (!force && sinceNs <= 12 * NANOS_PER_HOUR) {
+        return;
+    }
+
+    mLastRecordedTimestampVerifierN = mTimestampVerifier.getN();
+    mLastRecordedTimeNs = timeNs;
+
+    std::unique_ptr<MediaAnalyticsItem> item(MediaAnalyticsItem::create("audiothread"));
+
+#define MM_PREFIX "android.media.audiothread." // avoid cut-n-paste errors.
+
+    // thread configuration
+    item->setInt32(MM_PREFIX "id", (int32_t)mId); // IO handle
+    // item->setInt32(MM_PREFIX "portId", (int32_t)mPortId);
+    item->setCString(MM_PREFIX "type", threadTypeToString(mType));
+    item->setInt32(MM_PREFIX "sampleRate", (int32_t)mSampleRate);
+    item->setInt64(MM_PREFIX "channelMask", (int64_t)mChannelMask);
+    item->setCString(MM_PREFIX "encoding", toString(mFormat).c_str());
+    item->setInt32(MM_PREFIX "frameCount", (int32_t)mFrameCount);
+    item->setCString(MM_PREFIX "outDevice", toString(mOutDevice).c_str());
+    item->setCString(MM_PREFIX "inDevice", toString(mInDevice).c_str());
+
+    // thread statistics
+    if (mIoJitterMs.getN() > 0) {
+        item->setDouble(MM_PREFIX "ioJitterMs.mean", mIoJitterMs.getMean());
+        item->setDouble(MM_PREFIX "ioJitterMs.std", mIoJitterMs.getStdDev());
+    }
+    if (mProcessTimeMs.getN() > 0) {
+        item->setDouble(MM_PREFIX "processTimeMs.mean", mProcessTimeMs.getMean());
+        item->setDouble(MM_PREFIX "processTimeMs.std", mProcessTimeMs.getStdDev());
+    }
+    const auto tsjitter = mTimestampVerifier.getJitterMs();
+    if (tsjitter.getN() > 0) {
+        item->setDouble(MM_PREFIX "timestampJitterMs.mean", tsjitter.getMean());
+        item->setDouble(MM_PREFIX "timestampJitterMs.std", tsjitter.getStdDev());
+    }
+    if (mLatencyMs.getN() > 0) {
+        item->setDouble(MM_PREFIX "latencyMs.mean", mLatencyMs.getMean());
+        item->setDouble(MM_PREFIX "latencyMs.std", mLatencyMs.getStdDev());
+    }
+
+    item->selfrecord();
 }
 
 // ----------------------------------------------------------------------------
@@ -2729,28 +2799,6 @@ status_t AudioFlinger::PlaybackThread::getRenderPosition(uint32_t *halFrames, ui
     }
 }
 
-// hasAudioSession_l() must be called with ThreadBase::mLock held
-uint32_t AudioFlinger::PlaybackThread::hasAudioSession_l(audio_session_t sessionId) const
-{
-    uint32_t result = 0;
-    if (getEffectChain_l(sessionId) != 0) {
-        result = EFFECT_SESSION;
-    }
-
-    for (size_t i = 0; i < mTracks.size(); ++i) {
-        sp<Track> track = mTracks[i];
-        if (sessionId == track->sessionId() && !track->isInvalid()) {
-            result |= TRACK_SESSION;
-            if (track->isFastTrack()) {
-                result |= FAST_SESSION;
-            }
-            break;
-        }
-    }
-
-    return result;
-}
-
 uint32_t AudioFlinger::PlaybackThread::getStrategyForSession_l(audio_session_t sessionId)
 {
     // session AUDIO_SESSION_OUTPUT_MIX is placed in same strategy as MUSIC stream so that
@@ -3458,6 +3506,7 @@ bool AudioFlinger::PlaybackThread::threadLoop()
                         LOG_AUDIO_STATE();
                     }
                     mStandby = true;
+                    sendStatistics(false /* force */);
                 }
 
                 if (mActiveTracks.isEmpty() && mConfigEvents.isEmpty()) {
@@ -7674,6 +7723,8 @@ bool AudioFlinger::RecordThread::stop(RecordThread::RecordTrack* recordTrack) {
     // note that threadLoop may still be processing the track at this point [without lock]
     recordTrack->mState = TrackBase::PAUSING;
 
+    // NOTE: Waiting here is important to keep stop synchronous.
+    // This is needed for proper patchRecord peer release.
     while (recordTrack->mState == TrackBase::PAUSING && !recordTrack->isInvalid()) {
         mWaitWorkCV.broadcast(); // signal thread to stop
         mStartStopCond.wait(mLock);
@@ -7729,18 +7780,19 @@ status_t AudioFlinger::RecordThread::getActiveMicrophones(
     return status;
 }
 
-status_t AudioFlinger::RecordThread::setMicrophoneDirection(audio_microphone_direction_t direction)
+status_t AudioFlinger::RecordThread::setPreferredMicrophoneDirection(
+            audio_microphone_direction_t direction)
 {
-    ALOGV("RecordThread::setMicrophoneDirection");
+    ALOGV("setPreferredMicrophoneDirection(%d)", direction);
     AutoMutex _l(mLock);
-    return mInput->stream->setMicrophoneDirection(direction);
+    return mInput->stream->setPreferredMicrophoneDirection(direction);
 }
 
-status_t AudioFlinger::RecordThread::setMicrophoneFieldDimension(float zoom)
+status_t AudioFlinger::RecordThread::setPreferredMicrophoneFieldDimension(float zoom)
 {
-    ALOGV("RecordThread::setMicrophoneFieldDimension");
+    ALOGV("setPreferredMicrophoneFieldDimension(%f)", zoom);
     AutoMutex _l(mLock);
-    return mInput->stream->setMicrophoneFieldDimension(zoom);
+    return mInput->stream->setPreferredMicrophoneFieldDimension(zoom);
 }
 
 void AudioFlinger::RecordThread::updateMetadata_l()
@@ -8206,27 +8258,6 @@ uint32_t AudioFlinger::RecordThread::getInputFramesLost()
         return result;
     }
     return 0;
-}
-
-// hasAudioSession_l() must be called with ThreadBase::mLock held
-uint32_t AudioFlinger::RecordThread::hasAudioSession_l(audio_session_t sessionId) const
-{
-    uint32_t result = 0;
-    if (getEffectChain_l(sessionId) != 0) {
-        result = EFFECT_SESSION;
-    }
-
-    for (size_t i = 0; i < mTracks.size(); ++i) {
-        if (sessionId == mTracks[i]->sessionId()) {
-            result |= TRACK_SESSION;
-            if (mTracks[i]->isFastTrack()) {
-                result |= FAST_SESSION;
-            }
-            break;
-        }
-    }
-
-    return result;
 }
 
 KeyedVector<audio_session_t, bool> AudioFlinger::RecordThread::sessionIds() const
@@ -8736,8 +8767,10 @@ bool AudioFlinger::MmapThread::threadLoop()
 
     while (!exitPending())
     {
-        Mutex::Autolock _l(mLock);
         Vector< sp<EffectChain> > effectChains;
+
+        { // under Thread lock
+        Mutex::Autolock _l(mLock);
 
         if (mSignalPending) {
             // A signal was raised while we were unlocked
@@ -8773,10 +8806,13 @@ bool AudioFlinger::MmapThread::threadLoop()
         updateMetadata_l();
 
         lockEffectChains_l(effectChains);
+        } // release Thread lock
+
         for (size_t i = 0; i < effectChains.size(); i ++) {
-            effectChains[i]->process_l();
+            effectChains[i]->process_l(); // Thread is not locked, but effect chain is locked
         }
-        // enable changes in effect chain
+
+        // enable changes in effect chain, including moving to another thread.
         unlockEffectChains(effectChains);
         // Effect chains will be actually deleted here if they were removed from
         // mEffectChains list during mixing or effects processing
@@ -9035,28 +9071,6 @@ size_t AudioFlinger::MmapThread::removeEffectChain_l(const sp<EffectChain>& chai
         }
     }
     return mEffectChains.size();
-}
-
-// hasAudioSession_l() must be called with ThreadBase::mLock held
-uint32_t AudioFlinger::MmapThread::hasAudioSession_l(audio_session_t sessionId) const
-{
-    uint32_t result = 0;
-    if (getEffectChain_l(sessionId) != 0) {
-        result = EFFECT_SESSION;
-    }
-
-    for (size_t i = 0; i < mActiveTracks.size(); i++) {
-        sp<MmapTrack> track = mActiveTracks[i];
-        if (sessionId == track->sessionId()) {
-            result |= TRACK_SESSION;
-            if (track->isFastTrack()) {
-                result |= FAST_SESSION;
-            }
-            break;
-        }
-    }
-
-    return result;
 }
 
 void AudioFlinger::MmapThread::threadLoop_standby()

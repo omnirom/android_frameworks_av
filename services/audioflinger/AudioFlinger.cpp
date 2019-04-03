@@ -224,6 +224,14 @@ AudioFlinger::~AudioFlinger()
         // closeOutput_nonvirtual() will remove specified entry from mPlaybackThreads
         closeOutput_nonvirtual(mPlaybackThreads.keyAt(0));
     }
+    while (!mMmapThreads.isEmpty()) {
+        const audio_io_handle_t io = mMmapThreads.keyAt(0);
+        if (mMmapThreads.valueAt(0)->isOutput()) {
+            closeOutput_nonvirtual(io); // removes entry from mMmapThreads
+        } else {
+            closeInput_nonvirtual(io);  // removes entry from mMmapThreads
+        }
+    }
 
     for (size_t i = 0; i < mAudioHwDevs.size(); i++) {
         // no mHardwareLock needed, as there are no other references to this
@@ -836,8 +844,10 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
                 }
                 teePatches.push_back({patchRecord, patchTrack});
                 secondaryThread->addPatchTrack(patchTrack);
-                patchTrack->setPeerProxy(patchRecord.get());
-                patchRecord->setPeerProxy(patchTrack.get());
+                // In case the downstream patchTrack on the secondaryThread temporarily outlives
+                // our created track, ensure the corresponding patchRecord is still alive.
+                patchTrack->setPeerProxy(patchRecord, true /* holdReference */);
+                patchRecord->setPeerProxy(patchTrack, false /* holdReference */);
             }
             track->setTeePatches(std::move(teePatches));
         }
@@ -3206,22 +3216,42 @@ sp<IEffect> AudioFlinger::createEffect(
         goto Exit;
     }
 
-    // check audio settings permission for global effects
-    if (sessionId == AUDIO_SESSION_OUTPUT_MIX && !settingsAllowed()) {
-        lStatus = PERMISSION_DENIED;
-        goto Exit;
-    }
-
-    // Session AUDIO_SESSION_OUTPUT_STAGE is reserved for output stage effects
-    // that can only be created by audio policy manager
-    if (sessionId == AUDIO_SESSION_OUTPUT_STAGE && !isAudioServerUid(callingUid)) {
-        lStatus = PERMISSION_DENIED;
-        goto Exit;
-    }
-
     if (mEffectsFactoryHal == 0) {
+        ALOGE("%s: no effects factory hal", __func__);
         lStatus = NO_INIT;
         goto Exit;
+    }
+
+    // check audio settings permission for global effects
+    if (sessionId == AUDIO_SESSION_OUTPUT_MIX) {
+        if (!settingsAllowed()) {
+            ALOGE("%s: no permission for AUDIO_SESSION_OUTPUT_MIX", __func__);
+            lStatus = PERMISSION_DENIED;
+            goto Exit;
+        }
+    } else if (sessionId == AUDIO_SESSION_OUTPUT_STAGE) {
+        if (!isAudioServerUid(callingUid)) {
+            ALOGE("%s: only APM can create using AUDIO_SESSION_OUTPUT_STAGE", __func__);
+            lStatus = PERMISSION_DENIED;
+            goto Exit;
+        }
+
+        if (io == AUDIO_IO_HANDLE_NONE) {
+            ALOGE("%s: APM must specify output when using AUDIO_SESSION_OUTPUT_STAGE", __func__);
+            lStatus = BAD_VALUE;
+            goto Exit;
+        }
+    } else {
+        // general sessionId.
+
+        if (audio_unique_id_get_use(sessionId) != AUDIO_UNIQUE_ID_USE_SESSION) {
+            ALOGE("%s: invalid sessionId %d", __func__, sessionId);
+            lStatus = BAD_VALUE;
+            goto Exit;
+        }
+
+        // TODO: should we check if the callingUid (limited to pid) is in mAudioSessionRefs
+        // to prevent creating an effect when one doesn't actually have track with that session?
     }
 
     {
@@ -3269,39 +3299,13 @@ sp<IEffect> AudioFlinger::createEffect(
         // because of code checking output when entering the function.
         // Note: io is never 0 when creating an effect on an input
         if (io == AUDIO_IO_HANDLE_NONE) {
-            if (sessionId == AUDIO_SESSION_OUTPUT_STAGE) {
-                // output must be specified by AudioPolicyManager when using session
-                // AUDIO_SESSION_OUTPUT_STAGE
-                lStatus = BAD_VALUE;
-                goto Exit;
-            }
             // look for the thread where the specified audio session is present
-            // thread with same effect session is preferable
-            for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
-                uint32_t sessionType = mPlaybackThreads.valueAt(i)->hasAudioSession(sessionId);
-                if (sessionType != 0) {
-                    io = mPlaybackThreads.keyAt(i);
-                    // thread with same effect session is preferable
-                    if ((sessionType & ThreadBase::EFFECT_SESSION) != 0) {
-                        break;
-                    }
-                }
+            io = findIoHandleBySessionId_l(sessionId, mPlaybackThreads);
+            if (io == AUDIO_IO_HANDLE_NONE) {
+                io = findIoHandleBySessionId_l(sessionId, mRecordThreads);
             }
             if (io == AUDIO_IO_HANDLE_NONE) {
-                for (size_t i = 0; i < mRecordThreads.size(); i++) {
-                    if (mRecordThreads.valueAt(i)->hasAudioSession(sessionId) != 0) {
-                        io = mRecordThreads.keyAt(i);
-                        break;
-                    }
-                }
-            }
-            if (io == AUDIO_IO_HANDLE_NONE) {
-                for (size_t i = 0; i < mMmapThreads.size(); i++) {
-                    if (mMmapThreads.valueAt(i)->hasAudioSession(sessionId) != 0) {
-                        io = mMmapThreads.keyAt(i);
-                        break;
-                    }
-                }
+                io = findIoHandleBySessionId_l(sessionId, mMmapThreads);
             }
             // If no output thread contains the requested session ID, default to
             // first output. The effect chain will be moved to the correct output
@@ -3310,6 +3314,21 @@ sp<IEffect> AudioFlinger::createEffect(
                 io = mPlaybackThreads.keyAt(0);
             }
             ALOGV("createEffect() got io %d for effect %s", io, desc.name);
+        } else if (checkPlaybackThread_l(io) != nullptr) {
+            // allow only one effect chain per sessionId on mPlaybackThreads.
+            for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+                const audio_io_handle_t checkIo = mPlaybackThreads.keyAt(i);
+                if (io == checkIo) continue;
+                const uint32_t sessionType =
+                        mPlaybackThreads.valueAt(i)->hasAudioSession(sessionId);
+                if ((sessionType & ThreadBase::EFFECT_SESSION) != 0) {
+                    ALOGE("%s: effect %s io %d denied because session %d effect exists on io %d",
+                            __func__, desc.name, (int)io, (int)sessionId, (int)checkIo);
+                    android_errorWriteLog(0x534e4554, "123237974");
+                    lStatus = BAD_VALUE;
+                    goto Exit;
+                }
+            }
         }
         ThreadBase *thread = checkRecordThread_l(io);
         if (thread == NULL) {

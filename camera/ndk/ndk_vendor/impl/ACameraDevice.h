@@ -92,6 +92,7 @@ class CameraDevice final : public RefBase {
 
     camera_status_t createCaptureRequest(
             ACameraDevice_request_template templateId,
+            const ACameraIdList* physicalCameraIdList,
             ACaptureRequest** request) const;
 
     camera_status_t createCaptureSession(
@@ -99,6 +100,9 @@ class CameraDevice final : public RefBase {
             const ACaptureRequest* sessionParameters,
             const ACameraCaptureSession_stateCallbacks* callbacks,
             /*out*/ACameraCaptureSession** session);
+
+    camera_status_t isSessionConfigurationSupported(
+            const ACaptureSessionOutputContainer* sessionOutputContainer) const;
 
     // Callbacks from camera service
     class ServiceCallback : public ICameraDeviceCallback {
@@ -176,8 +180,11 @@ class CameraDevice final : public RefBase {
     //      metadata associated with it.
     camera_status_t allocateCaptureRequestLocked(
             const ACaptureRequest* request, sp<CaptureRequest>& outReq);
+    void allocateOneCaptureRequestMetadata(
+            PhysicalCameraSettings& cameraSettings,
+            const std::string& id, const sp<ACameraMetadata>& metadata);
 
-    static ACaptureRequest* allocateACaptureRequest(sp<CaptureRequest>& req);
+    static ACaptureRequest* allocateACaptureRequest(sp<CaptureRequest>& req, const char* deviceId);
     static void freeACaptureRequest(ACaptureRequest*);
 
     // only For session to hold device lock
@@ -380,8 +387,9 @@ struct ACameraDevice {
 
     camera_status_t createCaptureRequest(
             ACameraDevice_request_template templateId,
+            const ACameraIdList* physicalCameraIdList,
             ACaptureRequest** request) const {
-        return mDevice->createCaptureRequest(templateId, request);
+        return mDevice->createCaptureRequest(templateId, physicalCameraIdList, request);
     }
 
     camera_status_t createCaptureSession(
@@ -390,6 +398,11 @@ struct ACameraDevice {
             const ACameraCaptureSession_stateCallbacks* callbacks,
             /*out*/ACameraCaptureSession** session) {
         return mDevice->createCaptureSession(outputs, sessionParameters, callbacks, session);
+    }
+
+    camera_status_t isSessionConfigurationSupported(
+            const ACaptureSessionOutputContainer* sessionOutputContainer) const {
+        return mDevice->isSessionConfigurationSupported(sessionOutputContainer);
     }
 
     /***********************

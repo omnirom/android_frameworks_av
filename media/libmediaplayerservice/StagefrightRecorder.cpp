@@ -124,7 +124,9 @@ StagefrightRecorder::StagefrightRecorder(const String16 &opPackageName)
       mVideoSource(VIDEO_SOURCE_LIST_END),
       mStarted(false),
       mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
-      mDeviceCallbackEnabled(false) {
+      mDeviceCallbackEnabled(false),
+      mSelectedMicDirection(MIC_DIRECTION_UNSPECIFIED),
+      mSelectedMicFieldDimension(MIC_FIELD_DIMENSION_NORMAL) {
 
     ALOGV("Constructor");
 
@@ -168,9 +170,12 @@ void StagefrightRecorder::updateMetrics() {
     mAnalyticsItem->setInt32(kRecorderVideoIframeInterval, mIFramesIntervalSec);
     // TBD mAudioSourceNode = 0;
     // TBD mUse64BitFileOffset = false;
-    mAnalyticsItem->setInt32(kRecorderMovieTimescale, mMovieTimeScale);
-    mAnalyticsItem->setInt32(kRecorderAudioTimescale, mAudioTimeScale);
-    mAnalyticsItem->setInt32(kRecorderVideoTimescale, mVideoTimeScale);
+    if (mMovieTimeScale != -1)
+        mAnalyticsItem->setInt32(kRecorderMovieTimescale, mMovieTimeScale);
+    if (mAudioTimeScale != -1)
+        mAnalyticsItem->setInt32(kRecorderAudioTimescale, mAudioTimeScale);
+    if (mVideoTimeScale != -1)
+        mAnalyticsItem->setInt32(kRecorderVideoTimescale, mVideoTimeScale);
     // TBD mCameraId        = 0;
     // TBD mStartTimeOffsetMs = -1;
     mAnalyticsItem->setInt32(kRecorderVideoProfile, mVideoEncoderProfile);
@@ -404,14 +409,15 @@ status_t StagefrightRecorder::setNextOutputFile(int fd) {
         return -EBADF;
     }
 
-    // start with a clean, empty file
-    ftruncate(fd, 0);
-    int nextFd = dup(fd);
-    if (mWriter == NULL) {
+    if (mWriter == nullptr) {
         ALOGE("setNextOutputFile failed. Writer has been freed");
         return INVALID_OPERATION;
     }
-    return mWriter->setNextFd(nextFd);
+
+    // start with a clean, empty file
+    ftruncate(fd, 0);
+
+    return mWriter->setNextFd(fd);
 }
 
 // Attempt to parse an float literal optionally surrounded by whitespace,
@@ -1102,7 +1108,9 @@ sp<MediaCodecSource> StagefrightRecorder::createAudioSource() {
                 mSampleRate,
                 mClientUid,
                 mClientPid,
-                mSelectedDeviceId);
+                mSelectedDeviceId,
+                mSelectedMicDirection,
+                mSelectedMicFieldDimension);
 
     status_t err = audioSource->initCheck();
 
@@ -2256,7 +2264,7 @@ status_t StagefrightRecorder::getMaxAmplitude(int *max) {
 }
 
 status_t StagefrightRecorder::getMetrics(Parcel *reply) {
-    ALOGD("StagefrightRecorder::getMetrics");
+    ALOGV("StagefrightRecorder::getMetrics");
 
     if (reply == NULL) {
         ALOGE("Null pointer argument");
@@ -2316,6 +2324,24 @@ status_t StagefrightRecorder::getActiveMicrophones(
         std::vector<media::MicrophoneInfo>* activeMicrophones) {
     if (mAudioSourceNode != 0) {
         return mAudioSourceNode->getActiveMicrophones(activeMicrophones);
+    }
+    return NO_INIT;
+}
+
+status_t StagefrightRecorder::setPreferredMicrophoneDirection(audio_microphone_direction_t direction) {
+    ALOGV("setPreferredMicrophoneDirection(%d)", direction);
+    mSelectedMicDirection = direction;
+    if (mAudioSourceNode != 0) {
+        return mAudioSourceNode->setPreferredMicrophoneDirection(direction);
+    }
+    return NO_INIT;
+}
+
+status_t StagefrightRecorder::setPreferredMicrophoneFieldDimension(float zoom) {
+    ALOGV("setPreferredMicrophoneFieldDimension(%f)", zoom);
+    mSelectedMicFieldDimension = zoom;
+    if (mAudioSourceNode != 0) {
+        return mAudioSourceNode->setPreferredMicrophoneFieldDimension(zoom);
     }
     return NO_INIT;
 }

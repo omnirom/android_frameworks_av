@@ -10,7 +10,6 @@ cc_library_shared {
     vndk: {
         enabled: true,
     },
-    double_loadable: true,
 
     srcs: [
         "MediaCodecsXmlParser.cpp",
@@ -51,5 +50,11 @@ cc_library_shared {
         cfi: true,
     },
 
+}
+
+xsd_config {
+    name: "media_codecs",
+    srcs: ["media_codecs.xsd"],
+    package_name: "media.codecs",
 }
 
