@@ -5637,8 +5637,8 @@ status_t AudioFlinger::DirectOutputThread::getTimestamp_l(AudioTimestamp& timest
     if (mOutput != NULL) {
         uint64_t position64;
         if (mOutput->getPresentationPosition(&position64, &timestamp.mTime) == OK) {
-            timestamp.mPosition = (position64 <= mFramesWrittenAtStandby) ?
-                   0 : (uint32_t) (position64 - mFramesWrittenAtStandby-mFramesWrittenForSleep);
+            timestamp.mPosition = (position64 <= (mFramesWrittenAtStandby + mFramesWrittenForSleep)) ?
+                   0 : (uint32_t) (position64 - mFramesWrittenAtStandby - mFramesWrittenForSleep);
             return NO_ERROR;
         }
     }
