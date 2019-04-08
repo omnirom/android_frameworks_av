@@ -1,7 +1,6 @@
 cc_defaults {
     name: "libstagefright_omx_defaults",
     srcs: [
-        "BWGraphicBufferSource.cpp",
         "OMXMaster.cpp",
         "OMXNodeInstance.cpp",
         "OMXUtils.cpp",
@@ -61,10 +60,10 @@ cc_library_shared {
         "libutils",
         "liblog",
         "libui",
-        "libgui",
         "libcutils",
         "libstagefright_foundation",
         "libstagefright_bufferqueue_helper",
+        "libstagefright_softomx",
         "libstagefright_xmlparser",
         "libdl",
         "libhidlbase",
@@ -73,7 +72,6 @@ cc_library_shared {
         "libvndksupport",
         "android.hardware.media.omx@1.0",
         "android.hardware.graphics.bufferqueue@1.0",
-        "libstagefright_omx_soft",
     ],
     cflags: [
         "-Werror",
@@ -126,7 +124,7 @@ cc_library_shared {
         "libvndksupport",
         "android.hardware.media.omx@1.0",
         "android.hardware.graphics.bufferqueue@1.0",
-        "libstagefright_omx_soft",
+        "libstagefright_softomx",
     ],
     cflags: [
         "-Werror",
@@ -142,20 +140,12 @@ cc_library_shared {
         ],
         cfi: true,
     },
-}
 
-cc_defaults {
-    name: "omx_soft_libs",
-    shared_libs: [
-        "libutils",
-        "liblog",
-        "libstagefright_foundation",
-        "libstagefright_omx_soft",
-    ],
+    compile_multilib: "32",
 }
 
 cc_library_shared {
-    name: "libstagefright_omx_soft",
+    name: "libstagefright_softomx",
     vendor_available: true,
     vndk: {
         enabled: true,
@@ -173,17 +163,19 @@ cc_library_shared {
         "include",
     ],
 
-    shared_libs: [
-        "libutils",
-        "liblog",
-        "libui",
-        "libstagefright_foundation",
+    header_libs: [
+        "media_plugin_headers",
     ],
 
-    export_shared_lib_headers: [
+    export_header_lib_headers: [
+        "media_plugin_headers",
+    ],
+
+    shared_libs: [
         "libstagefright_foundation",
-        "libutils",
         "liblog",
+        "libui",
+        "libutils",
     ],
 
     cflags: [
@@ -200,6 +192,36 @@ cc_library_shared {
         ],
         cfi: true,
     },
+}
+
+cc_defaults {
+    name: "libstagefright_softomx-defaults",
+    vendor_available: true,
+
+    cflags: [
+        "-Werror",
+    ],
+
+    header_libs: [
+        "media_plugin_headers"
+    ],
+
+    shared_libs: [
+        "libstagefright_softomx",
+        "libstagefright_foundation",
+        "libutils",
+        "liblog",
+    ],
+
+    sanitize: {
+        misc_undefined: [
+            "signed-integer-overflow",
+            "unsigned-integer-overflow",
+        ],
+        cfi: true,
+    },
+
+    compile_multilib: "32",
 }
 
 cc_library_shared {
