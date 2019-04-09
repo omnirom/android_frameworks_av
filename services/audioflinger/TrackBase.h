@@ -94,6 +94,9 @@ public:
     virtual void        invalidate() { mIsInvalid = true; }
             bool        isInvalid() const { return mIsInvalid; }
 
+            void        terminate() { mTerminated = true; }
+            bool        isTerminated() const { return mTerminated; }
+
     audio_attributes_t  attributes() const { return mAttr; }
 
 #ifdef TEE_SINK
@@ -228,14 +231,6 @@ protected:
         return mState == STOPPING_2;
     }
 
-    bool isTerminated() const {
-        return mTerminated;
-    }
-
-    void terminate() {
-        mTerminated = true;
-    }
-
     // Upper case characters are final states.
     // Lower case characters are transitory.
     const char *getTrackStateString() const {
@@ -337,10 +332,19 @@ public:
                         PatchTrackBase(sp<ClientProxy> proxy, const ThreadBase& thread,
                                        const Timeout& timeout);
             void        setPeerTimeout(std::chrono::nanoseconds timeout);
-            void        setPeerProxy(PatchProxyBufferProvider *proxy) { mPeerProxy = proxy; }
+            template <typename T>
+            void        setPeerProxy(const sp<T> &proxy, bool holdReference) {
+                            mPeerReferenceHold = holdReference ? proxy : nullptr;
+                            mPeerProxy = proxy.get();
+                        }
+            void        clearPeerProxy() {
+                            mPeerReferenceHold.clear();
+                            mPeerProxy = nullptr;
+                        }
 
 protected:
     const sp<ClientProxy>       mProxy;
+    sp<RefBase>                 mPeerReferenceHold;   // keeps mPeerProxy alive during access.
     PatchProxyBufferProvider*   mPeerProxy = nullptr;
     struct timespec             mPeerTimeout{};
 

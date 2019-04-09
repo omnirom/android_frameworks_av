@@ -85,9 +85,6 @@ MediaPlayer2AudioOutput::MediaPlayer2AudioOutput(int32_t sessionId, uid_t uid, i
 }
 
 MediaPlayer2AudioOutput::~MediaPlayer2AudioOutput() {
-    for (auto routingDelegate : mRoutingDelegates) {
-        JAudioTrack::removeGlobalRef(routingDelegate.second);
-    }
     close();
     delete mCallbackData;
 }
@@ -525,12 +522,18 @@ status_t MediaPlayer2AudioOutput::addAudioDeviceCallback(jobject jRoutingDelegat
     ALOGV("addAudioDeviceCallback");
     Mutex::Autolock lock(mLock);
     jobject listener = JAudioTrack::getListener(jRoutingDelegate);
-    if (mJAudioTrack != nullptr &&
-        JAudioTrack::findByKey(mRoutingDelegates, listener) == nullptr) {
+    if (JAudioTrack::findByKey(mRoutingDelegates, listener) == nullptr) {
+        sp<JObjectHolder> listenerHolder = new JObjectHolder(listener);
         jobject handler = JAudioTrack::getHandler(jRoutingDelegate);
-        jobject routingDelegate = JAudioTrack::addGlobalRef(jRoutingDelegate);
-        mRoutingDelegates.push_back(std::pair<jobject, jobject>(listener, routingDelegate));
-        return mJAudioTrack->addAudioDeviceCallback(routingDelegate, handler);
+        sp<JObjectHolder> routingDelegateHolder = new JObjectHolder(jRoutingDelegate);
+
+        mRoutingDelegates.push_back(std::pair<sp<JObjectHolder>, sp<JObjectHolder>>(
+                listenerHolder, routingDelegateHolder));
+
+        if (mJAudioTrack != nullptr) {
+            return mJAudioTrack->addAudioDeviceCallback(
+                    routingDelegateHolder->getJObject(), handler);
+        }
     }
     return NO_ERROR;
 }
@@ -539,13 +542,11 @@ status_t MediaPlayer2AudioOutput::removeAudioDeviceCallback(jobject listener) {
     ALOGV("removeAudioDeviceCallback");
     Mutex::Autolock lock(mLock);
     jobject routingDelegate = nullptr;
-    if (mJAudioTrack != nullptr &&
-        (routingDelegate = JAudioTrack::findByKey(mRoutingDelegates, listener)) != nullptr) {
-        mJAudioTrack->removeAudioDeviceCallback(routingDelegate);
-        JAudioTrack::eraseByKey(mRoutingDelegates, listener);
-        if (JAudioTrack::removeGlobalRef(routingDelegate) != NO_ERROR) {
-            return BAD_VALUE;
+    if ((routingDelegate = JAudioTrack::findByKey(mRoutingDelegates, listener)) != nullptr) {
+        if (mJAudioTrack != nullptr) {
+            mJAudioTrack->removeAudioDeviceCallback(routingDelegate);
         }
+        JAudioTrack::eraseByKey(mRoutingDelegates, listener);
     }
     return NO_ERROR;
 }

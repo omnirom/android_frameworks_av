@@ -1650,7 +1650,7 @@ void NuPlayer::onStart(int64_t startPositionUs, MediaPlayerSeekMode mode) {
 
     float rate = getFrameRate();
     if (rate > 0) {
-        rate = (rate > 60) ? MAX_OUTPUT_FRAME_RATE : rate;
+        rate = (rate > MAX_OUTPUT_FRAME_RATE) ? MAX_OUTPUT_FRAME_RATE : rate;
         mRenderer->setVideoFrameRate(rate);
     }
 
@@ -1991,8 +1991,8 @@ status_t NuPlayer::instantiateDecoder(
         if (rate > 0) {
             format->setFloat("operating-rate", rate * mPlaybackSettings.mSpeed);
         }
-        rate = (rate > 0 && rate <= 60) ? rate : MAX_OUTPUT_FRAME_RATE;
-        format->setInt32("output-frame-rate", rate);
+        if (rate <= 0 || rate > MAX_OUTPUT_FRAME_RATE)
+            format->setInt32("output-frame-rate", MAX_OUTPUT_FRAME_RATE);
     }
 
     Mutex::Autolock autoLock(mDecoderLock);
