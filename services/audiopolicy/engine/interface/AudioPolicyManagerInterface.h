@@ -73,6 +73,14 @@ public:
     virtual audio_mode_t getPhoneState() const = 0;
 
     /**
+     * Set whether display-port is connected and is allowed to be used
+     * for voice usecases
+     *
+     * @param[in] connAndAllowed: if display-port is connected and can be used
+     */
+    virtual void setDpConnAndAllowedForVoice(bool connAndAllowed) = 0;
+
+    /**
      * Set Force Use config for a given usage.
      *
      * @param[in] usage for which a configuration shall be forced.
@@ -169,7 +177,7 @@ public:
      * @return selected input device for the audio attributes, may be null if error.
      */
     virtual sp<DeviceDescriptor> getInputDeviceForAttributes(
-            const audio_attributes_t &attr, AudioMix **mix = nullptr) const = 0;
+            const audio_attributes_t &attr, sp<AudioPolicyMix> *mix = nullptr) const = 0;
 
     /**
      * Get the legacy stream type for a given audio attributes.
@@ -282,10 +290,6 @@ public:
      * VOLUME_GROUP_NONE if no default group defined.
      */
     virtual volume_group_t getVolumeGroupForStreamType(audio_stream_type_t stream) const = 0;
-
-    virtual StreamTypeVector getStreamTypesForVolumeGroup(volume_group_t volumeGroup) const = 0;
-
-    virtual AttributesVector getAllAttributesForVolumeGroup(volume_group_t volumeGroup) const = 0;
 
     /**
      * @brief listAudioVolumeGroups introspection API to get the Audio Volume Groups, aka

@@ -38,6 +38,8 @@ public:
 
     audio_mode_t getPhoneState() const override { return mPhoneState; }
 
+    virtual void setDpConnAndAllowedForVoice(bool connAndAllowed);
+
     status_t setForceUse(audio_policy_force_use_t usage, audio_policy_forced_cfg_t config) override
     {
         mForceUse[usage] = config;
@@ -84,10 +86,6 @@ public:
 
     volume_group_t getVolumeGroupForStreamType(audio_stream_type_t stream) const override;
 
-    StreamTypeVector getStreamTypesForVolumeGroup(volume_group_t volumeGroup) const override;
-
-    AttributesVector getAllAttributesForVolumeGroup(volume_group_t volumeGroup) const override;
-
     status_t listAudioVolumeGroups(AudioVolumeGroupVector &groups) const override;
 
     void dump(String8 *dst) const override;
@@ -110,9 +108,14 @@ public:
         return is_state_in_call(getPhoneState());
     }
 
+    inline bool getDpConnAndAllowedForVoice() const
+    {
+        return mDpConnAndAllowedForVoice;
+    }
+
     VolumeSource toVolumeSource(audio_stream_type_t stream) const
     {
-        return static_cast<VolumeSource>(stream);
+        return static_cast<VolumeSource>(getVolumeGroupForStreamType(stream));
     }
 
     status_t switchVolumeCurve(audio_stream_type_t streamSrc, audio_stream_type_t streamDst);
@@ -125,6 +128,10 @@ public:
     ProductStrategyMap mProductStrategies;
     VolumeGroupMap mVolumeGroups;
     audio_mode_t mPhoneState = AUDIO_MODE_NORMAL;  /**< current phone state. */
+
+    /* if display-port is connected and can be used for voip/voice */
+    bool mDpConnAndAllowedForVoice = false;
+
 
     /** current forced use configuration. */
     audio_policy_forced_cfg_t mForceUse[AUDIO_POLICY_FORCE_USE_CNT] = {};
