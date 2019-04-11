@@ -190,9 +190,6 @@ public:
     status_t setColorAspects(int32_t aspectsPacked);
 
 protected:
-    // BQ::ConsumerListener interface
-    // ------------------------------
-    struct ConsumerProxy;
 
     // BufferQueue::ConsumerListener interface, called when a new frame of
     // data is available.  If we're executing and a codec buffer is
@@ -213,6 +210,11 @@ protected:
     void onSidebandStreamChanged() ;
 
 private:
+    // BQ::ConsumerListener interface
+    // ------------------------------
+    struct ConsumerProxy;
+    sp<ConsumerProxy> mConsumerProxy;
+
     // Lock, covers all member variables.
     mutable Mutex mMutex;
 
