@@ -31,12 +31,12 @@ cc_library_shared {
     },
 
     // enumerate stable entry points, for apex use
-    // stubs: {
-    //     symbol_file: "libmediametrics.map.txt",
-    //     versions: [
-    //        "1" ,
-    //     ]
-    // },
+    stubs: {
+        symbol_file: "libmediametrics.map.txt",
+        versions: [
+           "1" ,
+        ]
+    },
 }
 
 

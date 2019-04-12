@@ -11,7 +11,6 @@ cc_library_static {
 
     include_dirs: [
         "frameworks/av/media/libstagefright",
-        "frameworks/av/media/libavextensions",
         "frameworks/native/include/media/openmax",
     ],
 

@@ -38,6 +38,7 @@ cc_library_static {
     cflags: [
         "-Werror",
         "-Wall",
+        "-D__NO_AVEXTENSIONS__",
     ],
 
     product_variables: {
