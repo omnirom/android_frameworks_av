@@ -198,6 +198,7 @@ cc_library {
         "libcutils",
         "libcrypto",
         "libdl",
+        "libdl_android",
         "libdrmframework",
         "libgui",
         "liblog",
@@ -248,6 +249,7 @@ cc_library {
 
     export_shared_lib_headers: [
         "libgui",
+        "libhidlmemory",
         "libmedia",
         "android.hidl.allocator@1.0",
     ],
@@ -361,21 +363,3 @@ cc_library_static {
     },
 }
 
-subdirs = [
-    "codec2",
-    "codecs/*",
-    "colorconversion",
-    "filters",
-    "flac/dec",
-    "foundation",
-    "http",
-    "httplive",
-    "id3",
-    "mpeg2ts",
-    "omx",
-    "rtsp",
-    "tests",
-    "timedtext",
-    "webm",
-    "xmlparser",
-]
