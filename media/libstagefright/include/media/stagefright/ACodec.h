@@ -291,7 +291,7 @@ protected:
     double mFps;
     double mCaptureFps;
     bool mCreateInputBuffersSuspended;
-    uint32_t mLatency;
+    std::optional<uint32_t> mLatency;
 
     bool mTunneled;
 
