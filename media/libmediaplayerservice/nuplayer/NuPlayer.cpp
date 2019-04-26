@@ -2056,6 +2056,7 @@ status_t NuPlayer::instantiateDecoder(
             }
         }
 
+        params->setFloat("playback-speed", mPlaybackSettings.mSpeed);
         if (params->countEntries() > 0) {
             (*decoder)->setParameters(params);
         }
