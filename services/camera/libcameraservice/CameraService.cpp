@@ -117,6 +117,9 @@ static void setLogLevel(int level) {
 
 static const String16 sManageCameraPermission("android.permission.MANAGE_CAMERA");
 
+Mutex CameraService::sProxyMutex;
+sp<hardware::ICameraServiceProxy> CameraService::sCameraServiceProxy;
+
 CameraService::CameraService() :
         mEventLog(DEFAULT_EVENT_LOG_LENGTH),
         mNumberOfCameras(0),
@@ -203,18 +206,20 @@ status_t CameraService::enumerateProviders() {
 }
 
 sp<ICameraServiceProxy> CameraService::getCameraServiceProxy() {
-    sp<ICameraServiceProxy> proxyBinder = nullptr;
 #ifndef __BRILLO__
-    sp<IServiceManager> sm = defaultServiceManager();
-    // Use checkService because cameraserver normally starts before the
-    // system server and the proxy service. So the long timeout that getService
-    // has before giving up is inappropriate.
-    sp<IBinder> binder = sm->checkService(String16("media.camera.proxy"));
-    if (binder != nullptr) {
-        proxyBinder = interface_cast<ICameraServiceProxy>(binder);
+    Mutex::Autolock al(sProxyMutex);
+    if (sCameraServiceProxy == nullptr) {
+        sp<IServiceManager> sm = defaultServiceManager();
+        // Use checkService because cameraserver normally starts before the
+        // system server and the proxy service. So the long timeout that getService
+        // has before giving up is inappropriate.
+        sp<IBinder> binder = sm->checkService(String16("media.camera.proxy"));
+        if (binder != nullptr) {
+            sCameraServiceProxy = interface_cast<ICameraServiceProxy>(binder);
+        }
     }
 #endif
-    return proxyBinder;
+    return sCameraServiceProxy;
 }
 
 void CameraService::pingCameraServiceProxy() {
@@ -856,6 +861,25 @@ static bool isTrustedCallingUid(uid_t uid) {
         default:
             return false;
     }
+}
+
+static status_t getUidForPackage(String16 packageName, int userId, /*inout*/uid_t& uid, int err) {
+    PermissionController pc;
+    uid = pc.getPackageUid(packageName, 0);
+    if (uid <= 0) {
+        ALOGE("Unknown package: '%s'", String8(packageName).string());
+        dprintf(err, "Unknown package: '%s'\n", String8(packageName).string());
+        return BAD_VALUE;
+    }
+
+    if (userId < 0) {
+        ALOGE("Invalid user: %d", userId);
+        dprintf(err, "Invalid user: %d\n", userId);
+        return BAD_VALUE;
+    }
+
+    uid = multiuser_get_uid(userId, uid);
+    return NO_ERROR;
 }
 
 Status CameraService::validateConnectLocked(const String8& cameraId,
@@ -3316,11 +3340,11 @@ status_t CameraService::shellCommand(int in, int out, int err, const Vector<Stri
     if (in == BAD_TYPE || out == BAD_TYPE || err == BAD_TYPE) {
         return BAD_VALUE;
     }
-    if (args.size() == 3 && args[0] == String16("set-uid-state")) {
+    if (args.size() >= 3 && args[0] == String16("set-uid-state")) {
         return handleSetUidState(args, err);
-    } else if (args.size() == 2 && args[0] == String16("reset-uid-state")) {
+    } else if (args.size() >= 2 && args[0] == String16("reset-uid-state")) {
         return handleResetUidState(args, err);
-    } else if (args.size() == 2 && args[0] == String16("get-uid-state")) {
+    } else if (args.size() >= 2 && args[0] == String16("get-uid-state")) {
         return handleGetUidState(args, out, err);
     } else if (args.size() == 1 && args[0] == String16("help")) {
         printHelp(out);
@@ -3331,13 +3355,8 @@ status_t CameraService::shellCommand(int in, int out, int err, const Vector<Stri
 }
 
 status_t CameraService::handleSetUidState(const Vector<String16>& args, int err) {
-    PermissionController pc;
-    int uid = pc.getPackageUid(args[1], 0);
-    if (uid <= 0) {
-        ALOGE("Unknown package: '%s'", String8(args[1]).string());
-        dprintf(err, "Unknown package: '%s'\n", String8(args[1]).string());
-        return BAD_VALUE;
-    }
+    String16 packageName = args[1];
+
     bool active = false;
     if (args[2] == String16("active")) {
         active = true;
@@ -3345,31 +3364,52 @@ status_t CameraService::handleSetUidState(const Vector<String16>& args, int err)
         ALOGE("Expected active or idle but got: '%s'", String8(args[2]).string());
         return BAD_VALUE;
     }
-    mUidPolicy->addOverrideUid(uid, args[1], active);
+
+    int userId = 0;
+    if (args.size() >= 5 && args[3] == String16("--user")) {
+        userId = atoi(String8(args[4]));
+    }
+
+    uid_t uid;
+    if (getUidForPackage(packageName, userId, uid, err) == BAD_VALUE) {
+        return BAD_VALUE;
+    }
+
+    mUidPolicy->addOverrideUid(uid, packageName, active);
     return NO_ERROR;
 }
 
 status_t CameraService::handleResetUidState(const Vector<String16>& args, int err) {
-    PermissionController pc;
-    int uid = pc.getPackageUid(args[1], 0);
-    if (uid < 0) {
-        ALOGE("Unknown package: '%s'", String8(args[1]).string());
-        dprintf(err, "Unknown package: '%s'\n", String8(args[1]).string());
+    String16 packageName = args[1];
+
+    int userId = 0;
+    if (args.size() >= 4 && args[2] == String16("--user")) {
+        userId = atoi(String8(args[3]));
+    }
+
+    uid_t uid;
+    if (getUidForPackage(packageName, userId, uid, err) == BAD_VALUE) {
         return BAD_VALUE;
     }
-    mUidPolicy->removeOverrideUid(uid, args[1]);
+
+    mUidPolicy->removeOverrideUid(uid, packageName);
     return NO_ERROR;
 }
 
 status_t CameraService::handleGetUidState(const Vector<String16>& args, int out, int err) {
-    PermissionController pc;
-    int uid = pc.getPackageUid(args[1], 0);
-    if (uid <= 0) {
-        ALOGE("Unknown package: '%s'", String8(args[1]).string());
-        dprintf(err, "Unknown package: '%s'\n", String8(args[1]).string());
+    String16 packageName = args[1];
+
+    int userId = 0;
+    if (args.size() >= 4 && args[2] == String16("--user")) {
+        userId = atoi(String8(args[3]));
+    }
+
+    uid_t uid;
+    if (getUidForPackage(packageName, userId, uid, err) == BAD_VALUE) {
         return BAD_VALUE;
     }
-    if (mUidPolicy->isUidActive(uid, args[1])) {
+
+    if (mUidPolicy->isUidActive(uid, packageName)) {
         return dprintf(out, "active\n");
     } else {
         return dprintf(out, "idle\n");
@@ -3378,9 +3418,9 @@ status_t CameraService::handleGetUidState(const Vector<String16>& args, int out,
 
 status_t CameraService::printHelp(int out) {
     return dprintf(out, "Camera service commands:\n"
-        "  get-uid-state <PACKAGE> gets the uid state\n"
-        "  set-uid-state <PACKAGE> <active|idle> overrides the uid state\n"
-        "  reset-uid-state <PACKAGE> clears the uid state override\n"
+        "  get-uid-state <PACKAGE> [--user USER_ID] gets the uid state\n"
+        "  set-uid-state <PACKAGE> <active|idle> [--user USER_ID] overrides the uid state\n"
+        "  reset-uid-state <PACKAGE> [--user USER_ID] clears the uid state override\n"
         "  help print this message\n");
 }
 

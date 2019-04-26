@@ -3542,6 +3542,9 @@ bool AudioFlinger::PlaybackThread::threadLoop()
             mMixerStatus = prepareTracks_l(&tracksToRemove);
 
             mActiveTracks.updatePowerState(this);
+            if (mMixerStatus == MIXER_IDLE && !mActiveTracks.size()) {
+                onIdleMixer();
+            }
 
             updateMetadata_l();
 
@@ -3621,8 +3624,30 @@ bool AudioFlinger::PlaybackThread::threadLoop()
 
             // only process effects if we're going to write
             if (mSleepTimeUs == 0 && mType != OFFLOAD && mType != DIRECT) {
+                audio_session_t activeHapticId = AUDIO_SESSION_NONE;
+                if (mHapticChannelCount > 0 && effectChains.size() > 0) {
+                    for (auto track : mActiveTracks) {
+                        if (track->getHapticPlaybackEnabled()) {
+                            activeHapticId = track->sessionId();
+                            break;
+                        }
+                    }
+                }
                 for (size_t i = 0; i < effectChains.size(); i ++) {
                     effectChains[i]->process_l();
+                    // TODO: Write haptic data directly to sink buffer when mixing.
+                    if (activeHapticId != AUDIO_SESSION_NONE
+                            && activeHapticId == effectChains[i]->sessionId()) {
+                        // Haptic data is active in this case, copy it directly from
+                        // in buffer to out buffer.
+                        const size_t audioBufferSize = mNormalFrameCount
+                                * audio_bytes_per_frame(mChannelCount, EFFECT_BUFFER_FORMAT);
+                        memcpy_by_audio_format(
+                                (uint8_t*)effectChains[i]->outBuffer() + audioBufferSize,
+                                EFFECT_BUFFER_FORMAT,
+                                (const uint8_t*)effectChains[i]->inBuffer() + audioBufferSize,
+                                EFFECT_BUFFER_FORMAT, mNormalFrameCount * mHapticChannelCount);
+                    }
                 }
             }
         }
@@ -5528,6 +5553,11 @@ void AudioFlinger::DirectOutputThread::processVolume_l(Track *track, bool lastTr
 
 }
 
+void AudioFlinger::PlaybackThread::onIdleMixer()
+{
+    ALOGV("onIdleMixer");
+}
+
 void AudioFlinger::DirectOutputThread::onAddNewTrack_l()
 {
     sp<Track> previousTrack = mPreviousTrack.promote();
@@ -6420,6 +6450,42 @@ void AudioFlinger::OffloadThread::invalidateTracks(audio_stream_type_t streamTyp
     }
 }
 
+void AudioFlinger::MixerThread::onIdleMixer()
+{
+    PlaybackThread::onIdleMixer();
+
+    if (mFastMixer == 0) {
+        return;
+    }
+
+    if (!mHwSupportsSuspend) {
+        return;
+    }
+
+    if (mStandbyDelayNs > seconds(1)) {
+        mIdleTimeOffsetUs = seconds(1)/1000LL - mIdleSleepTimeUs;
+    }
+
+    FastMixerStateQueue *sq = mFastMixer->sq();
+    FastMixerState *state = sq->begin();
+    if (!(state->mCommand & FastMixerState::IDLE)) {
+        state->mCommand = FastMixerState::COLD_IDLE;
+        state->mColdFutexAddr = &mFastMixerFutex;
+        state->mColdGen++;
+        mFastMixerFutex = 0;
+
+        // cold idle fastmixer only after draining a whole pipe sink
+        uint32_t delayMs =
+            (uint32_t)((mNormalFrameCount + mFrameCount) * 1000 / mSampleRate);
+        usleep(delayMs * 1000);
+
+        sq->end();
+        sq->push(FastMixerStateQueue::BLOCK_UNTIL_ACKED);
+    } else {
+        sq->end(false /*didModify*/);
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 AudioFlinger::DuplicatingThread::DuplicatingThread(const sp<AudioFlinger>& audioFlinger,
@@ -7187,24 +7253,6 @@ reacquire_wakelock:
         ALOG_ASSERT(framesRead > 0);
         mFramesRead += framesRead;
 
-        if (audio_has_proportional_frames(mFormat)
-                && loopCount == lastLoopCountRead + 1) {
-            const int64_t readPeriodNs = lastIoEndNs - mLastIoEndNs;
-            const double jitterMs =
-                    TimestampVerifier<int64_t, int64_t>::computeJitterMs(
-                            {framesRead, readPeriodNs},
-                            {0, 0} /* lastTimestamp */, mSampleRate);
-            const double processMs = (lastIoBeginNs - mLastIoEndNs) * 1e-6;
-
-            Mutex::Autolock _l(mLock);
-            mIoJitterMs.add(jitterMs);
-            mProcessTimeMs.add(processMs);
-        }
-        // update timing info.
-        mLastIoBeginNs = lastIoBeginNs;
-        mLastIoEndNs = lastIoEndNs;
-        lastLoopCountRead = loopCount;
-
 #ifdef TEE_SINK
         (void)mTee.write((uint8_t*)mRsmpInBuffer + rear * mFrameSize, framesRead);
 #endif
@@ -7364,6 +7412,23 @@ unlock:
         // enable changes in effect chain
         unlockEffectChains(effectChains);
         // effectChains doesn't need to be cleared, since it is cleared by destructor at scope end
+        if (audio_has_proportional_frames(mFormat)
+            && loopCount == lastLoopCountRead + 1) {
+            const int64_t readPeriodNs = lastIoEndNs - mLastIoEndNs;
+            const double jitterMs =
+                TimestampVerifier<int64_t, int64_t>::computeJitterMs(
+                    {framesRead, readPeriodNs},
+                    {0, 0} /* lastTimestamp */, mSampleRate);
+            const double processMs = (lastIoBeginNs - mLastIoEndNs) * 1e-6;
+
+            Mutex::Autolock _l(mLock);
+            mIoJitterMs.add(jitterMs);
+            mProcessTimeMs.add(processMs);
+        }
+        // update timing info.
+        mLastIoBeginNs = lastIoBeginNs;
+        mLastIoEndNs = lastIoEndNs;
+        lastLoopCountRead = loopCount;
     }
 
     standbyIfNotAlreadyInStandby();
