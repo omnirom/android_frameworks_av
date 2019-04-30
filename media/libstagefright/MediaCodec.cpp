@@ -2246,6 +2246,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                             }
 
                             if (mime.startsWithIgnoreCase("video/")) {
+                                mSurface->setDequeueTimeout(-1);
                                 mSoftRenderer = new SoftwareRenderer(mSurface, mRotationDegrees);
                             }
                         }
@@ -2536,6 +2537,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                                             && (mFlags & kFlagPushBlankBuffersOnShutdown)) {
                                         pushBlankBuffersToNativeWindow(mSurface.get());
                                     }
+                                    surface->setDequeueTimeout(-1);
                                     mSoftRenderer = new SoftwareRenderer(surface);
                                     // TODO: check if this was successful
                                 } else {
