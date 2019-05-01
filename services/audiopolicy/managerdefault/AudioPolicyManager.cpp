@@ -1651,7 +1651,14 @@ status_t AudioPolicyManager::startSource(const sp<SwAudioOutputDescriptor>& outp
     outputDesc->setClientActive(client, true);
 
     if (client->hasPreferredDevice(true)) {
-        devices = getNewOutputDevices(outputDesc, false /*fromCache*/);
+        if (outputDesc->clientsList(true /*activeOnly*/).size() == 1 &&
+                client->isPreferredDeviceForExclusiveUse()) {
+            // Preferred device may be exclusive, use only if no other active clients on this output
+            devices = DeviceVector(
+                        mAvailableOutputDevices.getDeviceFromId(client->preferredDeviceId()));
+        } else {
+            devices = getNewOutputDevices(outputDesc, false /*fromCache*/);
+        }
         if (devices != outputDesc->devices()) {
             checkStrategyRoute(clientStrategy, outputDesc->mIoHandle);
         }
@@ -2685,6 +2692,7 @@ audio_io_handle_t AudioPolicyManager::selectOutputForMusicEffects()
     }
 
     if (output != mMusicEffectOutput) {
+        mEffects.moveEffects(AUDIO_SESSION_OUTPUT_MIX, mMusicEffectOutput, output);
         mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, mMusicEffectOutput, output);
         mMusicEffectOutput = output;
     }
@@ -2742,6 +2750,13 @@ status_t AudioPolicyManager::setEffectEnabled(int id, bool enabled)
         mInputs.trackEffectEnabled(effect, enabled);
     }
     return status;
+}
+
+
+status_t AudioPolicyManager::moveEffectsToIo(const std::vector<int>& ids, audio_io_handle_t io)
+{
+   mEffects.moveEffects(ids, io);
+   return NO_ERROR;
 }
 
 bool AudioPolicyManager::isStreamActive(audio_stream_type_t stream, uint32_t inPastMs) const

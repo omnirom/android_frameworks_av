@@ -44,6 +44,7 @@
 #include <audio_utils/primitives.h>
 #include <audio_utils/format.h>
 #include <audio_utils/minifloat.h>
+#include <audio_utils/safe_math.h>
 #include <system/audio_effects/effect_ns.h>
 #include <system/audio_effects/effect_aec.h>
 #include <system/audio.h>
@@ -1302,7 +1303,6 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
     sp<EffectChain> chain;
     bool chainCreated = false;
     bool effectCreated = false;
-    bool effectRegistered = false;
     audio_unique_id_t effectId = AUDIO_UNIQUE_ID_USE_UNSPECIFIED;
 
     lStatus = initCheck();
@@ -1338,13 +1338,6 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
 
         if (effect == 0) {
             effectId = mAudioFlinger->nextUniqueId(AUDIO_UNIQUE_ID_USE_EFFECT);
-            // Check CPU and memory usage
-            lStatus = AudioSystem::registerEffect(
-                    desc, mId, chain->strategy(), sessionId, effectId);
-            if (lStatus != NO_ERROR) {
-                goto Exit;
-            }
-            effectRegistered = true;
             // create a new effect module if none present in the chain
             lStatus = chain->createEffect_l(effect, this, desc, effectId, sessionId, pinned);
             if (lStatus != NO_ERROR) {
@@ -1373,9 +1366,6 @@ Exit:
         Mutex::Autolock _l(mLock);
         if (effectCreated) {
             chain->removeEffect_l(effect);
-        }
-        if (effectRegistered) {
-            AudioSystem::unregisterEffect(effectId);
         }
         if (chainCreated) {
             removeEffectChain_l(chain);
@@ -1407,7 +1397,6 @@ void AudioFlinger::ThreadBase::disconnectEffectHandle(EffectHandle *handle,
     }
     if (remove) {
         mAudioFlinger->updateOrphanEffectChains(effect);
-        AudioSystem::unregisterEffect(effect->id());
         if (handle->enabled()) {
             checkSuspendOnEffectEnabled(effect, false, effect->sessionId());
         }
@@ -1426,6 +1415,12 @@ sp<AudioFlinger::EffectModule> AudioFlinger::ThreadBase::getEffect_l(audio_sessi
 {
     sp<EffectChain> chain = getEffectChain_l(sessionId);
     return chain != 0 ? chain->getEffectFromId_l(effectId) : 0;
+}
+
+std::vector<int> AudioFlinger::ThreadBase::getEffectIds_l(audio_session_t sessionId)
+{
+    sp<EffectChain> chain = getEffectChain_l(sessionId);
+    return chain != nullptr ? chain->getEffectIds() : std::vector<int>{};
 }
 
 // PlaybackThread::addEffect_l() must be called with AudioFlinger::mLock and
@@ -2133,9 +2128,15 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
             // notify every HAL buffer, regardless of the size of the track buffer
             maxNotificationFrames = mFrameCount;
         } else {
-            // For normal tracks, use at least double-buffering if no sample rate conversion,
-            // or at least triple-buffering if there is sample rate conversion
-            const int nBuffering = sampleRate == mSampleRate ? 2 : 3;
+            // Triple buffer the notification period for a triple buffered mixer period;
+            // otherwise, double buffering for the notification period is fine.
+            //
+            // TODO: This should be moved to AudioTrack to modify the notification period
+            // on AudioTrack::setBufferSizeInFrames() changes.
+            const int nBuffering =
+                    (uint64_t{frameCount} * mSampleRate)
+                            / (uint64_t{mNormalFrameCount} * sampleRate) == 3 ? 3 : 2;
+
             maxNotificationFrames = frameCount / nBuffering;
             // If client requested a fast track but this was denied, then use the smaller maximum.
             if (requestedFlags & AUDIO_OUTPUT_FLAG_FAST) {
@@ -2722,7 +2723,8 @@ void AudioFlinger::PlaybackThread::readOutputParameters_l()
     // create a copy of mEffectChains as calling moveEffectChain_l() can reorder some effect chains
     Vector< sp<EffectChain> > effectChains = mEffectChains;
     for (size_t i = 0; i < effectChains.size(); i ++) {
-        mAudioFlinger->moveEffectChain_l(effectChains[i]->sessionId(), this, this, false);
+        mAudioFlinger->moveEffectChain_l(effectChains[i]->sessionId(),
+            this/* srcThread */, this/* dstThread */);
     }
 
     String8 key("supports_hw_suspend");
@@ -4214,6 +4216,7 @@ AudioFlinger::MixerThread::MixerThread(const sp<AudioFlinger>& audioFlinger, Aud
                                                                      // audio to FastMixer
         fastTrack->mFormat = mFormat; // mPipeSink format for audio to FastMixer
         fastTrack->mHapticPlaybackEnabled = mHapticChannelMask != AUDIO_CHANNEL_NONE;
+        fastTrack->mHapticIntensity = AudioMixer::HAPTIC_SCALE_NONE;
         fastTrack->mGeneration++;
         state->mFastTracksGen++;
         state->mTrackMask = 1;
@@ -8003,7 +8006,7 @@ void AudioFlinger::RecordThread::ResamplerBufferProvider::sync(
     RecordThread *recordThread = (RecordThread *) threadBase.get();
     const int32_t rear = recordThread->mRsmpInRear;
     const int32_t front = mRsmpInFront;
-    const ssize_t filled = rear - front;
+    const ssize_t filled = audio_utils::safe_sub_overflow(rear, front);
 
     size_t framesIn;
     bool overrun = false;
@@ -8017,7 +8020,8 @@ void AudioFlinger::RecordThread::ResamplerBufferProvider::sync(
     } else {
         // client is not keeping up with server, but give it latest data
         framesIn = recordThread->mRsmpInFrames;
-        mRsmpInFront = /* front = */ rear - framesIn;
+        mRsmpInFront = /* front = */ audio_utils::safe_sub_overflow(
+                rear, static_cast<int32_t>(framesIn));
         overrun = true;
     }
     if (framesAvailable != NULL) {
@@ -8041,7 +8045,7 @@ status_t AudioFlinger::RecordThread::ResamplerBufferProvider::getNextBuffer(
     RecordThread *recordThread = (RecordThread *) threadBase.get();
     int32_t rear = recordThread->mRsmpInRear;
     int32_t front = mRsmpInFront;
-    ssize_t filled = rear - front;
+    ssize_t filled = audio_utils::safe_sub_overflow(rear, front);
     // FIXME should not be P2 (don't want to increase latency)
     // FIXME if client not keeping up, discard
     LOG_ALWAYS_FATAL_IF(!(0 <= filled && (size_t) filled <= recordThread->mRsmpInFrames));
@@ -8074,13 +8078,13 @@ status_t AudioFlinger::RecordThread::ResamplerBufferProvider::getNextBuffer(
 void AudioFlinger::RecordThread::ResamplerBufferProvider::releaseBuffer(
         AudioBufferProvider::Buffer* buffer)
 {
-    size_t stepCount = buffer->frameCount;
+    int32_t stepCount = static_cast<int32_t>(buffer->frameCount);
     if (stepCount == 0) {
         return;
     }
     ALOG_ASSERT(stepCount <= mRsmpInUnrel);
     mRsmpInUnrel -= stepCount;
-    mRsmpInFront += stepCount;
+    mRsmpInFront = audio_utils::safe_add_overflow(mRsmpInFront, stepCount);
     buffer->raw = NULL;
     buffer->frameCount = 0;
 }
