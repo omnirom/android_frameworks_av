@@ -26,6 +26,7 @@
 #include <C2Config.h>
 #include <C2PlatformStorePluginLoader.h>
 #include <C2PlatformSupport.h>
+#include <media/stagefright/foundation/ADebug.h>
 #include <util/C2InterfaceHelper.h>
 
 #include <dlfcn.h>
@@ -662,26 +663,35 @@ c2_status_t C2PlatformComponentStore::ComponentModule::init(
     ALOGV("loading dll");
     mLibHandle = dlopen(libPath.c_str(), RTLD_NOW|RTLD_NODELETE);
     if (mLibHandle == nullptr) {
-        // could be access/symbol or simply not being there
-        ALOGD("could not dlopen %s: %s", libPath.c_str(), dlerror());
+        LOG_ALWAYS_FATAL_IN_CHILD_PROC("could not dlopen %s: %s", libPath.c_str(), dlerror());
         mInit = C2_CORRUPTED;
-    } else {
-        createFactory =
-            (C2ComponentFactory::CreateCodec2FactoryFunc)dlsym(mLibHandle, "CreateCodec2Factory");
-        destroyFactory =
-            (C2ComponentFactory::DestroyCodec2FactoryFunc)dlsym(mLibHandle, "DestroyCodec2Factory");
-
-        mComponentFactory = createFactory();
-        if (mComponentFactory == nullptr) {
-            ALOGD("could not create factory in %s", libPath.c_str());
-            mInit = C2_NO_MEMORY;
-        } else {
-            mInit = C2_OK;
-        }
-    }
-    if (mInit != C2_OK) {
         return mInit;
     }
+
+    createFactory =
+        (C2ComponentFactory::CreateCodec2FactoryFunc)dlsym(mLibHandle, "CreateCodec2Factory");
+    if (createFactory == nullptr) {
+        LOG_ALWAYS_FATAL_IN_CHILD_PROC("createFactory is null in %s", libPath.c_str());
+        mInit = C2_CORRUPTED;
+        return mInit;
+    }
+
+    destroyFactory =
+        (C2ComponentFactory::DestroyCodec2FactoryFunc)dlsym(mLibHandle, "DestroyCodec2Factory");
+    if (destroyFactory == nullptr) {
+        LOG_ALWAYS_FATAL_IN_CHILD_PROC("destroyFactory is null in %s", libPath.c_str());
+        mInit = C2_CORRUPTED;
+        return mInit;
+    }
+
+    mComponentFactory = createFactory();
+    if (mComponentFactory == nullptr) {
+        ALOGD("could not create factory in %s", libPath.c_str());
+        mInit = C2_NO_MEMORY;
+        return mInit;
+    }
+
+    mInit = C2_OK;
 
     std::shared_ptr<C2ComponentInterface> intf;
     c2_status_t res = createInterface(0, &intf);

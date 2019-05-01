@@ -2604,7 +2604,7 @@ status_t ACodec::configureTemporalLayers(
         layerParams.nPLayerCountActual = numLayers - numBLayers;
         layerParams.nBLayerCountActual = numBLayers;
         layerParams.bBitrateRatiosSpecified = OMX_FALSE;
-        layerParams.nLayerCountMax = numLayers - numBLayers;
+        layerParams.nLayerCountMax = numLayers;
         layerParams.nBLayerCountMax = numBLayers;
 
         err = mOMXNode->setParameter(

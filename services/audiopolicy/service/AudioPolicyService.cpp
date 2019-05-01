@@ -1209,6 +1209,17 @@ bool AudioPolicyService::AudioCommandThread::threadLoop()
                             data->mPatchHandle, data->mSource);
                     mLock.lock();
                     } break;
+                case SET_EFFECT_SUSPENDED: {
+                    SetEffectSuspendedData *data = (SetEffectSuspendedData *)command->mParam.get();
+                    ALOGV("AudioCommandThread() processing set effect suspended");
+                    sp<IAudioFlinger> af = AudioSystem::get_audio_flinger();
+                    if (af != 0) {
+                        mLock.unlock();
+                        af->setEffectSuspended(data->mEffectId, data->mSessionId, data->mSuspended);
+                        mLock.lock();
+                    }
+                    } break;
+
                 default:
                     ALOGW("AudioCommandThread() unknown command %d", command->mCommand);
                 }
@@ -1351,6 +1362,23 @@ status_t AudioPolicyService::AudioCommandThread::startOutputCommand(audio_port_h
     ALOGV("AudioCommandThread() adding start output portId %d", portId);
     return sendCommand(command);
 }
+
+void AudioPolicyService::AudioCommandThread::setEffectSuspendedCommand(int effectId,
+                                                                       audio_session_t sessionId,
+                                                                       bool suspended)
+{
+    sp<AudioCommand> command = new AudioCommand();
+    command->mCommand = SET_EFFECT_SUSPENDED;
+    sp<SetEffectSuspendedData> data = new SetEffectSuspendedData();
+    data->mEffectId = effectId;
+    data->mSessionId = sessionId;
+    data->mSuspended = suspended;
+    command->mParam = data;
+    ALOGV("AudioCommandThread() adding set suspended effectId %d sessionId %d suspended %d",
+        effectId, sessionId, suspended);
+    sendCommand(command);
+}
+
 
 void AudioPolicyService::AudioCommandThread::stopOutputCommand(audio_port_handle_t portId)
 {
@@ -1731,6 +1759,14 @@ int AudioPolicyService::setVoiceVolume(float volume, int delayMs)
 {
     return (int)mAudioCommandThread->voiceVolumeCommand(volume, delayMs);
 }
+
+void AudioPolicyService::setEffectSuspended(int effectId,
+                                            audio_session_t sessionId,
+                                            bool suspended)
+{
+    mAudioCommandThread->setEffectSuspendedCommand(effectId, sessionId, suspended);
+}
+
 
 extern "C" {
 audio_module_handle_t aps_load_hw_module(void *service __unused,
