@@ -551,7 +551,7 @@ status_t VideoFrameDecoder::onOutputReceived(
     if (converter.isValid()) {
         converter.convert(
                 (const uint8_t *)videoFrameBuffer->data(),
-                width, height, stride,
+                width, slice_height, stride,
                 crop_left, crop_top, crop_right, crop_bottom,
                 frame->getFlattenedData(),
                 frame->mWidth, frame->mHeight, frame->mRowBytes,
