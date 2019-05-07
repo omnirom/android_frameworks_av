@@ -90,22 +90,6 @@ cc_library_static {
         "liblog",
         "libmedia",
         "libmedia_omx",
-
-        // for libavextensions
-        "android.hidl.memory@1.0",
-    ],
-
-    static_libs: [
-        // for libavextensions
-        "libstagefright_mpeg2support",
-        "libavextensions",
-    ],
-
-    include_dirs: [
-        // for libavextensions
-        "frameworks/av/media/libavextensions",
-        "frameworks/av/media/libmediaextractor",
-        "frameworks/av/media/libstagefright/mpeg2ts",
     ],
 
     export_include_dirs: [
@@ -117,6 +101,7 @@ cc_library_static {
         "-Werror",
         "-Wno-error=deprecated-declarations",
         "-Wall",
+        "-D__NO_AVEXTENSIONS__",
     ],
 
     sanitize: {
@@ -316,29 +301,15 @@ cc_library_static {
         "libutils",
         "libstagefright_foundation",
         "libandroid",
-        "libdl",
-        "libhidlmemory",
-        "libcrypto",
-        "libstagefright_omx",
     ],
 
     static_libs: [
         "libmedia_player2_util",
         "libmedia2_jni_core",
-        "libstagefright_id3",
-        "libstagefright_mpeg2support",
-        "libstagefright_timedtext",
-        "libavextensions",
     ],
 
     export_include_dirs: [
         "include",
-    ],
-
-    include_dirs: [
-        "frameworks/av/media/libavextensions",
-        "frameworks/av/media/libmediaextractor",
-        "frameworks/av/media/libstagefright/mpeg2ts",
     ],
 
     cflags: [
@@ -346,6 +317,7 @@ cc_library_static {
         "-Werror",
         "-Wno-error=deprecated-declarations",
         "-Wall",
+        "-D__NO_AVEXTENSIONS__",
     ],
 
     product_variables: {

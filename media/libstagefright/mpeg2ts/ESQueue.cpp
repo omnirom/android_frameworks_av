@@ -35,7 +35,6 @@
 
 #include <inttypes.h>
 #include <netinet/in.h>
-#include <stagefright/AVExtensions.h>
 
 namespace android {
 
@@ -444,7 +443,6 @@ status_t ElementaryStreamQueue::appendData(
     if (!isScrambled() && (mBuffer == NULL || mBuffer->size() == 0)) {
         switch (mMode) {
             case H264:
-            case H265:
             case MPEG_VIDEO:
             {
 #if 0
@@ -908,8 +906,6 @@ sp<ABuffer> ElementaryStreamQueue::dequeueAccessUnit() {
     switch (mMode) {
         case H264:
             return dequeueAccessUnitH264();
-        case H265:
-            return dequeueAccessUnitH265();
         case AAC:
             return dequeueAccessUnitAAC();
         case AC3:
