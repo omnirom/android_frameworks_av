@@ -59,6 +59,10 @@ const char *MEDIA_MIMETYPE_AUDIO_EAC3_JOC = "audio/eac3-joc";
 const char *MEDIA_MIMETYPE_AUDIO_AC4 = "audio/ac4";
 const char *MEDIA_MIMETYPE_AUDIO_SCRAMBLED = "audio/scrambled";
 const char *MEDIA_MIMETYPE_AUDIO_ALAC = "audio/alac";
+const char *MEDIA_MIMETYPE_AUDIO_WMA = "audio/x-ms-wma";
+const char *MEDIA_MIMETYPE_AUDIO_MS_ADPCM = "audio/x-adpcm-ms";
+const char *MEDIA_MIMETYPE_AUDIO_DVI_IMA_ADPCM = "audio/x-adpcm-dvi-ima";
+
 
 const char *MEDIA_MIMETYPE_CONTAINER_MPEG4 = "video/mp4";
 const char *MEDIA_MIMETYPE_CONTAINER_WAV = "audio/x-wav";
@@ -80,7 +84,6 @@ const char *MEDIA_MIMETYPE_DATA_TIMED_ID3 = "application/x-id3v4";
 const char *MEDIA_MIMETYPE_AUDIO_EVRC = "audio/evrc";
 const char *MEDIA_MIMETYPE_VIDEO_WMV = "video/x-ms-wmv";
 const char *MEDIA_MIMETYPE_VIDEO_WMV_VC1 = "video/wvc1";
-const char *MEDIA_MIMETYPE_AUDIO_WMA = "audio/x-ms-wma";
 const char *MEDIA_MIMETYPE_AUDIO_WMA_PRO = "audio/x-ms-wma-pro";
 const char *MEDIA_MIMETYPE_AUDIO_WMA_LOSSLESS = "audio/x-ms-wma-lossless";
 const char *MEDIA_MIMETYPE_CONTAINER_ASF = "video/x-ms-asf";

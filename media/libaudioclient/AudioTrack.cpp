@@ -255,10 +255,7 @@ AudioTrack::AudioTrack(
       mPausedPosition(0),
       mPauseTimeRealUs(0)
 {
-    mAttributes.content_type = AUDIO_CONTENT_TYPE_UNKNOWN;
-    mAttributes.usage = AUDIO_USAGE_UNKNOWN;
-    mAttributes.flags = 0x0;
-    strcpy(mAttributes.tags, "");
+    mAttributes = AUDIO_ATTRIBUTES_INITIALIZER;
 
     (void)set(streamType, sampleRate, format, channelMask,
             frameCount, flags, cbf, user, notificationFrames,
@@ -293,10 +290,7 @@ AudioTrack::AudioTrack(
       mPauseTimeRealUs(0),
       mTrackOffloaded(false)
 {
-    mAttributes.content_type = AUDIO_CONTENT_TYPE_UNKNOWN;
-    mAttributes.usage = AUDIO_USAGE_UNKNOWN;
-    mAttributes.flags = 0x0;
-    strcpy(mAttributes.tags, "");
+    mAttributes = AUDIO_ATTRIBUTES_INITIALIZER;
 
     (void)set(streamType, sampleRate, format, channelMask,
             0 /*frameCount*/, flags, cbf, user, notificationFrames,

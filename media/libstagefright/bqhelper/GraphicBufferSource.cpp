@@ -32,6 +32,7 @@
 #include <media/hardware/MetadataBufferType.h>
 #include <ui/GraphicBuffer.h>
 #include <gui/BufferItem.h>
+#include <gui/bufferqueue/2.0/B2HGraphicBufferProducer.h>
 #include <media/hardware/HardwareAPI.h>
 
 #include <inttypes.h>
@@ -282,24 +283,36 @@ private:
 };
 
 struct GraphicBufferSource::ConsumerProxy : public BufferQueue::ConsumerListener {
-    ConsumerProxy(const sp<GraphicBufferSource> &gbs) : mGbs(gbs) {}
+    ConsumerProxy(const wp<GraphicBufferSource> &gbs) : mGbs(gbs) {}
 
     ~ConsumerProxy() = default;
 
     void onFrameAvailable(const BufferItem& item) override {
-        mGbs->onFrameAvailable(item);
+        sp<GraphicBufferSource> gbs = mGbs.promote();
+        if (gbs != nullptr) {
+            gbs->onFrameAvailable(item);
+        }
     }
 
     void onBuffersReleased() override {
-        mGbs->onBuffersReleased();
+        sp<GraphicBufferSource> gbs = mGbs.promote();
+        if (gbs != nullptr) {
+            gbs->onBuffersReleased();
+        }
     }
 
     void onSidebandStreamChanged() override {
-        mGbs->onSidebandStreamChanged();
+        sp<GraphicBufferSource> gbs = mGbs.promote();
+        if (gbs != nullptr) {
+            gbs->onSidebandStreamChanged();
+        }
     }
 
 private:
-    sp<GraphicBufferSource> mGbs;
+    // Note that GraphicBufferSource is holding an sp to us, we can't hold
+    // an sp back to GraphicBufferSource as the circular dependency will
+    // make both immortal.
+    wp<GraphicBufferSource> mGbs;
 };
 
 GraphicBufferSource::GraphicBufferSource() :
@@ -374,6 +387,12 @@ GraphicBufferSource::~GraphicBufferSource() {
             ALOGW("consumerDisconnect failed: %d", err);
         }
     }
+}
+
+sp<::android::hardware::graphics::bufferqueue::V2_0::IGraphicBufferProducer>
+GraphicBufferSource::getHGraphicBufferProducer() const {
+    return new ::android::hardware::graphics::bufferqueue::V2_0::utils::
+                    B2HGraphicBufferProducer(getIGraphicBufferProducer());
 }
 
 Status GraphicBufferSource::start() {
