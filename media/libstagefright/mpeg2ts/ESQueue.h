@@ -33,13 +33,11 @@ namespace android {
 
 struct ABuffer;
 class MetaData;
-struct AVUtils;
 
 struct ElementaryStreamQueue {
     enum Mode {
         INVALID = 0,
         H264,
-        H265,
         AAC,
         AC3,
         EAC3,
@@ -130,9 +128,6 @@ protected:
     sp<ABuffer> dequeueAccessUnitMPEG4Video();
     sp<ABuffer> dequeueAccessUnitPCMAudio();
     sp<ABuffer> dequeueAccessUnitMetadata();
-    virtual sp<ABuffer> dequeueAccessUnitH265() {
-        return NULL;
-    };
 
     // consume a logical (compressed) access unit of size "size",
     // returns its timestamp in us (or -1 if no time information).

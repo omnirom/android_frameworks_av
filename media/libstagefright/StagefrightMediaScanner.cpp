@@ -29,7 +29,6 @@
 #include <media/mediametadataretriever.h>
 #include <private/media/VideoFrame.h>
 
-#include <stagefright/AVExtensions.h>
 namespace android {
 
 StagefrightMediaScanner::StagefrightMediaScanner() {}
@@ -74,8 +73,7 @@ MediaScanResult StagefrightMediaScanner::processFileInternal(
         return MEDIA_SCAN_RESULT_SKIPPED;
     }
 
-    if (!FileHasAcceptableExtension(extension)
-        && !AVUtils::get()->isEnhancedExtension(extension)) {
+    if (!FileHasAcceptableExtension(extension)) {
         return MEDIA_SCAN_RESULT_SKIPPED;
     }
 

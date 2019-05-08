@@ -171,9 +171,11 @@ bool ARTSPConnection::ParseURL(
             pass->setTo(userPass, colonPos + 1, userPass.size() - colonPos - 1);
         }
     }
-
+#ifndef __NO_AVEXTENSIONS__
     const char *colonPos = AVMediaServiceUtils::get()->parseURL(host);
-
+#else
+    const char *colonPos = strchr(host->c_str(), ':');
+#endif
     if (colonPos != NULL) {
         unsigned long x;
         if (!ParseSingleUnsignedLong(colonPos + 1, &x) || x >= 65536) {

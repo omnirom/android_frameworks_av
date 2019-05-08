@@ -61,7 +61,7 @@ cc_library_static {
 
 cc_library_static {
     name: "libstagefright_rtsp_player2",
-
+    cflags: ["-D__NO_AVEXTENSIONS__"],
     srcs: ["NetworkUtilsForAppProc.cpp"],
     defaults: ["libstagefright_rtsp_defaults"],
 }
