@@ -1,5 +1,7 @@
 LOCAL_PATH := $(call my-dir)
 
+ifdef BUILD_AUDIO_POLICY_EXAMPLE_CONFIGURATION
+
 TOOLS := frameworks/av/services/audiopolicy/engineconfigurable/tools
 PROVISION_CRITERION_TYPES := $(TOOLS)/provision_criterion_types_from_android_headers.mk
 
@@ -137,9 +139,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := audio_policy_engine_criterion_types.xml
 LOCAL_MODULE_CLASS := ETC
 LOCAL_VENDOR_MODULE := true
-LOCAL_ADDITIONAL_DEPENDENCIES := \
-    $(TARGET_OUT_VENDOR_ETC)/audio_policy_configuration.xml
-
+LOCAL_ADDITIONAL_DEPENDENCIES := $(TARGET_OUT_VENDOR_ETC)/primary_audio_policy_configuration.xml
 ANDROID_AUDIO_BASE_HEADER_FILE := system/media/audio/include/system/audio-base.h
 AUDIO_POLICY_CONFIGURATION_FILE := $(TARGET_OUT_VENDOR_ETC)/audio_policy_configuration.xml
 CRITERION_TYPES_FILE := $(LOCAL_PATH)/common/$(LOCAL_MODULE).in
@@ -147,3 +147,5 @@ CRITERION_TYPES_FILE := $(LOCAL_PATH)/common/$(LOCAL_MODULE).in
 include $(PROVISION_CRITERION_TYPES)
 
 endif #ifeq ($(BUILD_AUDIO_POLICY_EXAMPLE_CONFIGURATION),$(filter $(BUILD_AUDIO_POLICY_EXAMPLE_CONFIGURATION),phone_configurable automotive_configurable caremu_configurable))
+
+endif #ifdef BUILD_AUDIO_POLICY_EXAMPLE_CONFIGURATION

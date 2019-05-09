@@ -959,11 +959,10 @@ struct MyHandler : public AHandler {
                 // If the response of teardown hasn't been received in 3 seconds,
                 // post 'tear' message to avoid ANR.
                 if (!msg->findInt32("reconnect", &reconnect) || !reconnect) {
-                    sp<AMessage> teardown = new AMessage('tear', this);
+                    sp<AMessage> teardown = reply->dup();
                     teardown->setInt32("result", -ECONNABORTED);
                     teardown->post(kTearDownTimeoutUs);
                 }
-
                 break;
             }
 

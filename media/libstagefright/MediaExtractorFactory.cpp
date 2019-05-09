@@ -23,6 +23,7 @@
 #include <binder/PermissionCache.h>
 #include <binder/IServiceManager.h>
 #include <media/DataSource.h>
+#include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/InterfaceUtils.h>
 #include <media/stagefright/MediaExtractor.h>
 #include <media/stagefright/MediaExtractorFactory.h>
@@ -252,11 +253,12 @@ void MediaExtractorFactory::RegisterExtractors(
                     RegisterExtractor(
                             new ExtractorPlugin(getDef(), libHandle, libPath), pluginList);
                 } else {
-                    ALOGW("%s does not contain sniffer", libPath.string());
+                    LOG_ALWAYS_FATAL_IN_CHILD_PROC("%s does not contain sniffer", libPath.string());
                     dlclose(libHandle);
                 }
             } else {
-                ALOGW("couldn't dlopen(%s) %s", libPath.string(), strerror(errno));
+                LOG_ALWAYS_FATAL_IN_CHILD_PROC(
+                        "couldn't dlopen(%s) %s", libPath.string(), strerror(errno));
             }
         }
         closedir(libDir);
