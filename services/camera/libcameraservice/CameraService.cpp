@@ -973,11 +973,14 @@ Status CameraService::validateClientPermissionsLocked(const String8& cameraId,
 
     // Make sure the UID is in an active state to use the camera
     if (!mUidPolicy->isUidActive(callingUid, String16(clientName8))) {
+        int32_t procState = mUidPolicy->getProcState(callingUid);
         ALOGE("Access Denial: can't use the camera from an idle UID pid=%d, uid=%d",
             clientPid, clientUid);
         return STATUS_ERROR_FMT(ERROR_DISABLED,
-                "Caller \"%s\" (PID %d, UID %d) cannot open camera \"%s\" from background",
-                clientName8.string(), clientUid, clientPid, cameraId.string());
+                "Caller \"%s\" (PID %d, UID %d) cannot open camera \"%s\" from background ("
+                "calling UID %d proc state %" PRId32 ")",
+                clientName8.string(), clientUid, clientPid, cameraId.string(),
+                callingUid, procState);
     }
 
     // If sensor privacy is enabled then prevent access to the camera
@@ -1635,6 +1638,11 @@ Status CameraService::setTorchMode(const String16& cameraId, bool enabled,
         }
     }
 
+    int clientPid = CameraThreadState::getCallingPid();
+    const char *id_cstr = id.c_str();
+    const char *torchState = enabled ? "on" : "off";
+    ALOGI("Torch for camera id %s turned %s for client PID %d", id_cstr, torchState, clientPid);
+    logTorchEvent(id_cstr, torchState , clientPid);
     return Status::ok();
 }
 
@@ -2118,6 +2126,12 @@ void CameraService::logRejected(const char* cameraId, int clientPid,
     // Log the client rejected
     logEvent(String8::format("REJECT device %s client for package %s (PID %d), reason: (%s)",
             cameraId, clientPackage, clientPid, reason));
+}
+
+void CameraService::logTorchEvent(const char* cameraId, const char *torchState, int clientPid) {
+    // Log torch event
+    logEvent(String8::format("Torch for camera id %s turned %s for client PID %d", cameraId,
+            torchState, clientPid));
 }
 
 void CameraService::logUserSwitch(const std::set<userid_t>& oldUserIds,
@@ -2735,6 +2749,19 @@ bool CameraService::UidPolicy::isUidActiveLocked(uid_t uid, String16 callingPack
         }
     }
     return active;
+}
+
+int32_t CameraService::UidPolicy::getProcState(uid_t uid) {
+    Mutex::Autolock _l(mUidLock);
+    return getProcStateLocked(uid);
+}
+
+int32_t CameraService::UidPolicy::getProcStateLocked(uid_t uid) {
+    int32_t procState = ActivityManager::PROCESS_STATE_UNKNOWN;
+    if (mMonitoredUids.find(uid) != mMonitoredUids.end()) {
+        procState = mMonitoredUids[uid].first;
+    }
+    return procState;
 }
 
 void CameraService::UidPolicy::UidPolicy::addOverrideUid(uid_t uid,
