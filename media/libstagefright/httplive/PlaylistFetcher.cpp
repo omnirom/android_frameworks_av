@@ -39,7 +39,6 @@
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/MetaDataUtils.h>
 #include <media/stagefright/Utils.h>
-#include <stagefright/AVExtensions.h>
 
 #include <ctype.h>
 #include <inttypes.h>
@@ -1853,13 +1852,11 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
         const char *mime;
         sp<MetaData> format  = source->getFormat();
         bool isAvc = false;
-        bool isHevc = false;
         if (format != NULL && format->findCString(kKeyMIMEType, &mime)) {
             isAvc = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC);
-            isHevc = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC);
         }
 
-        if (isAvc || isHevc) {
+        if (isAvc) {
             hasAvcOrHevcSource = true;
         }
 
@@ -1882,11 +1879,8 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                             (long long)mStartTimeUs,
                             (long long)timeUs - mStartTimeUs,
                             mIDRFound);
-                    // finding video last preceding IRD, caching video buffers from last
-                    // preceding IDR to seek time
-                    if (isAvc || isHevc) {
-                        if ((isAvc && IsIDR(accessUnit->data(), accessUnit->size())) ||
-                                (isHevc && AVUtils::get()->IsHevcIDR(accessUnit))) {
+                    if (isAvc) {
+                        if (IsIDR(accessUnit->data(), accessUnit->size())) {
                             mVideoBuffer->clear();
                             FSLOGV(stream, "found IDR, clear mVideoBuffer, save IDR timestamp");
                             mIDRFound = true;
@@ -1919,17 +1913,15 @@ status_t PlaylistFetcher::extractAndQueueAccessUnitsFromTs(const sp<ABuffer> &bu
                         continue;
                     }
                 } else {
-                    if ((isAvc || isHevc) && !mIDRFound) {
+                    if (isAvc && !mIDRFound) {
                         if (isAvc && !IsIDR(accessUnit->data(), accessUnit->size())) {
                             continue;
                         }
-                        if (isHevc && !AVUtils::get()->IsHevcIDR(accessUnit)) {
-                            continue;
-                        }
+
                         mIDRFound = true;
                         mLastIDRTimeUs = timeUs;
                     }
-                    if ((isAvc || isHevc) && mIDRFound) {
+                    if (isAvc && mIDRFound) {
                         mLastIDRFound = true;
                         // last preceding IDR found, set mStartTimeUs to this IDR time, the new
                         // start time will affect audio stream checking if it has reached start time

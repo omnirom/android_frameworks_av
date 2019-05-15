@@ -128,6 +128,7 @@ public:
         virtual void releaseOutput(audio_port_handle_t portId);
         virtual status_t getInputForAttr(const audio_attributes_t *attr,
                                          audio_io_handle_t *input,
+                                         audio_unique_id_t riid,
                                          audio_session_t session,
                                          uid_t uid,
                                          const audio_config_base_t *config,
@@ -142,7 +143,7 @@ public:
         // indicates to the audio policy manager that the input stops being used.
         virtual status_t stopInput(audio_port_handle_t portId);
         virtual void releaseInput(audio_port_handle_t portId);
-        virtual void closeAllInputs();
+        virtual void checkCloseInputs();
         /**
          * @brief initStreamVolume: even if the engine volume files provides min and max, keep this
          * api for compatibility reason.
@@ -486,8 +487,7 @@ protected:
                                        SortedVector<audio_io_handle_t>& outputs);
 
         status_t checkInputsForDevice(const sp<DeviceDescriptor>& device,
-                                      audio_policy_dev_state_t state,
-                                      SortedVector<audio_io_handle_t>& inputs);
+                                      audio_policy_dev_state_t state);
 
         // close an output and its companion duplicating output.
         void closeOutput(audio_io_handle_t output);
@@ -870,6 +870,8 @@ protected:
                 int delayMs,
                 uid_t uid,
                 sp<AudioPatch> *patchDescPtr);
+
+        void cleanUpEffectsForIo(audio_io_handle_t io);
 };
 
 };

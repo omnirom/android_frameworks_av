@@ -325,7 +325,7 @@ AudioTrack::~AudioTrack()
         }
         // No lock here: worst case we remove a NULL callback which will be a nop
         if (mDeviceCallback != 0 && mOutput != AUDIO_IO_HANDLE_NONE) {
-            AudioSystem::removeAudioDeviceCallback(this, mOutput);
+            AudioSystem::removeAudioDeviceCallback(this, mOutput, mPortId);
         }
         IInterface::asBinder(mAudioTrack)->unlinkToDeath(mDeathNotifier, this);
         mAudioTrack.clear();
@@ -664,7 +664,10 @@ status_t AudioTrack::set(
     mInUnderrun = false;
     mPreviousTimestampValid = false;
     mTimestampStartupGlitchReported = false;
-    mRetrogradeMotionReported = false;
+    mTimestampRetrogradePositionReported = false;
+    mTimestampRetrogradeTimeReported = false;
+    mTimestampStallReported = false;
+    mTimestampStaleTimeReported = false;
     mPreviousLocation = ExtendedTimestamp::LOCATION_INVALID;
     mStartTs.mPosition = 0;
     mUnderrunCountOffset = 0;
@@ -716,7 +719,10 @@ status_t AudioTrack::start()
         mPosition = 0;
         mPreviousTimestampValid = false;
         mTimestampStartupGlitchReported = false;
-        mRetrogradeMotionReported = false;
+        mTimestampRetrogradePositionReported = false;
+        mTimestampRetrogradeTimeReported = false;
+        mTimestampStallReported = false;
+        mTimestampStaleTimeReported = false;
         mPreviousLocation = ExtendedTimestamp::LOCATION_INVALID;
 
         if (!isOffloadedOrDirect_l()
@@ -1567,7 +1573,6 @@ status_t AudioTrack::createTrack_l()
     mAfFrameCount = output.afFrameCount;
     mAfSampleRate = output.afSampleRate;
     mAfLatency = output.afLatencyMs;
-    mPortId = output.portId;
 
     mLatency = mAfLatency + (1000LL * mFrameCount) / mSampleRate;
 
@@ -1615,14 +1620,15 @@ status_t AudioTrack::createTrack_l()
     mFlags = output.flags;
 
     //mOutput != output includes the case where mOutput == AUDIO_IO_HANDLE_NONE for first creation
-    if (mDeviceCallback != 0 && mOutput != output.outputId) {
+    if (mDeviceCallback != 0) {
         if (mOutput != AUDIO_IO_HANDLE_NONE) {
-            AudioSystem::removeAudioDeviceCallback(this, mOutput);
+            AudioSystem::removeAudioDeviceCallback(this, mOutput, mPortId);
         }
-        AudioSystem::addAudioDeviceCallback(this, output.outputId);
+        AudioSystem::addAudioDeviceCallback(this, output.outputId, output.portId);
         callbackAdded = true;
     }
 
+    mPortId = output.portId;
     // We retain a copy of the I/O handle, but don't own the reference
     mOutput = output.outputId;
     mRefreshRemaining = true;
@@ -1687,7 +1693,7 @@ status_t AudioTrack::createTrack_l()
 exit:
     if (status != NO_ERROR && callbackAdded) {
         // note: mOutput is always valid is callbackAdded is true
-        AudioSystem::removeAudioDeviceCallback(this, mOutput);
+        AudioSystem::removeAudioDeviceCallback(this, mOutput, mPortId);
     }
 
     mStatus = status;
@@ -2216,9 +2222,27 @@ nsecs_t AudioTrack::processAudioBuffer()
                     const nsecs_t timeNow = systemTime();
                     ns = max((nsecs_t)0, ns - (timeNow - timeAfterCallbacks));
                 }
-                nsecs_t myns = framesToNanoseconds(mRemainingFrames - avail, sampleRate, speed);
-                if (ns < 0 /* NS_WHENEVER */ || myns < ns) {
-                    ns = myns;
+
+                // delayNs is first computed by the additional frames required in the buffer.
+                nsecs_t delayNs = framesToNanoseconds(
+                        mRemainingFrames - avail, sampleRate, speed);
+
+                // afNs is the AudioFlinger mixer period in ns.
+                const nsecs_t afNs = framesToNanoseconds(mAfFrameCount, mAfSampleRate, speed);
+
+                // If the AudioTrack is double buffered based on the AudioFlinger mixer period,
+                // we may have a race if we wait based on the number of frames desired.
+                // This is a possible issue with resampling and AAudio.
+                //
+                // The granularity of audioflinger processing is one mixer period; if
+                // our wait time is less than one mixer period, wait at most half the period.
+                if (delayNs < afNs) {
+                    delayNs = std::min(delayNs, afNs / 2);
+                }
+
+                // adjust our ns wait by delayNs.
+                if (ns < 0 /* NS_WHENEVER */ || delayNs < ns) {
+                    ns = delayNs;
                 }
                 return ns;
             }
@@ -2693,9 +2717,14 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                         // A better start time is now.  The retrograde check ensures
                         // timestamp monotonicity.
                         const int64_t nowNs = systemTime();
-                        ALOGD("%s(%d) device stall, using current time %lld",
-                                __func__, mPortId, (long long)nowNs);
+                        if (!mTimestampStallReported) {
+                            ALOGD("%s(%d): device stall time corrected using current time %lld",
+                                    __func__, mPortId, (long long)nowNs);
+                            mTimestampStallReported = true;
+                        }
                         timestamp.mTime = convertNsToTimespec(nowNs);
+                    }  else {
+                        mTimestampStallReported = false;
                     }
                 }
 
@@ -2848,12 +2877,17 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
         const int64_t lagNs = int64_t(mAfLatency * 1000000LL);
         const int64_t limitNs = mStartNs - lagNs;
         if (currentTimeNanos < limitNs) {
-            ALOGD("%s(%d): correcting timestamp time for pause, "
-                    "currentTimeNanos: %lld < limitNs: %lld < mStartNs: %lld",
-                    __func__, mPortId,
-                    (long long)currentTimeNanos, (long long)limitNs, (long long)mStartNs);
+            if (!mTimestampStaleTimeReported) {
+                ALOGD("%s(%d): stale timestamp time corrected, "
+                        "currentTimeNanos: %lld < limitNs: %lld < mStartNs: %lld",
+                        __func__, mPortId,
+                        (long long)currentTimeNanos, (long long)limitNs, (long long)mStartNs);
+                mTimestampStaleTimeReported = true;
+            }
             timestamp.mTime = convertNsToTimespec(limitNs);
             currentTimeNanos = limitNs;
+        } else {
+            mTimestampStaleTimeReported = false;
         }
 
         // previousTimestampValid is set to false when starting after a stop or flush.
@@ -2863,11 +2897,15 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
 
             // retrograde check
             if (currentTimeNanos < previousTimeNanos) {
-                ALOGW("%s(%d): retrograde timestamp time corrected, %lld < %lld",
-                        __func__, mPortId,
-                        (long long)currentTimeNanos, (long long)previousTimeNanos);
+                if (!mTimestampRetrogradeTimeReported) {
+                    ALOGW("%s(%d): retrograde timestamp time corrected, %lld < %lld",
+                            __func__, mPortId,
+                            (long long)currentTimeNanos, (long long)previousTimeNanos);
+                    mTimestampRetrogradeTimeReported = true;
+                }
                 timestamp.mTime = mPreviousTimestamp.mTime;
-                // currentTimeNanos not used below.
+            } else {
+                mTimestampRetrogradeTimeReported = false;
             }
 
             // Looking at signed delta will work even when the timestamps
@@ -2876,16 +2914,16 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
                     - mPreviousTimestamp.mPosition).signedValue();
             if (deltaPosition < 0) {
                 // Only report once per position instead of spamming the log.
-                if (!mRetrogradeMotionReported) {
+                if (!mTimestampRetrogradePositionReported) {
                     ALOGW("%s(%d): retrograde timestamp position corrected, %d = %u - %u",
                             __func__, mPortId,
                             deltaPosition,
                             timestamp.mPosition,
                             mPreviousTimestamp.mPosition);
-                    mRetrogradeMotionReported = true;
+                    mTimestampRetrogradePositionReported = true;
                 }
             } else {
-                mRetrogradeMotionReported = false;
+                mTimestampRetrogradePositionReported = false;
             }
             if (deltaPosition < 0) {
                 timestamp.mPosition = mPreviousTimestamp.mPosition;
@@ -2988,6 +3026,7 @@ uint32_t AudioTrack::getUnderrunFrames() const
 
 status_t AudioTrack::addAudioDeviceCallback(const sp<AudioSystem::AudioDeviceCallback>& callback)
 {
+
     if (callback == 0) {
         ALOGW("%s(%d): adding NULL callback!", __func__, mPortId);
         return BAD_VALUE;
@@ -3001,9 +3040,9 @@ status_t AudioTrack::addAudioDeviceCallback(const sp<AudioSystem::AudioDeviceCal
     if (mOutput != AUDIO_IO_HANDLE_NONE) {
         if (mDeviceCallback != 0) {
             ALOGW("%s(%d): callback already present!", __func__, mPortId);
-            AudioSystem::removeAudioDeviceCallback(this, mOutput);
+            AudioSystem::removeAudioDeviceCallback(this, mOutput, mPortId);
         }
-        status = AudioSystem::addAudioDeviceCallback(this, mOutput);
+        status = AudioSystem::addAudioDeviceCallback(this, mOutput, mPortId);
     }
     mDeviceCallback = callback;
     return status;
@@ -3023,7 +3062,7 @@ status_t AudioTrack::removeAudioDeviceCallback(
     }
     mDeviceCallback.clear();
     if (mOutput != AUDIO_IO_HANDLE_NONE) {
-        AudioSystem::removeAudioDeviceCallback(this, mOutput);
+        AudioSystem::removeAudioDeviceCallback(this, mOutput, mPortId);
     }
     return NO_ERROR;
 }
@@ -3045,6 +3084,7 @@ void AudioTrack::onAudioDeviceUpdate(audio_io_handle_t audioIo,
             mRoutedDeviceId = deviceId;
         }
     }
+
     if (callback.get() != nullptr) {
         callback->onAudioDeviceUpdate(mOutput, mRoutedDeviceId);
     }

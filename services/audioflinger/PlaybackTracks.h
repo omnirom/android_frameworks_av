@@ -22,11 +22,16 @@
 // Checks and monitors OP_PLAY_AUDIO
 class OpPlayAudioMonitor : public RefBase {
 public:
-    OpPlayAudioMonitor(uid_t uid, audio_usage_t usage, int id, audio_stream_type_t streamType);
     ~OpPlayAudioMonitor() override;
     bool hasOpPlayAudio() const;
 
+    static sp<OpPlayAudioMonitor> createIfNeeded(
+            uid_t uid, audio_usage_t usage, int id, audio_stream_type_t streamType);
+
 private:
+    OpPlayAudioMonitor(uid_t uid, audio_usage_t usage, int id);
+    void onFirstRef() override;
+
     AppOpsManager mAppOpsManager;
 
     class PlayAudioOpCallback : public BnAppOpsCallback {
@@ -64,6 +69,7 @@ public:
                                 size_t bufferSize,
                                 const sp<IMemory>& sharedBuffer,
                                 audio_session_t sessionId,
+                                pid_t creatorPid,
                                 uid_t uid,
                                 audio_output_flags_t flags,
                                 track_type type,
@@ -209,7 +215,9 @@ public:
 
     int fastIndex() const { return mFastIndex; }
 
-    bool isPlaybackRestricted() const { return !mOpPlayAudioMonitor->hasOpPlayAudio(); }
+    bool isPlaybackRestricted() const {
+        // The monitor is only created for tracks that can be silenced.
+        return mOpPlayAudioMonitor ? !mOpPlayAudioMonitor->hasOpPlayAudio() : false; }
 
 protected:
 

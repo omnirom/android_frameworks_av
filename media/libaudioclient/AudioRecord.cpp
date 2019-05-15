@@ -22,7 +22,11 @@
 #include <android-base/macros.h>
 #include <sys/resource.h>
 
+#include <audiomanager/AudioManager.h>
+#include <audiomanager/IAudioManager.h>
+#include <binder/Binder.h>
 #include <binder/IPCThreadState.h>
+#include <binder/IServiceManager.h>
 #include <media/AudioRecord.h>
 #include <utils/Log.h>
 #include <private/media/AudioTrackShared.h>
@@ -174,7 +178,7 @@ AudioRecord::~AudioRecord()
         }
         // No lock here: worst case we remove a NULL callback which will be a nop
         if (mDeviceCallback != 0 && mInput != AUDIO_IO_HANDLE_NONE) {
-            AudioSystem::removeAudioDeviceCallback(this, mInput);
+            AudioSystem::removeAudioDeviceCallback(this, mInput, mPortId);
         }
         IInterface::asBinder(mAudioRecord)->unlinkToDeath(mDeathNotifier, this);
         mAudioRecord.clear();
@@ -219,6 +223,8 @@ status_t AudioRecord::set(
           __func__,
           inputSource, sampleRate, format, channelMask, frameCount, notificationFrames,
           sessionId, transferType, flags, String8(mOpPackageName).string(), uid, pid);
+
+    mTracker.reset(new RecordingActivityTracker());
 
     mSelectedDeviceId = selectedDeviceId;
     mSelectedMicDirection = selectedMicDirection;
@@ -403,6 +409,7 @@ status_t AudioRecord::start(AudioSystem::sync_event_t event, audio_session_t tri
     // This is legacy behavior.  This is not done in stop() to avoid a race condition
     // where the last marker event is issued twice.
     mMarkerReached = false;
+    // mActive is checked by restoreRecord_l
     mActive = true;
 
     status_t status = NO_ERROR;
@@ -423,7 +430,9 @@ status_t AudioRecord::start(AudioSystem::sync_event_t event, audio_session_t tri
     if (status != NO_ERROR) {
         mActive = false;
         ALOGE("%s(%d): status %d", __func__, mPortId, status);
+        mMediaMetrics.markError(status, __FUNCTION__);
     } else {
+        mTracker->recordingStarted();
         sp<AudioRecordThread> t = mAudioRecordThread;
         if (t != 0) {
             t->resume();
@@ -435,10 +444,6 @@ status_t AudioRecord::start(AudioSystem::sync_event_t event, audio_session_t tri
 
         // we've successfully started, log that time
         mMediaMetrics.logStart(systemTime());
-    }
-
-    if (status != NO_ERROR) {
-        mMediaMetrics.markError(status, __FUNCTION__);
     }
     return status;
 }
@@ -454,6 +459,7 @@ void AudioRecord::stop()
     mActive = false;
     mProxy->interrupt();
     mAudioRecord->stop();
+    mTracker->recordingStopped();
 
     // Note: legacy handling - stop does not clear record marker and
     // periodic update position; we update those on start().
@@ -718,6 +724,7 @@ status_t AudioRecord::createRecord_l(const Modulo<uint32_t> &epoch, const String
         }
     }
     input.opPackageName = opPackageName;
+    input.riid = mTracker->getRiid();
 
     input.flags = mFlags;
     // The notification frame count is the period between callbacks, as suggested by the client
@@ -790,14 +797,13 @@ status_t AudioRecord::createRecord_l(const Modulo<uint32_t> &epoch, const String
     mAudioRecord = record;
     mCblkMemory = output.cblk;
     mBufferMemory = output.buffers;
-    mPortId = output.portId;
     IPCThreadState::self()->flushCommands();
 
     mCblk = cblk;
     // note that output.frameCount is the (possibly revised) value of mReqFrameCount
     if (output.frameCount < mReqFrameCount || (mReqFrameCount == 0 && output.frameCount == 0)) {
         ALOGW("%s(%d): Requested frameCount %zu but received frameCount %zu",
-              __func__, mPortId,
+              __func__, output.portId,
               mReqFrameCount,  output.frameCount);
     }
 
@@ -805,19 +811,20 @@ status_t AudioRecord::createRecord_l(const Modulo<uint32_t> &epoch, const String
     // The computation is done on server side.
     if (mNotificationFramesReq > 0 && output.notificationFrameCount != mNotificationFramesReq) {
         ALOGW("%s(%d): Server adjusted notificationFrames from %u to %zu for frameCount %zu",
-                __func__, mPortId,
+                __func__, output.portId,
                 mNotificationFramesReq, output.notificationFrameCount, output.frameCount);
     }
     mNotificationFramesAct = (uint32_t)output.notificationFrameCount;
 
     //mInput != input includes the case where mInput == AUDIO_IO_HANDLE_NONE for first creation
-    if (mDeviceCallback != 0 && mInput != output.inputId) {
+    if (mDeviceCallback != 0) {
         if (mInput != AUDIO_IO_HANDLE_NONE) {
-            AudioSystem::removeAudioDeviceCallback(this, mInput);
+            AudioSystem::removeAudioDeviceCallback(this, mInput, mPortId);
         }
-        AudioSystem::addAudioDeviceCallback(this, output.inputId);
+        AudioSystem::addAudioDeviceCallback(this, output.inputId, output.portId);
     }
 
+    mPortId = output.portId;
     // We retain a copy of the I/O handle, but don't own the reference
     mInput = output.inputId;
     mRefreshRemaining = true;
@@ -1332,9 +1339,9 @@ status_t AudioRecord::addAudioDeviceCallback(const sp<AudioSystem::AudioDeviceCa
     if (mInput != AUDIO_IO_HANDLE_NONE) {
         if (mDeviceCallback != 0) {
             ALOGW("%s(%d): callback already present!", __func__, mPortId);
-            AudioSystem::removeAudioDeviceCallback(this, mInput);
+            AudioSystem::removeAudioDeviceCallback(this, mInput, mPortId);
         }
-        status = AudioSystem::addAudioDeviceCallback(this, mInput);
+        status = AudioSystem::addAudioDeviceCallback(this, mInput, mPortId);
     }
     mDeviceCallback = callback;
     return status;
@@ -1354,7 +1361,7 @@ status_t AudioRecord::removeAudioDeviceCallback(
     }
     mDeviceCallback.clear();
     if (mInput != AUDIO_IO_HANDLE_NONE) {
-        AudioSystem::removeAudioDeviceCallback(this, mInput);
+        AudioSystem::removeAudioDeviceCallback(this, mInput, mPortId);
     }
     return NO_ERROR;
 }

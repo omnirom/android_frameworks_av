@@ -124,6 +124,7 @@ public:
     // request an input appropriate for record from the supplied device with supplied parameters.
     virtual status_t getInputForAttr(const audio_attributes_t *attr,
                                      audio_io_handle_t *input,
+                                     audio_unique_id_t riid,
                                      audio_session_t session,
                                      uid_t uid,
                                      const audio_config_base_t *config,
@@ -347,6 +348,10 @@ public:
     virtual status_t moveEffects(audio_session_t session,
                                      audio_io_handle_t srcOutput,
                                      audio_io_handle_t dstOutput) = 0;
+
+    virtual void setEffectSuspended(int effectId,
+                                    audio_session_t sessionId,
+                                    bool suspended) = 0;
 
     /* Create a patch between several source and sink ports */
     virtual status_t createAudioPatch(const struct audio_patch *patch,
