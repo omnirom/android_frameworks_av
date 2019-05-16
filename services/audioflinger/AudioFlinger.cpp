@@ -46,6 +46,7 @@
 #include <cutils/properties.h>
 
 #include <system/audio.h>
+#include <audiomanager/AudioManager.h>
 
 #include "AudioFlinger.h"
 #include "NBAIO_Tee.h"
@@ -312,6 +313,7 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
                  "%s does not support secondary outputs, ignoring them", __func__);
     } else {
         ret = AudioSystem::getInputForAttr(attr, &io,
+                                              RECORD_RIID_INVALID,
                                               actualSessionId,
                                               client.clientPid,
                                               client.clientUid,
@@ -699,8 +701,8 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
         updatePid = true;
     }
     pid_t clientPid = input.clientInfo.clientPid;
+    const pid_t callingPid = IPCThreadState::self()->getCallingPid();
     if (updatePid) {
-        const pid_t callingPid = IPCThreadState::self()->getCallingPid();
         ALOGW_IF(clientPid != -1 && clientPid != callingPid,
                  "%s uid %d pid %d tried to pass itself off as pid %d",
                  __func__, callingUid, callingPid, clientPid);
@@ -785,7 +787,8 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
                                       &output.frameCount, &output.notificationFrameCount,
                                       input.notificationsPerBuffer, input.speed,
                                       input.sharedBuffer, sessionId, &output.flags,
-                                      input.clientInfo.clientTid, clientUid, &lStatus, portId);
+                                      callingPid, input.clientInfo.clientTid, clientUid,
+                                      &lStatus, portId);
         LOG_ALWAYS_FATAL_IF((lStatus == NO_ERROR) && (track == 0));
         // we don't abort yet if lStatus != NO_ERROR; there is still work to be done regardless
 
@@ -1238,8 +1241,8 @@ status_t AudioFlinger::setStreamVolume(audio_stream_type_t stream, float value,
     if (output == AUDIO_IO_HANDLE_NONE) {
         return BAD_VALUE;
     }
-    ALOG_ASSERT(stream != AUDIO_STREAM_PATCH || value == 1.0,
-        "attempt to change AUDIO_STREAM_PATCH volume");
+    LOG_ALWAYS_FATAL_IF(stream == AUDIO_STREAM_PATCH && value != 1.0f,
+                        "AUDIO_STREAM_PATCH must have full scale volume");
 
     AutoMutex lock(mLock);
     VolumeInterface *volumeInterface = getVolumeInterface_l(output);
@@ -1699,18 +1702,35 @@ void AudioFlinger::removeClient_l(pid_t pid)
 }
 
 // getEffectThread_l() must be called with AudioFlinger::mLock held
-sp<AudioFlinger::PlaybackThread> AudioFlinger::getEffectThread_l(audio_session_t sessionId,
-        int EffectId)
+sp<AudioFlinger::ThreadBase> AudioFlinger::getEffectThread_l(audio_session_t sessionId,
+        int effectId)
 {
-    sp<PlaybackThread> thread;
+    sp<ThreadBase> thread;
 
     for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
-        if (mPlaybackThreads.valueAt(i)->getEffect(sessionId, EffectId) != 0) {
+        if (mPlaybackThreads.valueAt(i)->getEffect(sessionId, effectId) != 0) {
             ALOG_ASSERT(thread == 0);
             thread = mPlaybackThreads.valueAt(i);
         }
     }
-
+    if (thread != nullptr) {
+        return thread;
+    }
+    for (size_t i = 0; i < mRecordThreads.size(); i++) {
+        if (mRecordThreads.valueAt(i)->getEffect(sessionId, effectId) != 0) {
+            ALOG_ASSERT(thread == 0);
+            thread = mRecordThreads.valueAt(i);
+        }
+    }
+    if (thread != nullptr) {
+        return thread;
+    }
+    for (size_t i = 0; i < mMmapThreads.size(); i++) {
+        if (mMmapThreads.valueAt(i)->getEffect(sessionId, effectId) != 0) {
+            ALOG_ASSERT(thread == 0);
+            thread = mMmapThreads.valueAt(i);
+        }
+    }
     return thread;
 }
 
@@ -1822,8 +1842,8 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
         updatePid = true;
     }
     pid_t clientPid = input.clientInfo.clientPid;
+    const pid_t callingPid = IPCThreadState::self()->getCallingPid();
     if (updatePid) {
-        const pid_t callingPid = IPCThreadState::self()->getCallingPid();
         ALOGW_IF(clientPid != -1 && clientPid != callingPid,
                  "%s uid %d pid %d tried to pass itself off as pid %d",
                  __func__, callingUid, callingPid, clientPid);
@@ -1872,6 +1892,7 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
         portId = AUDIO_PORT_HANDLE_NONE;
     }
     lStatus = AudioSystem::getInputForAttr(&input.attr, &output.inputId,
+                                      input.riid,
                                       sessionId,
                                     // FIXME compare to AudioTrack
                                       clientPid,
@@ -1899,7 +1920,7 @@ sp<media::IAudioRecord> AudioFlinger::createRecord(const CreateRecordInput& inpu
                                                   input.config.format, input.config.channel_mask,
                                                   &output.frameCount, sessionId,
                                                   &output.notificationFrameCount,
-                                                  clientUid, &output.flags,
+                                                  callingPid, clientUid, &output.flags,
                                                   input.clientInfo.clientTid,
                                                   &lStatus, portId);
         LOG_ALWAYS_FATAL_IF((lStatus == NO_ERROR) && (recordTrack == 0));
@@ -3464,6 +3485,23 @@ status_t AudioFlinger::moveEffects(audio_session_t sessionId, audio_io_handle_t 
     return moveEffectChain_l(sessionId, srcThread, dstThread);
 }
 
+
+void AudioFlinger::setEffectSuspended(int effectId,
+                                audio_session_t sessionId,
+                                bool suspended)
+{
+    Mutex::Autolock _l(mLock);
+
+    sp<ThreadBase> thread = getEffectThread_l(sessionId, effectId);
+    if (thread == nullptr) {
+      return;
+    }
+    Mutex::Autolock _sl(thread->mLock);
+    sp<EffectModule> effect = thread->getEffect_l(sessionId, effectId);
+    thread->setEffectSuspended_l(&effect->desc().type, suspended, sessionId);
+}
+
+
 // moveEffectChain_l must be called with both srcThread and dstThread mLocks held
 status_t AudioFlinger::moveEffectChain_l(audio_session_t sessionId,
                                    AudioFlinger::PlaybackThread *srcThread,
@@ -3541,7 +3579,8 @@ status_t AudioFlinger::moveAuxEffectToIo(int EffectId,
 {
     status_t status = NO_ERROR;
     Mutex::Autolock _l(mLock);
-    sp<PlaybackThread> thread = getEffectThread_l(AUDIO_SESSION_OUTPUT_MIX, EffectId);
+    sp<PlaybackThread> thread =
+        static_cast<PlaybackThread *>(getEffectThread_l(AUDIO_SESSION_OUTPUT_MIX, EffectId).get());
 
     if (EffectId != 0 && thread != 0 && dstThread != thread.get()) {
         Mutex::Autolock _dl(dstThread->mLock);

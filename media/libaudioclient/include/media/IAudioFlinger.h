@@ -205,6 +205,9 @@ public:
                 return DEAD_OBJECT;
             }
             opPackageName = parcel->readString16();
+            if (parcel->read(&riid, sizeof(audio_unique_id_t)) != NO_ERROR) {
+                return DEAD_OBJECT;
+            }
 
             /* input/output arguments*/
             (void)parcel->read(&flags, sizeof(audio_input_flags_t));
@@ -221,6 +224,7 @@ public:
             (void)parcel->write(&config, sizeof(audio_config_base_t));
             (void)clientInfo.writeToParcel(parcel);
             (void)parcel->writeString16(opPackageName);
+            (void)parcel->write(&riid, sizeof(audio_unique_id_t));
 
             /* input/output arguments*/
             (void)parcel->write(&flags, sizeof(audio_input_flags_t));
@@ -236,6 +240,7 @@ public:
         audio_config_base_t config;
         AudioClient clientInfo;
         String16 opPackageName;
+        audio_unique_id_t riid;
 
         /* input/output */
         audio_input_flags_t flags;
@@ -456,6 +461,10 @@ public:
 
     virtual status_t moveEffects(audio_session_t session, audio_io_handle_t srcOutput,
                                     audio_io_handle_t dstOutput) = 0;
+
+    virtual void setEffectSuspended(int effectId,
+                                    audio_session_t sessionId,
+                                    bool suspended) = 0;
 
     virtual audio_module_handle_t loadHwModule(const char *name) = 0;
 

@@ -153,9 +153,14 @@ struct MyHandler : public AHandler {
           mPausing(false),
           mPauseGeneration(0),
           mPlayResponseParsed(false) {
+#ifndef __NO_AVEXTENSIONS__
         mConn = AVMediaServiceFactory::get()->createARTSPConnection(
                 mUIDValid, uid);
         mRTPConn = AVMediaServiceFactory::get()->createARTPConnection();
+#else
+        mConn = new ARTSPConnection(mUIDValid, mUID);
+        mRTPConn = new ARTPConnection();
+#endif
         mNetLooper->setName("rtsp net");
         mNetLooper->start(false /* runOnCallingThread */,
                           false /* canCallJava */,
@@ -720,7 +725,9 @@ struct MyHandler : public AHandler {
                                      timeoutSecs);
                             }
                         }
+#ifndef __NO_AVEXTENSIONS__
                         AVMediaServiceUtils::get()->setServerTimeoutUs(mKeepAliveTimeoutUs);
+#endif
 
                         i = mSessionID.find(";");
                         if (i >= 0) {
@@ -740,12 +747,19 @@ struct MyHandler : public AHandler {
 
                                 // We are going to continue even if we were
                                 // unable to poke a hole into the firewall...
+#ifndef __NO_AVEXTENSIONS__
                                 AVMediaServiceUtils::get()->pokeAHole(
                                         this,
                                         track->mRTPSocket,
                                         track->mRTCPSocket,
                                         transport,
                                         mSessionHost);
+#else
+                                pokeAHole(
+                                        track->mRTPSocket,
+                                        track->mRTCPSocket,
+                                        transport);
+#endif
                             }
 
                             mRTPConn->addStream(
@@ -794,8 +808,9 @@ struct MyHandler : public AHandler {
                     request.append("Session: ");
                     request.append(mSessionID);
                     request.append("\r\n");
-
+#ifndef __NO_AVEXTENSIONS__
                     AVMediaServiceUtils::get()->appendRange(&request);
+#endif
                     request.append("\r\n");
 
                     sp<AMessage> reply = new AMessage('play', this);
@@ -944,11 +959,10 @@ struct MyHandler : public AHandler {
                 // If the response of teardown hasn't been received in 3 seconds,
                 // post 'tear' message to avoid ANR.
                 if (!msg->findInt32("reconnect", &reconnect) || !reconnect) {
-                    sp<AMessage> teardown = new AMessage('tear', this);
+                    sp<AMessage> teardown = reply->dup();
                     teardown->setInt32("result", -ECONNABORTED);
                     teardown->post(kTearDownTimeoutUs);
                 }
-
                 break;
             }
 
@@ -1507,9 +1521,12 @@ struct MyHandler : public AHandler {
 
             size_t trackIndex = 0;
             while (trackIndex < mTracks.size()
-                    && !(AVMediaServiceUtils::get()->parseTrackURL(
-                    mTracks.editItemAt(trackIndex).mURL, val)
-                    || val == mTracks.editItemAt(trackIndex).mURL)) {
+                    && !(
+#ifndef __NO_AVEXTENSIONS__
+                    AVMediaServiceUtils::get()->parseTrackURL(
+                    mTracks.editItemAt(trackIndex).mURL, val) ||
+#endif
+                    val == mTracks.editItemAt(trackIndex).mURL)) {
                 ++trackIndex;
             }
             CHECK_LT(trackIndex, mTracks.size());
@@ -1689,10 +1706,14 @@ private:
             request.append(interleaveIndex + 1);
         } else {
             unsigned rtpPort;
+#ifndef __NO_AVEXTENSIONS__
             AVMediaServiceUtils::get()->makePortPair(
                     &info->mRTPSocket, &info->mRTCPSocket, &rtpPort,
                     mConn->isIPV6());
-
+#else
+            ARTPConnection::MakePortPair(
+                    &info->mRTPSocket, &info->mRTCPSocket, &rtpPort);
+#endif
             if (mUIDValid) {
                 NetworkUtils::RegisterSocketUserTag(info->mRTPSocket, mUID,
                         (uint32_t)*(uint32_t*) "RTP_");
