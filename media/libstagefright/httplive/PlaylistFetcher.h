@@ -144,6 +144,7 @@ protected:
     sp<M3UParser> mPlaylist;
     int32_t mSeqNumber;
     int32_t mNumRetries;
+    int32_t mNumRetriesForMonitorQueue;
     bool mStartup;
     bool mIDRFound;
     bool mLastIDRFound;

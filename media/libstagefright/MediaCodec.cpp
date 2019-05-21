@@ -1129,6 +1129,9 @@ status_t MediaCodec::configure(
             reset();
         }
         if (!isResourceError(err)) {
+            if (err == OK) {
+                disableLegacyBufferDropPostQ(surface);
+            }
             break;
         }
     }
@@ -1194,7 +1197,11 @@ status_t MediaCodec::setSurface(const sp<Surface> &surface) {
     msg->setObject("surface", surface);
 
     sp<AMessage> response;
-    return PostAndAwaitResponse(msg, &response);
+    status_t result = PostAndAwaitResponse(msg, &response);
+    if (result == OK) {
+        disableLegacyBufferDropPostQ(surface);
+    }
+    return result;
 }
 
 status_t MediaCodec::createInputSurface(
@@ -1683,10 +1690,12 @@ void MediaCodec::requestCpuBoostIfNeeded() {
         return;
     }
     int32_t colorFormat;
-    if (mSoftRenderer != NULL
-            && mOutputFormat->contains("hdr-static-info")
+    if (mOutputFormat->contains("hdr-static-info")
             && mOutputFormat->findInt32("color-format", &colorFormat)
-            && (colorFormat == OMX_COLOR_FormatYUV420Planar16)) {
+            // check format for OMX only, for C2 the format is always opaque since the
+            // software rendering doesn't go through client
+            && ((mSoftRenderer != NULL && colorFormat == OMX_COLOR_FormatYUV420Planar16)
+                    || mOwnerName.equalsIgnoreCase("codec2::software"))) {
         int32_t left, top, right, bottom, width, height;
         int64_t totalPixel = 0;
         if (mOutputFormat->findRect("crop", &left, &top, &right, &bottom)) {
@@ -1958,6 +1967,13 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
                 case kWhatComponentAllocated:
                 {
+                    if (mState == RELEASING || mState == UNINITIALIZED) {
+                        // In case a kWhatError or kWhatRelease message came in and replied,
+                        // we log a warning and ignore.
+                        ALOGW("allocate interrupted by error or release, current state %d",
+                              mState);
+                        break;
+                    }
                     CHECK_EQ(mState, INITIALIZING);
                     setState(INITIALIZED);
                     mFlags |= kFlagIsComponentAllocated;
@@ -1976,6 +1992,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     } else {
                         mFlags &= ~kFlagUsesSoftwareRenderer;
                     }
+                    mOwnerName = owner;
 
                     MediaResource::Type resourceType;
                     if (mComponentName.endsWith(".secure")) {
@@ -2239,6 +2256,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                             }
 
                             if (mime.startsWithIgnoreCase("video/")) {
+                                mSurface->setDequeueTimeout(-1);
                                 mSoftRenderer = new SoftwareRenderer(mSurface, mRotationDegrees);
                             }
                         }
@@ -2529,6 +2547,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                                             && (mFlags & kFlagPushBlankBuffersOnShutdown)) {
                                         pushBlankBuffersToNativeWindow(mSurface.get());
                                     }
+                                    surface->setDequeueTimeout(-1);
                                     mSoftRenderer = new SoftwareRenderer(surface);
                                     // TODO: check if this was successful
                                 } else {

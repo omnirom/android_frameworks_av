@@ -18,8 +18,12 @@
 #define LOG_TAG "C2BqBuffer"
 #include <utils/Log.h>
 
-#include <gui/BufferQueueDefs.h>
-#include <gui/bufferqueue/2.0/B2HGraphicBufferProducer.h>
+#include <ui/BufferQueueDefs.h>
+#include <ui/GraphicBuffer.h>
+#include <ui/Fence.h>
+
+#include <types.h>
+
 #include <hidl/HidlSupport.h>
 
 #include <C2AllocatorGralloc.h>
@@ -35,7 +39,6 @@ using ::android::C2AllocatorGralloc;
 using ::android::C2AndroidMemoryUsage;
 using ::android::Fence;
 using ::android::GraphicBuffer;
-using ::android::IGraphicBufferProducer;
 using ::android::sp;
 using ::android::status_t;
 using ::android::wp;
@@ -223,7 +226,6 @@ private:
                         }
                     });
             if (!transResult.isOk() || status != android::OK) {
-                ALOGD("cannot dequeue buffer %d", status);
                 if (transResult.isOk()) {
                     if (status == android::INVALID_OPERATION ||
                         status == android::TIMED_OUT ||
@@ -233,6 +235,7 @@ private:
                         return C2_BLOCKING;
                     }
                 }
+                ALOGD("cannot dequeue buffer %d", status);
                 return C2_BAD_VALUE;
             }
         }
@@ -355,39 +358,31 @@ public:
             return mInit;
         }
 
-        static int kMaxIgbpRetry = 20; // TODO: small number can cause crash in releasing.
         static int kMaxIgbpRetryDelayUs = 10000;
 
-        int curTry = 0;
-
-        while (curTry++ < kMaxIgbpRetry) {
-            std::unique_lock<std::mutex> lock(mMutex);
-            // TODO: return C2_NO_INIT
-            if (mProducerId == 0) {
-                std::shared_ptr<C2GraphicAllocation> alloc;
-                c2_status_t err = mAllocator->newGraphicAllocation(
-                        width, height, format, usage, &alloc);
-                if (err != C2_OK) {
-                    return err;
-                }
-                std::shared_ptr<C2BufferQueueBlockPoolData> poolData =
-                        std::make_shared<C2BufferQueueBlockPoolData>(
-                                0, (uint64_t)0, ~0, shared_from_this());
-                // TODO: config?
-                *block = _C2BlockFactory::CreateGraphicBlock(alloc, poolData);
-                ALOGV("allocated a buffer successfully");
-
-                return C2_OK;
+        std::unique_lock<std::mutex> lock(mMutex);
+        if (mProducerId == 0) {
+            std::shared_ptr<C2GraphicAllocation> alloc;
+            c2_status_t err = mAllocator->newGraphicAllocation(
+                    width, height, format, usage, &alloc);
+            if (err != C2_OK) {
+                return err;
             }
-            c2_status_t status = fetchFromIgbp_l(width, height, format, usage, block);
-            if (status == C2_BLOCKING) {
-                lock.unlock();
-                ::usleep(kMaxIgbpRetryDelayUs);
-                continue;
-            }
-            return status;
+            std::shared_ptr<C2BufferQueueBlockPoolData> poolData =
+                    std::make_shared<C2BufferQueueBlockPoolData>(
+                            0, (uint64_t)0, ~0, shared_from_this());
+            *block = _C2BlockFactory::CreateGraphicBlock(alloc, poolData);
+            ALOGV("allocated a buffer successfully");
+
+            return C2_OK;
         }
-        return C2_BLOCKING;
+        c2_status_t status = fetchFromIgbp_l(width, height, format, usage, block);
+        if (status == C2_BLOCKING) {
+            lock.unlock();
+            // in order not to drain cpu from component's spinning
+            ::usleep(kMaxIgbpRetryDelayUs);
+        }
+        return status;
     }
 
     void setRenderCallback(const OnRenderCallback &renderCallback) {

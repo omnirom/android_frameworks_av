@@ -128,6 +128,7 @@ public:
         virtual void releaseOutput(audio_port_handle_t portId);
         virtual status_t getInputForAttr(const audio_attributes_t *attr,
                                          audio_io_handle_t *input,
+                                         audio_unique_id_t riid,
                                          audio_session_t session,
                                          uid_t uid,
                                          const audio_config_base_t *config,
@@ -142,7 +143,7 @@ public:
         // indicates to the audio policy manager that the input stops being used.
         virtual status_t stopInput(audio_port_handle_t portId);
         virtual void releaseInput(audio_port_handle_t portId);
-        virtual void closeAllInputs();
+        virtual void checkCloseInputs();
         /**
          * @brief initStreamVolume: even if the engine volume files provides min and max, keep this
          * api for compatibility reason.
@@ -200,6 +201,7 @@ public:
                                         int id);
         virtual status_t unregisterEffect(int id);
         virtual status_t setEffectEnabled(int id, bool enabled);
+        status_t moveEffectsToIo(const std::vector<int>& ids, audio_io_handle_t io) override;
 
         virtual bool isStreamActive(audio_stream_type_t stream, uint32_t inPastMs = 0) const;
         // return whether a stream is playing remotely, override to change the definition of
@@ -344,11 +346,12 @@ protected:
         }
         virtual const DeviceVector getAvailableOutputDevices() const
         {
-            return mAvailableOutputDevices.filterForEngine();
+            return mAvailableOutputDevices;
         }
         virtual const DeviceVector getAvailableInputDevices() const
         {
-            return mAvailableInputDevices.filterForEngine();
+            // legacy and non-legacy remote-submix are managed by the engine, do not filter
+            return mAvailableInputDevices;
         }
         virtual const sp<DeviceDescriptor> &getDefaultOutputDevice() const
         {
@@ -484,8 +487,7 @@ protected:
                                        SortedVector<audio_io_handle_t>& outputs);
 
         status_t checkInputsForDevice(const sp<DeviceDescriptor>& device,
-                                      audio_policy_dev_state_t state,
-                                      SortedVector<audio_io_handle_t>& inputs);
+                                      audio_policy_dev_state_t state);
 
         // close an output and its companion duplicating output.
         void closeOutput(audio_io_handle_t output);
@@ -868,6 +870,8 @@ protected:
                 int delayMs,
                 uid_t uid,
                 sp<AudioPatch> *patchDescPtr);
+
+        void cleanUpEffectsForIo(audio_io_handle_t io);
 };
 
 };

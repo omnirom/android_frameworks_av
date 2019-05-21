@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_HARDWARE_MEDIA_OMX_V1_0__CONVERSION_H
-#define ANDROID_HARDWARE_MEDIA_OMX_V1_0__CONVERSION_H
+#ifndef ANDROID_HARDWARE_MEDIA_OMX_V1_0_UTILS_CONVERSION_H
+#define ANDROID_HARDWARE_MEDIA_OMX_V1_0_UTILS_CONVERSION_H
 
 #include <vector>
 #include <list>
@@ -31,12 +31,12 @@
 #include <ui/FenceTime.h>
 #include <cutils/native_handle.h>
 
+#include <ui/BufferQueueDefs.h>
 #include <ui/GraphicBuffer.h>
 #include <media/OMXFenceParcelable.h>
 #include <media/OMXBuffer.h>
 #include <media/hardware/VideoAPI.h>
 #include <media/stagefright/MediaErrors.h>
-#include <gui/IGraphicBufferProducer.h>
 
 #include <android/hardware/media/omx/1.0/types.h>
 #include <android/hardware/media/omx/1.0/IOmx.h>
@@ -258,7 +258,12 @@ inline status_t toStatusT(Status const& t) {
  */
 // convert: Status -> status_t
 inline status_t toStatusT(Return<Status> const& t) {
-    return t.isOk() ? toStatusT(static_cast<Status>(t)) : UNKNOWN_ERROR;
+    if (t.isOk()) {
+        return toStatusT(static_cast<Status>(t));
+    } else if (t.isDeadObject()) {
+        return DEAD_OBJECT;
+    }
+    return UNKNOWN_ERROR;
 }
 
 /**
@@ -282,8 +287,8 @@ inline Status toStatus(status_t l) {
     case TIMED_OUT:
     case ERROR_UNSUPPORTED:
     case UNKNOWN_ERROR:
-    case IGraphicBufferProducer::RELEASE_ALL_BUFFERS:
-    case IGraphicBufferProducer::BUFFER_NEEDS_REALLOCATION:
+    case BufferQueueDefs::RELEASE_ALL_BUFFERS:
+    case BufferQueueDefs::BUFFER_NEEDS_REALLOCATION:
         return static_cast<Status>(l);
     case NOT_ENOUGH_DATA:
         return Status::BUFFER_NEEDS_REALLOCATION;
@@ -938,4 +943,4 @@ inline OMX_TICKS toOMXTicks(uint64_t t) {
 }  // namespace hardware
 }  // namespace android
 
-#endif  // ANDROID_HARDWARE_MEDIA_OMX_V1_0__CONVERSION_H
+#endif  // ANDROID_HARDWARE_MEDIA_OMX_V1_0_UTILS_CONVERSION_H

@@ -103,8 +103,9 @@ public:
 
     class IoConfigEventData : public ConfigEventData {
     public:
-        IoConfigEventData(audio_io_config_event event, pid_t pid) :
-            mEvent(event), mPid(pid) {}
+        IoConfigEventData(audio_io_config_event event, pid_t pid,
+                          audio_port_handle_t portId) :
+            mEvent(event), mPid(pid), mPortId(portId) {}
 
         virtual  void dump(char *buffer, size_t size) {
             snprintf(buffer, size, "IO event: event %d\n", mEvent);
@@ -112,13 +113,14 @@ public:
 
         const audio_io_config_event mEvent;
         const pid_t                 mPid;
+        const audio_port_handle_t   mPortId;
     };
 
     class IoConfigEvent : public ConfigEvent {
     public:
-        IoConfigEvent(audio_io_config_event event, pid_t pid) :
+        IoConfigEvent(audio_io_config_event event, pid_t pid, audio_port_handle_t portId) :
             ConfigEvent(CFG_EVENT_IO) {
-            mData = new IoConfigEventData(event, pid);
+            mData = new IoConfigEventData(event, pid, portId);
         }
         virtual ~IoConfigEvent() {}
     };
@@ -260,13 +262,16 @@ public:
                                                     status_t& status) = 0;
     virtual     status_t    setParameters(const String8& keyValuePairs);
     virtual     String8     getParameters(const String8& keys) = 0;
-    virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0) = 0;
+    virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0,
+                                        audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE) = 0;
                 // sendConfigEvent_l() must be called with ThreadBase::mLock held
                 // Can temporarily release the lock if waiting for a reply from
                 // processConfigEvents_l().
                 status_t    sendConfigEvent_l(sp<ConfigEvent>& event);
-                void        sendIoConfigEvent(audio_io_config_event event, pid_t pid = 0);
-                void        sendIoConfigEvent_l(audio_io_config_event event, pid_t pid = 0);
+                void        sendIoConfigEvent(audio_io_config_event event, pid_t pid = 0,
+                                              audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE);
+                void        sendIoConfigEvent_l(audio_io_config_event event, pid_t pid = 0,
+                                            audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE);
                 void        sendPrioConfigEvent(pid_t pid, pid_t tid, int32_t prio, bool forApp);
                 void        sendPrioConfigEvent_l(pid_t pid, pid_t tid, int32_t prio, bool forApp);
                 status_t    sendSetParameterConfigEvent_l(const String8& keyValuePair);
@@ -315,6 +320,7 @@ public:
                 sp<EffectChain> getEffectChain(audio_session_t sessionId);
                 // same as getEffectChain() but must be called with ThreadBase mutex locked
                 sp<EffectChain> getEffectChain_l(audio_session_t sessionId) const;
+                std::vector<int> getEffectIds_l(audio_session_t sessionId);
                 // add an effect chain to the chain list (mEffectChains)
     virtual     status_t addEffectChain_l(const sp<EffectChain>& chain) = 0;
                 // remove an effect chain from the chain list (mEffectChains)
@@ -334,7 +340,8 @@ public:
                 sp<AudioFlinger::EffectModule> getEffect(audio_session_t sessionId, int effectId);
                 sp<AudioFlinger::EffectModule> getEffect_l(audio_session_t sessionId, int effectId);
                 // add and effect module. Also creates the effect chain is none exists for
-                // the effects audio session
+                // the effects audio session. Only called in a context of moving an effect
+                // from one thread to another
                 status_t addEffect_l(const sp< EffectModule>& effect);
                 // remove and effect module. Also removes the effect chain is this was the last
                 // effect
@@ -757,6 +764,7 @@ protected:
 
     // ThreadBase virtuals
     virtual     void        preExit();
+    virtual     void        onIdleMixer();
 
     virtual     bool        keepWakeLock() const { return true; }
     virtual     void        acquireWakeLock_l() {
@@ -800,6 +808,7 @@ public:
                                 const sp<IMemory>& sharedBuffer,
                                 audio_session_t sessionId,
                                 audio_output_flags_t *flags,
+                                pid_t creatorPid,
                                 pid_t tid,
                                 uid_t uid,
                                 status_t *status /*non-NULL*/,
@@ -823,7 +832,8 @@ public:
                                 { return android_atomic_acquire_load(&mSuspended) > 0; }
 
     virtual     String8     getParameters(const String8& keys);
-    virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0);
+    virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0,
+                                            audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE);
                 status_t    getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames);
                 // Consider also removing and passing an explicit mMainBuffer initialization
                 // parameter to AF::PlaybackThread::Track::Track().
@@ -1196,6 +1206,7 @@ protected:
     virtual     void        threadLoop_standby();
     virtual     void        threadLoop_mix();
     virtual     void        threadLoop_sleepTime();
+    virtual     void        onIdleMixer();
     virtual     uint32_t    correctLatency_l(uint32_t latency) const;
 
     virtual     status_t    createAudioPatch_l(const struct audio_patch *patch,
@@ -1545,6 +1556,7 @@ public:
                     size_t *pFrameCount,
                     audio_session_t sessionId,
                     size_t *pNotificationFrameCount,
+                    pid_t creatorPid,
                     uid_t uid,
                     audio_input_flags_t *flags,
                     pid_t tid,
@@ -1567,7 +1579,8 @@ public:
                                                status_t& status);
     virtual void        cacheParameters_l() {}
     virtual String8     getParameters(const String8& keys);
-    virtual void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0);
+    virtual void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0,
+                                        audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE);
     virtual status_t    createAudioPatch_l(const struct audio_patch *patch,
                                            audio_patch_handle_t *handle);
     virtual status_t    releaseAudioPatch_l(const audio_patch_handle_t handle);
@@ -1748,7 +1761,8 @@ class MmapThread : public ThreadBase
     virtual     bool        checkForNewParameter_l(const String8& keyValuePair,
                                                     status_t& status);
     virtual     String8     getParameters(const String8& keys);
-    virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0);
+    virtual     void        ioConfigChanged(audio_io_config_event event, pid_t pid = 0,
+                                            audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE);
                 void        readHalParameters_l();
     virtual     void        cacheParameters_l() {}
     virtual     status_t    createAudioPatch_l(const struct audio_patch *patch,

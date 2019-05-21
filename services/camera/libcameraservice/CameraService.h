@@ -542,6 +542,7 @@ private:
         void unregisterSelf();
 
         bool isUidActive(uid_t uid, String16 callingPackage);
+        int32_t getProcState(uid_t uid);
 
         void onUidGone(uid_t uid, bool disabled);
         void onUidActive(uid_t uid);
@@ -558,6 +559,7 @@ private:
         virtual void binderDied(const wp<IBinder> &who);
     private:
         bool isUidActiveLocked(uid_t uid, String16 callingPackage);
+        int32_t getProcStateLocked(uid_t uid);
         void updateOverrideUid(uid_t uid, String16 callingPackage, bool active, bool insert);
 
         Mutex mUidLock;
@@ -746,6 +748,11 @@ private:
             const char* reason);
 
     /**
+     * Add an event log message when a client calls setTorchMode succesfully.
+     */
+    void logTorchEvent(const char* cameraId, const char *torchState, int clientPid);
+
+    /**
      * Add an event log message that the current device user has been switched.
      */
     void logUserSwitch(const std::set<userid_t>& oldUserIds,
@@ -929,6 +936,11 @@ private:
     static int32_t mapToInterface(hardware::camera::common::V1_0::TorchModeStatus status);
     static StatusInternal mapToInternal(hardware::camera::common::V1_0::CameraDeviceStatus status);
     static int32_t mapToInterface(StatusInternal status);
+
+    // Guard mCameraServiceProxy
+    static Mutex sProxyMutex;
+    // Cached interface to the camera service proxy in system service
+    static sp<hardware::ICameraServiceProxy> sCameraServiceProxy;
 
     static sp<hardware::ICameraServiceProxy> getCameraServiceProxy();
     static void pingCameraServiceProxy();

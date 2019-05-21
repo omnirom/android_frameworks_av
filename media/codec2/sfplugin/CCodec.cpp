@@ -40,7 +40,6 @@
 #include <media/stagefright/BufferProducerWrapper.h>
 #include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/PersistentSurface.h>
-#include <media/stagefright/codec2/1.0/InputSurface.h>
 
 #include "C2OMXNode.h"
 #include "CCodec.h"
@@ -600,7 +599,7 @@ void CCodec::allocate(const sp<MediaCodecInfo> &codecInfo) {
     std::shared_ptr<Codec2Client> client;
 
     // set up preferred component store to access vendor store parameters
-    client = Codec2Client::CreateFromService("default", false);
+    client = Codec2Client::CreateFromService("default");
     if (client) {
         ALOGI("setting up '%s' as default (vendor) store", client->getServiceName().c_str());
         SetPreferredCodec2ComponentStore(
@@ -859,11 +858,12 @@ void CCodec::configure(const sp<AMessage> &msg) {
         std::vector<std::unique_ptr<C2Param>> params;
         C2StreamUsageTuning::input usage(0u, 0u);
         C2StreamMaxBufferSizeInfo::input maxInputSize(0u, 0u);
+        C2PrependHeaderModeSetting prepend(PREPEND_HEADER_TO_NONE);
 
         std::initializer_list<C2Param::Index> indices {
         };
         c2_status_t c2err = comp->query(
-                { &usage, &maxInputSize },
+                { &usage, &maxInputSize, &prepend },
                 indices,
                 C2_DONT_BLOCK,
                 &params);
@@ -929,6 +929,16 @@ void CCodec::configure(const sp<AMessage> &msg) {
                         KEY_MAX_INPUT_SIZE,
                         (int32_t)(c2_min(maxInputSize.value, uint32_t(INT32_MAX))));
             }
+        }
+
+        int32_t clientPrepend;
+        if ((config->mDomain & Config::IS_VIDEO)
+                && (config->mDomain & Config::IS_ENCODER)
+                && msg->findInt32(KEY_PREPEND_HEADERS_TO_SYNC_FRAMES, &clientPrepend)
+                && clientPrepend
+                && (!prepend || prepend.value != PREPEND_HEADER_TO_ALL_SYNC)) {
+            ALOGE("Failed to set KEY_PREPEND_HEADERS_TO_SYNC_FRAMES");
+            return BAD_VALUE;
         }
 
         if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))) {
@@ -1023,7 +1033,8 @@ sp<PersistentSurface> CCodec::CreateOmxInputSurface() {
     OmxStatus s;
     android::sp<HGraphicBufferProducer> gbp;
     android::sp<HGraphicBufferSource> gbs;
-    android::Return<void> transStatus = omx->createInputSurface(
+    using ::android::hardware::Return;
+    Return<void> transStatus = omx->createInputSurface(
             [&s, &gbp, &gbs](
                     OmxStatus status,
                     const android::sp<HGraphicBufferProducer>& producer,

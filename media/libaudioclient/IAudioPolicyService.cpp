@@ -103,6 +103,7 @@ enum {
     LIST_AUDIO_VOLUME_GROUPS,
     GET_VOLUME_GROUP_FOR_ATTRIBUTES,
     SET_ALLOWED_CAPTURE_POLICY,
+    MOVE_EFFECTS_TO_IO,
 };
 
 #define MAX_ITEMS_PER_LIST 1024
@@ -304,6 +305,7 @@ public:
 
     virtual status_t getInputForAttr(const audio_attributes_t *attr,
                                      audio_io_handle_t *input,
+                                     audio_unique_id_t riid,
                                      audio_session_t session,
                                      pid_t pid,
                                      uid_t uid,
@@ -333,6 +335,7 @@ public:
         }
         data.write(attr, sizeof(audio_attributes_t));
         data.writeInt32(*input);
+        data.writeInt32(riid);
         data.writeInt32(session);
         data.writeInt32(pid);
         data.writeInt32(uid);
@@ -547,6 +550,22 @@ public:
         data.writeInt32(id);
         data.writeInt32(enabled);
         remote()->transact(SET_EFFECT_ENABLED, data, &reply);
+        return static_cast <status_t> (reply.readInt32());
+    }
+
+    status_t moveEffectsToIo(const std::vector<int>& ids, audio_io_handle_t io) override
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
+        data.writeInt32(ids.size());
+        for (auto id : ids) {
+            data.writeInt32(id);
+        }
+        data.writeInt32(io);
+        status_t status = remote()->transact(MOVE_EFFECTS_TO_IO, data, &reply);
+        if (status != NO_ERROR) {
+            return status;
+        }
         return static_cast <status_t> (reply.readInt32());
     }
 
@@ -1284,6 +1303,7 @@ status_t BnAudioPolicyService::onTransact(
         case GET_OUTPUT_FOR_ATTR:
         case ACQUIRE_SOUNDTRIGGER_SESSION:
         case RELEASE_SOUNDTRIGGER_SESSION:
+        case MOVE_EFFECTS_TO_IO:
             ALOGW("%s: transaction %d received from PID %d",
                   __func__, code, IPCThreadState::self()->getCallingPid());
             // return status only for non void methods
@@ -1493,6 +1513,7 @@ status_t BnAudioPolicyService::onTransact(
             data.read(&attr, sizeof(audio_attributes_t));
             sanetizeAudioAttributes(&attr);
             audio_io_handle_t input = (audio_io_handle_t)data.readInt32();
+            audio_unique_id_t riid = (audio_unique_id_t)data.readInt32();
             audio_session_t session = (audio_session_t)data.readInt32();
             pid_t pid = (pid_t)data.readInt32();
             uid_t uid = (uid_t)data.readInt32();
@@ -1503,7 +1524,7 @@ status_t BnAudioPolicyService::onTransact(
             audio_input_flags_t flags = (audio_input_flags_t) data.readInt32();
             audio_port_handle_t selectedDeviceId = (audio_port_handle_t) data.readInt32();
             audio_port_handle_t portId = (audio_port_handle_t)data.readInt32();
-            status_t status = getInputForAttr(&attr, &input, session, pid, uid,
+            status_t status = getInputForAttr(&attr, &input, riid, session, pid, uid,
                                               opPackageName, &config,
                                               flags, &selectedDeviceId, &portId);
             reply->writeInt32(status);
@@ -1697,6 +1718,31 @@ status_t BnAudioPolicyService::onTransact(
             int id = data.readInt32();
             bool enabled = static_cast <bool>(data.readInt32());
             reply->writeInt32(static_cast <int32_t>(setEffectEnabled(id, enabled)));
+            return NO_ERROR;
+        } break;
+
+        case MOVE_EFFECTS_TO_IO: {
+            CHECK_INTERFACE(IAudioPolicyService, data, reply);
+            std::vector<int> ids;
+            int32_t size;
+            status_t status = data.readInt32(&size);
+            if (status != NO_ERROR) {
+                return status;
+            }
+            if (size > MAX_ITEMS_PER_LIST) {
+                return BAD_VALUE;
+            }
+            for (int32_t i = 0; i < size; i++) {
+                int id;
+                status =  data.readInt32(&id);
+                if (status != NO_ERROR) {
+                    return status;
+                }
+                ids.push_back(id);
+            }
+
+            audio_io_handle_t io = data.readInt32();
+            reply->writeInt32(static_cast <int32_t>(moveEffectsToIo(ids, io)));
             return NO_ERROR;
         } break;
 

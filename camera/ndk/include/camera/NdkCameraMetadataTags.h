@@ -3197,6 +3197,12 @@ typedef enum acamera_metadata_tag {
      * IMPLEMENTATION_DEFINED | same as YUV_420_888                  | Any            |</p>
      * <p>Refer to ACAMERA_REQUEST_AVAILABLE_CAPABILITIES for additional
      * mandatory stream configurations on a per-capability basis.</p>
+     * <p>Exception on 176x144 (QCIF) resolution: camera devices usually have a fixed capability for
+     * downscaling from larger resolution to smaller, and the QCIF resolution sometimes is not
+     * fully supported due to this limitation on devices with high-resolution image sensors.
+     * Therefore, trying to configure a QCIF resolution stream together with any other
+     * stream larger than 1920x1080 resolution (either width or height) might not be supported,
+     * and capture session creation will fail if it is not.</p>
      *
      * @see ACAMERA_INFO_SUPPORTED_HARDWARE_LEVEL
      * @see ACAMERA_REQUEST_AVAILABLE_CAPABILITIES
@@ -5306,7 +5312,7 @@ typedef enum acamera_metadata_tag {
      * <li><code>LEVEL_3</code> devices additionally support YUV reprocessing and RAW image capture, along
      *   with additional output stream configurations.</li>
      * <li><code>EXTERNAL</code> devices are similar to <code>LIMITED</code> devices with exceptions like some sensor or
-     *   lens information not reorted or less stable framerates.</li>
+     *   lens information not reported or less stable framerates.</li>
      * </ul>
      * <p>See the individual level enums for full descriptions of the supported capabilities.  The
      * ACAMERA_REQUEST_AVAILABLE_CAPABILITIES entry describes the device's capabilities at a
@@ -7505,18 +7511,19 @@ typedef enum acamera_metadata_enum_acamera_request_available_capabilities {
 
     /**
      * <p>The camera device supports capturing high-resolution images at &gt;= 20 frames per
-     * second, in at least the uncompressed YUV format, when post-processing settings are set
-     * to FAST. Additionally, maximum-resolution images can be captured at &gt;= 10 frames
-     * per second.  Here, 'high resolution' means at least 8 megapixels, or the maximum
-     * resolution of the device, whichever is smaller.</p>
+     * second, in at least the uncompressed YUV format, when post-processing settings are
+     * set to FAST. Additionally, all image resolutions less than 24 megapixels can be
+     * captured at &gt;= 10 frames per second. Here, 'high resolution' means at least 8
+     * megapixels, or the maximum resolution of the device, whichever is smaller.</p>
      * <p>More specifically, this means that at least one output {@link AIMAGE_FORMAT_YUV_420_888 } size listed in
      * {@link ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS }
      * is larger or equal to the 'high resolution' defined above, and can be captured at at
      * least 20 fps.  For the largest {@link AIMAGE_FORMAT_YUV_420_888 } size listed in
      * {@link ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS },
-     * camera device can capture this size for at least 10 frames per second.  Also the
-     * ACAMERA_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES entry lists at least one FPS range where
-     * the minimum FPS is &gt;= 1 / minimumFrameDuration for the largest YUV_420_888 size.</p>
+     * camera device can capture this size for at least 10 frames per second if the size is
+     * less than 24 megapixels. Also the ACAMERA_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES entry
+     * lists at least one FPS range where the minimum FPS is &gt;= 1 / minimumFrameDuration
+     * for the largest YUV_420_888 size.</p>
      * <p>If the device supports the {@link AIMAGE_FORMAT_RAW10 }, {@link AIMAGE_FORMAT_RAW12 }, {@link AIMAGE_FORMAT_Y8 }, then those can also be
      * captured at the same rate as the maximum-size YUV_420_888 resolution is.</p>
      * <p>In addition, the ACAMERA_SYNC_MAX_LATENCY field is guaranted to have a value between 0
@@ -7664,6 +7671,24 @@ typedef enum acamera_metadata_enum_acamera_request_available_capabilities {
      * <li>ACAMERA_LENS_POSE_REFERENCE</li>
      * <li>ACAMERA_LENS_DISTORTION</li>
      * </ul>
+     * <p>The field of view of all non-RAW physical streams must be the same or as close as
+     * possible to that of non-RAW logical streams. If the requested FOV is outside of the
+     * range supported by the physical camera, the physical stream for that physical camera
+     * will use either the maximum or minimum scaler crop region, depending on which one is
+     * closer to the requested FOV. For example, for a logical camera with wide-tele lens
+     * configuration where the wide lens is the default, if the logical camera's crop region
+     * is set to maximum, the physical stream for the tele lens will be configured to its
+     * maximum crop region. On the other hand, if the logical camera has a normal-wide lens
+     * configuration where the normal lens is the default, when the logical camera's crop
+     * region is set to maximum, the FOV of the logical streams will be that of the normal
+     * lens. The FOV of the physical streams for the wide lens will be the same as the
+     * logical stream, by making the crop region smaller than its active array size to
+     * compensate for the smaller focal length.</p>
+     * <p>Even if the underlying physical cameras have different RAW characteristics (such as
+     * size or CFA pattern), a logical camera can still advertise RAW capability. In this
+     * case, when the application configures a RAW stream, the camera device will make sure
+     * the active physical camera will remain active to ensure consistent RAW output
+     * behavior, and not switch to other physical cameras.</p>
      * <p>To maintain backward compatibility, the capture request and result metadata tags
      * required for basic camera functionalities will be solely based on the
      * logical camera capabiltity. Other request and result metadata tags, on the other
@@ -8305,6 +8330,7 @@ typedef enum acamera_metadata_enum_acamera_info_supported_hardware_level {
      * fire the flash for flash power metering during precapture, and then fire the flash
      * for the final capture, if a flash is available on the device and the AE mode is set to
      * enable the flash.</p>
+     * <p>Devices that initially shipped with Android version <a href="https://developer.android.com/reference/android/os/Build.VERSION_CODES.html#Q">Q</a> or newer will not include any LEGACY-level devices.</p>
      *
      * @see ACAMERA_CONTROL_AE_PRECAPTURE_TRIGGER
      * @see ACAMERA_REQUEST_AVAILABLE_CAPABILITIES

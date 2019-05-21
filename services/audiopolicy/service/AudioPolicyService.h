@@ -33,7 +33,7 @@
 #include <media/AudioPolicy.h>
 #include <mediautils/ServiceUtilities.h>
 #include "AudioPolicyEffects.h"
-#include "managerdefault/AudioPolicyManager.h"
+#include <AudioPolicyInterface.h>
 #include <android/hardware/BnSensorPrivacyListener.h>
 
 #include <unordered_map>
@@ -91,6 +91,7 @@ public:
     virtual void releaseOutput(audio_port_handle_t portId);
     virtual status_t getInputForAttr(const audio_attributes_t *attr,
                                      audio_io_handle_t *input,
+                                     audio_unique_id_t riid,
                                      audio_session_t session,
                                      pid_t pid,
                                      uid_t uid,
@@ -134,6 +135,7 @@ public:
                                     int id);
     virtual status_t unregisterEffect(int id);
     virtual status_t setEffectEnabled(int id, bool enabled);
+    status_t moveEffectsToIo(const std::vector<int>& ids, audio_io_handle_t io) override;
     virtual bool isStreamActive(audio_stream_type_t stream, uint32_t inPastMs = 0) const;
     virtual bool isStreamActiveRemotely(audio_stream_type_t stream, uint32_t inPastMs = 0) const;
     virtual bool isSourceActive(audio_source_t source) const;
@@ -293,6 +295,9 @@ public:
 
             void onAudioVolumeGroupChanged(volume_group_t group, int flags);
             void doOnAudioVolumeGroupChanged(volume_group_t group, int flags);
+            void setEffectSuspended(int effectId,
+                                    audio_session_t sessionId,
+                                    bool suspended);
 
 private:
                         AudioPolicyService() ANDROID_API;
@@ -428,7 +433,8 @@ private:
             CHANGED_AUDIOVOLUMEGROUP,
             SET_AUDIOPORT_CONFIG,
             DYN_POLICY_MIX_STATE_UPDATE,
-            RECORDING_CONFIGURATION_UPDATE
+            RECORDING_CONFIGURATION_UPDATE,
+            SET_EFFECT_SUSPENDED,
         };
 
         AudioCommandThread (String8 name, const wp<AudioPolicyService>& service);
@@ -472,6 +478,9 @@ private:
                                                     std::vector<effect_descriptor_t> effects,
                                                     audio_patch_handle_t patchHandle,
                                                     audio_source_t source);
+                    void        setEffectSuspendedCommand(int effectId,
+                                                          audio_session_t sessionId,
+                                                          bool suspended);
                     void        insertCommand_l(AudioCommand *command, int delayMs = 0);
     private:
         class AudioCommandData;
@@ -574,6 +583,13 @@ private:
             audio_source_t mSource;
         };
 
+        class SetEffectSuspendedData : public AudioCommandData {
+        public:
+            int mEffectId;
+            audio_session_t mSessionId;
+            bool mSuspended;
+        };
+
         Mutex   mLock;
         Condition mWaitWorkCV;
         Vector < sp<AudioCommand> > mAudioCommands; // list of pending commands
@@ -658,6 +674,10 @@ private:
         virtual status_t moveEffects(audio_session_t session,
                                          audio_io_handle_t srcOutput,
                                          audio_io_handle_t dstOutput);
+
+                void setEffectSuspended(int effectId,
+                                        audio_session_t sessionId,
+                                        bool suspended) override;
 
         /* Create a patch between several source and sink ports */
         virtual status_t createAudioPatch(const struct audio_patch *patch,
@@ -790,6 +810,12 @@ private:
         const audio_stream_type_t stream;
     };
 
+    void getPlaybackClientAndEffects(audio_port_handle_t portId,
+                                     sp<AudioPlaybackClient>& client,
+                                     sp<AudioPolicyEffects>& effects,
+                                     const char *context);
+
+
     // A class automatically clearing and restoring binder caller identity inside
     // a code block (scoped variable)
     // Declare one systematically before calling AudioPolicyManager methods so that they are
@@ -812,7 +838,6 @@ private:
 
     mutable Mutex mLock;    // prevents concurrent access to AudioPolicy manager functions changing
                             // device connection state  or routing
-    mutable Mutex mEffectsLock; // serialize access to Effect state within APM.
     // Note: lock acquisition order is always mLock > mEffectsLock:
     // mLock protects AudioPolicyManager methods that can call into audio flinger
     // and possibly back in to audio policy service and acquire mEffectsLock.
@@ -826,6 +851,8 @@ private:
     DefaultKeyedVector< int64_t, sp<NotificationClient> >    mNotificationClients;
     Mutex mNotificationClientsLock;  // protects mNotificationClients
     // Manage all effects configured in audio_effects.conf
+    // never hold AudioPolicyService::mLock when calling AudioPolicyEffects methods as
+    // those can call back into AudioPolicyService methods and try to acquire the mutex
     sp<AudioPolicyEffects> mAudioPolicyEffects;
     audio_mode_t mPhoneState;
 

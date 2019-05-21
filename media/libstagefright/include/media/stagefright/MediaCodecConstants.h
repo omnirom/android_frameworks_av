@@ -358,16 +358,18 @@ inline static const char *asString_VP9Level(int32_t i, const char *def = "??") {
     }
 }
 
-constexpr int32_t AV1Profile0 = 0x01;
-constexpr int32_t AV1Profile1 = 0x02;
-constexpr int32_t AV1Profile2 = 0x04;
+constexpr int32_t AV1ProfileMain8 = 0x1;
+constexpr int32_t AV1ProfileMain10 = 0x2;
+constexpr int32_t AV1ProfileMain10HDR10 = 0x1000;
+constexpr int32_t AV1ProfileMain10HDR10Plus = 0x2000;
 
 inline static const char *asString_AV1Profile(int32_t i, const char *def = "??") {
     switch (i) {
-        case AV1Profile0:       return "0";
-        case AV1Profile1:       return "1";
-        case AV1Profile2:       return "2";
-        default:                return def;
+        case AV1ProfileMain8:           return "Main8";
+        case AV1ProfileMain10:          return "Main10HDR";
+        case AV1ProfileMain10HDR10:     return "Main10HDR10";
+        case AV1ProfileMain10HDR10Plus: return "Main10HDRPlus";
+        default:                        return def;
     }
 }
 
@@ -785,6 +787,7 @@ constexpr char KEY_MIME[] = "mime";
 constexpr char KEY_OPERATING_RATE[] = "operating-rate";
 constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth";
 constexpr char KEY_PCM_ENCODING[] = "pcm-encoding";
+constexpr char KEY_PREPEND_HEADERS_TO_SYNC_FRAMES[] = "prepend-sps-pps-to-idr-frames";
 constexpr char KEY_PRIORITY[] = "priority";
 constexpr char KEY_PROFILE[] = "profile";
 constexpr char KEY_PUSH_BLANK_BUFFERS_ON_STOP[] = "push-blank-buffers-on-shutdown";

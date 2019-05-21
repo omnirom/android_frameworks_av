@@ -787,6 +787,9 @@ status_t ACodec::handleSetSurface(const sp<Surface> &surface) {
     // need to enable allocation when attaching
     surface->getIGraphicBufferProducer()->allowAllocation(true);
 
+    // dequeueBuffer cannot time out
+    surface->setDequeueTimeout(-1);
+
     // for meta data mode, we move dequeud buffers to the new surface.
     // for non-meta mode, we must move all registered buffers
     for (size_t i = 0; i < buffers.size(); ++i) {
@@ -1793,7 +1796,7 @@ status_t ACodec::configureCodec(
     }
 
     int32_t prependSPSPPS = 0;
-    if (encoder
+    if (encoder && mIsVideo
             && msg->findInt32("prepend-sps-pps-to-idr-frames", &prependSPSPPS)
             && prependSPSPPS != 0) {
         OMX_INDEXTYPE index;
@@ -2601,7 +2604,7 @@ status_t ACodec::configureTemporalLayers(
         layerParams.nPLayerCountActual = numLayers - numBLayers;
         layerParams.nBLayerCountActual = numBLayers;
         layerParams.bBitrateRatiosSpecified = OMX_FALSE;
-        layerParams.nLayerCountMax = numLayers - numBLayers;
+        layerParams.nLayerCountMax = numLayers;
         layerParams.nBLayerCountMax = numBLayers;
 
         err = mOMXNode->setParameter(

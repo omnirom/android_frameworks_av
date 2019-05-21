@@ -76,6 +76,7 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     aaudio_result_t result = AAUDIO_OK;
     int32_t capacity;
     int32_t framesPerBurst;
+    int32_t framesPerHardwareBurst;
     AAudioStreamRequest request;
     AAudioStreamConfiguration configurationOutput;
 
@@ -89,6 +90,9 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     if (result < 0) {
         return result;
     }
+
+    const int32_t burstMinMicros = AAudioProperty_getHardwareBurstMinMicros();
+    int32_t burstMicros = 0;
 
     // We have to do volume scaling. So we prefer FLOAT format.
     if (getFormat() == AUDIO_FORMAT_DEFAULT) {
@@ -173,8 +177,22 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
         goto error;
     }
 
-    // Validate result from server.
-    framesPerBurst = mEndpointDescriptor.dataQueueDescriptor.framesPerBurst;
+    framesPerHardwareBurst = mEndpointDescriptor.dataQueueDescriptor.framesPerBurst;
+
+    // Scale up the burst size to meet the minimum equivalent in microseconds.
+    // This is to avoid waking the CPU too often when the HW burst is very small
+    // or at high sample rates.
+    framesPerBurst = framesPerHardwareBurst;
+    do {
+        if (burstMicros > 0) {  // skip first loop
+            framesPerBurst *= 2;
+        }
+        burstMicros = framesPerBurst * static_cast<int64_t>(1000000) / getSampleRate();
+    } while (burstMicros < burstMinMicros);
+    ALOGD("%s() original HW burst = %d, minMicros = %d => SW burst = %d\n",
+          __func__, framesPerHardwareBurst, burstMinMicros, framesPerBurst);
+
+    // Validate final burst size.
     if (framesPerBurst < MIN_FRAMES_PER_BURST || framesPerBurst > MAX_FRAMES_PER_BURST) {
         ALOGE("%s - framesPerBurst out of range = %d", __func__, framesPerBurst);
         result = AAUDIO_ERROR_OUT_OF_RANGE;
@@ -190,18 +208,18 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     }
 
     mClockModel.setSampleRate(getSampleRate());
-    mClockModel.setFramesPerBurst(mFramesPerBurst);
+    mClockModel.setFramesPerBurst(framesPerHardwareBurst);
 
     if (isDataCallbackSet()) {
         mCallbackFrames = builder.getFramesPerDataCallback();
         if (mCallbackFrames > getBufferCapacity() / 2) {
-            ALOGE("%s - framesPerCallback too big = %d, capacity = %d",
+            ALOGW("%s - framesPerCallback too big = %d, capacity = %d",
                   __func__, mCallbackFrames, getBufferCapacity());
             result = AAUDIO_ERROR_OUT_OF_RANGE;
             goto error;
 
         } else if (mCallbackFrames < 0) {
-            ALOGE("%s - framesPerCallback negative", __func__);
+            ALOGW("%s - framesPerCallback negative", __func__);
             result = AAUDIO_ERROR_OUT_OF_RANGE;
             goto error;
 
@@ -225,7 +243,7 @@ error:
 
 aaudio_result_t AudioStreamInternal::close() {
     aaudio_result_t result = AAUDIO_OK;
-    ALOGD("%s(): mServiceStreamHandle = 0x%08X", __func__, mServiceStreamHandle);
+    ALOGV("%s(): mServiceStreamHandle = 0x%08X", __func__, mServiceStreamHandle);
     if (mServiceStreamHandle != AAUDIO_HANDLE_INVALID) {
         // Don't close a stream while it is running.
         aaudio_stream_state_t currentState = getState();
@@ -236,7 +254,7 @@ aaudio_result_t AudioStreamInternal::close() {
             result = waitForStateChange(currentState, &nextState,
                                                        timeoutNanoseconds);
             if (result != AAUDIO_OK) {
-                ALOGE("%s() waitForStateChange() returned %d %s",
+                ALOGW("%s() waitForStateChange() returned %d %s",
                 __func__, result, AAudio_convertResultToText(result));
             }
         }
@@ -283,17 +301,17 @@ aaudio_result_t AudioStreamInternal::requestStart()
 {
     int64_t startTime;
     if (mServiceStreamHandle == AAUDIO_HANDLE_INVALID) {
-        ALOGE("requestStart() mServiceStreamHandle invalid");
+        ALOGD("requestStart() mServiceStreamHandle invalid");
         return AAUDIO_ERROR_INVALID_STATE;
     }
     if (isActive()) {
-        ALOGE("requestStart() already active");
+        ALOGD("requestStart() already active");
         return AAUDIO_ERROR_INVALID_STATE;
     }
 
     aaudio_stream_state_t originalState = getState();
     if (originalState == AAUDIO_STREAM_STATE_DISCONNECTED) {
-        ALOGE("requestStart() but DISCONNECTED");
+        ALOGD("requestStart() but DISCONNECTED");
         return AAUDIO_ERROR_DISCONNECTED;
     }
     setState(AAUDIO_STREAM_STATE_STARTING);
@@ -356,8 +374,8 @@ aaudio_result_t AudioStreamInternal::requestStop() {
     }
 
     if (mServiceStreamHandle == AAUDIO_HANDLE_INVALID) {
-        ALOGE("requestStopInternal() mServiceStreamHandle invalid = 0x%08X",
-              mServiceStreamHandle);
+        ALOGW("%s() mServiceStreamHandle invalid = 0x%08X",
+              __func__, mServiceStreamHandle);
         return AAUDIO_ERROR_INVALID_STATE;
     }
 
@@ -370,7 +388,7 @@ aaudio_result_t AudioStreamInternal::requestStop() {
 
 aaudio_result_t AudioStreamInternal::registerThread() {
     if (mServiceStreamHandle == AAUDIO_HANDLE_INVALID) {
-        ALOGE("registerThread() mServiceStreamHandle invalid");
+        ALOGW("%s() mServiceStreamHandle invalid", __func__);
         return AAUDIO_ERROR_INVALID_STATE;
     }
     return mServiceInterface.registerAudioThread(mServiceStreamHandle,
@@ -380,7 +398,7 @@ aaudio_result_t AudioStreamInternal::registerThread() {
 
 aaudio_result_t AudioStreamInternal::unregisterThread() {
     if (mServiceStreamHandle == AAUDIO_HANDLE_INVALID) {
-        ALOGE("unregisterThread() mServiceStreamHandle invalid");
+        ALOGW("%s() mServiceStreamHandle invalid", __func__);
         return AAUDIO_ERROR_INVALID_STATE;
     }
     return mServiceInterface.unregisterAudioThread(mServiceStreamHandle, gettid());

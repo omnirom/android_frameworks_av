@@ -73,6 +73,7 @@ public:
     virtual void releaseOutput(audio_port_handle_t portId) = 0;
     virtual status_t  getInputForAttr(const audio_attributes_t *attr,
                               audio_io_handle_t *input,
+                              audio_unique_id_t riid,
                               audio_session_t session,
                               pid_t pid,
                               uid_t uid,
@@ -114,6 +115,7 @@ public:
                                     int id) = 0;
     virtual status_t unregisterEffect(int id) = 0;
     virtual status_t setEffectEnabled(int id, bool enabled) = 0;
+    virtual status_t moveEffectsToIo(const std::vector<int>& ids, audio_io_handle_t io) = 0;
     virtual bool     isStreamActive(audio_stream_type_t stream, uint32_t inPastMs = 0) const = 0;
     virtual bool     isStreamActiveRemotely(audio_stream_type_t stream, uint32_t inPastMs = 0)
                              const = 0;

@@ -226,6 +226,21 @@ status_t AudioPolicyService::getOutputForAttr(const audio_attributes_t *original
     return result;
 }
 
+void AudioPolicyService::getPlaybackClientAndEffects(audio_port_handle_t portId,
+                                                     sp<AudioPlaybackClient>& client,
+                                                     sp<AudioPolicyEffects>& effects,
+                                                     const char *context)
+{
+    Mutex::Autolock _l(mLock);
+    const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
+    if (index < 0) {
+        ALOGE("%s AudioTrack client not found for portId %d", context, portId);
+        return;
+    }
+    client = mAudioPlaybackClients.valueAt(index);
+    effects = mAudioPolicyEffects;
+}
+
 status_t AudioPolicyService::startOutput(audio_port_handle_t portId)
 {
     if (mAudioPolicyManager == NULL) {
@@ -243,16 +258,9 @@ status_t AudioPolicyService::doStartOutput(audio_port_handle_t portId)
     ALOGV("doStartOutput()");
     sp<AudioPlaybackClient> client;
     sp<AudioPolicyEffects>audioPolicyEffects;
-    {
-        Mutex::Autolock _l(mLock);
-        const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
-        if (index < 0) {
-            ALOGE("%s AudioTrack client not found for portId %d", __FUNCTION__, portId);
-            return INVALID_OPERATION;
-        }
-        client = mAudioPlaybackClients.valueAt(index);
-        audioPolicyEffects = mAudioPolicyEffects;
-    }
+
+    getPlaybackClientAndEffects(portId, client, audioPolicyEffects, __func__);
+
     if (audioPolicyEffects != 0) {
         // create audio processors according to stream
         status_t status = audioPolicyEffects->addOutputSessionEffects(
@@ -285,17 +293,9 @@ status_t  AudioPolicyService::doStopOutput(audio_port_handle_t portId)
     ALOGV("doStopOutput");
     sp<AudioPlaybackClient> client;
     sp<AudioPolicyEffects>audioPolicyEffects;
-    {
-        Mutex::Autolock _l(mLock);
 
-        const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
-        if (index < 0) {
-            ALOGE("%s AudioTrack client not found for portId %d", __FUNCTION__, portId);
-            return INVALID_OPERATION;
-        }
-        client = mAudioPlaybackClients.valueAt(index);
-        audioPolicyEffects = mAudioPolicyEffects;
-    }
+    getPlaybackClientAndEffects(portId, client, audioPolicyEffects, __func__);
+
     if (audioPolicyEffects != 0) {
         // release audio processors from the stream
         status_t status = audioPolicyEffects->releaseOutputSessionEffects(
@@ -325,13 +325,17 @@ void AudioPolicyService::releaseOutput(audio_port_handle_t portId)
 void AudioPolicyService::doReleaseOutput(audio_port_handle_t portId)
 {
     ALOGV("doReleaseOutput from tid %d", gettid());
-    Mutex::Autolock _l(mLock);
-    const ssize_t index = mAudioPlaybackClients.indexOfKey(portId);
-    if (index < 0) {
-        ALOGE("%s AudioTrack client not found for portId %d", __FUNCTION__, portId);
-        return;
+    sp<AudioPlaybackClient> client;
+    sp<AudioPolicyEffects> audioPolicyEffects;
+
+    getPlaybackClientAndEffects(portId, client, audioPolicyEffects, __func__);
+
+    if (audioPolicyEffects != 0 && client->active) {
+        // clean up effects if output was not stopped before being released
+        audioPolicyEffects->releaseOutputSessionEffects(
+            client->io, client->stream, client->session);
     }
-    sp<AudioPlaybackClient> client = mAudioPlaybackClients.valueAt(index);
+    Mutex::Autolock _l(mLock);
     mAudioPlaybackClients.removeItem(portId);
 
     // called from internal thread: no need to clear caller identity
@@ -340,6 +344,7 @@ void AudioPolicyService::doReleaseOutput(audio_port_handle_t portId)
 
 status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
                                              audio_io_handle_t *input,
+                                             audio_unique_id_t riid,
                                              audio_session_t session,
                                              pid_t pid,
                                              uid_t uid,
@@ -409,7 +414,7 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
         {
             AutoCallerClear acc;
             // the audio_in_acoustics_t parameter is ignored by get_input()
-            status = mAudioPolicyManager->getInputForAttr(attr, input, session, uid,
+            status = mAudioPolicyManager->getInputForAttr(attr, input, riid, session, uid,
                                                          config,
                                                          flags, selectedDeviceId,
                                                          &inputType, portId);
@@ -810,7 +815,7 @@ status_t AudioPolicyService::registerEffect(const effect_descriptor_t *desc,
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
-    Mutex::Autolock _l(mEffectsLock);
+    Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
     return mAudioPolicyManager->registerEffect(desc, io, strategy, session, id);
 }
@@ -820,7 +825,7 @@ status_t AudioPolicyService::unregisterEffect(int id)
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
-    Mutex::Autolock _l(mEffectsLock);
+    Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
     return mAudioPolicyManager->unregisterEffect(id);
 }
@@ -830,9 +835,19 @@ status_t AudioPolicyService::setEffectEnabled(int id, bool enabled)
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
-    Mutex::Autolock _l(mEffectsLock);
+    Mutex::Autolock _l(mLock);
     AutoCallerClear acc;
     return mAudioPolicyManager->setEffectEnabled(id, enabled);
+}
+
+status_t AudioPolicyService::moveEffectsToIo(const std::vector<int>& ids, audio_io_handle_t io)
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    AutoCallerClear acc;
+    return mAudioPolicyManager->moveEffectsToIo(ids, io);
 }
 
 bool AudioPolicyService::isStreamActive(audio_stream_type_t stream, uint32_t inPastMs) const
@@ -986,8 +1001,6 @@ bool AudioPolicyService::isOffloadSupported(const audio_offload_info_t& info)
         return false;
     }
     Mutex::Autolock _l(mLock);
-    Mutex::Autolock _le(mEffectsLock); // isOffloadSupported queries for
-                                      // non-offloadable effects
     AutoCallerClear acc;
     return mAudioPolicyManager->isOffloadSupported(info);
 }

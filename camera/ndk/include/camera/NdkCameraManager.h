@@ -85,6 +85,11 @@ void ACameraManager_delete(ACameraManager* manager) __INTRODUCED_IN(24);
  * <p>ACameraManager_getCameraIdList will allocate and return an {@link ACameraIdList}.
  * The caller must call {@link ACameraManager_deleteCameraIdList} to free the memory</p>
  *
+ * <p>Note: the returned camera list might be a subset to the output of <a href=
+ * "https://developer.android.com/reference/android/hardware/camera2/CameraManager.html#getCameraIdList()">
+ * SDK CameraManager#getCameraIdList API</a> as the NDK API does not support some legacy camera
+ * hardware.</p>
+ *
  * @param manager the {@link ACameraManager} of interest
  * @param cameraIdList the output {@link ACameraIdList} will be filled in here if the method call
  *        succeeds.
@@ -368,6 +373,23 @@ camera_status_t ACameraManager_registerExtendedAvailabilityCallback(
 camera_status_t ACameraManager_unregisterExtendedAvailabilityCallback(
         ACameraManager* manager,
         const ACameraManager_ExtendedAvailabilityCallbacks* callback) __INTRODUCED_IN(29);
+
+#ifdef __ANDROID_VNDK__
+/**
+ * Retrieve the tag value, given the tag name and camera id.
+ * This method is device specific since some metadata might be defined by device manufacturers
+ * and might only be accessible for specific cameras.
+ * @param manager The {@link ACameraManager} of interest.
+ * @param cameraId The cameraId, which is used to query camera characteristics.
+ * @param name The name of the tag being queried.
+ * @param tag The output tag assigned by this method.
+ *
+ * @return ACAMERA_OK only if the function call was successful.
+ */
+camera_status_t ACameraManager_getTagFromName(ACameraManager *manager, const char* cameraId,
+        const char *name, /*out*/uint32_t *tag)
+        __INTRODUCED_IN(29);
+#endif
 
 #endif /* __ANDROID_API__ >= 29 */
 
