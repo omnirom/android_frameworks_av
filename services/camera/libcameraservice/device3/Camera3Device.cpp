@@ -2528,6 +2528,9 @@ status_t Camera3Device::setConsumerSurfaces(int streamId,
         CLOGE("Stream %d is unknown", streamId);
         return BAD_VALUE;
     }
+
+    // isConsumerConfigurationDeferred will be off after setConsumers
+    bool isDeferred = stream->isConsumerConfigurationDeferred();
     status_t res = stream->setConsumers(consumers);
     if (res != OK) {
         CLOGE("Stream %d set consumer failed (error %d %s) ", streamId, res, strerror(-res));
@@ -2543,7 +2546,7 @@ status_t Camera3Device::setConsumerSurfaces(int streamId,
         surfaceIds->push_back(id);
     }
 
-    if (stream->isConsumerConfigurationDeferred()) {
+    if (isDeferred) {
         if (!stream->isConfiguring()) {
             CLOGE("Stream %d was already fully configured.", streamId);
             return INVALID_OPERATION;
@@ -2618,7 +2621,6 @@ status_t Camera3Device::dropStreamBuffers(bool dropping, int streamId) {
 sp<Camera3Device::CaptureRequest> Camera3Device::createCaptureRequest(
         const PhysicalCameraSettingsList &request, const SurfaceMap &surfaceMap) {
     ATRACE_CALL();
-    status_t res;
 
     sp<CaptureRequest> newRequest = new CaptureRequest;
     newRequest->mSettingsList = request;
@@ -2632,16 +2634,11 @@ sp<Camera3Device::CaptureRequest> Camera3Device::createCaptureRequest(
                     inputStreams.data.u8[0]);
             return NULL;
         }
-        // Lazy completion of stream configuration (allocation/registration)
-        // on first use
+
         if (mInputStream->isConfiguring()) {
-            res = mInputStream->finishConfiguration();
-            if (res != OK) {
-                SET_ERR_L("Unable to finish configuring input stream %d:"
-                        " %s (%d)",
-                        mInputStream->getId(), strerror(-res), res);
-                return NULL;
-            }
+            SET_ERR_L("%s: input stream %d is not configured!",
+                    __FUNCTION__, mInputStream->getId());
+            return NULL;
         }
         // Check if stream prepare is blocking requests.
         if (mInputStream->isBlockedByPrepare()) {
@@ -2681,15 +2678,9 @@ sp<Camera3Device::CaptureRequest> Camera3Device::createCaptureRequest(
             newRequest->mOutputSurfaces[streams.data.i32[i]] = surfaces;
         }
 
-        // Lazy completion of stream configuration (allocation/registration)
-        // on first use
         if (stream->isConfiguring()) {
-            res = stream->finishConfiguration();
-            if (res != OK) {
-                SET_ERR_L("Unable to finish configuring stream %d: %s (%d)",
-                        stream->getId(), strerror(-res), res);
-                return NULL;
-            }
+            SET_ERR_L("%s: stream %d is not configured!", __FUNCTION__, stream->getId());
+            return NULL;
         }
         // Check if stream prepare is blocking requests.
         if (stream->isBlockedByPrepare()) {
@@ -2914,7 +2905,8 @@ status_t Camera3Device::configureStreamsLocked(int operatingMode,
     // faster
 
     if (mInputStream != NULL && mInputStream->isConfiguring()) {
-        res = mInputStream->finishConfiguration();
+        bool streamReConfigured = false;
+        res = mInputStream->finishConfiguration(&streamReConfigured);
         if (res != OK) {
             CLOGE("Can't finish configuring input stream %d: %s (%d)",
                     mInputStream->getId(), strerror(-res), res);
@@ -2924,12 +2916,16 @@ status_t Camera3Device::configureStreamsLocked(int operatingMode,
             }
             return BAD_VALUE;
         }
+        if (streamReConfigured) {
+            mInterface->onStreamReConfigured(mInputStream->getId());
+        }
     }
 
     for (size_t i = 0; i < mOutputStreams.size(); i++) {
         sp<Camera3OutputStreamInterface> outputStream = mOutputStreams[i];
         if (outputStream->isConfiguring() && !outputStream->isConsumerConfigurationDeferred()) {
-            res = outputStream->finishConfiguration();
+            bool streamReConfigured = false;
+            res = outputStream->finishConfiguration(&streamReConfigured);
             if (res != OK) {
                 CLOGE("Can't finish configuring output stream %d: %s (%d)",
                         outputStream->getId(), strerror(-res), res);
@@ -2938,6 +2934,9 @@ status_t Camera3Device::configureStreamsLocked(int operatingMode,
                     return DEAD_OBJECT;
                 }
                 return BAD_VALUE;
+            }
+            if (streamReConfigured) {
+                mInterface->onStreamReConfigured(outputStream->getId());
             }
         }
     }
@@ -4786,12 +4785,28 @@ void Camera3Device::HalInterface::onBufferFreed(
                 __FUNCTION__, handle, streamId);
         return;
     } else {
-        bufferId =  it->second;
+        bufferId = it->second;
         bIdMap.erase(it);
         ALOGV("%s: stream %d now have %zu buffer caches after removing buf %p",
                 __FUNCTION__, streamId, bIdMap.size(), handle);
     }
     mFreedBuffers.push_back(std::make_pair(streamId, bufferId));
+}
+
+void Camera3Device::HalInterface::onStreamReConfigured(int streamId) {
+    std::lock_guard<std::mutex> lock(mBufferIdMapLock);
+    auto mapIt = mBufferIdMaps.find(streamId);
+    if (mapIt == mBufferIdMaps.end()) {
+        ALOGE("%s: streamId %d not found!", __FUNCTION__, streamId);
+        return;
+    }
+
+    BufferIdMap& bIdMap = mapIt->second;
+    for (const auto& it : bIdMap) {
+        uint64_t bufferId = it.second;
+        mFreedBuffers.push_back(std::make_pair(streamId, bufferId));
+    }
+    bIdMap.clear();
 }
 
 /**
