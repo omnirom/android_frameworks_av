@@ -215,7 +215,6 @@ cc_library {
         "libstagefright_mediafilter",
         "libstagefright_webm",
         "libstagefright_timedtext",
-        "libvpx",
         "libogg",
         "libwebm",
         "libstagefright_esds",

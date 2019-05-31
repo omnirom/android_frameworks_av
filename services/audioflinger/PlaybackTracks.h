@@ -26,11 +26,12 @@ public:
     bool hasOpPlayAudio() const;
 
     static sp<OpPlayAudioMonitor> createIfNeeded(
-            uid_t uid, audio_usage_t usage, int id, audio_stream_type_t streamType);
+            uid_t uid, const audio_attributes_t& attr, int id, audio_stream_type_t streamType);
 
 private:
     OpPlayAudioMonitor(uid_t uid, audio_usage_t usage, int id);
     void onFirstRef() override;
+    static void getPackagesForUid(uid_t uid, Vector<String16>& packages);
 
     AppOpsManager mAppOpsManager;
 
