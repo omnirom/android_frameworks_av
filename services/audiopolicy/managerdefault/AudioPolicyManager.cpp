@@ -777,6 +777,12 @@ void AudioPolicyManager::setForceUse(audio_policy_force_use_t usage,
     // check for device and output changes triggered by new force usage
     checkForDeviceAndOutputChanges();
 
+    // force client reconnection to reevaluate flag AUDIO_FLAG_AUDIBILITY_ENFORCED
+    if (usage == AUDIO_POLICY_FORCE_FOR_SYSTEM) {
+        mpClientInterface->invalidateStream(AUDIO_STREAM_SYSTEM);
+        mpClientInterface->invalidateStream(AUDIO_STREAM_ENFORCED_AUDIBLE);
+    }
+
     //FIXME: workaround for truncated touch sounds
     // to be removed when the problem is handled by system UI
     uint32_t delayMs = 0;
@@ -920,6 +926,13 @@ status_t AudioPolicyManager::getAudioAttributes(audio_attributes_t *dstAttr,
         }
         *dstAttr = mEngine->getAttributesForStreamType(srcStream);
     }
+
+    // Only honor audibility enforced when required. The client will be
+    // forced to reconnect if the forced usage changes.
+    if (mEngine->getForceUse(AUDIO_POLICY_FORCE_FOR_SYSTEM) != AUDIO_POLICY_FORCE_SYSTEM_ENFORCED) {
+        dstAttr->flags &= ~AUDIO_FLAG_AUDIBILITY_ENFORCED;
+    }
+
     return NO_ERROR;
 }
 
@@ -1029,7 +1042,7 @@ status_t AudioPolicyManager::getOutputForAttrInt(
     }
     if (*output == AUDIO_IO_HANDLE_NONE) {
         *output = getOutputForDevices(outputDevices, session, *stream, config,
-                flags, attr->flags & AUDIO_FLAG_MUTE_HAPTIC);
+                flags, resultAttr->flags & AUDIO_FLAG_MUTE_HAPTIC);
     }
     if (*output == AUDIO_IO_HANDLE_NONE) {
         return INVALID_OPERATION;
@@ -2001,16 +2014,25 @@ status_t AudioPolicyManager::getInputForAttr(const audio_attributes_t *attr,
             strncmp(attributes.tags, "addr=", strlen("addr=")) == 0) {
         status = mPolicyMixes.getInputMixForAttr(attributes, &policyMix);
         if (status != NO_ERROR) {
+            ALOGW("%s could not find input mix for attr %s",
+                    __func__, toString(attributes).c_str());
             goto error;
         }
+        device = mAvailableInputDevices.getDevice(AUDIO_DEVICE_IN_REMOTE_SUBMIX,
+                                                  String8(attr->tags + strlen("addr=")),
+                                                  AUDIO_FORMAT_DEFAULT);
+        if (device == nullptr) {
+            ALOGW("%s could not find in Remote Submix device for source %d, tags %s",
+                    __func__, attributes.source, attributes.tags);
+            status = BAD_VALUE;
+            goto error;
+        }
+
         if (is_mix_loopback_render(policyMix->mRouteFlags)) {
             *inputType = API_INPUT_MIX_PUBLIC_CAPTURE_PLAYBACK;
         } else {
             *inputType = API_INPUT_MIX_EXT_POLICY_REROUTE;
         }
-        device = mAvailableInputDevices.getDevice(AUDIO_DEVICE_IN_REMOTE_SUBMIX,
-                                                  String8(attr->tags + strlen("addr=")),
-                                                  AUDIO_FORMAT_DEFAULT);
     } else {
         if (explicitRoutingDevice != nullptr) {
             device = explicitRoutingDevice;
@@ -2052,7 +2074,7 @@ exit:
                 device->getId() : AUDIO_PORT_HANDLE_NONE;
 
     isSoundTrigger = attributes.source == AUDIO_SOURCE_HOTWORD &&
-        mSoundTriggerSessions.indexOfKey(session) > 0;
+        mSoundTriggerSessions.indexOfKey(session) >= 0;
     *portId = AudioPort::getNextUniqueId();
 
     clientDesc = new RecordClientDescriptor(*portId, riid, uid, session, attributes, *config,
@@ -2137,6 +2159,7 @@ audio_io_handle_t AudioPolicyManager::getInputForDevice(const sp<DeviceDescripto
         for (size_t i = 0; i < mInputs.size(); ) {
             sp <AudioInputDescriptor> desc = mInputs.valueAt(i);
             if (desc->mProfile != profile) {
+                i++;
                 continue;
             }
             // if sound trigger, reuse input if used by other sound trigger on same session
@@ -2884,14 +2907,12 @@ status_t AudioPolicyManager::registerPolicyMixes(const Vector<AudioMix>& mixes)
             rSubmixModule->addInputProfile(address, &inputConfig,
                     AUDIO_DEVICE_IN_REMOTE_SUBMIX, address);
 
-            if (mix.mMixType == MIX_TYPE_PLAYERS) {
-                setDeviceConnectionStateInt(AUDIO_DEVICE_IN_REMOTE_SUBMIX,
-                        AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
-                        address.string(), "remote-submix", AUDIO_FORMAT_DEFAULT);
-            } else {
-                setDeviceConnectionStateInt(AUDIO_DEVICE_OUT_REMOTE_SUBMIX,
-                        AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
-                        address.string(), "remote-submix", AUDIO_FORMAT_DEFAULT);
+            if ((res = setDeviceConnectionStateInt(mix.mDeviceType,
+                    AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
+                    address.string(), "remote-submix", AUDIO_FORMAT_DEFAULT)) != NO_ERROR) {
+                ALOGE("Failed to set remote submix device available, type %u, address %s",
+                        mix.mDeviceType, address.string());
+                break;
             }
         } else if ((mix.mRouteFlags & MIX_ROUTE_FLAG_RENDER) == MIX_ROUTE_FLAG_RENDER) {
             String8 address = mix.mDeviceAddress;
@@ -2967,17 +2988,17 @@ status_t AudioPolicyManager::unregisterPolicyMixes(Vector<AudioMix> mixes)
                 continue;
             }
 
-            if (getDeviceConnectionState(AUDIO_DEVICE_IN_REMOTE_SUBMIX, address.string()) ==
-                    AUDIO_POLICY_DEVICE_STATE_AVAILABLE)  {
-                setDeviceConnectionStateInt(AUDIO_DEVICE_IN_REMOTE_SUBMIX,
-                        AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
-                        address.string(), "remote-submix", AUDIO_FORMAT_DEFAULT);
-            }
-            if (getDeviceConnectionState(AUDIO_DEVICE_OUT_REMOTE_SUBMIX, address.string()) ==
-                    AUDIO_POLICY_DEVICE_STATE_AVAILABLE)  {
-                setDeviceConnectionStateInt(AUDIO_DEVICE_OUT_REMOTE_SUBMIX,
-                        AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
-                        address.string(), "remote-submix", AUDIO_FORMAT_DEFAULT);
+            for (auto device : {AUDIO_DEVICE_IN_REMOTE_SUBMIX, AUDIO_DEVICE_OUT_REMOTE_SUBMIX}) {
+                if (getDeviceConnectionState(device, address.string()) ==
+                        AUDIO_POLICY_DEVICE_STATE_AVAILABLE)  {
+                    res = setDeviceConnectionStateInt(device, AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
+                                                      address.string(), "remote-submix",
+                                                      AUDIO_FORMAT_DEFAULT);
+                    if (res != OK) {
+                        ALOGE("Error making RemoteSubmix device unavailable for mix "
+                              "with type %d, address %s", device, address.string());
+                    }
+                }
             }
             rSubmixModule->removeOutputProfile(address);
             rSubmixModule->removeInputProfile(address);
