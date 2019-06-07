@@ -19,7 +19,7 @@
 #include "DeviceDescriptor.h"
 #include <utils/RefBase.h>
 #include <media/AudioPolicy.h>
-#include <utils/KeyedVector.h>
+#include <utils/Vector.h>
 #include <system/audio.h>
 #include <utils/String8.h>
 
@@ -48,14 +48,15 @@ private:
 };
 
 
-class AudioPolicyMixCollection : public DefaultKeyedVector<String8, sp<AudioPolicyMix> >
+class AudioPolicyMixCollection : public Vector<sp<AudioPolicyMix>>
 {
 public:
-    status_t getAudioPolicyMix(const String8& address, sp<AudioPolicyMix> &policyMix) const;
+    status_t getAudioPolicyMix(audio_devices_t deviceType,
+            const String8& address, sp<AudioPolicyMix> &policyMix) const;
 
-    status_t registerMix(const String8& address, AudioMix mix, sp<SwAudioOutputDescriptor> desc);
+    status_t registerMix(AudioMix mix, sp<SwAudioOutputDescriptor> desc);
 
-    status_t unregisterMix(const String8& address);
+    status_t unregisterMix(const AudioMix& mix);
 
     void closeOutput(sp<SwAudioOutputDescriptor> &desc);
 
@@ -89,6 +90,16 @@ public:
 
     status_t getInputMixForAttr(audio_attributes_t attr, sp<AudioPolicyMix> *policyMix);
 
+    /**
+     * Updates the mix rules in order to make streams associated with the given uid
+     * be routed to the given audio devices.
+     * @param uid the uid for which the device affinity is set
+     * @param devices the vector of devices that this uid may be routed to. A typical
+     *    use is to pass the devices associated with a given zone in a multi-zone setup.
+     * @return NO_ERROR if the update was successful, INVALID_OPERATION otherwise.
+     *    An example of failure is when there are already rules in place to restrict
+     *    a mix to the given uid (i.e. when a MATCH_UID rule was set for it).
+     */
     status_t setUidDeviceAffinities(uid_t uid, const Vector<AudioDeviceTypeAddr>& devices);
     status_t removeUidDeviceAffinities(uid_t uid);
     status_t getDevicesForUid(uid_t uid, Vector<AudioDeviceTypeAddr>& devices) const;

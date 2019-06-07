@@ -32,35 +32,32 @@ extern "C" {
 #define DEFAULT_FRAME_DURATION_MS 20
 namespace android {
 
+namespace {
+
 constexpr char COMPONENT_NAME[] = "c2.android.opus.encoder";
 
-class C2SoftOpusEnc::IntfImpl : public C2InterfaceHelper {
+}  // namespace
+
+class C2SoftOpusEnc::IntfImpl : public SimpleInterface<void>::BaseParams {
 public:
     explicit IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helper)
-        : C2InterfaceHelper(helper) {
-
+        : SimpleInterface<void>::BaseParams(
+                helper,
+                COMPONENT_NAME,
+                C2Component::KIND_ENCODER,
+                C2Component::DOMAIN_AUDIO,
+                MEDIA_MIMETYPE_AUDIO_OPUS) {
+        noPrivateBuffers();
+        noInputReferences();
+        noOutputReferences();
+        noInputLatency();
+        noTimeStretch();
         setDerivedInstance(this);
 
         addParameter(
-                DefineParam(mInputFormat, C2_PARAMKEY_INPUT_STREAM_BUFFER_TYPE)
-                .withConstValue(new C2StreamBufferTypeSetting::input(0u, C2BufferData::LINEAR))
-                .build());
-
-        addParameter(
-                DefineParam(mOutputFormat, C2_PARAMKEY_OUTPUT_STREAM_BUFFER_TYPE)
-                .withConstValue(new C2StreamBufferTypeSetting::output(0u, C2BufferData::LINEAR))
-                .build());
-
-        addParameter(
-                DefineParam(mInputMediaType, C2_PARAMKEY_INPUT_MEDIA_TYPE)
-                .withConstValue(AllocSharedString<C2PortMediaTypeSetting::input>(
-                        MEDIA_MIMETYPE_AUDIO_RAW))
-                .build());
-
-        addParameter(
-                DefineParam(mOutputMediaType, C2_PARAMKEY_OUTPUT_MEDIA_TYPE)
-                .withConstValue(AllocSharedString<C2PortMediaTypeSetting::output>(
-                        MEDIA_MIMETYPE_AUDIO_OPUS))
+                DefineParam(mAttrib, C2_PARAMKEY_COMPONENT_ATTRIBUTES)
+                .withConstValue(new C2ComponentAttributesSetting(
+                    C2Component::ATTRIB_IS_TEMPORAL))
                 .build());
 
         addParameter(
@@ -104,10 +101,6 @@ public:
     uint32_t getComplexity() const { return mComplexity->value; }
 
 private:
-    std::shared_ptr<C2StreamBufferTypeSetting::input> mInputFormat;
-    std::shared_ptr<C2StreamBufferTypeSetting::output> mOutputFormat;
-    std::shared_ptr<C2PortMediaTypeSetting::input> mInputMediaType;
-    std::shared_ptr<C2PortMediaTypeSetting::output> mOutputMediaType;
     std::shared_ptr<C2StreamSampleRateInfo::input> mSampleRate;
     std::shared_ptr<C2StreamChannelCountInfo::input> mChannelCount;
     std::shared_ptr<C2StreamBitrateInfo::output> mBitrate;
@@ -211,15 +204,6 @@ c2_status_t C2SoftOpusEnc::configureEncoder() {
         ALOGE("failed to set bitrate");
         return C2_BAD_VALUE;
     }
-
-    // Get codecDelay
-    int32_t lookahead;
-    if (opus_multistream_encoder_ctl(mEncoder, OPUS_GET_LOOKAHEAD(&lookahead)) !=
-            OPUS_OK) {
-        ALOGE("failed to get lookahead");
-        return C2_BAD_VALUE;
-    }
-    mCodecDelay = lookahead * 1000000000ll / mSampleRate;
 
     // Set seek preroll to 80 ms
     mSeekPreRoll = 80000000;
@@ -413,13 +397,26 @@ void C2SoftOpusEnc::process(const std::unique_ptr<C2Work>& work,
     if (!mHeaderGenerated) {
         uint8_t header[AOPUS_UNIFIED_CSD_MAXSIZE];
         memset(header, 0, sizeof(header));
+
+        // Get codecDelay
+        int32_t lookahead;
+        if (opus_multistream_encoder_ctl(mEncoder, OPUS_GET_LOOKAHEAD(&lookahead)) !=
+                OPUS_OK) {
+            ALOGE("failed to get lookahead");
+            mSignalledError = true;
+            work->result = C2_CORRUPTED;
+            return;
+        }
+        mCodecDelay = lookahead * 1000000000ll / mSampleRate;
+
         OpusHeader opusHeader;
+        memset(&opusHeader, 0, sizeof(opusHeader));
         opusHeader.channels = mChannelCount;
         opusHeader.num_streams = mChannelCount;
         opusHeader.num_coupled = 0;
         opusHeader.channel_mapping = ((mChannelCount > 8) ? 255 : (mChannelCount > 2));
         opusHeader.gain_db = 0;
-        opusHeader.skip_samples = 0;
+        opusHeader.skip_samples = lookahead;
         int headerLen = WriteOpusHeaders(opusHeader, mSampleRate, header,
             sizeof(header), mCodecDelay, mSeekPreRoll);
 

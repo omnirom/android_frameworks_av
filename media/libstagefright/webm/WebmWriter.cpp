@@ -116,7 +116,6 @@ sp<WebmElement> WebmWriter::videoTrack(const sp<MetaData>& md) {
 sp<WebmElement> WebmWriter::audioTrack(const sp<MetaData>& md) {
     int32_t nChannels, samplerate;
     const char* mimeType;
-    int32_t bitWidth = 0;
 
     if (!md->findInt32(kKeyChannelCount, &nChannels)
         || !md->findInt32(kKeySampleRate, &samplerate)
@@ -124,6 +123,11 @@ sp<WebmElement> WebmWriter::audioTrack(const sp<MetaData>& md) {
         ALOGE("Missing format keys for audio track");
         md->dumpToLog();
         return NULL;
+    }
+
+    int32_t bitsPerSample = 0;
+    if (!md->findInt32(kKeyBitsPerSample, &bitsPerSample)) {
+        ALOGV("kKeyBitsPerSample not available");
     }
 
     if (!strncasecmp(mimeType, MEDIA_MIMETYPE_AUDIO_OPUS, strlen(MEDIA_MIMETYPE_AUDIO_OPUS))) {
@@ -166,16 +170,8 @@ sp<WebmElement> WebmWriter::audioTrack(const sp<MetaData>& md) {
         uint8_t* codecPrivateData = codecPrivateBuf->data();
 
         memcpy(codecPrivateData + off, (uint8_t*)header_data, headerSize);
-
-        if (AVUtils::get()->hasAudioSampleBits(md)) {
-            bitWidth = AVUtils::get()->getAudioSampleBits(md);
-        }
-        sp<WebmElement> entry = WebmElement::AudioTrackEntry(
-                "A_OPUS",
-                nChannels,
-                samplerate,
-                codecPrivateBuf,
-                bitWidth);
+        sp<WebmElement> entry = WebmElement::AudioTrackEntry("A_OPUS", nChannels, samplerate,
+                                                             codecPrivateBuf, bitsPerSample);
         return entry;
     } else if (!strncasecmp(mimeType,
                             MEDIA_MIMETYPE_AUDIO_VORBIS,
@@ -213,15 +209,8 @@ sp<WebmElement> WebmWriter::audioTrack(const sp<MetaData>& md) {
         off += headerSize2;
         memcpy(codecPrivateData + off, headerData3, headerSize3);
 
-        if (AVUtils::get()->hasAudioSampleBits(md)) {
-            bitWidth = AVUtils::get()->getAudioSampleBits(md);
-        }
-        sp<WebmElement> entry = WebmElement::AudioTrackEntry(
-                "A_VORBIS",
-                nChannels,
-                samplerate,
-                codecPrivateBuf,
-                bitWidth);
+        sp<WebmElement> entry = WebmElement::AudioTrackEntry("A_VORBIS", nChannels, samplerate,
+                                                             codecPrivateBuf, bitsPerSample);
         return entry;
     } else {
         ALOGE("Track (%s) is not a supported audio format", mimeType);

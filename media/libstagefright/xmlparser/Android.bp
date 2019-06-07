@@ -20,6 +20,7 @@ cc_library_shared {
     ],
 
     shared_libs: [
+        "libbase",
         "libexpat",
         "liblog",
         "libstagefright_omx_utils",
@@ -31,9 +32,6 @@ cc_library_shared {
             cflags: ["-D__ANDROID_VNDK__"],
         },
     },
-    header_libs: [
-        "libbase_headers",
-    ],
 
     cflags: [
         "-Werror",
