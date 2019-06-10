@@ -33,6 +33,7 @@
 #include <functional>
 
 #include <media/MediaSource.h>
+#include <media/stagefright/foundation/ABitReader.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/AUtils.h>
@@ -291,6 +292,7 @@ private:
     bool mIsVideo;
     bool mIsHeic;
     bool mIsMPEG4;
+    bool mIsMPEGH;
     bool mGotStartKeyFrame;
     bool mIsMalformed;
     int32_t mTrackId;
@@ -394,6 +396,7 @@ private:
     status_t parseHEVCCodecSpecificData(
             const uint8_t *data, size_t size, HevcParameterSets &paramSets);
 
+    status_t parseMHASPackets(MediaBufferBase *buffer);
     // Track authoring progress status
     void trackProgressStatus(int64_t timeUs, status_t err = OK);
     void initTrackingProgressStatus(MetaData *params);
@@ -446,6 +449,7 @@ private:
     void writeColrBox();
     void writeMp4aEsdsBox();
     void writeMp4vEsdsBox();
+    void writeMhaCBox();
     void writeAudioFourCCBox();
     void writeVideoFourCCBox();
     void writeMetadataFourCCBox();
@@ -585,6 +589,8 @@ const char *MPEG4Writer::Track::getFourCCForMime(const char *mime) {
             return "sawb";
         } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_AAC, mime)) {
             return "mp4a";
+        } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_MHAS, mime)) {
+            return "mhm1";
         }
     } else if (!strncasecmp(mime, "video/", 6)) {
         if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG4, mime)) {
@@ -1845,6 +1851,7 @@ MPEG4Writer::Track::Track(
     mIsHeic = !strcasecmp(mime, MEDIA_MIMETYPE_IMAGE_ANDROID_HEIC);
     mIsMPEG4 = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_MPEG4) ||
                !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AAC);
+    mIsMPEGH = !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MHAS);
 
     mMeta->findInt32(kKeyFeatureNalLengthBitstream, &mNalLengthBitstream);
     // store temporal layer count
@@ -2956,6 +2963,47 @@ status_t MPEG4Writer::Track::makeHEVCCodecSpecificData(
     return OK;
 }
 
+uint32_t parseEscaped(ABitReader &br, uint32_t bits1 = 0,
+                      uint32_t bits2 = 0, uint32_t bits3 = 0) {
+  if (bits1 == 0)
+      return 0;
+
+  uint32_t value = br.getBits(bits1);
+  if (value == (1 << bits1) - 1) {
+      value += parseEscaped(br, bits2, bits3);
+  }
+  return value;
+}
+status_t MPEG4Writer::Track::parseMHASPackets(MediaBufferBase *buffer) {
+    const uint8_t* data = (const uint8_t*)buffer->data();
+    size_t size = buffer->size();
+    while (size > 1) {
+        ABitReader br(data, size);
+        uint32_t type = parseEscaped(br, 3, 8, 8);
+        uint32_t label = parseEscaped(br, 2, 8, 32);
+        uint32_t length = parseEscaped(br, 11, 24, 24);
+
+        ALOGV("parseMHASPacket type %u label %u length %u", type, label, length);
+
+        CHECK((br.numBitsLeft() % 8) == 0);
+        size_t headerLength = size - (br.numBitsLeft() / 8);
+
+        if (size < length + headerLength)
+            return ERROR_MALFORMED;
+
+        size -= headerLength;
+        data += headerLength;
+        if (!mGotAllCodecSpecificData && type == 0x01) {
+            copyCodecSpecificData(data, length);
+            mGotAllCodecSpecificData = true;
+        }
+
+        size -= length;
+        data += length;
+    }
+    return (size == 0) ? OK : ERROR_MALFORMED;
+}
+
 /*
  * Updates the drift time from the audio track so that
  * the video track can get the updated drift time information
@@ -3109,6 +3157,16 @@ status_t MPEG4Writer::Track::threadEntry() {
                 buffer->release();
                 buffer = NULL;
                 continue;
+            }
+        }
+
+        if (mIsMPEGH && !mGotAllCodecSpecificData) {
+            err = parseMHASPackets(buffer);
+            if (OK != err || !mGotAllCodecSpecificData) {
+                buffer->release();
+                mSource->stop();
+                mIsMalformed = true;
+                break;
             }
         }
 
@@ -3714,6 +3772,7 @@ status_t MPEG4Writer::Track::checkCodecSpecificData() const {
     const char *mime;
     CHECK(mMeta->findCString(kKeyMIMEType, &mime));
     if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_AAC, mime) ||
+        !strcasecmp(MEDIA_MIMETYPE_AUDIO_MHAS, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG4, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_AVC, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_HEVC, mime) ||
@@ -3939,6 +3998,8 @@ void MPEG4Writer::Track::writeAudioFourCCBox() {
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_AMR_NB, mime) ||
                !strcasecmp(MEDIA_MIMETYPE_AUDIO_AMR_WB, mime)) {
         writeDamrBox();
+    } else if(!strcasecmp(MEDIA_MIMETYPE_AUDIO_MHAS, mime)) {
+        writeMhaCBox();
     }
     mOwner->endBox();
 }
@@ -4069,6 +4130,18 @@ void MPEG4Writer::Track::writeMp4vEsdsBox() {
     mOwner->write(kData2, sizeof(kData2));
 
     mOwner->endBox();  // esds
+}
+void MPEG4Writer::Track::writeMhaCBox() {
+    mOwner->beginBox("mhaC");
+    mOwner->writeInt8(0x01);          // version=1
+    mOwner->writeInt8(0x0D);          // profile level
+    mOwner->writeInt8(0x02);          // channel configuration
+
+    mOwner->writeInt16(mCodecSpecificDataSize); // config length
+
+    mOwner->write(mCodecSpecificData, mCodecSpecificDataSize);
+
+    mOwner->endBox();  // mhaC
 }
 
 void MPEG4Writer::Track::writeTkhdBox(uint32_t now) {
