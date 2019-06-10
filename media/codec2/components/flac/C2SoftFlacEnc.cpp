@@ -28,28 +28,32 @@
 
 namespace android {
 
-class C2SoftFlacEnc::IntfImpl : public C2InterfaceHelper {
+namespace {
+
+constexpr char COMPONENT_NAME[] = "c2.android.flac.encoder";
+
+}  // namespace
+
+class C2SoftFlacEnc::IntfImpl : public SimpleInterface<void>::BaseParams {
 public:
     explicit IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helper)
-        : C2InterfaceHelper(helper) {
+        : SimpleInterface<void>::BaseParams(
+                helper,
+                COMPONENT_NAME,
+                C2Component::KIND_ENCODER,
+                C2Component::DOMAIN_AUDIO,
+                MEDIA_MIMETYPE_AUDIO_FLAC) {
+        noPrivateBuffers();
+        noInputReferences();
+        noOutputReferences();
+        noInputLatency();
+        noTimeStretch();
         setDerivedInstance(this);
+
         addParameter(
-                DefineParam(mInputFormat, C2_PARAMKEY_INPUT_STREAM_BUFFER_TYPE)
-                .withConstValue(new C2StreamBufferTypeSetting::input(0u, C2BufferData::LINEAR))
-                .build());
-        addParameter(
-                DefineParam(mOutputFormat, C2_PARAMKEY_OUTPUT_STREAM_BUFFER_TYPE)
-                .withConstValue(new C2StreamBufferTypeSetting::output(0u, C2BufferData::LINEAR))
-                .build());
-        addParameter(
-                DefineParam(mInputMediaType, C2_PARAMKEY_INPUT_MEDIA_TYPE)
-                .withConstValue(AllocSharedString<C2PortMediaTypeSetting::input>(
-                        MEDIA_MIMETYPE_AUDIO_RAW))
-                .build());
-        addParameter(
-                DefineParam(mOutputMediaType, C2_PARAMKEY_OUTPUT_MEDIA_TYPE)
-                .withConstValue(AllocSharedString<C2PortMediaTypeSetting::output>(
-                        MEDIA_MIMETYPE_AUDIO_FLAC))
+                DefineParam(mAttrib, C2_PARAMKEY_COMPONENT_ATTRIBUTES)
+                .withConstValue(new C2ComponentAttributesSetting(
+                    C2Component::ATTRIB_IS_TEMPORAL))
                 .build());
         addParameter(
                 DefineParam(mSampleRate, C2_PARAMKEY_SAMPLE_RATE)
@@ -68,6 +72,14 @@ public:
                 .withDefault(new C2StreamBitrateInfo::output(0u, 768000))
                 .withFields({C2F(mBitrate, value).inRange(1, 21000000)})
                 .withSetter(Setter<decltype(*mBitrate)>::NonStrictValueWithNoDeps)
+                .build());
+        addParameter(
+                DefineParam(mComplexity, C2_PARAMKEY_COMPLEXITY)
+                .withDefault(new C2StreamComplexityTuning::output(0u,
+                    FLAC_COMPRESSION_LEVEL_DEFAULT))
+                .withFields({C2F(mComplexity, value).inRange(
+                    FLAC_COMPRESSION_LEVEL_MIN, FLAC_COMPRESSION_LEVEL_MAX)})
+                .withSetter(Setter<decltype(*mComplexity)>::NonStrictValueWithNoDeps)
                 .build());
         addParameter(
                 DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
@@ -89,20 +101,17 @@ public:
     uint32_t getSampleRate() const { return mSampleRate->value; }
     uint32_t getChannelCount() const { return mChannelCount->value; }
     uint32_t getBitrate() const { return mBitrate->value; }
+    uint32_t getComplexity() const { return mComplexity->value; }
     int32_t getPcmEncodingInfo() const { return mPcmEncodingInfo->value; }
 
 private:
-    std::shared_ptr<C2StreamBufferTypeSetting::input> mInputFormat;
-    std::shared_ptr<C2StreamBufferTypeSetting::output> mOutputFormat;
-    std::shared_ptr<C2PortMediaTypeSetting::input> mInputMediaType;
-    std::shared_ptr<C2PortMediaTypeSetting::output> mOutputMediaType;
     std::shared_ptr<C2StreamSampleRateInfo::input> mSampleRate;
     std::shared_ptr<C2StreamChannelCountInfo::input> mChannelCount;
     std::shared_ptr<C2StreamBitrateInfo::output> mBitrate;
+    std::shared_ptr<C2StreamComplexityTuning::output> mComplexity;
     std::shared_ptr<C2StreamMaxBufferSizeInfo::input> mInputMaxBufSize;
     std::shared_ptr<C2StreamPcmEncodingInfo::input> mPcmEncodingInfo;
 };
-constexpr char COMPONENT_NAME[] = "c2.android.flac.encoder";
 
 C2SoftFlacEnc::C2SoftFlacEnc(
         const char *name,
@@ -128,7 +137,6 @@ c2_status_t C2SoftFlacEnc::onInit() {
 
     mSignalledError = false;
     mSignalledOutputEos = false;
-    mCompressionLevel = FLAC_COMPRESSION_LEVEL_DEFAULT;
     mIsFirstFrame = true;
     mAnchorTimeStamp = 0ull;
     mProcessedSamples = 0u;
@@ -154,7 +162,6 @@ void C2SoftFlacEnc::onRelease() {
 }
 
 void C2SoftFlacEnc::onReset() {
-    mCompressionLevel = FLAC_COMPRESSION_LEVEL_DEFAULT;
     (void) onStop();
 }
 
@@ -370,7 +377,8 @@ status_t C2SoftFlacEnc::configureEncoder() {
     ok = ok && FLAC__stream_encoder_set_channels(mFlacStreamEncoder, mIntf->getChannelCount());
     ok = ok && FLAC__stream_encoder_set_sample_rate(mFlacStreamEncoder, mIntf->getSampleRate());
     ok = ok && FLAC__stream_encoder_set_bits_per_sample(mFlacStreamEncoder, bitsPerSample);
-    ok = ok && FLAC__stream_encoder_set_compression_level(mFlacStreamEncoder, mCompressionLevel);
+    ok = ok && FLAC__stream_encoder_set_compression_level(mFlacStreamEncoder,
+                    mIntf->getComplexity());
     ok = ok && FLAC__stream_encoder_set_verify(mFlacStreamEncoder, false);
     if (!ok) {
         ALOGE("unknown error when configuring encoder");

@@ -29,33 +29,32 @@
 
 namespace android {
 
-class C2SoftAacEnc::IntfImpl : public C2InterfaceHelper {
+namespace {
+
+constexpr char COMPONENT_NAME[] = "c2.android.aac.encoder";
+
+}  // namespace
+
+class C2SoftAacEnc::IntfImpl : public SimpleInterface<void>::BaseParams {
 public:
     explicit IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helper)
-        : C2InterfaceHelper(helper) {
-
+        : SimpleInterface<void>::BaseParams(
+                helper,
+                COMPONENT_NAME,
+                C2Component::KIND_ENCODER,
+                C2Component::DOMAIN_AUDIO,
+                MEDIA_MIMETYPE_AUDIO_AAC) {
+        noPrivateBuffers();
+        noInputReferences();
+        noOutputReferences();
+        noInputLatency();
+        noTimeStretch();
         setDerivedInstance(this);
 
         addParameter(
-                DefineParam(mInputFormat, C2_PARAMKEY_INPUT_STREAM_BUFFER_TYPE)
-                .withConstValue(new C2StreamBufferTypeSetting::input(0u, C2BufferData::LINEAR))
-                .build());
-
-        addParameter(
-                DefineParam(mOutputFormat, C2_PARAMKEY_OUTPUT_STREAM_BUFFER_TYPE)
-                .withConstValue(new C2StreamBufferTypeSetting::output(0u, C2BufferData::LINEAR))
-                .build());
-
-        addParameter(
-                DefineParam(mInputMediaType, C2_PARAMKEY_INPUT_MEDIA_TYPE)
-                .withConstValue(AllocSharedString<C2PortMediaTypeSetting::input>(
-                        MEDIA_MIMETYPE_AUDIO_RAW))
-                .build());
-
-        addParameter(
-                DefineParam(mOutputMediaType, C2_PARAMKEY_OUTPUT_MEDIA_TYPE)
-                .withConstValue(AllocSharedString<C2PortMediaTypeSetting::output>(
-                        MEDIA_MIMETYPE_AUDIO_AAC))
+                DefineParam(mAttrib, C2_PARAMKEY_COMPONENT_ATTRIBUTES)
+                .withConstValue(new C2ComponentAttributesSetting(
+                    C2Component::ATTRIB_IS_TEMPORAL))
                 .build());
 
         addParameter(
@@ -104,11 +103,24 @@ public:
                 })
                 .withSetter(ProfileLevelSetter)
                 .build());
+
+       addParameter(
+                DefineParam(mSBRMode, C2_PARAMKEY_AAC_SBR_MODE)
+                .withDefault(new C2StreamAacSbrModeTuning::input(0u, AAC_SBR_AUTO))
+                .withFields({C2F(mSBRMode, value).oneOf({
+                            C2Config::AAC_SBR_OFF,
+                            C2Config::AAC_SBR_SINGLE_RATE,
+                            C2Config::AAC_SBR_DUAL_RATE,
+                            C2Config::AAC_SBR_AUTO })})
+                .withSetter(Setter<decltype(*mSBRMode)>::NonStrictValueWithNoDeps)
+                .build());
     }
 
     uint32_t getSampleRate() const { return mSampleRate->value; }
     uint32_t getChannelCount() const { return mChannelCount->value; }
     uint32_t getBitrate() const { return mBitrate->value; }
+    uint32_t getSBRMode() const { return mSBRMode->value; }
+    uint32_t getProfile() const { return mProfileLevel->profile; }
     static C2R ProfileLevelSetter(bool mayBlock, C2P<C2StreamProfileLevelInfo::output> &me) {
         (void)mayBlock;
         (void)me;  // TODO: validate
@@ -125,18 +137,13 @@ public:
     }
 
 private:
-    std::shared_ptr<C2StreamBufferTypeSetting::input> mInputFormat;
-    std::shared_ptr<C2StreamBufferTypeSetting::output> mOutputFormat;
-    std::shared_ptr<C2PortMediaTypeSetting::input> mInputMediaType;
-    std::shared_ptr<C2PortMediaTypeSetting::output> mOutputMediaType;
     std::shared_ptr<C2StreamSampleRateInfo::input> mSampleRate;
     std::shared_ptr<C2StreamChannelCountInfo::input> mChannelCount;
     std::shared_ptr<C2StreamBitrateInfo::output> mBitrate;
     std::shared_ptr<C2StreamMaxBufferSizeInfo::input> mInputMaxBufSize;
     std::shared_ptr<C2StreamProfileLevelInfo::output> mProfileLevel;
+    std::shared_ptr<C2StreamAacSbrModeTuning::input> mSBRMode;
 };
-
-constexpr char COMPONENT_NAME[] = "c2.android.aac.encoder";
 
 C2SoftAacEnc::C2SoftAacEnc(
         const char *name,
@@ -145,9 +152,6 @@ C2SoftAacEnc::C2SoftAacEnc(
     : SimpleC2Component(std::make_shared<SimpleInterface<IntfImpl>>(name, id, intfImpl)),
       mIntf(intfImpl),
       mAACEncoder(nullptr),
-      mSBRMode(-1),
-      mSBRRatio(0),
-      mAACProfile(AOT_AAC_LC),
       mNumBytesPerInputFrame(0u),
       mOutBufferSize(0u),
       mSentCodecSpecificData(false),
@@ -215,31 +219,37 @@ static CHANNEL_MODE getChannelMode(uint32_t nChannels) {
     return chMode;
 }
 
-//static AUDIO_OBJECT_TYPE getAOTFromProfile(OMX_U32 profile) {
-//    if (profile == OMX_AUDIO_AACObjectLC) {
-//        return AOT_AAC_LC;
-//    } else if (profile == OMX_AUDIO_AACObjectHE) {
-//        return AOT_SBR;
-//    } else if (profile == OMX_AUDIO_AACObjectHE_PS) {
-//        return AOT_PS;
-//    } else if (profile == OMX_AUDIO_AACObjectLD) {
-//        return AOT_ER_AAC_LD;
-//    } else if (profile == OMX_AUDIO_AACObjectELD) {
-//        return AOT_ER_AAC_ELD;
-//    } else {
-//        ALOGW("Unsupported AAC profile - defaulting to AAC-LC");
-//        return AOT_AAC_LC;
-//    }
-//}
+static AUDIO_OBJECT_TYPE getAOTFromProfile(uint32_t profile) {
+   if (profile == C2Config::PROFILE_AAC_LC) {
+       return AOT_AAC_LC;
+   } else if (profile == C2Config::PROFILE_AAC_HE) {
+       return AOT_SBR;
+   } else if (profile == C2Config::PROFILE_AAC_HE_PS) {
+       return AOT_PS;
+   } else if (profile == C2Config::PROFILE_AAC_LD) {
+       return AOT_ER_AAC_LD;
+   } else if (profile == C2Config::PROFILE_AAC_ELD) {
+       return AOT_ER_AAC_ELD;
+   } else {
+       ALOGW("Unsupported AAC profile - defaulting to AAC-LC");
+       return AOT_AAC_LC;
+   }
+}
 
 status_t C2SoftAacEnc::setAudioParams() {
     // We call this whenever sample rate, number of channels, bitrate or SBR mode change
     // in reponse to setParameter calls.
+    int32_t sbrRatio = 0;
+    uint32_t sbrMode = mIntf->getSBRMode();
+    if (sbrMode == AAC_SBR_SINGLE_RATE) sbrRatio = 1;
+    else if (sbrMode == AAC_SBR_DUAL_RATE) sbrRatio = 2;
 
     ALOGV("setAudioParams: %u Hz, %u channels, %u bps, %i sbr mode, %i sbr ratio",
-         mIntf->getSampleRate(), mIntf->getChannelCount(), mIntf->getBitrate(), mSBRMode, mSBRRatio);
+         mIntf->getSampleRate(), mIntf->getChannelCount(), mIntf->getBitrate(),
+         sbrMode, sbrRatio);
 
-    if (AACENC_OK != aacEncoder_SetParam(mAACEncoder, AACENC_AOT, mAACProfile)) {
+    uint32_t aacProfile = mIntf->getProfile();
+    if (AACENC_OK != aacEncoder_SetParam(mAACEncoder, AACENC_AOT, getAOTFromProfile(aacProfile))) {
         ALOGE("Failed to set AAC encoder parameters");
         return UNKNOWN_ERROR;
     }
@@ -262,8 +272,8 @@ status_t C2SoftAacEnc::setAudioParams() {
         return UNKNOWN_ERROR;
     }
 
-    if (mSBRMode != -1 && mAACProfile == AOT_ER_AAC_ELD) {
-        if (AACENC_OK != aacEncoder_SetParam(mAACEncoder, AACENC_SBR_MODE, mSBRMode)) {
+    if (sbrMode != -1 && aacProfile == C2Config::PROFILE_AAC_ELD) {
+        if (AACENC_OK != aacEncoder_SetParam(mAACEncoder, AACENC_SBR_MODE, sbrMode)) {
             ALOGE("Failed to set AAC encoder parameters");
             return UNKNOWN_ERROR;
         }
@@ -275,7 +285,7 @@ status_t C2SoftAacEnc::setAudioParams() {
        1: Downsampled SBR (default for ELD)
        2: Dualrate SBR (default for HE-AAC)
      */
-    if (AACENC_OK != aacEncoder_SetParam(mAACEncoder, AACENC_SBR_RATIO, mSBRRatio)) {
+    if (AACENC_OK != aacEncoder_SetParam(mAACEncoder, AACENC_SBR_RATIO, sbrRatio)) {
         ALOGE("Failed to set AAC encoder parameters");
         return UNKNOWN_ERROR;
     }
