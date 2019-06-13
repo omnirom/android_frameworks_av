@@ -909,7 +909,7 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
     //these component by findCodecByName
     //Video and Flac decoder are present in list so exclude them.
     if ((!(name.find("qcom", 0) > 0 || name.find("qti", 0) > 0 || name.find("filter", 0) > 0)
-          || name.find("video", 0) > 0 || name.find("flac", 0) > 0)
+          || name.find("video", 0) > 0 || name.find("flac", 0) > 0 || name.find("c2.qti", 0) >= 0)
           && !(name.find("tme",0) > 0)) {
         const sp<IMediaCodecList> mcl = MediaCodecList::getInstance();
         if (mcl == NULL) {
