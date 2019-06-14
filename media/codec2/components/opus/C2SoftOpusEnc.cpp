@@ -38,8 +38,6 @@ constexpr char COMPONENT_NAME[] = "c2.android.opus.encoder";
 
 }  // namespace
 
-static const int kMaxNumChannelsSupported = 2;
-
 class C2SoftOpusEnc::IntfImpl : public SimpleInterface<void>::BaseParams {
 public:
     explicit IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helper)
@@ -73,7 +71,7 @@ public:
         addParameter(
                 DefineParam(mChannelCount, C2_PARAMKEY_CHANNEL_COUNT)
                 .withDefault(new C2StreamChannelCountInfo::input(0u, 1))
-                .withFields({C2F(mChannelCount, value).inRange(1, kMaxNumChannelsSupported)})
+                .withFields({C2F(mChannelCount, value).inRange(1, 8)})
                 .withSetter((Setter<decltype(*mChannelCount)>::StrictValueWithNoDeps))
                 .build());
 
@@ -130,8 +128,9 @@ c2_status_t C2SoftOpusEnc::onInit() {
 }
 
 c2_status_t C2SoftOpusEnc::configureEncoder() {
-    static const unsigned char mono_mapping[256] = {0};
-    static const unsigned char stereo_mapping[256] = {0, 1};
+    unsigned char mono_mapping[256] = {0};
+    unsigned char stereo_mapping[256] = {0, 1};
+    unsigned char surround_mapping[256] = {0, 1, 255};
     mSampleRate = mIntf->getSampleRate();
     mChannelCount = mIntf->getChannelCount();
     uint32_t bitrate = mIntf->getBitrate();
@@ -141,14 +140,13 @@ c2_status_t C2SoftOpusEnc::configureEncoder() {
         mChannelCount * mNumSamplesPerFrame * sizeof(int16_t);
     int err = C2_OK;
 
-    const unsigned char* mapping;
-    if (mChannelCount == 1) {
+    unsigned char* mapping;
+    if (mChannelCount < 2) {
         mapping = mono_mapping;
     } else if (mChannelCount == 2) {
         mapping = stereo_mapping;
     } else {
-        ALOGE("Number of channels (%d) is not supported", mChannelCount);
-        return C2_BAD_VALUE;
+        mapping = surround_mapping;
     }
 
     if (mEncoder != nullptr) {
@@ -156,7 +154,7 @@ c2_status_t C2SoftOpusEnc::configureEncoder() {
     }
 
     mEncoder = opus_multistream_encoder_create(mSampleRate, mChannelCount,
-        1, mChannelCount - 1, mapping, OPUS_APPLICATION_AUDIO, &err);
+        1, 1, mapping, OPUS_APPLICATION_AUDIO, &err);
     if (err) {
         ALOGE("Could not create libopus encoder. Error code: %i", err);
         return C2_CORRUPTED;
@@ -471,11 +469,11 @@ void C2SoftOpusEnc::process(const std::unique_ptr<C2Work>& work,
         uint8_t* outPtr = wView.data() + mBytesEncoded;
         int encodedBytes =
             opus_multistream_encode(mEncoder, mInputBufferPcm16,
-                                    mNumSamplesPerFrame, outPtr, kMaxPayload - mBytesEncoded);
+                                    mNumSamplesPerFrame, outPtr, kMaxPayload);
         ALOGV("encoded %i Opus bytes from %zu PCM bytes", encodedBytes,
               processSize);
 
-        if (encodedBytes < 0 || encodedBytes > (kMaxPayload - mBytesEncoded)) {
+        if (encodedBytes < 0 || encodedBytes > kMaxPayload) {
             ALOGE("opus_encode failed, encodedBytes : %d", encodedBytes);
             mSignalledError = true;
             work->result = C2_CORRUPTED;

@@ -554,11 +554,7 @@ c2_status_t C2AllocatorIon::mapUsage(
         } else {
             *align = 0; // TODO make this 1
             *heapMask = ~0; // default mask
-            if (usage.expected & (C2MemoryUsage::CPU_READ | C2MemoryUsage::CPU_WRITE)) {
-                *flags = ION_FLAG_CACHED; // cache CPU accessed buffers
-            } else {
-                *flags = 0;  // default flags
-            }
+            *flags = 0; // default flags
             res = C2_NO_INIT;
         }
         // add usage to cache

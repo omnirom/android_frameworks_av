@@ -210,36 +210,22 @@ bool CCodecBufferChannel::ReorderStash::less(
     }
 }
 
-// Input
-
-CCodecBufferChannel::Input::Input() : extraBuffers("extra") {}
-
 // CCodecBufferChannel
 
 CCodecBufferChannel::CCodecBufferChannel(
         const std::shared_ptr<CCodecCallback> &callback)
     : mHeapSeqNum(-1),
       mCCodecCallback(callback),
+      mNumInputSlots(kSmoothnessFactor),
+      mNumOutputSlots(kSmoothnessFactor),
       mDelay(0),
       mFrameIndex(0u),
       mFirstValidFrameIndex(0u),
       mMetaMode(MODE_NONE),
       mInputMetEos(false) {
     mOutputSurface.lock()->maxDequeueBuffers = kSmoothnessFactor + kRenderingDepth;
-    {
-        Mutexed<Input>::Locked input(mInput);
-        input->buffers.reset(new DummyInputBuffers(""));
-        input->extraBuffers.flush();
-        input->inputDelay = 0u;
-        input->pipelineDelay = 0u;
-        input->numSlots = kSmoothnessFactor;
-        input->numExtraSlots = 0u;
-    }
-    {
-        Mutexed<Output>::Locked output(mOutput);
-        output->outputDelay = 0u;
-        output->numSlots = kSmoothnessFactor;
-    }
+    Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+    buffers->reset(new DummyInputBuffers(""));
 }
 
 CCodecBufferChannel::~CCodecBufferChannel() {
@@ -269,7 +255,7 @@ status_t CCodecBufferChannel::signalEndOfInputStream() {
     return mInputSurface->signalEndOfInputStream();
 }
 
-status_t CCodecBufferChannel::queueInputBufferInternal(sp<MediaCodecBuffer> buffer) {
+status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer> &buffer) {
     int64_t timeUs;
     CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
 
@@ -301,30 +287,12 @@ status_t CCodecBufferChannel::queueInputBufferInternal(sp<MediaCodecBuffer> buff
 
     uint64_t queuedFrameIndex = work->input.ordinal.frameIndex.peeku();
     std::vector<std::shared_ptr<C2Buffer>> queuedBuffers;
-    sp<Codec2Buffer> copy;
 
     if (buffer->size() > 0u) {
-        Mutexed<Input>::Locked input(mInput);
+        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         std::shared_ptr<C2Buffer> c2buffer;
-        if (!input->buffers->releaseBuffer(buffer, &c2buffer, false)) {
+        if (!(*buffers)->releaseBuffer(buffer, &c2buffer, false)) {
             return -ENOENT;
-        }
-        // TODO: we want to delay copying buffers.
-        if (input->extraBuffers.numComponentBuffers() < input->numExtraSlots) {
-            copy = input->buffers->cloneAndReleaseBuffer(buffer);
-            if (copy != nullptr) {
-                (void)input->extraBuffers.assignSlot(copy);
-                if (!input->extraBuffers.releaseSlot(copy, &c2buffer, false)) {
-                    return UNKNOWN_ERROR;
-                }
-                bool released = input->buffers->releaseBuffer(buffer, nullptr, true);
-                ALOGV("[%s] queueInputBuffer: buffer copied; %sreleased",
-                      mName, released ? "" : "not ");
-                buffer.clear();
-            } else {
-                ALOGW("[%s] queueInputBuffer: failed to copy a buffer; this may cause input "
-                      "buffer starvation on component.", mName);
-            }
         }
         work->input.buffers.push_back(c2buffer);
         queuedBuffers.push_back(c2buffer);
@@ -375,15 +343,9 @@ status_t CCodecBufferChannel::queueInputBufferInternal(sp<MediaCodecBuffer> buff
         }
     }
     if (err == C2_OK) {
-        Mutexed<Input>::Locked input(mInput);
-        bool released = false;
-        if (buffer) {
-            released = input->buffers->releaseBuffer(buffer, nullptr, true);
-        } else if (copy) {
-            released = input->extraBuffers.releaseSlot(copy, nullptr, true);
-        }
-        ALOGV("[%s] queueInputBuffer: buffer%s %sreleased",
-              mName, (buffer == nullptr) ? "(copy)" : "", released ? "" : "not ");
+        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+        bool released = (*buffers)->releaseBuffer(buffer, nullptr, true);
+        ALOGV("[%s] queueInputBuffer: buffer %sreleased", mName, released ? "" : "not ");
     }
 
     feedInputBufferIfAvailableInternal();
@@ -530,21 +492,20 @@ void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
            mPipelineWatcher.lock()->pipelineFull()) {
         return;
     } else {
-        Mutexed<Output>::Locked output(mOutput);
-        if (output->buffers->numClientBuffers() >= output->numSlots) {
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+        if ((*buffers)->numClientBuffers() >= mNumOutputSlots) {
             return;
         }
     }
-    size_t numInputSlots = mInput.lock()->numSlots;
-    for (size_t i = 0; i < numInputSlots; ++i) {
+    for (size_t i = 0; i < mNumInputSlots; ++i) {
         sp<MediaCodecBuffer> inBuffer;
         size_t index;
         {
-            Mutexed<Input>::Locked input(mInput);
-            if (input->buffers->numClientBuffers() >= input->numSlots) {
+            Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+            if ((*buffers)->numClientBuffers() >= mNumInputSlots) {
                 return;
             }
-            if (!input->buffers->requestNewBuffer(&index, &inBuffer)) {
+            if (!(*buffers)->requestNewBuffer(&index, &inBuffer)) {
                 ALOGV("[%s] no new buffer available", mName);
                 break;
             }
@@ -560,9 +521,9 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     std::shared_ptr<C2Buffer> c2Buffer;
     bool released = false;
     {
-        Mutexed<Output>::Locked output(mOutput);
-        if (output->buffers) {
-            released = output->buffers->releaseBuffer(buffer, &c2Buffer);
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+        if (*buffers) {
+            released = (*buffers)->releaseBuffer(buffer, &c2Buffer);
         }
     }
     // NOTE: some apps try to releaseOutputBuffer() with timestamp and/or render
@@ -724,14 +685,14 @@ status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) 
     ALOGV("[%s] discardBuffer: %p", mName, buffer.get());
     bool released = false;
     {
-        Mutexed<Input>::Locked input(mInput);
-        if (input->buffers && input->buffers->releaseBuffer(buffer, nullptr, true)) {
+        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+        if (*buffers && (*buffers)->releaseBuffer(buffer, nullptr, true)) {
             released = true;
         }
     }
     {
-        Mutexed<Output>::Locked output(mOutput);
-        if (output->buffers && output->buffers->releaseBuffer(buffer, nullptr)) {
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+        if (*buffers && (*buffers)->releaseBuffer(buffer, nullptr)) {
             released = true;
         }
     }
@@ -746,24 +707,24 @@ status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) 
 
 void CCodecBufferChannel::getInputBufferArray(Vector<sp<MediaCodecBuffer>> *array) {
     array->clear();
-    Mutexed<Input>::Locked input(mInput);
+    Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
 
-    if (!input->buffers->isArrayMode()) {
-        input->buffers = input->buffers->toArrayMode(input->numSlots);
+    if (!(*buffers)->isArrayMode()) {
+        *buffers = (*buffers)->toArrayMode(mNumInputSlots);
     }
 
-    input->buffers->getArray(array);
+    (*buffers)->getArray(array);
 }
 
 void CCodecBufferChannel::getOutputBufferArray(Vector<sp<MediaCodecBuffer>> *array) {
     array->clear();
-    Mutexed<Output>::Locked output(mOutput);
+    Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
 
-    if (!output->buffers->isArrayMode()) {
-        output->buffers = output->buffers->toArrayMode(output->numSlots);
+    if (!(*buffers)->isArrayMode()) {
+        *buffers = (*buffers)->toArrayMode(mNumOutputSlots);
     }
 
-    output->buffers->getArray(array);
+    (*buffers)->getArray(array);
 }
 
 status_t CCodecBufferChannel::start(
@@ -812,8 +773,8 @@ status_t CCodecBufferChannel::start(
     uint32_t pipelineDelayValue = pipelineDelay ? pipelineDelay.value : 0;
     uint32_t outputDelayValue = outputDelay ? outputDelay.value : 0;
 
-    size_t numInputSlots = inputDelayValue + pipelineDelayValue + kSmoothnessFactor;
-    size_t numOutputSlots = outputDelayValue + kSmoothnessFactor;
+    mNumInputSlots = inputDelayValue + pipelineDelayValue + kSmoothnessFactor;
+    mNumOutputSlots = outputDelayValue + kSmoothnessFactor;
     mDelay = inputDelayValue + pipelineDelayValue + outputDelayValue;
 
     // TODO: get this from input format
@@ -887,17 +848,14 @@ status_t CCodecBufferChannel::start(
         }
 
         bool forceArrayMode = false;
-        Mutexed<Input>::Locked input(mInput);
-        input->numSlots = numInputSlots;
-        input->extraBuffers.flush();
-        input->numExtraSlots = 0u;
+        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         if (graphic) {
             if (mInputSurface) {
-                input->buffers.reset(new DummyInputBuffers(mName));
+                buffers->reset(new DummyInputBuffers(mName));
             } else if (mMetaMode == MODE_ANW) {
-                input->buffers.reset(new GraphicMetadataInputBuffers(mName));
+                buffers->reset(new GraphicMetadataInputBuffers(mName));
             } else {
-                input->buffers.reset(new GraphicInputBuffers(numInputSlots, mName));
+                buffers->reset(new GraphicInputBuffers(mNumInputSlots, mName));
             }
         } else {
             if (hasCryptoOrDescrambler()) {
@@ -910,7 +868,7 @@ status_t CCodecBufferChannel::start(
                 if (mDealer == nullptr) {
                     mDealer = new MemoryDealer(
                             align(capacity, MemoryDealer::getAllocationAlignment())
-                                * (numInputSlots + 1),
+                                * (mNumInputSlots + 1),
                             "EncryptedLinearInputBuffers");
                     mDecryptDestination = mDealer->allocate((size_t)capacity);
                 }
@@ -919,24 +877,24 @@ status_t CCodecBufferChannel::start(
                 } else {
                     mHeapSeqNum = -1;
                 }
-                input->buffers.reset(new EncryptedLinearInputBuffers(
+                buffers->reset(new EncryptedLinearInputBuffers(
                         secure, mDealer, mCrypto, mHeapSeqNum, (size_t)capacity,
-                        numInputSlots, mName));
+                        mNumInputSlots, mName));
                 forceArrayMode = true;
             } else {
-                input->buffers.reset(new LinearInputBuffers(mName));
+                buffers->reset(new LinearInputBuffers(mName));
             }
         }
-        input->buffers->setFormat(inputFormat);
+        (*buffers)->setFormat(inputFormat);
 
         if (err == C2_OK) {
-            input->buffers->setPool(pool);
+            (*buffers)->setPool(pool);
         } else {
             // TODO: error
         }
 
         if (forceArrayMode) {
-            input->buffers = input->buffers->toArrayMode(numInputSlots);
+            *buffers = (*buffers)->toArrayMode(mNumInputSlots);
         }
     }
 
@@ -945,7 +903,7 @@ status_t CCodecBufferChannel::start(
         uint32_t outputGeneration;
         {
             Mutexed<OutputSurface>::Locked output(mOutputSurface);
-            output->maxDequeueBuffers = numOutputSlots + reorderDepth.value + kRenderingDepth;
+            output->maxDequeueBuffers = mNumOutputSlots + reorderDepth.value + kRenderingDepth;
             outputSurface = output->surface ?
                     output->surface->getIGraphicBufferProducer() : nullptr;
             if (outputSurface) {
@@ -1053,18 +1011,18 @@ status_t CCodecBufferChannel::start(
             outputPoolId_ = pools->outputPoolId;
         }
 
-        Mutexed<Output>::Locked output(mOutput);
-        output->numSlots = numOutputSlots;
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+
         if (graphic) {
             if (outputSurface) {
-                output->buffers.reset(new GraphicOutputBuffers(mName));
+                buffers->reset(new GraphicOutputBuffers(mName));
             } else {
-                output->buffers.reset(new RawGraphicOutputBuffers(numOutputSlots, mName));
+                buffers->reset(new RawGraphicOutputBuffers(mNumOutputSlots, mName));
             }
         } else {
-            output->buffers.reset(new LinearOutputBuffers(mName));
+            buffers->reset(new LinearOutputBuffers(mName));
         }
-        output->buffers->setFormat(outputFormat->dup());
+        (*buffers)->setFormat(outputFormat->dup());
 
 
         // Try to set output surface to created block pool if given.
@@ -1080,7 +1038,7 @@ status_t CCodecBufferChannel::start(
             // WORKAROUND: if we're using early CSD workaround we convert to
             //             array mode, to appease apps assuming the output
             //             buffers to be of the same size.
-            output->buffers = output->buffers->toArrayMode(numOutputSlots);
+            (*buffers) = (*buffers)->toArrayMode(mNumOutputSlots);
 
             int32_t channelCount;
             int32_t sampleRate;
@@ -1097,7 +1055,7 @@ status_t CCodecBufferChannel::start(
                 if (delay || padding) {
                     // We need write access to the buffers, and we're already in
                     // array mode.
-                    output->buffers->initSkipCutBuffer(delay, padding, sampleRate, channelCount);
+                    (*buffers)->initSkipCutBuffer(delay, padding, sampleRate, channelCount);
                 }
             }
         }
@@ -1132,14 +1090,14 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
     if (err != C2_OK) {
         return UNKNOWN_ERROR;
     }
-    size_t numInputSlots = mInput.lock()->numSlots;
     std::vector<sp<MediaCodecBuffer>> toBeQueued;
-    for (size_t i = 0; i < numInputSlots; ++i) {
+    // TODO: use proper buffer depth instead of this random value
+    for (size_t i = 0; i < mNumInputSlots; ++i) {
         size_t index;
         sp<MediaCodecBuffer> buffer;
         {
-            Mutexed<Input>::Locked input(mInput);
-            if (!input->buffers->requestNewBuffer(&index, &buffer)) {
+            Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+            if (!(*buffers)->requestNewBuffer(&index, &buffer)) {
                 if (i == 0) {
                     ALOGW("[%s] start: cannot allocate memory at all", mName);
                     return NO_MEMORY;
@@ -1224,13 +1182,12 @@ void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushe
         }
     }
     {
-        Mutexed<Input>::Locked input(mInput);
-        input->buffers->flush();
-        input->extraBuffers.flush();
+        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+        (*buffers)->flush();
     }
     {
-        Mutexed<Output>::Locked output(mOutput);
-        output->buffers->flush(flushedWork);
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+        (*buffers)->flush(flushedWork);
     }
     mReorderStash.lock()->flush();
     mPipelineWatcher.lock()->flush();
@@ -1253,11 +1210,8 @@ void CCodecBufferChannel::onInputBufferDone(
             mPipelineWatcher.lock()->onInputBufferReleased(frameIndex, arrayIndex);
     bool newInputSlotAvailable;
     {
-        Mutexed<Input>::Locked input(mInput);
-        newInputSlotAvailable = input->buffers->expireComponentBuffer(buffer);
-        if (!newInputSlotAvailable) {
-            (void)input->extraBuffers.expireComponentBuffer(buffer);
-        }
+        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+        newInputSlotAvailable = (*buffers)->expireComponentBuffer(buffer);
     }
     if (newInputSlotAvailable) {
         feedInputBufferIfAvailable();
@@ -1315,7 +1269,6 @@ bool CCodecBufferChannel::handleWork(
         }
     }
 
-    std::optional<uint32_t> newInputDelay, newPipelineDelay;
     while (!worklet->output.configUpdate.empty()) {
         std::unique_ptr<C2Param> param;
         worklet->output.configUpdate.back().swap(param);
@@ -1327,10 +1280,8 @@ bool CCodecBufferChannel::handleWork(
                     mReorderStash.lock()->setDepth(reorderDepth.value);
                     ALOGV("[%s] onWorkDone: updated reorder depth to %u",
                           mName, reorderDepth.value);
-                    size_t numOutputSlots = mOutput.lock()->numSlots;
                     Mutexed<OutputSurface>::Locked output(mOutputSurface);
-                    output->maxDequeueBuffers =
-                        numOutputSlots + reorderDepth.value + kRenderingDepth;
+                    output->maxDequeueBuffers = mNumOutputSlots + reorderDepth.value + kRenderingDepth;
                     if (output->surface) {
                         output->surface->setMaxDequeuedBufferCount(output->maxDequeueBuffers);
                     }
@@ -1350,86 +1301,18 @@ bool CCodecBufferChannel::handleWork(
                 }
                 break;
             }
-            case C2PortActualDelayTuning::CORE_INDEX: {
-                if (param->isGlobal()) {
-                    C2ActualPipelineDelayTuning pipelineDelay;
-                    if (pipelineDelay.updateFrom(*param)) {
-                        ALOGV("[%s] onWorkDone: updating pipeline delay %u",
-                              mName, pipelineDelay.value);
-                        newPipelineDelay = pipelineDelay.value;
-                        (void)mPipelineWatcher.lock()->pipelineDelay(pipelineDelay.value);
-                    }
-                }
-                if (param->forInput()) {
-                    C2PortActualDelayTuning::input inputDelay;
-                    if (inputDelay.updateFrom(*param)) {
-                        ALOGV("[%s] onWorkDone: updating input delay %u",
-                              mName, inputDelay.value);
-                        newInputDelay = inputDelay.value;
-                        (void)mPipelineWatcher.lock()->inputDelay(inputDelay.value);
-                    }
-                }
-                if (param->forOutput()) {
-                    C2PortActualDelayTuning::output outputDelay;
-                    if (outputDelay.updateFrom(*param)) {
-                        ALOGV("[%s] onWorkDone: updating output delay %u",
-                              mName, outputDelay.value);
-                        (void)mPipelineWatcher.lock()->outputDelay(outputDelay.value);
-
-                        bool outputBuffersChanged = false;
-                        Mutexed<Output>::Locked output(mOutput);
-                        output->outputDelay = outputDelay.value;
-                        size_t numOutputSlots = outputDelay.value + kSmoothnessFactor;
-                        if (output->numSlots < numOutputSlots) {
-                            output->numSlots = numOutputSlots;
-                            if (output->buffers->isArrayMode()) {
-                                OutputBuffersArray *array =
-                                    (OutputBuffersArray *)output->buffers.get();
-                                ALOGV("[%s] onWorkDone: growing output buffer array to %zu",
-                                      mName, numOutputSlots);
-                                array->grow(numOutputSlots);
-                                outputBuffersChanged = true;
-                            }
-                        }
-                        output.unlock();
-
-                        if (outputBuffersChanged) {
-                            mCCodecCallback->onOutputBuffersChanged();
-                        }
-                    }
-                }
-                break;
-            }
             default:
                 ALOGV("[%s] onWorkDone: unrecognized config update (%08X)",
                       mName, param->index());
                 break;
         }
     }
-    if (newInputDelay || newPipelineDelay) {
-        Mutexed<Input>::Locked input(mInput);
-        size_t newNumSlots =
-            newInputDelay.value_or(input->inputDelay) +
-            newPipelineDelay.value_or(input->pipelineDelay) +
-            kSmoothnessFactor;
-        if (input->buffers->isArrayMode()) {
-            if (input->numSlots >= newNumSlots) {
-                input->numExtraSlots = 0;
-            } else {
-                input->numExtraSlots = newNumSlots - input->numSlots;
-            }
-            ALOGV("[%s] onWorkDone: updated number of extra slots to %zu (input array mode)",
-                  mName, input->numExtraSlots);
-        } else {
-            input->numSlots = newNumSlots;
-        }
-    }
 
     if (outputFormat != nullptr) {
-        Mutexed<Output>::Locked output(mOutput);
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
         ALOGD("[%s] onWorkDone: output format changed to %s",
                 mName, outputFormat->debugString().c_str());
-        output->buffers->setFormat(outputFormat);
+        (*buffers)->setFormat(outputFormat);
 
         AString mediaType;
         if (outputFormat->findString(KEY_MIME, &mediaType)
@@ -1438,7 +1321,7 @@ bool CCodecBufferChannel::handleWork(
             int32_t sampleRate;
             if (outputFormat->findInt32(KEY_CHANNEL_COUNT, &channelCount)
                     && outputFormat->findInt32(KEY_SAMPLE_RATE, &sampleRate)) {
-                output->buffers->updateSkipCutBuffer(sampleRate, channelCount);
+                (*buffers)->updateSkipCutBuffer(sampleRate, channelCount);
             }
         }
     }
@@ -1473,18 +1356,20 @@ bool CCodecBufferChannel::handleWork(
           timestamp.peekll());
 
     if (initData != nullptr) {
-        Mutexed<Output>::Locked output(mOutput);
-        if (output->buffers->registerCsd(initData, &index, &outBuffer) == OK) {
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+        if ((*buffers)->registerCsd(initData, &index, &outBuffer) == OK) {
             outBuffer->meta()->setInt64("timeUs", timestamp.peek());
             outBuffer->meta()->setInt32("flags", MediaCodec::BUFFER_FLAG_CODECCONFIG);
             ALOGV("[%s] onWorkDone: csd index = %zu [%p]", mName, index, outBuffer.get());
 
-            output.unlock();
+            buffers.unlock();
             mCallback->onOutputBufferAvailable(index, outBuffer);
+            buffers.lock();
         } else {
             ALOGD("[%s] onWorkDone: unable to register csd", mName);
-            output.unlock();
+            buffers.unlock();
             mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+            buffers.lock();
             return false;
         }
     }
@@ -1536,22 +1421,22 @@ void CCodecBufferChannel::sendOutputBuffers() {
             break;
         }
 
-        Mutexed<Output>::Locked output(mOutput);
-        status_t err = output->buffers->registerBuffer(entry.buffer, &index, &outBuffer);
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+        status_t err = (*buffers)->registerBuffer(entry.buffer, &index, &outBuffer);
         if (err != OK) {
             bool outputBuffersChanged = false;
             if (err != WOULD_BLOCK) {
-                if (!output->buffers->isArrayMode()) {
-                    output->buffers = output->buffers->toArrayMode(output->numSlots);
+                if (!(*buffers)->isArrayMode()) {
+                    *buffers = (*buffers)->toArrayMode(mNumOutputSlots);
                 }
-                OutputBuffersArray *array = (OutputBuffersArray *)output->buffers.get();
+                OutputBuffersArray *array = (OutputBuffersArray *)buffers->get();
                 array->realloc(entry.buffer);
                 outputBuffersChanged = true;
             }
             ALOGV("[%s] sendOutputBuffers: unable to register output buffer", mName);
             reorder->defer(entry);
 
-            output.unlock();
+            buffers.unlock();
             reorder.unlock();
 
             if (outputBuffersChanged) {
@@ -1559,7 +1444,7 @@ void CCodecBufferChannel::sendOutputBuffers() {
             }
             return;
         }
-        output.unlock();
+        buffers.unlock();
         reorder.unlock();
 
         outBuffer->meta()->setInt64("timeUs", entry.timestamp);

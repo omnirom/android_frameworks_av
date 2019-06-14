@@ -2109,10 +2109,8 @@ void MatroskaExtractor::addTracks() {
 
                 if (!strcmp("A_AAC", codecID)) {
                     AMediaFormat_setString(meta, AMEDIAFORMAT_KEY_MIME, MEDIA_MIMETYPE_AUDIO_AAC);
-                    if (codecPrivateSize < 2) {
-                        ALOGW("Incomplete AAC Codec Info %zu byte", codecPrivateSize);
-                        continue;
-                    }
+                    CHECK(codecPrivateSize >= 2);
+
                     addESDSFromCodecPrivate(
                             meta, true, codecPrivate, codecPrivateSize);
                 } else if (!strcmp("A_VORBIS", codecID)) {
