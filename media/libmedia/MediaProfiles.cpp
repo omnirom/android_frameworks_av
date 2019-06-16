@@ -106,6 +106,8 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"2k", CAMCORDER_QUALITY_2k},
     {"timelapseqhd", CAMCORDER_QUALITY_TIME_LAPSE_QHD},
     {"timelapse2k", CAMCORDER_QUALITY_TIME_LAPSE_2k},
+    {"8kuhd", CAMCORDER_QUALITY_8KUHD},
+    {"timelapse8kuhd", CAMCORDER_QUALITY_TIME_LAPSE_8KUHD},
 };
 
 #if LOG_NDEBUG
@@ -441,8 +443,10 @@ MediaProfiles::startElementHandler(void *userData, const char *name, const char 
 }
 
 static bool isCamcorderProfile(camcorder_quality quality) {
-    return quality >= CAMCORDER_QUALITY_LIST_START &&
-           quality <= CAMCORDER_QUALITY_LIST_END;
+    return (quality >= CAMCORDER_QUALITY_LIST_START &&
+           quality <= CAMCORDER_QUALITY_LIST_END) ||
+           (quality >= CAMCORDER_QUALITY_VENDOR_LIST_START &&
+           quality <= CAMCORDER_QUALITY_VENDOR_LIST_END);
 }
 
 static bool isTimelapseProfile(camcorder_quality quality) {
