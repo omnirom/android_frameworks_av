@@ -394,7 +394,6 @@ void NuPlayer::GenericSource::onPrepareAsync() {
                 if (httpSource == NULL) {
                     ALOGE("Failed to create http source!");
                     notifyPreparedAndCleanup(UNKNOWN_ERROR);
-                    mDisconnectLock.lock();
                     return;
                 }
                 mDisconnectLock.lock();
@@ -454,6 +453,7 @@ void NuPlayer::GenericSource::onPrepareAsync() {
 
         if (mDataSource == NULL) {
             ALOGE("Failed to create data source!");
+            mDisconnectLock.unlock();
             notifyPreparedAndCleanup(UNKNOWN_ERROR);
             return;
         }
