@@ -183,15 +183,23 @@ public:
     GraphicBufferSourceWrapper(
             const sp<BGraphicBufferSource> &source,
             uint32_t width,
-            uint32_t height)
+            uint32_t height,
+            uint64_t usage)
         : mSource(source), mWidth(width), mHeight(height) {
         mDataSpace = HAL_DATASPACE_BT709;
+        mConfig.mUsage = usage;
     }
     ~GraphicBufferSourceWrapper() override = default;
 
     status_t connect(const std::shared_ptr<Codec2Client::Component> &comp) override {
         mNode = new C2OMXNode(comp);
         mNode->setFrameSize(mWidth, mHeight);
+
+        // Usage is queried during configure(), so setting it beforehand.
+        OMX_U32 usage = mConfig.mUsage & 0xFFFFFFFF;
+        (void)mNode->setParameter(
+                (OMX_INDEXTYPE)OMX_IndexParamConsumerUsageBits,
+                &usage, sizeof(usage));
 
         // NOTE: we do not use/pass through color aspects from GraphicBufferSource as we
         // communicate that directly to the component.
@@ -364,7 +372,8 @@ public:
 
         // color aspects (android._color-aspects)
 
-        // consumer usage
+        // consumer usage is queried earlier.
+
         ALOGD("ISConfig%s", status.str().c_str());
         return err;
     }
@@ -745,11 +754,8 @@ void CCodec::configure(const sp<AMessage> &msg) {
                 return BAD_VALUE;
             }
             if ((config->mDomain & Config::IS_ENCODER) && (config->mDomain & Config::IS_VIDEO)) {
-                C2Config::bitrate_mode_t mode = C2Config::BITRATE_VARIABLE;
-                if (msg->findInt32(KEY_BITRATE_MODE, &i32)) {
-                    mode = (C2Config::bitrate_mode_t) i32;
-                }
-                if (mode == BITRATE_MODE_CQ) {
+                int32_t mode = BITRATE_MODE_VBR;
+                if (msg->findInt32(KEY_BITRATE_MODE, &mode) && mode == BITRATE_MODE_CQ) {
                     if (!msg->findInt32(KEY_QUALITY, &i32)) {
                         ALOGD("quality is missing, which is required for video encoders in CQ.");
                         return BAD_VALUE;
@@ -764,6 +770,11 @@ void CCodec::configure(const sp<AMessage> &msg) {
                 if (!msg->findInt32(KEY_I_FRAME_INTERVAL, &i32)
                         && !msg->findFloat(KEY_I_FRAME_INTERVAL, &flt)) {
                     ALOGD("I frame interval is missing, which is required for video encoders.");
+                    return BAD_VALUE;
+                }
+                if (!msg->findInt32(KEY_FRAME_RATE, &i32)
+                        && !msg->findFloat(KEY_FRAME_RATE, &flt)) {
+                    ALOGD("frame rate is missing, which is required for video encoders.");
                     return BAD_VALUE;
                 }
             }
@@ -813,6 +824,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
                     config->mISConfig->mSuspended = true;
                 }
             }
+            config->mISConfig->mUsage = 0;
         }
 
         /*
@@ -849,6 +861,22 @@ void CCodec::configure(const sp<AMessage> &msg) {
         if (err != OK) {
             ALOGW("failed to convert configuration to c2 params");
         }
+
+        int32_t maxBframes = 0;
+        if ((config->mDomain & Config::IS_ENCODER)
+                && (config->mDomain & Config::IS_VIDEO)
+                && sdkParams->findInt32(KEY_MAX_B_FRAMES, &maxBframes)
+                && maxBframes > 0) {
+            std::unique_ptr<C2StreamGopTuning::output> gop =
+                C2StreamGopTuning::output::AllocUnique(2 /* flexCount */, 0u /* stream */);
+            gop->m.values[0] = { P_FRAME, UINT32_MAX };
+            gop->m.values[1] = {
+                C2Config::picture_type_t(P_FRAME | B_FRAME),
+                uint32_t(maxBframes)
+            };
+            configUpdate.push_back(std::move(gop));
+        }
+
         err = config->setParameters(comp, configUpdate, C2_DONT_BLOCK);
         if (err != OK) {
             ALOGW("failed to configure c2 params");
@@ -876,8 +904,14 @@ void CCodec::configure(const sp<AMessage> &msg) {
                     indices.size(), params.size());
             return UNKNOWN_ERROR;
         }
-        if (usage && (usage.value & C2MemoryUsage::CPU_READ)) {
-            config->mInputFormat->setInt32("using-sw-read-often", true);
+        if (usage) {
+            if (usage.value & C2MemoryUsage::CPU_READ) {
+                config->mInputFormat->setInt32("using-sw-read-often", true);
+            }
+            if (config->mISConfig) {
+                C2AndroidMemoryUsage androidUsage(C2MemoryUsage(usage.value));
+                config->mISConfig->mUsage = androidUsage.asGrallocUsage();
+            }
         }
 
         // NOTE: we don't blindly use client specified input size if specified as clients
@@ -1068,10 +1102,12 @@ void CCodec::createInputSurface() {
 
     sp<AMessage> inputFormat;
     sp<AMessage> outputFormat;
+    uint64_t usage = 0;
     {
         Mutexed<Config>::Locked config(mConfig);
         inputFormat = config->mInputFormat;
         outputFormat = config->mOutputFormat;
+        usage = config->mISConfig ? config->mISConfig->mUsage : 0;
     }
 
     sp<PersistentSurface> persistentSurface = CreateCompatibleInputSurface();
@@ -1095,7 +1131,7 @@ void CCodec::createInputSurface() {
         int32_t height = 0;
         (void)outputFormat->findInt32("height", &height);
         err = setupInputSurface(std::make_shared<GraphicBufferSourceWrapper>(
-                persistentSurface->getBufferSource(), width, height));
+                persistentSurface->getBufferSource(), width, height, usage));
         bufferProducer = persistentSurface->getBufferProducer();
     }
 
@@ -1155,10 +1191,12 @@ void CCodec::initiateSetInputSurface(const sp<PersistentSurface> &surface) {
 void CCodec::setInputSurface(const sp<PersistentSurface> &surface) {
     sp<AMessage> inputFormat;
     sp<AMessage> outputFormat;
+    uint64_t usage = 0;
     {
         Mutexed<Config>::Locked config(mConfig);
         inputFormat = config->mInputFormat;
         outputFormat = config->mOutputFormat;
+        usage = config->mISConfig ? config->mISConfig->mUsage : 0;
     }
     auto hidlTarget = surface->getHidlTarget();
     if (hidlTarget) {
@@ -1182,7 +1220,7 @@ void CCodec::setInputSurface(const sp<PersistentSurface> &surface) {
         int32_t height = 0;
         (void)outputFormat->findInt32("height", &height);
         status_t err = setupInputSurface(std::make_shared<GraphicBufferSourceWrapper>(
-                surface->getBufferSource(), width, height));
+                surface->getBufferSource(), width, height, usage));
         if (err != OK) {
             ALOGE("Failed to set up input surface: %d", err);
             mCallback->onInputSurfaceDeclined(err);

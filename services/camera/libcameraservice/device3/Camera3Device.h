@@ -289,9 +289,6 @@ class Camera3Device :
         // Reset this HalInterface object (does not call close())
         void clear();
 
-        // Check if HalInterface support sending requests in batch
-        bool supportBatchRequest();
-
         // Calls into the HAL interface
 
         // Caller takes ownership of requestTemplate
@@ -300,7 +297,11 @@ class Camera3Device :
         status_t configureStreams(const camera_metadata_t *sessionParams,
                 /*inout*/ camera3_stream_configuration *config,
                 const std::vector<uint32_t>& bufferSizes);
-        status_t processCaptureRequest(camera3_capture_request_t *request);
+
+        // When the call succeeds, the ownership of acquire fences in requests is transferred to
+        // HalInterface. More specifically, the current implementation will send the fence to
+        // HAL process and close the FD in cameraserver process. When the call fails, the ownership
+        // of the acquire fence still belongs to the caller.
         status_t processBatchCaptureRequests(
                 std::vector<camera3_capture_request_t*>& requests,
                 /*out*/uint32_t* numRequestProcessed);
@@ -336,6 +337,8 @@ class Camera3Device :
         // Get a vector of bufferId of currently inflight buffers
         void getInflightRequestBufferKeys(std::vector<uint64_t>* out);
 
+        void onStreamReConfigured(int streamId);
+
         static const uint64_t BUFFER_ID_NO_BUFFER = 0;
       private:
         // Always valid
@@ -355,13 +358,21 @@ class Camera3Device :
         // Do not free input camera3_capture_request_t before output HIDL request
         status_t wrapAsHidlRequest(camera3_capture_request_t* in,
                 /*out*/hardware::camera::device::V3_2::CaptureRequest* out,
-                /*out*/std::vector<native_handle_t*>* handlesCreated);
+                /*out*/std::vector<native_handle_t*>* handlesCreated,
+                /*out*/std::vector<std::pair<int32_t, int32_t>>* inflightBuffers);
 
         status_t pushInflightBufferLocked(int32_t frameNumber, int32_t streamId,
-                buffer_handle_t *buffer, int acquireFence);
+                buffer_handle_t *buffer);
+
+        // Pop inflight buffers based on pairs of (frameNumber,streamId)
+        void popInflightBuffers(const std::vector<std::pair<int32_t, int32_t>>& buffers);
+
         // Cache of buffer handles keyed off (frameNumber << 32 | streamId)
-        // value is a pair of (buffer_handle_t*, acquire_fence FD)
-        std::unordered_map<uint64_t, std::pair<buffer_handle_t*, int>> mInflightBufferMap;
+        std::unordered_map<uint64_t, buffer_handle_t*> mInflightBufferMap;
+
+        // Delete and optionally close native handles and clear the input vector afterward
+        static void cleanupNativeHandles(
+                std::vector<native_handle_t*> *handles, bool closeFd = false);
 
         struct BufferHasher {
             size_t operator()(const buffer_handle_t& buf) const {
@@ -554,7 +565,7 @@ class Camera3Device :
     void processOneCaptureResultLocked(
             const hardware::camera::device::V3_2::CaptureResult& result,
             const hardware::hidl_vec<
-            hardware::camera::device::V3_4::PhysicalCameraMetadata> physicalCameraMetadatas);
+            hardware::camera::device::V3_4::PhysicalCameraMetadata> physicalCameraMetadata);
     status_t readOneCameraMetadataLocked(uint64_t fmqResultSize,
             hardware::camera::device::V3_2::CameraMetadata& resultMetadata,
             const hardware::camera::device::V3_2::CameraMetadata& result);
@@ -893,9 +904,6 @@ class Camera3Device :
         // Clear repeating requests. Must be called with mRequestLock held.
         status_t clearRepeatingRequestsLocked(/*out*/ int64_t *lastFrameNumber = NULL);
 
-        // send request in mNextRequests to HAL one by one. Return true = sucssess
-        bool sendRequestsOneByOne();
-
         // send request in mNextRequests to HAL in a batch. Return true = sucssess
         bool sendRequestsBatch();
 
@@ -910,8 +918,8 @@ class Camera3Device :
         bool skipHFRTargetFPSUpdate(int32_t tag, const camera_metadata_ro_entry_t& newEntry,
                 const camera_metadata_entry_t& currentEntry);
 
-        // Re-configure camera using the latest session parameters.
-        bool reconfigureCamera();
+        // Update next request sent to HAL
+        void updateNextRequest(NextRequest& nextRequest);
 
         wp<Camera3Device>  mParent;
         wp<camera3::StatusTracker>  mStatusTracker;
@@ -955,6 +963,7 @@ class Camera3Device :
         // android.request.id for latest process_capture_request
         int32_t            mLatestRequestId;
         CameraMetadata     mLatestRequest;
+        std::unordered_map<std::string, CameraMetadata> mLatestPhysicalRequest;
 
         typedef KeyedVector<uint32_t/*tag*/, RequestTrigger> TriggerMap;
         Mutex              mTriggerMutex;
@@ -1183,10 +1192,14 @@ class Camera3Device :
     uint32_t               mNextResultFrameNumber;
     // the minimal frame number of the next reprocess result
     uint32_t               mNextReprocessResultFrameNumber;
+    // the minimal frame number of the next ZSL still capture result
+    uint32_t               mNextZslStillResultFrameNumber;
     // the minimal frame number of the next non-reprocess shutter
     uint32_t               mNextShutterFrameNumber;
     // the minimal frame number of the next reprocess shutter
     uint32_t               mNextReprocessShutterFrameNumber;
+    // the minimal frame number of the next ZSL still capture shutter
+    uint32_t               mNextZslStillShutterFrameNumber;
     List<CaptureResult>   mResultQueue;
     Condition              mResultSignal;
     wp<NotificationListener>  mListener;
@@ -1223,7 +1236,8 @@ class Camera3Device :
     void sendCaptureResult(CameraMetadata &pendingMetadata,
             CaptureResultExtras &resultExtras,
             CameraMetadata &collectedPartialResult, uint32_t frameNumber,
-            bool reprocess, const std::vector<PhysicalCaptureResultInfo>& physicalMetadatas);
+            bool reprocess, bool zslStillCapture,
+            const std::vector<PhysicalCaptureResultInfo>& physicalMetadatas);
 
     bool isLastFullResult(const InFlightRequest& inFlightRequest);
 
@@ -1263,7 +1277,8 @@ class Camera3Device :
     TagMonitor mTagMonitor;
 
     void monitorMetadata(TagMonitor::eventSource source, int64_t frameNumber,
-            nsecs_t timestamp, const CameraMetadata& metadata);
+            nsecs_t timestamp, const CameraMetadata& metadata,
+            const std::unordered_map<std::string, CameraMetadata>& physicalMetadata);
 
     metadata_vendor_id_t mVendorTagId;
 
