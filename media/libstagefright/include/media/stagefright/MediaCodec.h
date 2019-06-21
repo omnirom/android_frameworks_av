@@ -342,6 +342,7 @@ private:
     int32_t mVideoWidth;
     int32_t mVideoHeight;
     int32_t mRotationDegrees;
+    int32_t mAllowFrameDroppingBySurface;
 
     // initial create parameters
     AString mInitName;
