@@ -1420,6 +1420,12 @@ void NuPlayer::Renderer::onDrainVideoQueue() {
     mVideoQueue.erase(mVideoQueue.begin());
     entry = NULL;
 
+    if (!mVideoSampleReceived) {
+        sp<AMessage> notify = mNotify->dup();
+        notify->setInt32("what", kWhatVideoPrerollComplete);
+        ALOGI("NOTE: notifying video preroll complete");
+        notify->post();
+    }
     mVideoSampleReceived = true;
 
     if (!mPaused) {
