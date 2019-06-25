@@ -40,6 +40,7 @@ LOCAL_SHARED_LIBRARIES := \
     libavservices_minijail_vendor \
     libcutils \
     libhwbinder \
+    libhidlbase \
     libhidltransport \
     libstagefright_omx_ext \
     libstagefright_xmlparser \

@@ -3716,7 +3716,8 @@ void MPEG4Writer::Track::bufferChunk(int64_t timestampUs) {
 
 int64_t MPEG4Writer::Track::getDurationUs() const {
     return mTrackDurationUs +
-        mOwner->getStartTimeOffsetTimeUs(mStartTimestampUs);
+        mOwner->getStartTimeOffsetTimeUs(mStartTimestampUs) +
+        mOwner->getStartTimeOffsetBFramesUs();
 }
 
 int64_t MPEG4Writer::Track::getEstimatedTrackSizeBytes() const {
