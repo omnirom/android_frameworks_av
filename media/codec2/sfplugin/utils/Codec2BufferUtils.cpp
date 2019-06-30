@@ -118,7 +118,7 @@ static status_t _ImageCopy(View &view, const MediaImage2 *img, ImagePixel *imgBa
 }  // namespace
 
 status_t ImageCopy(uint8_t *imgBase, const MediaImage2 *img, const C2GraphicView &view) {
-    if (view.width() != img->mWidth || view.height() != img->mHeight) {
+    if (view.crop().width != img->mWidth || view.crop().height != img->mHeight) {
         return BAD_VALUE;
     }
     if ((IsNV12(view) && IsI420(img)) || (IsI420(view) && IsNV12(img))) {
@@ -137,14 +137,14 @@ status_t ImageCopy(uint8_t *imgBase, const MediaImage2 *img, const C2GraphicView
         int32_t dst_stride_v = img->mPlane[2].mRowInc;
         if (IsNV12(view) && IsI420(img)) {
             if (!libyuv::NV12ToI420(src_y, src_stride_y, src_u, src_stride_u, dst_y, dst_stride_y,
-                                    dst_u, dst_stride_u, dst_v, dst_stride_v, view.width(),
-                                    view.height())) {
+                                    dst_u, dst_stride_u, dst_v, dst_stride_v, view.crop().width,
+                                    view.crop().height)) {
                 return OK;
             }
         } else {
             if (!libyuv::I420ToNV12(src_y, src_stride_y, src_u, src_stride_u, src_v, src_stride_v,
-                                    dst_y, dst_stride_y, dst_u, dst_stride_u, view.width(),
-                                    view.height())) {
+                                    dst_y, dst_stride_y, dst_u, dst_stride_u, view.crop().width,
+                                    view.crop().height)) {
                 return OK;
             }
         }
@@ -153,7 +153,7 @@ status_t ImageCopy(uint8_t *imgBase, const MediaImage2 *img, const C2GraphicView
 }
 
 status_t ImageCopy(C2GraphicView &view, const uint8_t *imgBase, const MediaImage2 *img) {
-    if (view.width() != img->mWidth || view.height() != img->mHeight) {
+    if (view.crop().width != img->mWidth || view.crop().height != img->mHeight) {
         return BAD_VALUE;
     }
     if ((IsNV12(img) && IsI420(view)) || (IsI420(img) && IsNV12(view))) {

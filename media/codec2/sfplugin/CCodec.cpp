@@ -1651,7 +1651,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
     switch (msg->what()) {
         case kWhatAllocate: {
             // C2ComponentStore::createComponent() should return within 100ms.
-            setDeadline(now, 150ms, "allocate");
+            setDeadline(now, 1500ms, "allocate");
             sp<RefBase> obj;
             CHECK(msg->findObject("codecInfo", &obj));
             allocate((MediaCodecInfo *)obj.get());
@@ -1659,7 +1659,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatConfigure: {
             // C2Component::commit_sm() should return within 5ms.
-            setDeadline(now, 250ms, "configure");
+            setDeadline(now, 1500ms, "configure");
             sp<AMessage> format;
             CHECK(msg->findMessage("format", &format));
             configure(format);
@@ -1667,31 +1667,31 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatStart: {
             // C2Component::start() should return within 500ms.
-            setDeadline(now, 550ms, "start");
+            setDeadline(now, 1500ms, "start");
             start();
             break;
         }
         case kWhatStop: {
             // C2Component::stop() should return within 500ms.
-            setDeadline(now, 550ms, "stop");
+            setDeadline(now, 1500ms, "stop");
             stop();
             break;
         }
         case kWhatFlush: {
             // C2Component::flush_sm() should return within 5ms.
-            setDeadline(now, 50ms, "flush");
+            setDeadline(now, 1500ms, "flush");
             flush();
             break;
         }
         case kWhatCreateInputSurface: {
             // Surface operations may be briefly blocking.
-            setDeadline(now, 100ms, "createInputSurface");
+            setDeadline(now, 1500ms, "createInputSurface");
             createInputSurface();
             break;
         }
         case kWhatSetInputSurface: {
             // Surface operations may be briefly blocking.
-            setDeadline(now, 100ms, "setInputSurface");
+            setDeadline(now, 1500ms, "setInputSurface");
             sp<RefBase> obj;
             CHECK(msg->findObject("surface", &obj));
             sp<PersistentSurface> surface(static_cast<PersistentSurface *>(obj.get()));
@@ -1724,8 +1724,11 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                             & C2FrameData::FLAG_DISCARD_FRAME) == 0) {
 
                 // copy buffer info to config
-                std::vector<std::unique_ptr<C2Param>> updates =
-                    std::move(work->worklets.front()->output.configUpdate);
+                std::vector<std::unique_ptr<C2Param>> updates;
+                for (const std::unique_ptr<C2Param> &param
+                        : work->worklets.front()->output.configUpdate) {
+                    updates.push_back(C2Param::Copy(*param));
+                }
                 unsigned stream = 0;
                 for (const std::shared_ptr<C2Buffer> &buf : work->worklets.front()->output.buffers) {
                     for (const std::shared_ptr<const C2Info> &info : buf->info()) {
@@ -1739,7 +1742,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                         //      block.width(), block.height());
                         updates.emplace_back(new C2StreamCropRectInfo::output(stream, block.crop()));
                         updates.emplace_back(new C2StreamPictureSizeInfo::output(
-                                stream, block.width(), block.height()));
+                                stream, block.crop().width, block.crop().height));
                         break; // for now only do the first block
                     }
                     ++stream;
