@@ -1290,6 +1290,12 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
 
     String8 clientName8(clientPackageName);
 
+    std::string camId = cameraId.string();
+
+    if (camId.compare("1") == 0) {
+        property_set("sys.camera.motor.direction", "up");
+    }
+
     int originalClientPid = 0;
 
     ALOGI("CameraService::connect call (PID %d \"%s\", camera ID %s) for HAL version %s and "
@@ -2194,6 +2200,12 @@ binder::Status CameraService::BasicClient::disconnect() {
 
     // client shouldn't be able to call into us anymore
     mClientPid = 0;
+
+    std::string camId = mCameraIdStr.string();
+
+    if (camId.compare("1") == 0) {
+        property_set("sys.camera.motor.direction", "down");
+    }
 
     return res;
 }
