@@ -133,6 +133,9 @@ cc_library_shared {
             target_camera_needs_client_info: {
                 cflags: ["-DTARGET_NEEDS_CLIENT_INFO"],
             },
+	    target_motorized_camera: {
+                cflags: ["-DTARGET_MOTORIZED_CAMERA"],
+            },
         },
     },
 
