@@ -99,6 +99,9 @@ using hardware::camera2::utils::ConcurrentCameraIdCombination;
 // Logging support -- this is for debugging only
 // Use "adb shell dumpsys media.camera -v 1" to change it.
 volatile int32_t gLogLevel = 0;
+#ifdef TARGET_MOTORIZED_CAMERA
+time_t motorTimeElapsed = 0;
+#endif
 
 #define LOG1(...) ALOGD_IF(gLogLevel >= 1, __VA_ARGS__);
 #define LOG2(...) ALOGD_IF(gLogLevel >= 2, __VA_ARGS__);
@@ -1619,6 +1622,19 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
 
     String8 clientName8(clientPackageName);
 
+#ifdef TARGET_MOTORIZED_CAMERA
+    std::string camId = cameraId.string();
+    time_t now = time(0);
+    double dif = difftime (now,motorTimeElapsed);
+    if (camId.compare("1") == 0) {
+        if (dif < 0.5) {
+            usleep (500000);
+        }
+        property_set("sys.camera.motor.direction", "up");
+        motorTimeElapsed = time(0);
+    }
+#endif
+
     int originalClientPid = 0;
 
     ALOGI("CameraService::connect call (PID %d \"%s\", camera ID %s) for HAL version %s and "
@@ -2820,6 +2836,20 @@ CameraService::BasicClient::~BasicClient() {
 
 binder::Status CameraService::BasicClient::disconnect() {
     binder::Status res = Status::ok();
+
+#ifdef TARGET_MOTORIZED_CAMERA
+    std::string camId = mCameraIdStr.string();
+    time_t now = time(0);
+    double dif = difftime (now,motorTimeElapsed);
+    if (camId.compare("1") == 0) {
+        if (dif < 0.5) {
+            usleep (500000);
+        }
+        property_set("sys.camera.motor.direction", "down");
+        motorTimeElapsed = time(0);
+    }
+#endif
+
     if (mDisconnected) {
         return res;
     }

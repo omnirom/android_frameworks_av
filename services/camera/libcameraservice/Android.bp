@@ -153,6 +153,14 @@ cc_library_shared {
 
     export_include_dirs: ["."],
 
+    product_variables: {
+        omnirom: {
+	        target_motorized_camera: {
+                cflags: ["-DTARGET_MOTORIZED_CAMERA"],
+            },
+        },
+    },
+
     cflags: [
         "-Wall",
         "-Wextra",
