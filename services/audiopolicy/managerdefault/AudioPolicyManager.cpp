@@ -5231,9 +5231,10 @@ DeviceVector AudioPolicyManager::getNewOutputDevices(const sp<SwAudioOutputDescr
         StreamTypeVector streams = mEngine->getStreamTypesForProductStrategy(productStrategy);
         auto attr = mEngine->getAllAttributesForProductStrategy(productStrategy).front();
 
-        if ((hasVoiceStream(streams) &&
+        if (((hasVoiceStream(streams) && outputDesc->isActive(toVolumeSource(AUDIO_STREAM_VOICE_CALL))) &&
              (isInCall() || mOutputs.isStrategyActiveOnSameModule(productStrategy, outputDesc))) ||
-             ((hasStream(streams, AUDIO_STREAM_ALARM) || hasStream(streams, AUDIO_STREAM_ENFORCED_AUDIBLE)) &&
+             (((hasStream(streams, AUDIO_STREAM_ALARM) && isStreamActive(AUDIO_STREAM_ALARM, 0)) ||
+               (hasStream(streams, AUDIO_STREAM_ENFORCED_AUDIBLE) && isStreamActive(AUDIO_STREAM_ENFORCED_AUDIBLE, 0))) &&
                 mOutputs.isStrategyActiveOnSameModule(productStrategy, outputDesc)) ||
                 outputDesc->isStrategyActive(productStrategy)) {
             // Retrieval of devices for voice DL is done on primary output profile, cannot
