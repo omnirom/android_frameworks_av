@@ -2202,8 +2202,8 @@ status_t ACodec::configureCodec(
             err = setupG711Codec(encoder, sampleRate, numChannels);
         }
 #ifdef QTI_FLAC_DECODER
-//setup qti flac component only if it is enabled and it is not encoder and pcm encoding is not pcmFloat
-    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC) && (encoder || pcmEncoding == kAudioEncodingPcmFloat)) {
+//setup qti component From setupCustomCodec only when it starts with OMX.qti. otherwise create incoming component.
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC) && !mComponentName.startsWith("OMX.qti.")) {
 #else
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC)) {
 #endif
