@@ -1947,9 +1947,10 @@ status_t NuPlayer::instantiateDecoder(
         return OK;
     }
 
-    sp<AMessage> format = mSource->getFormat(audio);
+    sp<AMessage> format = (mSource != NULL) ? mSource->getFormat(audio) : NULL;
 
     if (format == NULL) {
+        ALOGW("%s: getFormat called when source is gone or not set", __func__);
         return UNKNOWN_ERROR;
     } else {
         status_t err;
