@@ -1053,6 +1053,12 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 if (mSourceFlags & Source::FLAG_DYNAMIC_DURATION) {
                     schedulePollDuration();
                 }
+
+                // Pause the renderer till video queue pre-rolls
+                if (mVideoDecoder != NULL && mAudioDecoder != NULL) {
+                    ALOGI("NOTE: Pausing Renderer after decoders instantiated..");
+                    mRenderer->pause();
+                }
             }
 
             status_t err;
@@ -1346,6 +1352,9 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
             } else if (what == Renderer::kWhatMediaRenderingStart) {
                 ALOGV("media rendering started");
                 notifyListener(MEDIA_STARTED, 0, 0);
+            } else if (what == Renderer::kWhatVideoPrerollComplete) {
+                ALOGI("NOTE: Video preroll complete.. resume renderer..");
+                mRenderer->resume();
             } else if (what == Renderer::kWhatAudioTearDown) {
                 int32_t reason;
                 CHECK(msg->findInt32("reason", &reason));
@@ -1957,9 +1966,10 @@ status_t NuPlayer::instantiateDecoder(
         return OK;
     }
 
-    sp<AMessage> format = mSource->getFormat(audio);
+    sp<AMessage> format = (mSource != NULL) ? mSource->getFormat(audio) : NULL;
 
     if (format == NULL) {
+        ALOGW("%s: getFormat called when source is gone or not set", __func__);
         return UNKNOWN_ERROR;
     } else {
         status_t err;
