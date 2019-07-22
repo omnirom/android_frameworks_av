@@ -46,6 +46,10 @@ class LinearBuffer : public C2Buffer {
     explicit LinearBuffer(const std::shared_ptr<C2LinearBlock>& block)
         : C2Buffer(
               {block->share(block->offset(), block->size(), ::C2Fence())}) {}
+
+    explicit LinearBuffer(const std::shared_ptr<C2LinearBlock>& block, size_t size)
+        : C2Buffer(
+              {block->share(block->offset(), size, ::C2Fence())}) {}
 };
 
 static ComponentTestEnvironment* gEnv = nullptr;
@@ -120,6 +124,13 @@ class Codec2VideoDecHidlTest : public ::testing::VtsHalHidlTargetTestBase {
         mTimestampUs = 0u;
         mTimestampDevTest = false;
         if (mCompName == unknown_comp) mDisableTest = true;
+
+        C2SecureModeTuning secureModeTuning{};
+        mComponent->query({ &secureModeTuning }, {}, C2_MAY_BLOCK, nullptr);
+        if (secureModeTuning.value == C2Config::SM_READ_PROTECTED) {
+            mDisableTest = true;
+        }
+
         if (mDisableTest) std::cout << "[   WARN   ] Test Disabled \n";
     }
 
@@ -371,11 +382,12 @@ void decodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& comp
         ASSERT_EQ(eleStream.gcount(), size);
 
         work->input.buffers.clear();
+        auto alignedSize = ALIGN(size, PAGE_SIZE);
         if (size) {
             std::shared_ptr<C2LinearBlock> block;
             ASSERT_EQ(C2_OK,
                     linearPool->fetchLinearBlock(
-                        size, {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE},
+                        alignedSize, {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE},
                         &block));
             ASSERT_TRUE(block);
 
@@ -385,13 +397,13 @@ void decodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& comp
                 fprintf(stderr, "C2LinearBlock::map() failed : %d", view.error());
                 break;
             }
-            ASSERT_EQ((size_t)size, view.capacity());
+            ASSERT_EQ((size_t)alignedSize, view.capacity());
             ASSERT_EQ(0u, view.offset());
-            ASSERT_EQ((size_t)size, view.size());
+            ASSERT_EQ((size_t)alignedSize, view.size());
 
             memcpy(view.base(), data, size);
 
-            work->input.buffers.emplace_back(new LinearBuffer(block));
+            work->input.buffers.emplace_back(new LinearBuffer(block, size));
             free(data);
         }
         work->worklets.clear();
