@@ -43,7 +43,6 @@ protected:
 
 private:
     int mFd;
-    bool mHaveAllCodecSpecificData;
     status_t mInitCheck;
     sp<MediaSource> mSource;
     bool mStarted = false;
@@ -67,8 +66,6 @@ private:
 
     OggWriter(const OggWriter&);
     OggWriter& operator=(const OggWriter&);
-
-    status_t writeOggHeaderPackets(unsigned char *buf, size_t size);
 };
 
 }  // namespace android
