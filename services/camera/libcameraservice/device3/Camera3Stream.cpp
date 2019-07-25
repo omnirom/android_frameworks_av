@@ -60,13 +60,17 @@ Camera3Stream::Camera3Stream(int id,
     mUsage(0),
     mOldUsage(0),
     mOldMaxBuffers(0),
+    mOldFormat(-1),
+    mOldDataSpace(HAL_DATASPACE_UNKNOWN),
     mPrepared(false),
     mPrepareBlockRequest(true),
     mPreparedBufferIdx(0),
     mLastMaxCount(Camera3StreamInterface::ALLOCATE_PIPELINE_MAX),
     mBufferLimitLatency(kBufferLimitLatencyBinSize),
     mFormatOverridden(false),
-    mOriginalFormat(-1),
+    mOriginalFormat(format),
+    mDataSpaceOverridden(false),
+    mOriginalDataSpace(HAL_DATASPACE_UNKNOWN),
     mPhysicalCameraId(physicalCameraId),
     mLastTimestamp(0) {
 
@@ -121,7 +125,6 @@ void Camera3Stream::setUsage(uint64_t usage) {
 
 void Camera3Stream::setFormatOverride(bool formatOverridden) {
     mFormatOverridden = formatOverridden;
-    if (formatOverridden) mOriginalFormat = camera3_stream::format;
 }
 
 bool Camera3Stream::isFormatOverridden() const {
@@ -134,7 +137,9 @@ int Camera3Stream::getOriginalFormat() const {
 
 void Camera3Stream::setDataSpaceOverride(bool dataSpaceOverridden) {
     mDataSpaceOverridden = dataSpaceOverridden;
-    if (dataSpaceOverridden) mOriginalDataSpace = camera3_stream::data_space;
+    if (dataSpaceOverridden && mOriginalDataSpace == HAL_DATASPACE_UNKNOWN) {
+        mOriginalDataSpace = camera3_stream::data_space;
+    }
 }
 
 bool Camera3Stream::isDataSpaceOverridden() const {
@@ -250,6 +255,8 @@ camera3_stream* Camera3Stream::startConfiguration() {
 
     mOldUsage = mUsage;
     mOldMaxBuffers = camera3_stream::max_buffers;
+    mOldFormat = camera3_stream::format;
+    mOldDataSpace = camera3_stream::data_space;
 
     res = getEndpointUsage(&mUsage);
     if (res != OK) {
@@ -324,7 +331,9 @@ status_t Camera3Stream::finishConfiguration(/*out*/bool* streamReconfigured) {
     // so. As documented in hardware/camera3.h:configure_streams().
     if (mState == STATE_IN_RECONFIG &&
             mOldUsage == mUsage &&
-            mOldMaxBuffers == camera3_stream::max_buffers && !mDataSpaceOverridden) {
+            mOldMaxBuffers == camera3_stream::max_buffers &&
+            mOldDataSpace == camera3_stream::data_space &&
+            mOldFormat == camera3_stream::format) {
         mState = STATE_CONFIGURED;
         return OK;
     }

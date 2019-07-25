@@ -31,7 +31,7 @@ namespace android {
 
 constexpr size_t kLinearBufferSize = 1048576;
 // This can fit 4K RGBA frame, and most likely client won't need more than this.
-constexpr size_t kMaxLinearBufferSize = 3840 * 2160 * 4;
+constexpr size_t kMaxLinearBufferSize = 4096 * 2304 * 4;
 
 /**
  * Base class for representation of buffers at one port.
@@ -134,7 +134,18 @@ public:
      */
     virtual std::unique_ptr<InputBuffers> toArrayMode(size_t size) = 0;
 
+    /**
+     * Release the buffer obtained from requestNewBuffer(), and create a deep
+     * copy clone of the buffer.
+     *
+     * \return  the deep copy clone of the buffer; nullptr if cloning is not
+     *          possible.
+     */
+    sp<Codec2Buffer> cloneAndReleaseBuffer(const sp<MediaCodecBuffer> &buffer);
+
 protected:
+    virtual sp<Codec2Buffer> createNewBuffer() = 0;
+
     // Pool to obtain blocks for input buffers.
     std::shared_ptr<C2BlockPool> mPool;
 
@@ -346,6 +357,12 @@ public:
      */
     size_t numClientBuffers() const;
 
+    /**
+     * Return the number of buffers that are sent to the component but not
+     * returned back yet.
+     */
+    size_t numComponentBuffers() const;
+
 private:
     friend class BuffersArrayImpl;
 
@@ -446,10 +463,25 @@ public:
     void realloc(std::function<sp<Codec2Buffer>()> alloc);
 
     /**
+     * Grow the array to the new size. It is a programming error to supply
+     * smaller size as the new size.
+     *
+     * \param newSize[in] new size of the array.
+     * \param alloc[in]   the alllocation function for client buffers to fill
+     *                    the new empty slots.
+     */
+    void grow(size_t newSize, std::function<sp<Codec2Buffer>()> alloc);
+
+    /**
      * Return the number of buffers that are sent to the client but not released
      * yet.
      */
     size_t numClientBuffers() const;
+
+    /**
+     * Return the size of the array.
+     */
+    size_t arraySize() const;
 
 private:
     std::string mImplName; ///< name for debugging
@@ -506,8 +538,12 @@ public:
 
     size_t numClientBuffers() const final;
 
+protected:
+    sp<Codec2Buffer> createNewBuffer() override;
+
 private:
     BuffersArrayImpl mImpl;
+    std::function<sp<Codec2Buffer>()> mAllocate;
 };
 
 class LinearInputBuffers : public InputBuffers {
@@ -529,18 +565,18 @@ public:
 
     void flush() override;
 
-    std::unique_ptr<InputBuffers> toArrayMode(size_t size) final;
+    std::unique_ptr<InputBuffers> toArrayMode(size_t size) override;
 
     size_t numClientBuffers() const final;
 
-    /**
-     * Allocate a client buffer with the given size. This method may be
-     * overridden to support different kind of linear buffers (e.g. encrypted).
-     */
-    virtual sp<Codec2Buffer> alloc(size_t size);
+protected:
+    sp<Codec2Buffer> createNewBuffer() override;
+
+    FlexBuffersImpl mImpl;
 
 private:
-    FlexBuffersImpl mImpl;
+    static sp<Codec2Buffer> Alloc(
+            const std::shared_ptr<C2BlockPool> &pool, const sp<AMessage> &format);
 };
 
 class EncryptedLinearInputBuffers : public LinearInputBuffers {
@@ -556,18 +592,28 @@ public:
 
     ~EncryptedLinearInputBuffers() override = default;
 
-    sp<Codec2Buffer> alloc(size_t size) override;
+    std::unique_ptr<InputBuffers> toArrayMode(size_t size) override;
+
+protected:
+    sp<Codec2Buffer> createNewBuffer() override;
 
 private:
-    C2MemoryUsage mUsage;
-    sp<MemoryDealer> mDealer;
-    sp<ICrypto> mCrypto;
-    int32_t mHeapSeqNum;
     struct Entry {
         std::weak_ptr<C2LinearBlock> block;
         sp<IMemory> memory;
+        int32_t heapSeqNum;
     };
-    std::vector<Entry> mMemoryVector;
+
+    static sp<Codec2Buffer> Alloc(
+            const std::shared_ptr<C2BlockPool> &pool,
+            const sp<AMessage> &format,
+            C2MemoryUsage usage,
+            const std::shared_ptr<std::vector<Entry>> &memoryVector);
+
+    C2MemoryUsage mUsage;
+    sp<MemoryDealer> mDealer;
+    sp<ICrypto> mCrypto;
+    std::shared_ptr<std::vector<Entry>> mMemoryVector;
 };
 
 class GraphicMetadataInputBuffers : public InputBuffers {
@@ -590,6 +636,9 @@ public:
     std::unique_ptr<InputBuffers> toArrayMode(size_t size) final;
 
     size_t numClientBuffers() const final;
+
+protected:
+    sp<Codec2Buffer> createNewBuffer() override;
 
 private:
     FlexBuffersImpl mImpl;
@@ -618,6 +667,9 @@ public:
             size_t size) final;
 
     size_t numClientBuffers() const final;
+
+protected:
+    sp<Codec2Buffer> createNewBuffer() override;
 
 private:
     FlexBuffersImpl mImpl;
@@ -657,6 +709,11 @@ public:
 
     size_t numClientBuffers() const final {
         return 0u;
+    }
+
+protected:
+    sp<Codec2Buffer> createNewBuffer() override {
+        return nullptr;
     }
 };
 
@@ -704,6 +761,8 @@ public:
 
     void getArray(Vector<sp<MediaCodecBuffer>> *array) const final;
 
+    size_t numClientBuffers() const final;
+
     /**
      * Reallocate the array, filled with buffers with the same size as given
      * buffer.
@@ -712,10 +771,17 @@ public:
      */
     void realloc(const std::shared_ptr<C2Buffer> &c2buffer);
 
-    size_t numClientBuffers() const final;
+    /**
+     * Grow the array to the new size. It is a programming error to supply
+     * smaller size as the new size.
+     *
+     * \param newSize[in] new size of the array.
+     */
+    void grow(size_t newSize);
 
 private:
     BuffersArrayImpl mImpl;
+    std::function<sp<Codec2Buffer>()> mAlloc;
 };
 
 class FlexOutputBuffers : public OutputBuffers {
@@ -755,12 +821,15 @@ public:
     virtual sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) = 0;
 
     /**
-     * Return an appropriate Codec2Buffer object for the type of buffers, to be
-     * used as an empty array buffer.
+     * Return a function that allocates an appropriate Codec2Buffer object for
+     * the type of buffers, to be used as an empty array buffer. The function
+     * must not refer to this pointer, since it may be used after this object
+     * destructs.
      *
-     * \return  appropriate Codec2Buffer object which can copy() from C2Buffers.
+     * \return  a function that allocates appropriate Codec2Buffer object,
+     *          which can copy() from C2Buffers.
      */
-    virtual sp<Codec2Buffer> allocateArrayBuffer() = 0;
+    virtual std::function<sp<Codec2Buffer>()> getAlloc() = 0;
 
 private:
     FlexBuffersImpl mImpl;
@@ -776,7 +845,7 @@ public:
 
     sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) override;
 
-    sp<Codec2Buffer> allocateArrayBuffer() override;
+    std::function<sp<Codec2Buffer>()> getAlloc() override;
 };
 
 class GraphicOutputBuffers : public FlexOutputBuffers {
@@ -786,7 +855,7 @@ public:
 
     sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) override;
 
-    sp<Codec2Buffer> allocateArrayBuffer() override;
+    std::function<sp<Codec2Buffer>()> getAlloc() override;
 };
 
 class RawGraphicOutputBuffers : public FlexOutputBuffers {
@@ -797,7 +866,7 @@ public:
 
     sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) override;
 
-    sp<Codec2Buffer> allocateArrayBuffer() override;
+    std::function<sp<Codec2Buffer>()> getAlloc() override;
 
 private:
     std::shared_ptr<LocalBufferPool> mLocalBufferPool;
