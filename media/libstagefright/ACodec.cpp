@@ -3456,9 +3456,18 @@ status_t ACodec::setupVideoDecoder(
         err = setVideoPortFormatType(
                 kPortIndexOutput, OMX_VIDEO_CodingUnused, colorFormat, haveNativeWindow);
         if (err != OK) {
-            ALOGW("[%s] does not support color format %d",
-                  mComponentName.c_str(), colorFormat);
-            err = setSupportedOutputFormat(!haveNativeWindow /* getLegacyFlexibleFormat */);
+            int32_t thumbnailMode = 0;
+            if (msg->findInt32("thumbnail-mode", &thumbnailMode) &&
+                thumbnailMode) {
+                err = setVideoPortFormatType(
+                kPortIndexOutput, OMX_VIDEO_CodingUnused,
+                OMX_COLOR_FormatYUV420Planar, haveNativeWindow);
+            }
+            if (err != OK) {
+                ALOGW("[%s] does not support color format %d",
+                      mComponentName.c_str(), colorFormat);
+                err = setSupportedOutputFormat(!haveNativeWindow /* getLegacyFlexibleFormat */);
+            }
         }
     } else {
         err = setSupportedOutputFormat(!haveNativeWindow /* getLegacyFlexibleFormat */);
