@@ -1288,11 +1288,12 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
         /*out*/sp<CLIENT>& device) {
     binder::Status ret = binder::Status::ok();
 
+    char direction[PROP_VALUE_MAX];
     String8 clientName8(clientPackageName);
 
     std::string camId = cameraId.string();
 
-    if (camId.compare("1") == 0) {
+    if (camId.compare("1") == 0 && (property_get("sys.camera.motor.direction", direction, "up") != 2)) {
         property_set("sys.camera.motor.direction", "up");
     }
 
@@ -2178,6 +2179,8 @@ CameraService::BasicClient::~BasicClient() {
 
 binder::Status CameraService::BasicClient::disconnect() {
     binder::Status res = Status::ok();
+    char direction[PROP_VALUE_MAX];
+
     if (mDisconnected) {
         return res;
     }
@@ -2203,7 +2206,7 @@ binder::Status CameraService::BasicClient::disconnect() {
 
     std::string camId = mCameraIdStr.string();
 
-    if (camId.compare("1") == 0) {
+    if (camId.compare("1") == 0 && (property_get("sys.camera.motor.direction", direction, "down") != 4)) {
         property_set("sys.camera.motor.direction", "down");
     }
 
