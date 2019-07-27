@@ -7526,6 +7526,22 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
         }
     }
 
+    int32_t nIFrameInterval = 0, nPFrames = 0, nBFrames = 0;
+    if (params->findInt32(KEY_I_FRAME_INTERVAL, &nIFrameInterval)) {
+        if (!params->findInt32(KEY_MAX_B_FRAMES, &nBFrames)) {
+            sp<AMessage> format = new AMessage;
+            getVendorParameters(kPortIndexOutput, format);
+            format->findInt32("vendor.qti-ext-enc-intra-period.n-bframes", &nBFrames);
+        }
+
+        nPFrames = setPFramesSpacing(nIFrameInterval, mFps, nBFrames);
+
+        sp<AMessage> updatedFormat = new AMessage;
+        updatedFormat->setInt32("vendor.qti-ext-enc-intra-period.n-pframes", nPFrames);
+        updatedFormat->setInt32("vendor.qti-ext-enc-intra-period.n-bframes", nBFrames);
+        setVendorParameters(updatedFormat);
+    }
+
     int64_t timeOffsetUs;
     if (params->findInt64(PARAMETER_KEY_OFFSET_TIME, &timeOffsetUs)) {
         if (mGraphicBufferSource == NULL) {
