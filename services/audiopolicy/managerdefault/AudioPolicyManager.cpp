@@ -5231,7 +5231,8 @@ DeviceVector AudioPolicyManager::getNewOutputDevices(const sp<SwAudioOutputDescr
         StreamTypeVector streams = mEngine->getStreamTypesForProductStrategy(productStrategy);
         auto attr = mEngine->getAllAttributesForProductStrategy(productStrategy).front();
 
-        if (((hasVoiceStream(streams) && outputDesc->isActive(toVolumeSource(AUDIO_STREAM_VOICE_CALL))) &&
+        if ((hasVoiceStream(streams) &&
+             (outputDesc->isActive(toVolumeSource(AUDIO_STREAM_VOICE_CALL)) || outputDesc == mPrimaryOutput) &&
              (isInCall() || mOutputs.isStrategyActiveOnSameModule(productStrategy, outputDesc))) ||
              (((hasStream(streams, AUDIO_STREAM_ALARM) && isStreamActive(AUDIO_STREAM_ALARM, 0)) ||
                (hasStream(streams, AUDIO_STREAM_ENFORCED_AUDIBLE) && isStreamActive(AUDIO_STREAM_ENFORCED_AUDIBLE, 0))) &&
