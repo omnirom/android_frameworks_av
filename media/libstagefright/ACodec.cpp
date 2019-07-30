@@ -3456,9 +3456,18 @@ status_t ACodec::setupVideoDecoder(
         err = setVideoPortFormatType(
                 kPortIndexOutput, OMX_VIDEO_CodingUnused, colorFormat, haveNativeWindow);
         if (err != OK) {
-            ALOGW("[%s] does not support color format %d",
-                  mComponentName.c_str(), colorFormat);
-            err = setSupportedOutputFormat(!haveNativeWindow /* getLegacyFlexibleFormat */);
+            int32_t thumbnailMode = 0;
+            if (msg->findInt32("thumbnail-mode", &thumbnailMode) &&
+                thumbnailMode) {
+                err = setVideoPortFormatType(
+                kPortIndexOutput, OMX_VIDEO_CodingUnused,
+                OMX_COLOR_FormatYUV420Planar, haveNativeWindow);
+            }
+            if (err != OK) {
+                ALOGW("[%s] does not support color format %d",
+                      mComponentName.c_str(), colorFormat);
+                err = setSupportedOutputFormat(!haveNativeWindow /* getLegacyFlexibleFormat */);
+            }
         }
     } else {
         err = setSupportedOutputFormat(!haveNativeWindow /* getLegacyFlexibleFormat */);
@@ -7515,6 +7524,22 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
 
             return err;
         }
+    }
+
+    int32_t nIFrameInterval = 0, nPFrames = 0, nBFrames = 0;
+    if (params->findInt32(KEY_I_FRAME_INTERVAL, &nIFrameInterval)) {
+        if (!params->findInt32(KEY_MAX_B_FRAMES, &nBFrames)) {
+            sp<AMessage> format = new AMessage;
+            getVendorParameters(kPortIndexOutput, format);
+            format->findInt32("vendor.qti-ext-enc-intra-period.n-bframes", &nBFrames);
+        }
+
+        nPFrames = setPFramesSpacing(nIFrameInterval, mFps, nBFrames);
+
+        sp<AMessage> updatedFormat = new AMessage;
+        updatedFormat->setInt32("vendor.qti-ext-enc-intra-period.n-pframes", nPFrames);
+        updatedFormat->setInt32("vendor.qti-ext-enc-intra-period.n-bframes", nBFrames);
+        setVendorParameters(updatedFormat);
     }
 
     int64_t timeOffsetUs;
