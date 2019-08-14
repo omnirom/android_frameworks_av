@@ -163,6 +163,38 @@ ssize_t DeviceVector::add(const sp<DeviceDescriptor>& item)
         ALOGW("DeviceVector::add device %08x already in", item->type());
         ret = -1;
     }
+
+    return ret;
+}
+
+int DeviceVector::do_compare(const void* lhs, const void* rhs) const {
+    const sp<DeviceDescriptor> ldevice = *reinterpret_cast<const sp<DeviceDescriptor>*>(lhs);
+    const sp<DeviceDescriptor> rdevice = *reinterpret_cast<const sp<DeviceDescriptor>*>(rhs);
+
+    audio_devices_t ltype = ldevice->type();
+    audio_devices_t rtype = rdevice->type();
+
+    String8 laddr = ldevice->address();
+    String8 raddr = rdevice->address();
+
+    audio_port_handle_t lId = ldevice->getId();
+    audio_port_handle_t rId = rdevice->getId();
+
+    int ret = 0;
+    if (ltype != rtype) {
+        // Sort by type
+        ret = strictly_order_type(rtype, ltype) - strictly_order_type(ltype, rtype);
+    } else if ((lId != 0 || rId != 0) && (lId != rId)) {
+        // Sort by Id, for devices of same type (higher priority for latest device)
+        ret = strictly_order_type(lId, rId) - strictly_order_type(rId, lId);
+    } else if ((laddr != "" || raddr != "") && (laddr != raddr)) {
+        // Sort by address, for devices of same type and no Id
+        ret = strictly_order_type(laddr, raddr) - strictly_order_type(raddr, laddr);
+    } else {
+        // fallback to default sort using pointer address
+        ret = SortedVector::do_compare(lhs, rhs);
+    }
+
     return ret;
 }
 
