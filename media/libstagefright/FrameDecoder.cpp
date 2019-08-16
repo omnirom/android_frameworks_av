@@ -541,11 +541,11 @@ status_t VideoFrameDecoder::onOutputReceived(
 
     if (srcFormat == OMX_COLOR_Format16bitRGB565 &&
         dstFormat() == OMX_COLOR_Format16bitRGB565) {
-        for (int h = 0; h < (2 * cropHeight); h++) {
-            memcpy(dst, src, cropWidth);
+        for (int h = 0; h < cropHeight; h++) {
+            memcpy(dst, src, cropWidth * 2);
 
-            dst = dst + cropWidth;
-            src = src + stride;
+            dst = dst + cropWidth * 2;
+            src = src + stride * 2;
         }
         return OK;
     }
