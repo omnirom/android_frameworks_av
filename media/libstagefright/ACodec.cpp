@@ -4542,22 +4542,17 @@ status_t ACodec::setupAVCEncoderParameters(const sp<AMessage> &msg) {
 status_t ACodec::configureImageGrid(
         const sp<AMessage> &msg, sp<AMessage> &outputFormat) {
     int32_t tileWidth, tileHeight, gridRows, gridCols;
-    OMX_BOOL useGrid = OMX_FALSE;
-    if (msg->findInt32("tile-width", &tileWidth) &&
-        msg->findInt32("tile-height", &tileHeight) &&
-        msg->findInt32("grid-rows", &gridRows) &&
-        msg->findInt32("grid-cols", &gridCols)) {
-        useGrid = OMX_TRUE;
-    }
-
-    if (!mIsImage && !useGrid) {
+    if (!msg->findInt32("tile-width", &tileWidth) ||
+        !msg->findInt32("tile-height", &tileHeight) ||
+        !msg->findInt32("grid-rows", &gridRows) ||
+        !msg->findInt32("grid-cols", &gridCols)) {
         return OK;
     }
 
     OMX_VIDEO_PARAM_ANDROID_IMAGEGRIDTYPE gridType;
     InitOMXParams(&gridType);
     gridType.nPortIndex = kPortIndexOutput;
-    gridType.bEnabled = useGrid;
+    gridType.bEnabled = OMX_TRUE;
     gridType.nTileWidth = tileWidth;
     gridType.nTileHeight = tileHeight;
     gridType.nGridRows = gridRows;
