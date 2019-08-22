@@ -42,15 +42,12 @@
 #include <set>
 #include <unordered_set>
 #include <vector>
-#include <AudioPolicyManagerInterface.h>
-#include <AudioPolicyEngineInstance.h>
 #include <cutils/properties.h>
 #include <utils/Log.h>
 #include <media/AudioParameter.h>
 #include <private/android_filesystem_config.h>
 #include <soundtrigger/SoundTrigger.h>
 #include <system/audio.h>
-#include <audio_policy_conf.h>
 #include "AudioPolicyManager.h"
 #include <Serializer.h>
 #include "TypeConverter.h"
@@ -2410,7 +2407,8 @@ void AudioPolicyManager::checkCloseInputs() {
     for (size_t i = 0; i < mInputs.size(); i++) {
         const sp<AudioInputDescriptor> input = mInputs.valueAt(i);
         if (input->clientsList().size() == 0
-                || !mAvailableInputDevices.containsAtLeastOne(input->supportedDevices())) {
+                || !mAvailableInputDevices.containsAtLeastOne(input->supportedDevices())
+                || (input->getAudioPort()->getFlags() & AUDIO_INPUT_FLAG_MMAP_NOIRQ) != 0) {
             inputsToClose.push_back(mInputs.keyAt(i));
         } else {
             bool close = false;
@@ -4318,14 +4316,6 @@ AudioPolicyManager::AudioPolicyManager(AudioPolicyClientInterface *clientInterfa
     initialize();
 }
 
-//  This check is to catch any legacy platform updating to Q without having
-//  switched to XML since its deprecation on O.
-// TODO: after Q release, remove this check and flag as XML is now the only
-//        option and all legacy platform should have transitioned to XML.
-#ifndef USE_XML_AUDIO_POLICY_CONF
-#error Audio policy no longer supports legacy .conf configuration format
-#endif
-
 void AudioPolicyManager::loadConfig() {
     if (deserializeAudioPolicyXmlConfig(getConfig()) != NO_ERROR) {
         ALOGE("could not load audio policy configuration file, setting defaults");
@@ -4334,17 +4324,18 @@ void AudioPolicyManager::loadConfig() {
 }
 
 status_t AudioPolicyManager::initialize() {
-    // Once policy config has been parsed, retrieve an instance of the engine and initialize it.
-    audio_policy::EngineInstance *engineInstance = audio_policy::EngineInstance::getInstance();
-    if (!engineInstance) {
-        ALOGE("%s:  Could not get an instance of policy engine", __FUNCTION__);
-        return NO_INIT;
-    }
-    // Retrieve the Policy Manager Interface
-    mEngine = engineInstance->queryInterface<AudioPolicyManagerInterface>();
-    if (mEngine == NULL) {
-        ALOGE("%s: Failed to get Policy Engine Interface", __FUNCTION__);
-        return NO_INIT;
+    {
+        auto engLib = EngineLibrary::load(
+                        "libaudiopolicyengine" + getConfig().getEngineLibraryNameSuffix() + ".so");
+        if (!engLib) {
+            ALOGE("%s: Failed to load the engine library", __FUNCTION__);
+            return NO_INIT;
+        }
+        mEngine = engLib->createEngine();
+        if (mEngine == nullptr) {
+            ALOGE("%s: Failed to instantiate the APM engine", __FUNCTION__);
+            return NO_INIT;
+        }
     }
     mEngine->setObserver(this);
     status_t status = mEngine->initCheck();
@@ -5232,8 +5223,10 @@ DeviceVector AudioPolicyManager::getNewOutputDevices(const sp<SwAudioOutputDescr
         auto attr = mEngine->getAllAttributesForProductStrategy(productStrategy).front();
 
         if ((hasVoiceStream(streams) &&
+             (outputDesc->isActive(toVolumeSource(AUDIO_STREAM_VOICE_CALL)) || outputDesc == mPrimaryOutput) &&
              (isInCall() || mOutputs.isStrategyActiveOnSameModule(productStrategy, outputDesc))) ||
-             ((hasStream(streams, AUDIO_STREAM_ALARM) || hasStream(streams, AUDIO_STREAM_ENFORCED_AUDIBLE)) &&
+             (((hasStream(streams, AUDIO_STREAM_ALARM) && isStreamActive(AUDIO_STREAM_ALARM, 0)) ||
+               (hasStream(streams, AUDIO_STREAM_ENFORCED_AUDIBLE) && isStreamActive(AUDIO_STREAM_ENFORCED_AUDIBLE, 0))) &&
                 mOutputs.isStrategyActiveOnSameModule(productStrategy, outputDesc)) ||
                 outputDesc->isStrategyActive(productStrategy)) {
             // Retrieval of devices for voice DL is done on primary output profile, cannot
