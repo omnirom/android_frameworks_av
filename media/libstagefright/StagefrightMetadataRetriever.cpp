@@ -511,22 +511,23 @@ void StagefrightMetadataRetriever::parseMetaData() {
     size_t numTracks = mExtractor->countTracks();
 
     char tmp[32];
-    sprintf(tmp, "%zu", numTracks);
+    constexpr auto tmpSize = sizeof(tmp);
+    snprintf(tmp, tmpSize, "%zu", numTracks);
 
     mMetaData.add(METADATA_KEY_NUM_TRACKS, String8(tmp));
 
     float captureFps;
     if (meta->findFloat(kKeyCaptureFramerate, &captureFps)) {
-        sprintf(tmp, "%f", captureFps);
+        snprintf(tmp, tmpSize, "%f", captureFps);
         mMetaData.add(METADATA_KEY_CAPTURE_FRAMERATE, String8(tmp));
     }
 
     int64_t exifOffset, exifSize;
     if (meta->findInt64(kKeyExifOffset, &exifOffset)
      && meta->findInt64(kKeyExifSize, &exifSize)) {
-        sprintf(tmp, "%lld", (long long)exifOffset);
+        snprintf(tmp, tmpSize, "%lld", (long long)exifOffset);
         mMetaData.add(METADATA_KEY_EXIF_OFFSET, String8(tmp));
-        sprintf(tmp, "%lld", (long long)exifSize);
+        snprintf(tmp, tmpSize, "%lld", (long long)exifSize);
         mMetaData.add(METADATA_KEY_EXIF_LENGTH, String8(tmp));
     }
 
@@ -577,11 +578,11 @@ void StagefrightMetadataRetriever::parseMetaData() {
                 trackMeta->findInt32(kKeyBitsPerSample, &bitsPerSample);
                 trackMeta->findInt32(kKeySampleRate, &sampleRate);
                 if (bitsPerSample >= 0) {
-                    sprintf(tmp, "%d", bitsPerSample);
+                    snprintf(tmp, tmpSize, "%d", bitsPerSample);
                     mMetaData.add(METADATA_KEY_BITS_PER_SAMPLE, String8(tmp));
                 }
                 if (sampleRate >= 0) {
-                    sprintf(tmp, "%d", sampleRate);
+                    snprintf(tmp, tmpSize, "%d", sampleRate);
                     mMetaData.add(METADATA_KEY_SAMPLERATE, String8(tmp));
                 }
             } else if (!hasVideo && !strncasecmp("video/", mime, 6)) {
@@ -629,7 +630,7 @@ void StagefrightMetadataRetriever::parseMetaData() {
     }
 
     // The duration value is a string representing the duration in ms.
-    sprintf(tmp, "%" PRId64, (maxDurationUs + 500) / 1000);
+    snprintf(tmp, tmpSize, "%" PRId64, (maxDurationUs + 500) / 1000);
     mMetaData.add(METADATA_KEY_DURATION, String8(tmp));
 
     if (hasAudio) {
@@ -639,17 +640,17 @@ void StagefrightMetadataRetriever::parseMetaData() {
     if (hasVideo) {
         mMetaData.add(METADATA_KEY_HAS_VIDEO, String8("yes"));
 
-        sprintf(tmp, "%d", videoWidth);
+        snprintf(tmp, tmpSize, "%d", videoWidth);
         mMetaData.add(METADATA_KEY_VIDEO_WIDTH, String8(tmp));
 
-        sprintf(tmp, "%d", videoHeight);
+        snprintf(tmp, tmpSize, "%d", videoHeight);
         mMetaData.add(METADATA_KEY_VIDEO_HEIGHT, String8(tmp));
 
-        sprintf(tmp, "%d", rotationAngle);
+        snprintf(tmp, tmpSize, "%d", rotationAngle);
         mMetaData.add(METADATA_KEY_VIDEO_ROTATION, String8(tmp));
 
         if (videoFrameCount > 0) {
-            sprintf(tmp, "%d", videoFrameCount);
+            snprintf(tmp, tmpSize, "%d", videoFrameCount);
             mMetaData.add(METADATA_KEY_VIDEO_FRAME_COUNT, String8(tmp));
         }
     }
@@ -657,31 +658,31 @@ void StagefrightMetadataRetriever::parseMetaData() {
     if (imageCount > 0) {
         mMetaData.add(METADATA_KEY_HAS_IMAGE, String8("yes"));
 
-        sprintf(tmp, "%d", imageCount);
+        snprintf(tmp, tmpSize, "%d", imageCount);
         mMetaData.add(METADATA_KEY_IMAGE_COUNT, String8(tmp));
 
-        sprintf(tmp, "%d", imagePrimary);
+        snprintf(tmp, tmpSize, "%d", imagePrimary);
         mMetaData.add(METADATA_KEY_IMAGE_PRIMARY, String8(tmp));
 
-        sprintf(tmp, "%d", imageWidth);
+        snprintf(tmp, tmpSize, "%d", imageWidth);
         mMetaData.add(METADATA_KEY_IMAGE_WIDTH, String8(tmp));
 
-        sprintf(tmp, "%d", imageHeight);
+        snprintf(tmp, tmpSize, "%d", imageHeight);
         mMetaData.add(METADATA_KEY_IMAGE_HEIGHT, String8(tmp));
 
-        sprintf(tmp, "%d", imageRotation);
+        snprintf(tmp, tmpSize, "%d", imageRotation);
         mMetaData.add(METADATA_KEY_IMAGE_ROTATION, String8(tmp));
     }
 
     if (numTracks == 1 && hasAudio && audioBitrate >= 0) {
-        sprintf(tmp, "%d", audioBitrate);
+        snprintf(tmp, tmpSize, "%d", audioBitrate);
         mMetaData.add(METADATA_KEY_BITRATE, String8(tmp));
     } else {
         off64_t sourceSize;
         if (mSource != NULL && mSource->getSize(&sourceSize) == OK) {
             int64_t avgBitRate = (int64_t)(sourceSize * 8E6 / maxDurationUs);
 
-            sprintf(tmp, "%" PRId64, avgBitRate);
+            snprintf(tmp, tmpSize, "%" PRId64, avgBitRate);
             mMetaData.add(METADATA_KEY_BITRATE, String8(tmp));
         }
     }
