@@ -383,7 +383,7 @@ OMXNodeInstance::OMXNodeInstance(
     mGraphicBufferEnabled[1] = false;
     mIsSecure = AString(name).endsWith(".secure");
     mLegacyAdaptiveExperiment = ADebug::isExperimentEnabled("legacy-adaptive");
-    if (!strcmp(mName, "qcom.encoder.tme")) {
+    if (!strcmp(mName, "qcom.encoder.tme") || !strcmp(mName, "qti.decoder.vc1sw")) {
         mQuirks = kRequiresAllocateBufferOnInputPorts | kRequiresAllocateBufferOnOutputPorts;
     }
 }
