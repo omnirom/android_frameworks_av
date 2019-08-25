@@ -17,7 +17,6 @@ LOCAL_C_INCLUDES:= \
         frameworks/av/media/libstagefright \
         frameworks/av/media/libstagefright/include \
         frameworks/native/include/media/openmax \
-        external/jpeg \
 
 LOCAL_CFLAGS += -Wno-multichar -Werror -Wall
 
@@ -154,9 +153,9 @@ include $(BUILD_EXECUTABLE)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= \
-        filters/argbtorgba.rs \
-        filters/nightvision.rs \
-        filters/saturation.rs \
+        filters/argbtorgba.rscript \
+        filters/nightvision.rscript \
+        filters/saturation.rscript \
         mediafilter.cpp \
 
 LOCAL_SHARED_LIBRARIES := \

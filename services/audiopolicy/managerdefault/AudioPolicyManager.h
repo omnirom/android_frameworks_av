@@ -35,7 +35,6 @@
 #include "AudioPolicyInterface.h"
 
 #include <AudioPolicyManagerObserver.h>
-#include <AudioGain.h>
 #include <AudioPolicyConfig.h>
 #include <AudioPort.h>
 #include <AudioPatch.h>
@@ -307,6 +306,8 @@ public:
             return volumeGroup != VOLUME_GROUP_NONE ? NO_ERROR : BAD_VALUE;
         }
 
+        status_t initialize();
+
 protected:
         // A constructor that allows more fine-grained control over initialization process,
         // used in automatic tests.
@@ -321,7 +322,6 @@ protected:
         //   - initialize.
         AudioPolicyConfig& getConfig() { return mConfig; }
         void loadConfig();
-        status_t initialize();
 
         // From AudioPolicyManagerObserver
         virtual const AudioPatchCollection &getAudioPatches() const
@@ -762,7 +762,7 @@ protected:
 protected:
         // Add or remove AC3 DTS encodings based on user preferences.
         void modifySurroundFormats(const sp<DeviceDescriptor>& devDesc, FormatVector *formatsPtr);
-        void modifySurroundChannelMasks(ChannelsVector *channelMasksPtr);
+        void modifySurroundChannelMasks(ChannelMaskSet *channelMasksPtr);
 
         // Support for Multi-Stream Decoder (MSD) module
         sp<DeviceDescriptor> getMsdAudioInDevice() const;

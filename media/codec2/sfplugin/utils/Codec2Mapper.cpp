@@ -382,10 +382,11 @@ ALookup<C2Config::profile_t, int32_t> sAv1Profiles = {
     // TODO: will need to disambiguate between Main8 and Main10
     { C2Config::PROFILE_AV1_0, AV1ProfileMain8 },
     { C2Config::PROFILE_AV1_0, AV1ProfileMain10 },
+    { C2Config::PROFILE_AV1_0, AV1ProfileMain10HDR10 },
+    { C2Config::PROFILE_AV1_0, AV1ProfileMain10HDR10Plus },
 };
 
 ALookup<C2Config::profile_t, int32_t> sAv1HdrProfiles = {
-    { C2Config::PROFILE_AV1_0, AV1ProfileMain10 },
     { C2Config::PROFILE_AV1_0, AV1ProfileMain10HDR10 },
 };
 
@@ -629,7 +630,7 @@ private:
 // static
 std::shared_ptr<C2Mapper::ProfileLevelMapper>
 C2Mapper::GetProfileLevelMapper(std::string mediaType) {
-    std::transform(mediaType.begin(), mediaType.begin(), mediaType.end(), ::tolower);
+    std::transform(mediaType.begin(), mediaType.end(), mediaType.begin(), ::tolower);
     if (mediaType == MIMETYPE_AUDIO_AAC) {
         return std::make_shared<AacProfileLevelMapper>();
     } else if (mediaType == MIMETYPE_VIDEO_AVC) {
@@ -657,11 +658,13 @@ C2Mapper::GetProfileLevelMapper(std::string mediaType) {
 // static
 std::shared_ptr<C2Mapper::ProfileLevelMapper>
 C2Mapper::GetHdrProfileLevelMapper(std::string mediaType, bool isHdr10Plus) {
-    std::transform(mediaType.begin(), mediaType.begin(), mediaType.end(), ::tolower);
+    std::transform(mediaType.begin(), mediaType.end(), mediaType.begin(), ::tolower);
     if (mediaType == MIMETYPE_VIDEO_HEVC) {
         return std::make_shared<HevcProfileLevelMapper>(true, isHdr10Plus);
     } else if (mediaType == MIMETYPE_VIDEO_VP9) {
         return std::make_shared<Vp9ProfileLevelMapper>(true, isHdr10Plus);
+    } else if (mediaType == MIMETYPE_VIDEO_AV1) {
+        return std::make_shared<Av1ProfileLevelMapper>(true, isHdr10Plus);
     }
     return nullptr;
 }

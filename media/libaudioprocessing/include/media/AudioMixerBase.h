@@ -1,6 +1,6 @@
 /*
 **
-** Copyright 2007, The Android Open Source Project
+** Copyright 2019, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -15,49 +15,39 @@
 ** limitations under the License.
 */
 
-#ifndef ANDROID_AUDIO_MIXER_H
-#define ANDROID_AUDIO_MIXER_H
+#ifndef ANDROID_AUDIO_MIXER_BASE_H
+#define ANDROID_AUDIO_MIXER_BASE_H
 
 #include <map>
-#include <pthread.h>
-#include <sstream>
-#include <stdint.h>
-#include <sys/types.h>
+#include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
-#include <android/os/IExternalVibratorService.h>
 #include <media/AudioBufferProvider.h>
 #include <media/AudioResampler.h>
 #include <media/AudioResamplerPublic.h>
-#include <media/BufferProviders.h>
 #include <system/audio.h>
 #include <utils/Compat.h>
-#include <utils/threads.h>
-
-// FIXME This is actually unity gain, which might not be max in future, expressed in U.12
-#define MAX_GAIN_INT AudioMixer::UNITY_GAIN_INT
 
 // This must match frameworks/av/services/audioflinger/Configuration.h
+// when used with the Audio Framework.
 #define FLOAT_AUX
 
 namespace android {
 
-namespace NBLog {
-class Writer;
-}   // namespace NBLog
-
 // ----------------------------------------------------------------------------
 
-class AudioMixer
+// AudioMixerBase is functional on its own if only mixing and resampling
+// is needed.
+
+class AudioMixerBase
 {
 public:
     // Do not change these unless underlying code changes.
     // This mixer has a hard-coded upper limit of 8 channels for output.
     static constexpr uint32_t MAX_NUM_CHANNELS = FCC_8;
     static constexpr uint32_t MAX_NUM_VOLUMES = FCC_2; // stereo volume only
-    // maximum number of channels supported for the content
-    static const uint32_t MAX_NUM_CHANNELS_TO_DOWNMIX = AUDIO_CHANNEL_COUNT_MAX;
 
     static const uint16_t UNITY_GAIN_INT = 0x1000;
     static const CONSTEXPR float UNITY_GAIN_FLOAT = 1.0f;
@@ -76,12 +66,9 @@ public:
         FORMAT          = 0x4001,
         MAIN_BUFFER     = 0x4002,
         AUX_BUFFER      = 0x4003,
-        DOWNMIX_TYPE    = 0X4004,
+        // 0x4004 reserved
         MIXER_FORMAT    = 0x4005, // AUDIO_FORMAT_PCM_(FLOAT|16_BIT)
         MIXER_CHANNEL_MASK = 0x4006, // Channel mask for mixer output
-        // for haptic
-        HAPTIC_ENABLED  = 0x4007, // Set haptic data from this track should be played or not.
-        HAPTIC_INTENSITY = 0x4008, // Set the intensity to play haptic data.
         // for target RESAMPLE
         SAMPLE_RATE     = 0x4100, // Configure sample rate conversion on this track name;
                                   // parameter 'value' is the new sample rate in Hz.
@@ -99,42 +86,17 @@ public:
         VOLUME0         = 0x4200,
         VOLUME1         = 0x4201,
         AUXLEVEL        = 0x4210,
-        // for target TIMESTRETCH
-        PLAYBACK_RATE   = 0x4300, // Configure timestretch on this track name;
-                                  // parameter 'value' is a pointer to the new playback rate.
     };
 
-    typedef enum { // Haptic intensity, should keep consistent with VibratorService
-        HAPTIC_SCALE_MUTE = os::IExternalVibratorService::SCALE_MUTE,
-        HAPTIC_SCALE_VERY_LOW = os::IExternalVibratorService::SCALE_VERY_LOW,
-        HAPTIC_SCALE_LOW = os::IExternalVibratorService::SCALE_LOW,
-        HAPTIC_SCALE_NONE = os::IExternalVibratorService::SCALE_NONE,
-        HAPTIC_SCALE_HIGH = os::IExternalVibratorService::SCALE_HIGH,
-        HAPTIC_SCALE_VERY_HIGH = os::IExternalVibratorService::SCALE_VERY_HIGH,
-    } haptic_intensity_t;
-    static constexpr float HAPTIC_SCALE_VERY_LOW_RATIO = 2.0f / 3.0f;
-    static constexpr float HAPTIC_SCALE_LOW_RATIO = 3.0f / 4.0f;
-    static const constexpr float HAPTIC_MAX_AMPLITUDE_FLOAT = 1.0f;
-
-    static inline bool isValidHapticIntensity(haptic_intensity_t hapticIntensity) {
-        switch (hapticIntensity) {
-        case HAPTIC_SCALE_MUTE:
-        case HAPTIC_SCALE_VERY_LOW:
-        case HAPTIC_SCALE_LOW:
-        case HAPTIC_SCALE_NONE:
-        case HAPTIC_SCALE_HIGH:
-        case HAPTIC_SCALE_VERY_HIGH:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    AudioMixer(size_t frameCount, uint32_t sampleRate)
+    AudioMixerBase(size_t frameCount, uint32_t sampleRate)
         : mSampleRate(sampleRate)
         , mFrameCount(frameCount) {
-        pthread_once(&sOnceControl, &sInitRoutine);
     }
+
+    virtual ~AudioMixerBase() {}
+
+    virtual bool isValidFormat(audio_format_t format) const;
+    virtual bool isValidChannelMask(audio_channel_mask_t channelMask) const;
 
     // Create a new track in the mixer.
     //
@@ -162,54 +124,34 @@ public:
     void        enable(int name);
     void        disable(int name);
 
-    void        setParameter(int name, int target, int param, void *value);
-
-    void        setBufferProvider(int name, AudioBufferProvider* bufferProvider);
+    virtual void setParameter(int name, int target, int param, void *value);
 
     void        process() {
-        for (const auto &pair : mTracks) {
-            // Clear contracted buffer before processing if contracted channels are saved
-            const std::shared_ptr<Track> &t = pair.second;
-            if (t->mKeepContractedChannels) {
-                t->clearContractedBuffer();
-            }
-        }
+        preProcess();
         (this->*mHook)();
-        processHapticData();
+        postProcess();
     }
 
     size_t      getUnreleasedFrames(int name) const;
 
-    std::string trackNames() const {
-        std::stringstream ss;
-        for (const auto &pair : mTracks) {
-            ss << pair.first << " ";
-        }
-        return ss.str();
-    }
+    std::string trackNames() const;
 
-    void        setNBLogWriter(NBLog::Writer *logWriter) {
-        mNBLogWriter = logWriter;
-    }
+  protected:
+    // Set kUseNewMixer to true to use the new mixer engine always. Otherwise the
+    // original code will be used for stereo sinks, the new mixer for everything else.
+    static constexpr bool kUseNewMixer = true;
 
-    static inline bool isValidFormat(audio_format_t format) {
-        switch (format) {
-        case AUDIO_FORMAT_PCM_8_BIT:
-        case AUDIO_FORMAT_PCM_16_BIT:
-        case AUDIO_FORMAT_PCM_24_BIT_PACKED:
-        case AUDIO_FORMAT_PCM_32_BIT:
-        case AUDIO_FORMAT_PCM_FLOAT:
-            return true;
-        default:
-            return false;
-        }
-    }
+    // Set kUseFloat to true to allow floating input into the mixer engine.
+    // If kUseNewMixer is false, this is ignored or may be overridden internally
+    static constexpr bool kUseFloat = true;
 
-    static inline bool isValidChannelMask(audio_channel_mask_t channelMask) {
-        return audio_channel_mask_is_valid(channelMask); // the RemixBufferProvider is flexible.
-    }
-
-private:
+#ifdef FLOAT_AUX
+    using TYPE_AUX = float;
+    static_assert(kUseNewMixer && kUseFloat,
+            "kUseNewMixer and kUseFloat must be true for FLOAT_AUX option");
+#else
+    using TYPE_AUX = int32_t; // q4.27
+#endif
 
     /* For multi-format functions (calls template functions
      * in AudioMixerOps.h).  The template parameters are as follows:
@@ -251,51 +193,31 @@ private:
     };
 
     // process hook functionality
-    using process_hook_t = void(AudioMixer::*)();
+    using process_hook_t = void(AudioMixerBase::*)();
 
-    struct Track;
-    using hook_t = void(Track::*)(int32_t* output, size_t numOutFrames, int32_t* temp, int32_t* aux);
+    struct TrackBase;
+    using hook_t = void(TrackBase::*)(
+            int32_t* output, size_t numOutFrames, int32_t* temp, int32_t* aux);
 
-    struct Track {
-        Track()
+    struct TrackBase {
+        TrackBase()
             : bufferProvider(nullptr)
         {
             // TODO: move additional initialization here.
         }
+        virtual ~TrackBase() {}
 
-        ~Track()
-        {
-            // bufferProvider, mInputBufferProvider need not be deleted.
-            mResampler.reset(nullptr);
-            // Ensure the order of destruction of buffer providers as they
-            // release the upstream provider in the destructor.
-            mTimestretchBufferProvider.reset(nullptr);
-            mPostDownmixReformatBufferProvider.reset(nullptr);
-            mDownmixerBufferProvider.reset(nullptr);
-            mReformatBufferProvider.reset(nullptr);
-            mContractChannelsNonDestructiveBufferProvider.reset(nullptr);
-            mAdjustChannelsBufferProvider.reset(nullptr);
-        }
+        virtual uint32_t getOutputChannelCount() { return channelCount; }
+        virtual uint32_t getMixerChannelCount() { return mMixerChannelCount; }
 
         bool        needsRamp() { return (volumeInc[0] | volumeInc[1] | auxInc) != 0; }
         bool        setResampler(uint32_t trackSampleRate, uint32_t devSampleRate);
         bool        doesResample() const { return mResampler.get() != nullptr; }
+        void        recreateResampler(uint32_t devSampleRate);
         void        resetResampler() { if (mResampler.get() != nullptr) mResampler->reset(); }
         void        adjustVolumeRamp(bool aux, bool useFloat = false);
         size_t      getUnreleasedFrames() const { return mResampler.get() != nullptr ?
                                                     mResampler->getUnreleasedFrames() : 0; };
-
-        status_t    prepareForDownmix();
-        void        unprepareForDownmix();
-        status_t    prepareForReformat();
-        void        unprepareForReformat();
-        status_t    prepareForAdjustChannels();
-        void        unprepareForAdjustChannels();
-        status_t    prepareForAdjustChannelsNonDestructive(size_t frames);
-        void        unprepareForAdjustChannelsNonDestructive();
-        void        clearContractedBuffer();
-        bool        setPlaybackRate(const AudioPlaybackRate &playbackRate);
-        void        reconfigureBufferProviders();
 
         static hook_t getTrackHook(int trackType, uint32_t channelCount,
                 audio_format_t mixerInFormat, audio_format_t mixerOutFormat);
@@ -327,8 +249,7 @@ private:
         uint16_t    enabled;        // actually bool
         audio_channel_mask_t channelMask;
 
-        // actual buffer provider used by the track hooks, see DownmixerBufferProvider below
-        //  for how the Track buffer provider is wrapped by another one when dowmixing is required
+        // actual buffer provider used by the track hooks
         AudioBufferProvider*                bufferProvider;
 
         mutable AudioBufferProvider::Buffer buffer; // 8 bytes
@@ -337,41 +258,9 @@ private:
         const void  *mIn;             // current location in buffer
 
         std::unique_ptr<AudioResampler> mResampler;
-        uint32_t            sampleRate;
-        int32_t*           mainBuffer;
-        int32_t*           auxBuffer;
-
-        /* Buffer providers are constructed to translate the track input data as needed.
-         *
-         * TODO: perhaps make a single PlaybackConverterProvider class to move
-         * all pre-mixer track buffer conversions outside the AudioMixer class.
-         *
-         * 1) mInputBufferProvider: The AudioTrack buffer provider.
-         * 2) mAdjustChannelsBufferProvider: Expands or contracts sample data from one interleaved
-         *    channel format to another. Expanded channels are filled with zeros and put at the end
-         *    of each audio frame. Contracted channels are copied to the end of the buffer.
-         * 3) mContractChannelsNonDestructiveBufferProvider: Non-destructively contract sample data.
-         *    This is currently using at audio-haptic coupled playback to separate audio and haptic
-         *    data. Contracted channels could be written to given buffer.
-         * 4) mReformatBufferProvider: If not NULL, performs the audio reformat to
-         *    match either mMixerInFormat or mDownmixRequiresFormat, if the downmixer
-         *    requires reformat. For example, it may convert floating point input to
-         *    PCM_16_bit if that's required by the downmixer.
-         * 5) mDownmixerBufferProvider: If not NULL, performs the channel remixing to match
-         *    the number of channels required by the mixer sink.
-         * 6) mPostDownmixReformatBufferProvider: If not NULL, performs reformatting from
-         *    the downmixer requirements to the mixer engine input requirements.
-         * 7) mTimestretchBufferProvider: Adds timestretching for playback rate
-         */
-        AudioBufferProvider*     mInputBufferProvider;    // externally provided buffer provider.
-        // TODO: combine mAdjustChannelsBufferProvider and
-        // mContractChannelsNonDestructiveBufferProvider
-        std::unique_ptr<PassthruBufferProvider> mAdjustChannelsBufferProvider;
-        std::unique_ptr<PassthruBufferProvider> mContractChannelsNonDestructiveBufferProvider;
-        std::unique_ptr<PassthruBufferProvider> mReformatBufferProvider;
-        std::unique_ptr<PassthruBufferProvider> mDownmixerBufferProvider;
-        std::unique_ptr<PassthruBufferProvider> mPostDownmixReformatBufferProvider;
-        std::unique_ptr<PassthruBufferProvider> mTimestretchBufferProvider;
+        uint32_t    sampleRate;
+        int32_t*    mainBuffer;
+        int32_t*    auxBuffer;
 
         int32_t     sessionId;
 
@@ -379,9 +268,6 @@ private:
         audio_format_t mFormat;          // input track format
         audio_format_t mMixerInFormat;   // mix internal format AUDIO_FORMAT_PCM_(FLOAT|16_BIT)
                                          // each track must be converted to this format.
-        audio_format_t mDownmixRequiresFormat;  // required downmixer format
-                                                // AUDIO_FORMAT_PCM_16_BIT if 16 bit necessary
-                                                // AUDIO_FORMAT_INVALID if no required format
 
         float          mVolume[MAX_NUM_VOLUMES];     // floating point set volume
         float          mPrevVolume[MAX_NUM_VOLUMES]; // floating point previous volume
@@ -394,54 +280,8 @@ private:
         audio_channel_mask_t mMixerChannelMask;
         uint32_t             mMixerChannelCount;
 
-        AudioPlaybackRate    mPlaybackRate;
+      protected:
 
-        // Haptic
-        bool                 mHapticPlaybackEnabled;
-        haptic_intensity_t   mHapticIntensity;
-        audio_channel_mask_t mHapticChannelMask;
-        uint32_t             mHapticChannelCount;
-        audio_channel_mask_t mMixerHapticChannelMask;
-        uint32_t             mMixerHapticChannelCount;
-        uint32_t             mAdjustInChannelCount;
-        uint32_t             mAdjustOutChannelCount;
-        uint32_t             mAdjustNonDestructiveInChannelCount;
-        uint32_t             mAdjustNonDestructiveOutChannelCount;
-        bool                 mKeepContractedChannels;
-
-        float getHapticScaleGamma() const {
-        // Need to keep consistent with the value in VibratorService.
-        switch (mHapticIntensity) {
-        case HAPTIC_SCALE_VERY_LOW:
-            return 2.0f;
-        case HAPTIC_SCALE_LOW:
-            return 1.5f;
-        case HAPTIC_SCALE_HIGH:
-            return 0.5f;
-        case HAPTIC_SCALE_VERY_HIGH:
-            return 0.25f;
-        default:
-            return 1.0f;
-        }
-        }
-
-        float getHapticMaxAmplitudeRatio() const {
-        // Need to keep consistent with the value in VibratorService.
-        switch (mHapticIntensity) {
-        case HAPTIC_SCALE_VERY_LOW:
-            return HAPTIC_SCALE_VERY_LOW_RATIO;
-        case HAPTIC_SCALE_LOW:
-            return HAPTIC_SCALE_LOW_RATIO;
-        case HAPTIC_SCALE_NONE:
-        case HAPTIC_SCALE_HIGH:
-        case HAPTIC_SCALE_VERY_HIGH:
-            return 1.0f;
-        default:
-            return 0.0f;
-        }
-        }
-
-    private:
         // hooks
         void track__genericResample(int32_t* out, size_t numFrames, int32_t* temp, int32_t* aux);
         void track__16BitsStereo(int32_t* out, size_t numFrames, int32_t* temp, int32_t* aux);
@@ -457,15 +297,24 @@ private:
         void track__NoResample(TO* out, size_t frameCount, TO* temp __unused, TA* aux);
     };
 
-    // TODO: remove BLOCKSIZE unit of processing - it isn't needed anymore.
-    static constexpr int BLOCKSIZE = 16;
+    // preCreateTrack must create an instance of a proper TrackBase descendant.
+    // postCreateTrack is called after filling out fields of TrackBase. It can
+    // abort track creation by returning non-OK status. See the implementation
+    // of create() for details.
+    virtual std::shared_ptr<TrackBase> preCreateTrack();
+    virtual status_t postCreateTrack(TrackBase *track __unused) { return OK; }
 
-    bool setChannelMasks(int name,
+    // preProcess is called before the process hook, postProcess after,
+    // see the implementation of process() method.
+    virtual void preProcess() {}
+    virtual void postProcess() {}
+
+    virtual bool setChannelMasks(int name,
             audio_channel_mask_t trackChannelMask, audio_channel_mask_t mixerChannelMask);
 
     // Called when track info changes and a new process hook should be determined.
     void invalidate() {
-        mHook = &AudioMixer::process__validate;
+        mHook = &AudioMixerBase::process__validate;
     }
 
     void process__validate();
@@ -477,23 +326,17 @@ private:
     template <int MIXTYPE, typename TO, typename TI, typename TA>
     void process__noResampleOneTrack();
 
-    void processHapticData();
-
     static process_hook_t getProcessHook(int processType, uint32_t channelCount,
             audio_format_t mixerInFormat, audio_format_t mixerOutFormat);
 
     static void convertMixerFormat(void *out, audio_format_t mixerOutFormat,
             void *in, audio_format_t mixerInFormat, size_t sampleCount);
 
-    static void sInitRoutine();
-
     // initialization constants
     const uint32_t mSampleRate;
     const size_t mFrameCount;
 
-    NBLog::Writer *mNBLogWriter = nullptr;   // associated NBLog::Writer
-
-    process_hook_t mHook = &AudioMixer::process__nop;   // one of process__*, never nullptr
+    process_hook_t mHook = &AudioMixerBase::process__nop;   // one of process__*, never nullptr
 
     // the size of the type (int32_t) should be the largest of all types supported
     // by the mixer.
@@ -508,12 +351,9 @@ private:
     std::vector<int /* name */> mEnabled;
 
     // track smart pointers, by name, in increasing order of name.
-    std::map<int /* name */, std::shared_ptr<Track>> mTracks;
-
-    static pthread_once_t sOnceControl; // initialized in constructor by first new
+    std::map<int /* name */, std::shared_ptr<TrackBase>> mTracks;
 };
 
-// ----------------------------------------------------------------------------
-} // namespace android
+}  // namespace android
 
-#endif // ANDROID_AUDIO_MIXER_H
+#endif  // ANDROID_AUDIO_MIXER_BASE_H
