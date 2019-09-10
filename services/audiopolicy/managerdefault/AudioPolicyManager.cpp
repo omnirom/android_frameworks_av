@@ -1906,6 +1906,12 @@ void AudioPolicyManager::releaseOutput(audio_port_handle_t portId)
 
     ALOGV("releaseOutput() %d", outputDesc->mIoHandle);
 
+    sp<TrackClientDescriptor> client = outputDesc->getClient(portId);
+    if (outputDesc->isClientActive(client)) {
+        ALOGW("releaseOutput() inactivates portId %d in good faith", portId);
+        stopOutput(portId);
+    }
+
     if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_DIRECT) {
         if (outputDesc->mDirectOpenCount <= 0) {
             ALOGW("releaseOutput() invalid open count %d for output %d",
@@ -1917,9 +1923,7 @@ void AudioPolicyManager::releaseOutput(audio_port_handle_t portId)
             mpClientInterface->onAudioPortListUpdate();
         }
     }
-    // stopOutput() needs to be successfully called before releaseOutput()
-    // otherwise there may be inaccurate stream reference counts.
-    // This is checked in outputDesc->removeClient below.
+
     outputDesc->removeClient(portId);
 }
 
