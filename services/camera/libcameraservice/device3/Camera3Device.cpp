@@ -5109,9 +5109,15 @@ status_t Camera3Device::RequestThread::clear(
 
 status_t Camera3Device::RequestThread::flush() {
     ATRACE_CALL();
+    status_t flush_status;
     Mutex::Autolock l(mFlushLock);
 
-    return mInterface->flush();
+    flush_status = mInterface->flush();
+    // We have completed flush, signal RequestThread::waitForNextRequestLocked() to no longer wait for
+    // new requests
+    mRequestSignal.signal();
+
+    return flush_status;
 }
 
 void Camera3Device::RequestThread::setPaused(bool paused) {
