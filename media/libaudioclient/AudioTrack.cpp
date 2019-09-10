@@ -2663,7 +2663,7 @@ status_t AudioTrack::getTimestamp_l(AudioTimestamp& timestamp)
     // To avoid a race, read the presented frames first.  This ensures that presented <= consumed.
 
     status_t status;
-    if (isOffloadedOrDirect_l() || mTrackOffloaded) {
+    if (isOffloadedOrDirect_l()) {
         // use Binder to get timestamp
         status = mAudioTrack->getTimestamp(timestamp);
     } else {
