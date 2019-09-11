@@ -1052,6 +1052,14 @@ bool NuPlayer::Decoder::onInputBufferFetched(const sp<AMessage> &msg) {
             }
         }
 
+        sp<ABuffer> hdr10PlusInfo;
+        if (buffer->meta()->findBuffer("hdr10-plus-info", &hdr10PlusInfo) &&
+                hdr10PlusInfo != NULL) {
+           sp<AMessage> hdr10PlusMsg = new AMessage;
+           hdr10PlusMsg->setBuffer("hdr10-plus-info", hdr10PlusInfo);
+           mCodec->setParameters(hdr10PlusMsg);
+        }
+
         int64_t timeUs = 0;
         uint32_t flags = 0;
         CHECK(buffer->meta()->findInt64("timeUs", &timeUs));

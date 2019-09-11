@@ -229,6 +229,13 @@ status_t AnotherPacketSource::read(
                     kKeyAudioPresentationInfo, 0, ap->data(), ap->size());
         }
 
+        sp<ABuffer> hdr10PlusInfo;
+        if (buffer->meta()->findBuffer("hdr10-plus-info", &hdr10PlusInfo) &&
+                hdr10PlusInfo != NULL) {
+            bufmeta.setData(
+                    kKeyHdr10PlusInfo, 0, hdr10PlusInfo->data(), hdr10PlusInfo->size());
+        }
+
         int32_t cryptoMode;
         if (buffer->meta()->findInt32("cryptoMode", &cryptoMode)) {
             int32_t cryptoKey;
