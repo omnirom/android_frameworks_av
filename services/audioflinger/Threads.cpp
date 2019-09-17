@@ -1986,10 +1986,7 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
               *flags, outputFlags);
         *flags = (audio_output_flags_t)(*flags & outputFlags);
     }
-    if ((*flags == AUDIO_OUTPUT_FLAG_NONE) && (outputFlags == AUDIO_OUTPUT_FLAG_DIRECT)) {
-        *flags = AUDIO_OUTPUT_FLAG_DIRECT;
-        ALOGV("createTrack_l() force track flag to AUDIO_OUTPUT_FLAG_DIRECT");
-    }
+
     // client expresses a preference for FAST, but we get the final say
     if (*flags & AUDIO_OUTPUT_FLAG_FAST) {
       if (
