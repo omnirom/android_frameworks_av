@@ -156,6 +156,8 @@ const char *GetComponentRole(bool isEncoder, const char *mime) {
             "video_decoder.mpeg4", NULL },
         { MEDIA_MIMETYPE_VIDEO_TME,
           NULL, "video_encoder.tme" },
+        { MEDIA_MIMETYPE_AUDIO_MHAS,
+            "audio_decoder.mpegh", "audio_encoder.mpegh" },
 #endif
         { MEDIA_MIMETYPE_AUDIO_MPEG,
             "audio_decoder.mp3", "audio_encoder.mp3" },
