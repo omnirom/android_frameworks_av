@@ -5641,10 +5641,6 @@ void ACodec::sendFormatChange() {
         mSkipCutBuffer = new SkipCutBuffer(mEncoderDelay, mEncoderPadding, channelCount);
     }
 
-    int32_t isVQZIPSession;
-    if (mInputFormat->findInt32("vqzip", &isVQZIPSession) && isVQZIPSession) {
-        getVQZIPInfo(mOutputFormat);
-    }
 
     // mLastOutputFormat is not used when tunneled; doing this just to stay consistent
     mLastOutputFormat = mOutputFormat;

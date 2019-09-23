@@ -362,9 +362,12 @@ status_t AudioProfileVector::checkCompatibleProfile(uint32_t &samplingRate,
         return NO_ERROR;
     }
 
-    const bool checkInexact = // when port is input and format is linear pcm
+    bool checkInexact = // when port is input and format is linear pcm
             portType == AUDIO_PORT_TYPE_MIX && portRole == AUDIO_PORT_ROLE_SINK
             && audio_is_linear_pcm(format);
+
+    // always check exact for 8bit pcm as lack of conversion
+    checkInexact = checkInexact && (format != AUDIO_FORMAT_PCM_8_BIT);
 
     // iterate from best format to worst format (reverse order)
     for (ssize_t i = size() - 1; i >= 0 ; --i) {
