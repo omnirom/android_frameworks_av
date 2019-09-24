@@ -6026,6 +6026,7 @@ void AudioFlinger::DirectOutputThread::flushHw_l()
     mOutput->flush();
     mHwPaused = false;
     mFlushPending = false;
+    mFramesWritten = 0;
     mFramesWrittenAtStandby = 0;
     mFramesWrittenForSleep = 0;
     mTimestampVerifier.discontinuity(); // DIRECT and OFFLOADED flush resets frame count.
