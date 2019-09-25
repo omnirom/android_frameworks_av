@@ -1265,6 +1265,9 @@ void AudioFlinger::PlaybackThread::Track::setTeePatches(TeePatches teePatches) {
 
 status_t AudioFlinger::PlaybackThread::Track::getTimestamp(AudioTimestamp& timestamp)
 {
+    if (!isOffloaded() && !isDirect()) {
+        return INVALID_OPERATION; // normal tracks handled through SSQ
+    }
     sp<ThreadBase> thread = mThread.promote();
     if (thread == 0) {
         return INVALID_OPERATION;
