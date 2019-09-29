@@ -224,7 +224,7 @@ CCodecBufferChannel::CCodecBufferChannel(
       mFirstValidFrameIndex(0u),
       mMetaMode(MODE_NONE),
       mInputMetEos(false) {
-    mOutputSurface.lock()->maxDequeueBuffers = kSmoothnessFactor + kRenderingDepth;
+    mOutputSurface.lock()->maxDequeueBuffers = 2 * kSmoothnessFactor + kRenderingDepth;
     {
         Mutexed<Input>::Locked input(mInput);
         input->buffers.reset(new DummyInputBuffers(""));
@@ -948,7 +948,8 @@ status_t CCodecBufferChannel::start(
         uint32_t outputGeneration;
         {
             Mutexed<OutputSurface>::Locked output(mOutputSurface);
-            output->maxDequeueBuffers = numOutputSlots + reorderDepth.value + kRenderingDepth;
+            output->maxDequeueBuffers = numOutputSlots + numInputSlots +
+                    reorderDepth.value + kRenderingDepth;
             outputSurface = output->surface ?
                     output->surface->getIGraphicBufferProducer() : nullptr;
             if (outputSurface) {
@@ -1079,8 +1080,7 @@ status_t CCodecBufferChannel::start(
                     outputGeneration);
         }
 
-        if (oStreamFormat.value == C2BufferData::LINEAR
-                && mComponentName.find("c2.qti.") == std::string::npos) {
+        if (oStreamFormat.value == C2BufferData::LINEAR) {
             // WORKAROUND: if we're using early CSD workaround we convert to
             //             array mode, to appease apps assuming the output
             //             buffers to be of the same size.
@@ -1132,8 +1132,9 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
     }
 
     C2StreamBufferTypeSetting::output oStreamFormat(0u);
-    c2_status_t err = mComponent->query({ &oStreamFormat }, {}, C2_DONT_BLOCK, nullptr);
-    if (err != C2_OK) {
+    C2PrependHeaderModeSetting prepend(PREPEND_HEADER_TO_NONE);
+    c2_status_t err = mComponent->query({ &oStreamFormat, &prepend }, {}, C2_DONT_BLOCK, nullptr);
+    if (err != C2_OK && err != C2_BAD_INDEX) {
         return UNKNOWN_ERROR;
     }
     size_t numInputSlots = mInput.lock()->numSlots;
@@ -1173,7 +1174,7 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                             mName, buffer->capacity(), config->size());
                 }
             } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0
-                    && mComponentName.find("c2.qti.") == std::string::npos) {
+                        && (!prepend || prepend.value == PREPEND_HEADER_TO_NONE)) {
                 // WORKAROUND: Some apps expect CSD available without queueing
                 //             any input. Queue an empty buffer to get the CSD.
                 buffer->setRange(0, 0);
@@ -1332,9 +1333,10 @@ bool CCodecBufferChannel::handleWork(
                     ALOGV("[%s] onWorkDone: updated reorder depth to %u",
                           mName, reorderDepth.value);
                     size_t numOutputSlots = mOutput.lock()->numSlots;
+                    size_t numInputSlots = mInput.lock()->numSlots;
                     Mutexed<OutputSurface>::Locked output(mOutputSurface);
-                    output->maxDequeueBuffers =
-                        numOutputSlots + reorderDepth.value + kRenderingDepth;
+                    output->maxDequeueBuffers = numOutputSlots + numInputSlots +
+                            reorderDepth.value + kRenderingDepth;
                     if (output->surface) {
                         output->surface->setMaxDequeuedBufferCount(output->maxDequeueBuffers);
                     }
@@ -1382,6 +1384,7 @@ bool CCodecBufferChannel::handleWork(
 
                         bool outputBuffersChanged = false;
                         size_t numOutputSlots = 0;
+                        size_t numInputSlots = mInput.lock()->numSlots;
                         {
                             Mutexed<Output>::Locked output(mOutput);
                             output->outputDelay = outputDelay.value;
@@ -1406,7 +1409,8 @@ bool CCodecBufferChannel::handleWork(
 
                         uint32_t depth = mReorderStash.lock()->depth();
                         Mutexed<OutputSurface>::Locked output(mOutputSurface);
-                        output->maxDequeueBuffers = numOutputSlots + depth + kRenderingDepth;
+                        output->maxDequeueBuffers = numOutputSlots + numInputSlots +
+                                depth + kRenderingDepth;
                         if (output->surface) {
                             output->surface->setMaxDequeuedBufferCount(output->maxDequeueBuffers);
                         }

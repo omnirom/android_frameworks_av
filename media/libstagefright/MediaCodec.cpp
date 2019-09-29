@@ -57,7 +57,6 @@
 #include <media/stagefright/OMXClient.h>
 #include <media/stagefright/PersistentSurface.h>
 #include <media/stagefright/SurfaceUtils.h>
-#include <mediautils/BatteryNotifier.h>
 #include <private/android_filesystem_config.h>
 #include <utils/Singleton.h>
 #include <stagefright/AVExtensions.h>
@@ -118,6 +117,7 @@ static bool isResourceError(status_t err) {
 static const int kMaxRetry = 2;
 static const int kMaxReclaimWaitTimeInUs = 500000;  // 0.5s
 static const int kNumBuffersAlign = 16;
+static const int kBatteryStatsTimeoutUs = 3000000ll; // 3 seconds
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -167,8 +167,9 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(ResourceManagerClient);
 };
 
-MediaCodec::ResourceManagerServiceProxy::ResourceManagerServiceProxy(pid_t pid)
-        : mPid(pid) {
+MediaCodec::ResourceManagerServiceProxy::ResourceManagerServiceProxy(
+        pid_t pid, uid_t uid)
+        : mPid(pid), mUid(uid) {
     if (mPid == MediaCodec::kNoPid) {
         mPid = IPCThreadState::self()->getCallingPid();
     }
@@ -205,15 +206,25 @@ void MediaCodec::ResourceManagerServiceProxy::addResource(
     if (mService == NULL) {
         return;
     }
-    mService->addResource(mPid, clientId, client, resources);
+    mService->addResource(mPid, mUid, clientId, client, resources);
 }
 
-void MediaCodec::ResourceManagerServiceProxy::removeResource(int64_t clientId) {
+void MediaCodec::ResourceManagerServiceProxy::removeResource(
+        int64_t clientId,
+        const Vector<MediaResource> &resources) {
     Mutex::Autolock _l(mLock);
     if (mService == NULL) {
         return;
     }
-    mService->removeResource(mPid, clientId);
+    mService->removeResource(mPid, clientId, resources);
+}
+
+void MediaCodec::ResourceManagerServiceProxy::removeClient(int64_t clientId) {
+    Mutex::Autolock _l(mLock);
+    if (mService == NULL) {
+        return;
+    }
+    mService->removeClient(mPid, clientId);
 }
 
 bool MediaCodec::ResourceManagerServiceProxy::reclaimResource(
@@ -518,9 +529,6 @@ MediaCodec::MediaCodec(const sp<ALooper> &looper, pid_t pid, uid_t uid)
       mStickyError(OK),
       mSoftRenderer(NULL),
       mAnalyticsItem(NULL),
-      mResourceManagerClient(new ResourceManagerClient(this)),
-      mResourceManagerService(new ResourceManagerServiceProxy(pid)),
-      mBatteryStatNotified(false),
       mIsVideo(false),
       mVideoWidth(0),
       mVideoHeight(0),
@@ -532,19 +540,24 @@ MediaCodec::MediaCodec(const sp<ALooper> &looper, pid_t pid, uid_t uid)
       mHaveInputSurface(false),
       mHavePendingInputBuffers(false),
       mCpuBoostRequested(false),
-      mLatencyUnknown(0) {
+      mLatencyUnknown(0),
+      mLastActivityTimeUs(-1ll),
+      mBatteryStatNotified(false),
+      mBatteryCheckerGeneration(0) {
     if (uid == kNoUid) {
         mUid = IPCThreadState::self()->getCallingUid();
     } else {
         mUid = uid;
     }
+    mResourceManagerClient = new ResourceManagerClient(this);
+    mResourceManagerService = new ResourceManagerServiceProxy(pid, mUid);
 
     initAnalyticsItem();
 }
 
 MediaCodec::~MediaCodec() {
     CHECK_EQ(mState, UNINITIALIZED);
-    mResourceManagerService->removeResource(getId(mResourceManagerClient));
+    mResourceManagerService->removeClient(getId(mResourceManagerClient));
 
     flushAnalyticsItem();
 }
@@ -743,6 +756,8 @@ void MediaCodec::statsBufferSent(int64_t presentationUs) {
         return;
     }
 
+    scheduleBatteryCheckerIfNeeded();
+
     const int64_t nowNs = systemTime(SYSTEM_TIME_MONOTONIC);
     BufferFlightTiming_t startdata = { presentationUs, nowNs };
 
@@ -776,6 +791,8 @@ void MediaCodec::statsBufferReceived(int64_t presentationUs) {
         mLatencyUnknown++;
         return;
     }
+
+    scheduleBatteryCheckerIfNeeded();
 
     BufferFlightTiming_t startdata;
     bool valid = false;
@@ -1238,6 +1255,13 @@ void MediaCodec::addResource(
     resources.push_back(MediaResource(type, subtype, value));
     mResourceManagerService->addResource(
             getId(mResourceManagerClient), mResourceManagerClient, resources);
+}
+
+void MediaCodec::removeResource(
+        MediaResource::Type type, MediaResource::SubType subtype, uint64_t value) {
+    Vector<MediaResource> resources;
+    resources.push_back(MediaResource(type, subtype, value));
+    mResourceManagerService->removeResource(getId(mResourceManagerClient), resources);
 }
 
 status_t MediaCodec::start() {
@@ -1703,6 +1727,45 @@ void MediaCodec::requestCpuBoostIfNeeded() {
                     MediaResource::kUnspecifiedSubType, 1);
             mCpuBoostRequested = true;
         }
+    }
+}
+
+void MediaCodec::scheduleBatteryCheckerIfNeeded() {
+    if (!mIsVideo || !isExecuting()) {
+        // ignore if not executing
+        return;
+    }
+    if (!mBatteryStatNotified) {
+        addResource(MediaResource::kBattery, MediaResource::kVideoCodec, 1);
+        mBatteryStatNotified = true;
+        sp<AMessage> msg = new AMessage(kWhatCheckBatteryStats, this);
+        msg->setInt32("generation", mBatteryCheckerGeneration);
+
+        // post checker and clear last activity time
+        msg->post(kBatteryStatsTimeoutUs);
+        mLastActivityTimeUs = -1ll;
+    } else {
+        // update last activity time
+        mLastActivityTimeUs = ALooper::GetNowUs();
+    }
+}
+
+void MediaCodec::onBatteryChecker(const sp<AMessage> &msg) {
+    // ignore if this checker already expired because the client resource was removed
+    int32_t generation;
+    if (!msg->findInt32("generation", &generation)
+            || generation != mBatteryCheckerGeneration) {
+        return;
+    }
+
+    if (mLastActivityTimeUs < 0ll) {
+        // timed out inactive, do not repost checker
+        removeResource(MediaResource::kBattery, MediaResource::kVideoCodec, 1);
+        mBatteryStatNotified = false;
+    } else {
+        // repost checker and clear last activity time
+        msg->post(kBatteryStatsTimeoutUs + mLastActivityTimeUs - ALooper::GetNowUs());
+        mLastActivityTimeUs = -1ll;
     }
 }
 
@@ -2343,7 +2406,10 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
                     mFlags &= ~kFlagIsComponentAllocated;
 
-                    mResourceManagerService->removeResource(getId(mResourceManagerClient));
+                    // off since we're removing all resources including the battery on
+                    mBatteryStatNotified = false;
+                    mBatteryCheckerGeneration++;
+                    mResourceManagerService->removeClient(getId(mResourceManagerClient));
 
                     (new AMessage)->postReply(mReplyID);
                     break;
@@ -3057,6 +3123,12 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             break;
         }
 
+        case kWhatCheckBatteryStats:
+        {
+            onBatteryChecker(msg);
+            break;
+        }
+
         default:
             TRESPASS();
     }
@@ -3154,8 +3226,6 @@ void MediaCodec::setState(State newState) {
     mState = newState;
 
     cancelPendingDequeueOperations();
-
-    updateBatteryStat();
 }
 
 void MediaCodec::returnBuffersToCodec(bool isReclaim) {
@@ -3687,20 +3757,6 @@ status_t MediaCodec::amendOutputFormatWithCodecSpecificData(
     }
 
     return OK;
-}
-
-void MediaCodec::updateBatteryStat() {
-    if (!mIsVideo) {
-        return;
-    }
-
-    if (mState == CONFIGURED && !mBatteryStatNotified) {
-        BatteryNotifier::getInstance().noteStartVideo(mUid);
-        mBatteryStatNotified = true;
-    } else if (mState == UNINITIALIZED && mBatteryStatNotified) {
-        BatteryNotifier::getInstance().noteStopVideo(mUid);
-        mBatteryStatNotified = false;
-    }
 }
 
 std::string MediaCodec::stateString(State state) {
