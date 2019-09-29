@@ -375,7 +375,11 @@ public:
 
         // consumer usage is queried earlier.
 
-        ALOGD("ISConfig%s", status.str().c_str());
+        if (status.str().empty()) {
+            ALOGD("ISConfig not changed");
+        } else {
+            ALOGD("ISConfig%s", status.str().c_str());
+        }
         return err;
     }
 
@@ -992,6 +996,14 @@ void CCodec::configure(const sp<AMessage> &msg) {
                 if (config->mDomain & Config::IS_ENCODER) {
                     config->mInputFormat->setInt32(KEY_COLOR_FORMAT, format);
                 } else {
+                    int32_t thumbnailMode = 0;
+                    if (msg->findInt32("thumbnail-mode", &thumbnailMode) && thumbnailMode) {
+                        if (comp->getName().find("c2.android") != std::string::npos) {
+                            ALOGI("Andoird C2 decoder, fallback to YUV420P color format for thumbnail");
+                            format = COLOR_FormatYUV420Planar;
+                        }
+                        // TODO: fallback to YUV420P as well if QC C2 decoders doesn't support RGB565
+                    }
                     config->mOutputFormat->setInt32(KEY_COLOR_FORMAT, format);
                 }
             }

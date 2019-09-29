@@ -29,6 +29,7 @@
 #include <future>
 #include <inttypes.h>
 #include <hardware/camera_common.h>
+#include <android/hidl/manager/1.2/IServiceManager.h>
 #include <hidl/ServiceManagement.h>
 #include <functional>
 #include <camera_metadata_hidden.h>
@@ -47,10 +48,6 @@ using namespace ::android::hardware::camera::common::V1_0;
 using std::literals::chrono_literals::operator""s;
 
 namespace {
-// Hardcoded name for the passthrough HAL implementation, since it can't be discovered via the
-// service manager
-const std::string kLegacyProviderName("legacy/0");
-const std::string kExternalProviderName("external/0");
 const bool kEnableLazyHal(property_get_bool("ro.camera.enableLazyHal", false));
 } // anonymous namespace
 
@@ -60,6 +57,19 @@ CameraProviderManager::HardwareServiceInteractionProxy
 CameraProviderManager::sHardwareServiceInteractionProxy{};
 
 CameraProviderManager::~CameraProviderManager() {
+}
+
+hardware::hidl_vec<hardware::hidl_string>
+CameraProviderManager::HardwareServiceInteractionProxy::listServices() {
+    hardware::hidl_vec<hardware::hidl_string> ret;
+    auto manager = hardware::defaultServiceManager1_2();
+    if (manager != nullptr) {
+        manager->listManifestByInterface(provider::V2_4::ICameraProvider::descriptor,
+                [&ret](const hardware::hidl_vec<hardware::hidl_string> &registered) {
+                    ret = registered;
+                });
+    }
+    return ret;
 }
 
 status_t CameraProviderManager::initialize(wp<CameraProviderManager::StatusListener> listener,
@@ -84,9 +94,10 @@ status_t CameraProviderManager::initialize(wp<CameraProviderManager::StatusListe
         return INVALID_OPERATION;
     }
 
-    // See if there's a passthrough HAL, but let's not complain if there's not
-    addProviderLocked(kLegacyProviderName, /*expected*/ false);
-    addProviderLocked(kExternalProviderName, /*expected*/ false);
+
+    for (const auto& instance : mServiceProxy->listServices()) {
+        this->addProviderLocked(instance);
+    }
 
     IPCThreadState::self()->flushCommands();
 
@@ -523,15 +534,23 @@ void CameraProviderManager::ProviderInfo::DeviceInfo3::queryPhysicalCameraIds() 
     }
 }
 
-bool CameraProviderManager::ProviderInfo::DeviceInfo3::isPublicallyHiddenSecureCamera() {
+SystemCameraKind CameraProviderManager::ProviderInfo::DeviceInfo3::getSystemCameraKind() {
     camera_metadata_entry_t entryCap;
     entryCap = mCameraCharacteristics.find(ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
-    if (entryCap.count != 1) {
-        // Do NOT hide this camera device if the capabilities specify anything more
-        // than ANDROID_REQUEST_AVAILABLE_CAPABILITIES_SECURE_IMAGE_DATA.
-        return false;
+    if (entryCap.count == 1 &&
+            entryCap.data.u8[0] == ANDROID_REQUEST_AVAILABLE_CAPABILITIES_SECURE_IMAGE_DATA) {
+        return SystemCameraKind::HIDDEN_SECURE_CAMERA;
     }
-    return entryCap.data.u8[0] == ANDROID_REQUEST_AVAILABLE_CAPABILITIES_SECURE_IMAGE_DATA;
+
+    // Go through the capabilities and check if it has
+    // ANDROID_REQUEST_AVAILABLE_CAPABILITIES_SYSTEM_CAMERA
+    for (size_t i = 0; i < entryCap.count; ++i) {
+        uint8_t capability = entryCap.data.u8[i];
+        if (capability == ANDROID_REQUEST_AVAILABLE_CAPABILITIES_SYSTEM_CAMERA) {
+            return SystemCameraKind::SYSTEM_ONLY_CAMERA;
+        }
+    }
+    return SystemCameraKind::PUBLIC;
 }
 
 void CameraProviderManager::ProviderInfo::DeviceInfo3::getSupportedSizes(
@@ -1035,14 +1054,14 @@ bool CameraProviderManager::isLogicalCamera(const std::string& id,
     return deviceInfo->mIsLogicalCamera;
 }
 
-bool CameraProviderManager::isPublicallyHiddenSecureCamera(const std::string& id) {
+SystemCameraKind CameraProviderManager::getSystemCameraKind(const std::string& id) {
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     auto deviceInfo = findDeviceInfoLocked(id);
     if (deviceInfo == nullptr) {
-        return false;
+        return SystemCameraKind::PUBLIC;
     }
-    return deviceInfo->mIsPublicallyHiddenSecureCamera;
+    return deviceInfo->mSystemCameraKind;
 }
 
 bool CameraProviderManager::isHiddenPhysicalCamera(const std::string& cameraId) {
@@ -1087,7 +1106,7 @@ bool CameraProviderManager::isHiddenPhysicalCamera(const std::string& cameraId) 
     return false;
 }
 
-status_t CameraProviderManager::addProviderLocked(const std::string& newProvider, bool expected) {
+status_t CameraProviderManager::addProviderLocked(const std::string& newProvider) {
     for (const auto& providerInfo : mProviders) {
         if (providerInfo->mProviderName == newProvider) {
             ALOGW("%s: Camera provider HAL with name '%s' already registered", __FUNCTION__,
@@ -1100,13 +1119,9 @@ status_t CameraProviderManager::addProviderLocked(const std::string& newProvider
     interface = mServiceProxy->getService(newProvider);
 
     if (interface == nullptr) {
-        if (expected) {
-            ALOGE("%s: Camera provider HAL '%s' is not actually available", __FUNCTION__,
-                    newProvider.c_str());
-            return BAD_VALUE;
-        } else {
-            return OK;
-        }
+        ALOGE("%s: Camera provider HAL '%s' is not actually available", __FUNCTION__,
+                newProvider.c_str());
+        return BAD_VALUE;
     }
 
     sp<ProviderInfo> providerInfo = new ProviderInfo(newProvider, this);
@@ -1930,7 +1945,7 @@ CameraProviderManager::ProviderInfo::DeviceInfo3::DeviceInfo3(const std::string&
         return;
     }
 
-    mIsPublicallyHiddenSecureCamera = isPublicallyHiddenSecureCamera();
+    mSystemCameraKind = getSystemCameraKind();
 
     status_t res = fixupMonochromeTags();
     if (OK != res) {
@@ -2058,6 +2073,13 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::getCameraInfo(
     return OK;
 }
 bool CameraProviderManager::ProviderInfo::DeviceInfo3::isAPI1Compatible() const {
+    // Do not advertise NIR cameras to API1 camera app.
+    camera_metadata_ro_entry cfa = mCameraCharacteristics.find(
+            ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
+    if (cfa.count == 1 && cfa.data.u8[0] == ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_NIR) {
+        return false;
+    }
+
     bool isBackwardCompatible = false;
     camera_metadata_ro_entry_t caps = mCameraCharacteristics.find(
             ANDROID_REQUEST_AVAILABLE_CAPABILITIES);

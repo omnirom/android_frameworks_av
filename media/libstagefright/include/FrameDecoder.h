@@ -24,15 +24,17 @@
 #include <media/stagefright/foundation/ABase.h>
 #include <media/MediaSource.h>
 #include <media/openmax/OMX_Video.h>
-#include <system/graphics-base.h>
+#include <ui/GraphicTypes.h>
 
 namespace android {
 
 struct AMessage;
-class MediaCodecBuffer;
-class IMediaSource;
-class VideoFrame;
 struct MediaCodec;
+class IMediaSource;
+class MediaCodecBuffer;
+class Surface;
+class SurfaceControl;
+class VideoFrame;
 
 struct FrameRect {
     int32_t left, top, right, bottom;
@@ -44,12 +46,9 @@ struct FrameDecoder : public RefBase {
             const sp<MetaData> &trackMeta,
             const sp<IMediaSource> &source);
 
-    status_t init(
-            int64_t frameTimeUs, size_t numFrames, int option, int colorFormat);
+    status_t init(int64_t frameTimeUs, int option, int colorFormat);
 
     sp<IMemory> extractFrame(FrameRect *rect = NULL);
-
-    status_t extractFrames(std::vector<sp<IMemory> >* frames);
 
     static sp<IMemory> getMetadataOnly(
             const sp<MetaData> &trackMeta, int colorFormat, bool thumbnail = false);
@@ -59,9 +58,9 @@ protected:
 
     virtual sp<AMessage> onGetFormatAndSeekOptions(
             int64_t frameTimeUs,
-            size_t numFrames,
             int seekMode,
-            MediaSource::ReadOptions *options) = 0;
+            MediaSource::ReadOptions *options,
+            sp<Surface> *window) = 0;
 
     virtual status_t onExtractRect(FrameRect *rect) = 0;
 
@@ -79,11 +78,9 @@ protected:
 
     sp<MetaData> trackMeta()     const      { return mTrackMeta; }
     OMX_COLOR_FORMATTYPE dstFormat() const  { return mDstFormat; }
+    ui::PixelFormat captureFormat() const   { return mCaptureFormat; }
     int32_t dstBpp()             const      { return mDstBpp; }
-
-    void addFrame(const sp<IMemory> &frame) {
-        mFrames.push_back(frame);
-    }
+    void setFrame(const sp<IMemory> &frameMem) { mFrameMemory = frameMem; }
     bool mIDRSent;
 
 private:
@@ -91,13 +88,15 @@ private:
     sp<MetaData> mTrackMeta;
     sp<IMediaSource> mSource;
     OMX_COLOR_FORMATTYPE mDstFormat;
+    ui::PixelFormat mCaptureFormat;
     int32_t mDstBpp;
-    std::vector<sp<IMemory> > mFrames;
+    sp<IMemory> mFrameMemory;
     MediaSource::ReadOptions mReadOptions;
     sp<MediaCodec> mDecoder;
     sp<AMessage> mOutputFormat;
     bool mHaveMoreInputs;
     bool mFirstSample;
+    sp<Surface> mSurface;
 
     status_t extractInternal();
 
@@ -113,9 +112,9 @@ struct VideoFrameDecoder : public FrameDecoder {
 protected:
     virtual sp<AMessage> onGetFormatAndSeekOptions(
             int64_t frameTimeUs,
-            size_t numFrames,
             int seekMode,
-            MediaSource::ReadOptions *options) override;
+            MediaSource::ReadOptions *options,
+            sp<Surface> *window) override;
 
     virtual status_t onExtractRect(FrameRect *rect) override {
         // Rect extraction for sequences is not supported for now.
@@ -135,11 +134,15 @@ protected:
             bool *done) override;
 
 private:
+    sp<SurfaceControl> mSurfaceControl;
+    sp<SurfaceControl> mParent;
+    VideoFrame *mFrame;
     bool mIsAvcOrHevc;
     MediaSource::ReadOptions::SeekMode mSeekMode;
     int64_t mTargetTimeUs;
-    size_t mNumFrames;
-    size_t mNumFramesDecoded;
+
+    sp<Surface> initSurfaceControl();
+    status_t captureSurfaceControl();
 };
 
 struct ImageDecoder : public FrameDecoder {
@@ -151,9 +154,9 @@ struct ImageDecoder : public FrameDecoder {
 protected:
     virtual sp<AMessage> onGetFormatAndSeekOptions(
             int64_t frameTimeUs,
-            size_t numFrames,
             int seekMode,
-            MediaSource::ReadOptions *options) override;
+            MediaSource::ReadOptions *options,
+            sp<Surface> *window) override;
 
     virtual status_t onExtractRect(FrameRect *rect) override;
 

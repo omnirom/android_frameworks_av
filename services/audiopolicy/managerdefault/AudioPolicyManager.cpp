@@ -63,6 +63,9 @@ namespace android {
 // media / notification / system volume.
 constexpr float IN_CALL_EARPIECE_HEADROOM_DB = 3.f;
 
+static const unsigned int DEFAULT_MUTE_LATENCY_FACTOR = 2;
+static const unsigned int DEFAULT_ROUTING_LATENCY_MS = 50;
+
 // Compressed formats for MSD module, ordered from most preferred to least preferred.
 static const std::vector<audio_format_t> compressedFormatsOrder = {{
         AUDIO_FORMAT_MAT_2_1, AUDIO_FORMAT_MAT_2_0, AUDIO_FORMAT_E_AC3,
@@ -72,6 +75,26 @@ static const std::vector<audio_channel_mask_t> surroundChannelMasksOrder = {{
         AUDIO_CHANNEL_OUT_3POINT1POINT2, AUDIO_CHANNEL_OUT_3POINT0POINT2,
         AUDIO_CHANNEL_OUT_2POINT1POINT2, AUDIO_CHANNEL_OUT_2POINT0POINT2,
         AUDIO_CHANNEL_OUT_5POINT1, AUDIO_CHANNEL_OUT_STEREO }};
+
+template <typename T>
+bool operator== (const SortedVector<T> &left, const SortedVector<T> &right)
+{
+    if (left.size() != right.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < right.size(); index++) {
+        if (left[index] != right[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <typename T>
+bool operator!= (const SortedVector<T> &left, const SortedVector<T> &right)
+{
+    return !(left == right);
+}
 
 // ----------------------------------------------------------------------------
 // AudioPolicyInterface implementation
@@ -94,7 +117,7 @@ void AudioPolicyManager::broadcastDeviceConnectionState(const sp<DeviceDescripto
 {
     AudioParameter param(device->address());
     const String8 key(state == AUDIO_POLICY_DEVICE_STATE_AVAILABLE ?
-                AudioParameter::keyStreamConnect : AudioParameter::keyStreamDisconnect);
+                AudioParameter::keyDeviceConnect : AudioParameter::keyDeviceDisconnect);
     param.addInt(key, device->type());
     mpClientInterface->setParameters(AUDIO_IO_HANDLE_NONE, param.toString());
 }
@@ -1349,13 +1372,13 @@ status_t AudioPolicyManager::getBestMsdAudioProfileFor(const sp<DeviceDescriptor
     // Each IOProfile represents a MixPort from audio_policy_configuration.xml
     for (const auto &inProfile : inputProfiles) {
         if (hwAvSync == ((inProfile->getFlags() & AUDIO_INPUT_FLAG_HW_AV_SYNC) != 0)) {
-            msdProfiles.appendVector(inProfile->getAudioProfiles());
+            msdProfiles.appendProfiles(inProfile->getAudioProfiles());
         }
     }
     AudioProfileVector deviceProfiles;
     for (const auto &outProfile : outputProfiles) {
         if (hwAvSync == ((outProfile->getFlags() & AUDIO_OUTPUT_FLAG_HW_AV_SYNC) != 0)) {
-            deviceProfiles.appendVector(outProfile->getAudioProfiles());
+            deviceProfiles.appendProfiles(outProfile->getAudioProfiles());
         }
     }
     struct audio_config_base bestSinkConfig;
@@ -2254,16 +2277,22 @@ status_t AudioPolicyManager::startInput(audio_port_handle_t portId)
         return status;
     }
 
-  // increment activity count before calling getNewInputDevice() below as only active sessions
+    // increment activity count before calling getNewInputDevice() below as only active sessions
     // are considered for device selection
     inputDesc->setClientActive(client, true);
 
     // indicate active capture to sound trigger service if starting capture from a mic on
     // primary HW module
     sp<DeviceDescriptor> device = getNewInputDevice(inputDesc);
-    setInputDevice(input, device, true /* force */);
+    if (device != nullptr) {
+        status = setInputDevice(input, device, true /* force */);
+    } else {
+        ALOGW("%s no new input device can be found for descriptor %d",
+                __FUNCTION__, inputDesc->getId());
+        status = BAD_VALUE;
+    }
 
-    if (inputDesc->activeCount()  == 1) {
+    if (status == NO_ERROR && inputDesc->activeCount() == 1) {
         sp<AudioPolicyMix> policyMix = inputDesc->mPolicyMix.promote();
         // if input maps to a dynamic policy with an activity listener, notify of state change
         if ((policyMix != NULL)
@@ -2294,11 +2323,16 @@ status_t AudioPolicyManager::startInput(audio_port_handle_t portId)
                         address, "remote-submix", AUDIO_FORMAT_DEFAULT);
             }
         }
+    } else if (status != NO_ERROR) {
+        // Restore client activity state.
+        inputDesc->setClientActive(client, false);
+        inputDesc->stop();
     }
 
-    ALOGV("%s input %d source = %d exit", __FUNCTION__, input, client->source());
+    ALOGV("%s input %d source = %d status = %d exit",
+            __FUNCTION__, input, client->source(), status);
 
-    return NO_ERROR;
+    return status;
 }
 
 status_t AudioPolicyManager::stopInput(audio_port_handle_t portId)
@@ -4317,7 +4351,6 @@ AudioPolicyManager::AudioPolicyManager(AudioPolicyClientInterface *clientInterfa
         : AudioPolicyManager(clientInterface, false /*forTesting*/)
 {
     loadConfig();
-    initialize();
 }
 
 void AudioPolicyManager::loadConfig() {
@@ -5043,6 +5076,12 @@ bool AudioPolicyManager::followsSameRouting(const audio_attributes_t &lAttr,
             mEngine->getProductStrategyForAttributes(rAttr);
 }
 
+const unsigned int muteLatencyFactor = property_get_int32(
+            "audio.sys.mute.latency.factor", DEFAULT_MUTE_LATENCY_FACTOR);
+
+const unsigned int routingLatency = property_get_int32(
+            "audio.sys.routing.latency", DEFAULT_ROUTING_LATENCY_MS);
+
 void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr)
 {
     auto psId = mEngine->getProductStrategyForAttributes(attr);
@@ -5074,6 +5113,8 @@ void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr
         // get maximum latency of all source outputs to determine the minimum mute time guaranteeing
         // audio from invalidated tracks will be rendered when unmuting
         uint32_t maxLatency = 0;
+        // factor to increase mute duration in case track is invalidated
+        uint32_t invalidationFactor = 1;
         for (audio_io_handle_t srcOut : srcOutputs) {
             sp<SwAudioOutputDescriptor> desc = mPreviousOutputs.valueFor(srcOut);
             if (desc != 0 && maxLatency < desc->latency()) {
@@ -5089,8 +5130,6 @@ void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr
             sp<SwAudioOutputDescriptor> desc = mPreviousOutputs.valueFor(srcOut);
             if (desc != 0 && desc->isStrategyActive(psId)) {
                 setStrategyMute(psId, true, desc);
-                setStrategyMute(psId, false, desc, maxLatency * LATENCY_MUTE_FACTOR,
-                                newDevices.types());
             }
             sp<SourceClientDescriptor> source = getSourceForAttributesOnOutput(srcOut, attr);
             if (source != 0){
@@ -5104,7 +5143,21 @@ void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr
         }
         // Move tracks associated to this stream (and linked) from previous output to new output
         for (auto stream :  mEngine->getStreamTypesForProductStrategy(psId)) {
+            // Do not invalidate stream if new music output and previous music output are same
+            if (stream == AUDIO_STREAM_MUSIC &&
+                    srcOutputs.indexOf(mMusicEffectOutput) >= 0)
+                continue;
             mpClientInterface->invalidateStream(stream);
+            if (isStreamActive(stream, 0) && invalidationFactor == 1)
+                invalidationFactor = 2;
+        }
+
+        for (audio_io_handle_t srcOut : srcOutputs) {
+            sp<SwAudioOutputDescriptor> desc = mPreviousOutputs.valueFor(srcOut);
+            if (desc != 0 && desc->isStrategyActive(psId))
+                setStrategyMute(psId, false, desc,
+                            (maxLatency * muteLatencyFactor * invalidationFactor)
+                             + routingLatency, newDevices.types());
         }
     }
 }
@@ -5464,9 +5517,11 @@ uint32_t AudioPolicyManager::checkDeviceMuteStrategies(const sp<AudioOutputDescr
     // temporary mute output if device selection changes to avoid volume bursts due to
     // different per device volumes
     if (outputDesc->isActive() && (devices != prevDevices)) {
-        uint32_t tempMuteWaitMs = outputDesc->latency() * 2;
-        // temporary mute duration is conservatively set to 4 times the reported latency
-        uint32_t tempMuteDurationMs = outputDesc->latency() * 4;
+        uint32_t tempMuteWaitMs = outputDesc->latency() * muteLatencyFactor;
+        // temporary mute duration can be configured by altering audio.sys.mute.latency.factor
+        // and audio.sys.routing.latency
+        uint32_t tempMuteDurationMs =
+                (outputDesc->latency() * muteLatencyFactor) + routingLatency;
         if (muteWaitMs < tempMuteWaitMs) {
             muteWaitMs = tempMuteWaitMs;
         }
@@ -5752,8 +5807,9 @@ float AudioPolicyManager::computeVolume(IVolumeCurves &curves,
     const auto ringVolumeSrc = toVolumeSource(AUDIO_STREAM_RING);
     const auto musicVolumeSrc = toVolumeSource(AUDIO_STREAM_MUSIC);
     const auto alarmVolumeSrc = toVolumeSource(AUDIO_STREAM_ALARM);
+    const auto a11yVolumeSrc = toVolumeSource(AUDIO_STREAM_ACCESSIBILITY);
 
-    if (volumeSource == toVolumeSource(AUDIO_STREAM_ACCESSIBILITY)
+    if (volumeSource == a11yVolumeSrc
             && (AUDIO_MODE_RINGTONE == mEngine->getPhoneState()) &&
             mOutputs.isActive(ringVolumeSrc, 0)) {
         auto &ringCurves = getVolumeCurves(AUDIO_STREAM_RING);
@@ -5770,7 +5826,7 @@ float AudioPolicyManager::computeVolume(IVolumeCurves &curves,
              volumeSource == toVolumeSource(AUDIO_STREAM_NOTIFICATION) ||
              volumeSource == toVolumeSource(AUDIO_STREAM_ENFORCED_AUDIBLE) ||
              volumeSource == toVolumeSource(AUDIO_STREAM_DTMF) ||
-             volumeSource == toVolumeSource(AUDIO_STREAM_ACCESSIBILITY))) {
+             volumeSource == a11yVolumeSrc)) {
         auto &voiceCurves = getVolumeCurves(callVolumeSrc);
         int voiceVolumeIndex = voiceCurves.getVolumeIndex(device);
         const float maxVoiceVolDb =
@@ -5782,7 +5838,9 @@ float AudioPolicyManager::computeVolume(IVolumeCurves &curves,
         // VOICE_CALL stream has minVolumeIndex > 0 : Users cannot set the volume of voice calls to
         // 0. We don't want to cap volume when the system has programmatically muted the voice call
         // stream. See setVolumeCurveIndex() for more information.
-        bool exemptFromCapping = (volumeSource == ringVolumeSrc) && (voiceVolumeIndex == 0);
+        bool exemptFromCapping =
+                ((volumeSource == ringVolumeSrc) || (volumeSource == a11yVolumeSrc))
+                && (voiceVolumeIndex == 0);
         ALOGV_IF(exemptFromCapping, "%s volume source %d at vol=%f not capped", __func__,
                  volumeSource, volumeDb);
         if ((volumeDb > maxVoiceVolDb) && !exemptFromCapping) {
@@ -6139,24 +6197,24 @@ void AudioPolicyManager::modifySurroundFormats(
         formatSet.insert(enforcedSurround.begin(), enforcedSurround.end());
     }
     for (const auto& format : formatSet) {
-        formatsPtr->push(format);
+        formatsPtr->push_back(format);
     }
 }
 
-void AudioPolicyManager::modifySurroundChannelMasks(ChannelsVector *channelMasksPtr) {
-    ChannelsVector &channelMasks = *channelMasksPtr;
+void AudioPolicyManager::modifySurroundChannelMasks(ChannelMaskSet *channelMasksPtr) {
+    ChannelMaskSet &channelMasks = *channelMasksPtr;
     audio_policy_forced_cfg_t forceUse = mEngine->getForceUse(
             AUDIO_POLICY_FORCE_FOR_ENCODED_SURROUND);
 
     // If NEVER, then remove support for channelMasks > stereo.
     if (forceUse == AUDIO_POLICY_FORCE_ENCODED_SURROUND_NEVER) {
-        for (size_t maskIndex = 0; maskIndex < channelMasks.size(); ) {
-            audio_channel_mask_t channelMask = channelMasks[maskIndex];
+        for (auto it = channelMasks.begin(); it != channelMasks.end();) {
+            audio_channel_mask_t channelMask = *it;
             if (channelMask & ~AUDIO_CHANNEL_OUT_STEREO) {
                 ALOGI("%s: force NEVER, so remove channelMask 0x%08x", __FUNCTION__, channelMask);
-                channelMasks.removeAt(maskIndex);
+                it = channelMasks.erase(it);
             } else {
-                maskIndex++;
+                ++it;
             }
         }
     // If ALWAYS or MANUAL, then make sure we at least support 5.1
@@ -6172,7 +6230,7 @@ void AudioPolicyManager::modifySurroundChannelMasks(ChannelsVector *channelMasks
         }
         // If not then add 5.1 support.
         if (!supports5dot1) {
-            channelMasks.add(AUDIO_CHANNEL_OUT_5POINT1);
+            channelMasks.insert(AUDIO_CHANNEL_OUT_5POINT1);
             ALOGI("%s: force MANUAL or ALWAYS, so adding channelMask for 5.1 surround", __func__);
         }
     }
@@ -6205,8 +6263,8 @@ void AudioPolicyManager::updateAudioProfiles(const sp<DeviceDescriptor>& devDesc
     }
 
     for (audio_format_t format : profiles.getSupportedFormats()) {
-        ChannelsVector channelMasks;
-        SampleRateVector samplingRates;
+        ChannelMaskSet channelMasks;
+        SampleRateSet samplingRates;
         AudioParameter requestedParameters;
         requestedParameters.addInt(String8(AudioParameter::keyFormat), format);
 
