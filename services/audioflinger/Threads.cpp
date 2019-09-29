@@ -2076,9 +2076,9 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
             // More than 2 channels does not require stronger alignment than stereo
             alignment <<= 1;
         }
-        if (((uintptr_t)sharedBuffer->pointer() & (alignment - 1)) != 0) {
+        if (((uintptr_t)sharedBuffer->unsecurePointer() & (alignment - 1)) != 0) {
             ALOGE("Invalid buffer alignment: address %p, channel count %u",
-                  sharedBuffer->pointer(), channelCount);
+                  sharedBuffer->unsecurePointer(), channelCount);
             lStatus = BAD_VALUE;
             goto Exit;
         }
@@ -6863,7 +6863,7 @@ AudioFlinger::RecordThread::RecordThread(const sp<AudioFlinger>& audioFlinger,
         sp<IMemory> pipeMemory;
         if ((roHeap == 0) ||
                 (pipeMemory = roHeap->allocate(pipeSize)) == 0 ||
-                (pipeBuffer = pipeMemory->pointer()) == nullptr) {
+                (pipeBuffer = pipeMemory->unsecurePointer()) == nullptr) {
             ALOGE("not enough memory for pipe buffer size=%zu; "
                     "roHeap=%p, pipeMemory=%p, pipeBuffer=%p; roHeapSize: %lld",
                     pipeSize, roHeap.get(), pipeMemory.get(), pipeBuffer,
@@ -7409,7 +7409,7 @@ reacquire_wakelock:
                         // Sanitize before releasing if the track has no access to the source data
                         // An idle UID receives silence from non virtual devices until active
                         if (activeTrack->isSilenced()) {
-                            memset(activeTrack->mSink.raw, 0, framesOut * mFrameSize);
+                            memset(activeTrack->mSink.raw, 0, framesOut * activeTrack->frameSize());
                         }
                         activeTrack->releaseBuffer(&activeTrack->mSink);
                     }
@@ -7570,7 +7570,8 @@ sp<AudioFlinger::RecordThread::RecordTrack> AudioFlinger::RecordThread::createRe
         audio_input_flags_t *flags,
         pid_t tid,
         status_t *status,
-        audio_port_handle_t portId)
+        audio_port_handle_t portId,
+        const String16& opPackageName)
 {
     size_t frameCount = *pFrameCount;
     size_t notificationFrameCount = *pNotificationFrameCount;
@@ -7704,7 +7705,7 @@ sp<AudioFlinger::RecordThread::RecordTrack> AudioFlinger::RecordThread::createRe
         track = new RecordTrack(this, client, attr, sampleRate,
                       format, channelMask, frameCount,
                       nullptr /* buffer */, (size_t)0 /* bufferSize */, sessionId, creatorPid, uid,
-                      *flags, TrackBase::TYPE_DEFAULT, portId);
+                      *flags, TrackBase::TYPE_DEFAULT, opPackageName, portId);
 
         lStatus = track->initCheck();
         if (lStatus != NO_ERROR) {
@@ -8040,12 +8041,12 @@ void AudioFlinger::RecordThread::dumpTracks_l(int fd, const Vector<String16>& ar
     write(fd, result.string(), result.size());
 }
 
-void AudioFlinger::RecordThread::setRecordSilenced(uid_t uid, bool silenced)
+void AudioFlinger::RecordThread::setRecordSilenced(audio_port_handle_t portId, bool silenced)
 {
     Mutex::Autolock _l(mLock);
     for (size_t i = 0; i < mTracks.size() ; i++) {
         sp<RecordTrack> track = mTracks[i];
-        if (track != 0 && track->uid() == uid) {
+        if (track != 0 && track->portId() == portId) {
             track->setSilenced(silenced);
         }
     }
@@ -9583,11 +9584,11 @@ void AudioFlinger::MmapCaptureThread::updateMetadata_l()
     mInput->stream->updateSinkMetadata(metadata);
 }
 
-void AudioFlinger::MmapCaptureThread::setRecordSilenced(uid_t uid, bool silenced)
+void AudioFlinger::MmapCaptureThread::setRecordSilenced(audio_port_handle_t portId, bool silenced)
 {
     Mutex::Autolock _l(mLock);
     for (size_t i = 0; i < mActiveTracks.size() ; i++) {
-        if (mActiveTracks[i]->uid() == uid) {
+        if (mActiveTracks[i]->portId() == portId) {
             mActiveTracks[i]->setSilenced_l(silenced);
             broadcast_l();
         }

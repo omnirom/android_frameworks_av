@@ -39,10 +39,9 @@ LOCAL_SHARED_LIBRARIES := \
     libbase \
     libavservices_minijail_vendor \
     libcutils \
-    libhwbinder \
     libhidlbase \
-    libhidltransport \
     libstagefright_omx_ext \
+    libstagefright_omx \
     libstagefright_xmlparser \
     android.hardware.media.omx@1.0 \
     android.hidl.memory@1.0

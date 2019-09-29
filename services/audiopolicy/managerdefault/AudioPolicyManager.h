@@ -31,14 +31,14 @@
 #include <utils/SortedVector.h>
 #include <media/AudioParameter.h>
 #include <media/AudioPolicy.h>
+#include <media/AudioProfile.h>
 #include <media/PatchBuilder.h>
 #include "AudioPolicyInterface.h"
 
 #include <AudioPolicyManagerObserver.h>
 #include <AudioPolicyConfig.h>
-#include <AudioPort.h>
+#include <PolicyAudioPort.h>
 #include <AudioPatch.h>
-#include <AudioProfile.h>
 #include <DeviceDescriptor.h>
 #include <IOProfile.h>
 #include <HwModule.h>
@@ -278,7 +278,7 @@ public:
         virtual status_t getHwOffloadEncodingFormatsSupportedForA2DP(
                     std::vector<audio_format_t> *formats);
 
-        virtual void setAppState(uid_t uid, app_state_t state);
+        virtual void setAppState(audio_port_handle_t portId, app_state_t state);
 
         virtual bool isHapticPlaybackSupported();
 
@@ -646,7 +646,8 @@ protected:
         }
         String8 getFirstDeviceAddress(const DeviceVector &devices) const
         {
-            return (devices.size() > 0) ? devices.itemAt(0)->address() : String8("");
+            return (devices.size() > 0) ?
+                    String8(devices.itemAt(0)->address().c_str()) : String8("");
         }
 
         uint32_t updateCallRouting(const DeviceVector &rxDevices, uint32_t delayMs = 0);

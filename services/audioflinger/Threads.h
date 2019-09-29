@@ -1562,7 +1562,8 @@ public:
                     audio_input_flags_t *flags,
                     pid_t tid,
                     status_t *status /*non-NULL*/,
-                    audio_port_handle_t portId);
+                    audio_port_handle_t portId,
+                    const String16& opPackageName);
 
             status_t    start(RecordTrack* recordTrack,
                               AudioSystem::sync_event_t event,
@@ -1624,7 +1625,7 @@ public:
             void        checkBtNrec();
 
             // Sets the UID records silence
-            void        setRecordSilenced(uid_t uid, bool silenced);
+            void        setRecordSilenced(audio_port_handle_t portId, bool silenced);
 
             status_t    getActiveMicrophones(std::vector<media::MicrophoneInfo>* activeMicrophones);
 
@@ -1793,7 +1794,8 @@ class MmapThread : public ThreadBase
     virtual     void        invalidateTracks(audio_stream_type_t streamType __unused) {}
 
                 // Sets the UID records silence
-    virtual     void        setRecordSilenced(uid_t uid __unused, bool silenced __unused) {}
+    virtual     void        setRecordSilenced(audio_port_handle_t portId __unused,
+                                              bool silenced __unused) {}
 
  protected:
                 void        dumpInternals_l(int fd, const Vector<String16>& args) override;
@@ -1880,7 +1882,8 @@ public:
 
                 void           updateMetadata_l() override;
                 void           processVolume_l() override;
-                void           setRecordSilenced(uid_t uid, bool silenced) override;
+                void           setRecordSilenced(audio_port_handle_t portId,
+                                                 bool silenced) override;
 
     virtual     void           toAudioPortConfig(struct audio_port_config *config);
 

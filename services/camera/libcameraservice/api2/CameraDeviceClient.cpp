@@ -1878,6 +1878,34 @@ binder::Status CameraDeviceClient::finalizeOutputConfigurations(int32_t streamId
     return res;
 }
 
+binder::Status CameraDeviceClient::setCameraAudioRestriction(int32_t mode) {
+    ATRACE_CALL();
+    binder::Status res;
+    if (!(res = checkPidStatus(__FUNCTION__)).isOk()) return res;
+
+    if (!isValidAudioRestriction(mode)) {
+        String8 msg = String8::format("Camera %s: invalid audio restriction mode %d",
+                mCameraIdStr.string(), mode);
+        ALOGW("%s: %s", __FUNCTION__, msg.string());
+        return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT, msg.string());
+    }
+
+    Mutex::Autolock icl(mBinderSerializationLock);
+    BasicClient::setAudioRestriction(mode);
+    return binder::Status::ok();
+}
+
+binder::Status CameraDeviceClient::getGlobalAudioRestriction(/*out*/ int32_t* outMode) {
+    ATRACE_CALL();
+    binder::Status res;
+    if (!(res = checkPidStatus(__FUNCTION__)).isOk()) return res;
+    Mutex::Autolock icl(mBinderSerializationLock);
+    if (outMode != nullptr) {
+        *outMode = BasicClient::getServiceAudioRestriction();
+    }
+    return binder::Status::ok();
+}
+
 status_t CameraDeviceClient::dump(int fd, const Vector<String16>& args) {
     return BasicClient::dump(fd, args);
 }

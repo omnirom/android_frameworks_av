@@ -81,7 +81,10 @@ bool IOProfile::isCompatibleProfile(const DeviceVector &devices,
         }
     }
 
-    if (isPlaybackThread && (getFlags() & flags) != flags) {
+    const uint32_t mustMatchOutputFlags =
+            AUDIO_OUTPUT_FLAG_DIRECT|AUDIO_OUTPUT_FLAG_HW_AV_SYNC|AUDIO_OUTPUT_FLAG_MMAP_NOIRQ;
+    if (isPlaybackThread && (((getFlags() ^ flags) & mustMatchOutputFlags)
+                    || (getFlags() & flags) != flags)) {
         return false;
     }
     // The only input flag that is allowed to be different is the fast flag.
@@ -107,7 +110,9 @@ bool IOProfile::isCompatibleProfile(const DeviceVector &devices,
 
 void IOProfile::dump(String8 *dst) const
 {
-    AudioPort::dump(dst, 4);
+    std::string portStr;
+    AudioPort::dump(&portStr, 4);
+    dst->append(portStr.c_str());
 
     dst->appendFormat("    - flags: 0x%04x", getFlags());
     std::string flagsLiteral;

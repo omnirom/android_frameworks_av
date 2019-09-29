@@ -205,6 +205,16 @@ public:
 protected:
     DISALLOW_COPY_AND_ASSIGN(TrackBase);
 
+    void releaseCblk() {
+        if (mCblk != nullptr) {
+            mCblk->~audio_track_cblk_t();   // destroy our shared-structure.
+            if (mClient == 0) {
+                free(mCblk);
+            }
+            mCblk = nullptr;
+        }
+    }
+
     // AudioBufferProvider interface
     virtual status_t getNextBuffer(AudioBufferProvider::Buffer* buffer) = 0;
     virtual void releaseBuffer(AudioBufferProvider::Buffer* buffer);
@@ -214,6 +224,8 @@ protected:
     virtual size_t  framesReady() const { return SIZE_MAX; }
 
     uint32_t channelCount() const { return mChannelCount; }
+
+    size_t frameSize() const { return mFrameSize; }
 
     audio_channel_mask_t channelMask() const { return mChannelMask; }
 

@@ -34,8 +34,8 @@ AudioInputDescriptor::AudioInputDescriptor(const sp<IOProfile>& profile,
 {
     if (profile != NULL) {
         profile->pickAudioProfile(mSamplingRate, mChannelMask, mFormat);
-        if (profile->mGains.size() > 0) {
-            profile->mGains[0]->getDefaultConfig(&mGain);
+        if (profile->getGains().size() > 0) {
+            profile->getGains()[0]->getDefaultConfig(&mGain);
         }
     }
 }
@@ -48,14 +48,27 @@ audio_module_handle_t AudioInputDescriptor::getModuleHandle() const
     return mProfile->getModuleHandle();
 }
 
-audio_port_handle_t AudioInputDescriptor::getId() const
-{
-    return mId;
-}
-
 audio_source_t AudioInputDescriptor::source() const
 {
     return getHighestPriorityAttributes().source;
+}
+
+status_t AudioInputDescriptor::applyAudioPortConfig(const struct audio_port_config *config,
+                                                    audio_port_config *backupConfig)
+{
+    struct audio_port_config localBackupConfig = { .config_mask = config->config_mask };
+    status_t status = NO_ERROR;
+
+    toAudioPortConfig(&localBackupConfig);
+    if ((status = validationBeforeApplyConfig(config)) == NO_ERROR) {
+        AudioPortConfig::applyAudioPortConfig(config, backupConfig);
+        applyPolicyAudioPortConfig(config);
+    }
+
+    if (backupConfig != NULL) {
+        *backupConfig = localBackupConfig;
+    }
+    return status;
 }
 
 void AudioInputDescriptor::toAudioPortConfig(struct audio_port_config *dstConfig,
@@ -70,8 +83,8 @@ void AudioInputDescriptor::toAudioPortConfig(struct audio_port_config *dstConfig
     }
 
     AudioPortConfig::toAudioPortConfig(dstConfig, srcConfig);
+    toPolicyAudioPortConfig(dstConfig, srcConfig);
 
-    dstConfig->id = mId;
     dstConfig->role = AUDIO_PORT_ROLE_SINK;
     dstConfig->type = AUDIO_PORT_TYPE_MIX;
     dstConfig->ext.mix.hw_module = getModuleHandle();
@@ -212,7 +225,7 @@ status_t AudioInputDescriptor::open(const audio_config_t *config,
     mDevice = device;
 
     ALOGV("opening input for device %s profile %p name %s",
-          mDevice->toString().c_str(), mProfile.get(), mProfile->getName().string());
+          mDevice->toString().c_str(), mProfile.get(), mProfile->getName().c_str());
 
     audio_devices_t deviceType = mDevice->type();
 
@@ -220,7 +233,7 @@ status_t AudioInputDescriptor::open(const audio_config_t *config,
                                                   input,
                                                   &lConfig,
                                                   &deviceType,
-                                                  mDevice->address(),
+                                                  String8(mDevice->address().c_str()),
                                                   source,
                                                   flags);
     LOG_ALWAYS_FATAL_IF(mDevice->type() != deviceType,
@@ -234,7 +247,7 @@ status_t AudioInputDescriptor::open(const audio_config_t *config,
         mSamplingRate = lConfig.sample_rate;
         mChannelMask = lConfig.channel_mask;
         mFormat = lConfig.format;
-        mId = AudioPort::getNextUniqueId();
+        mId = PolicyAudioPort::getNextUniqueId();
         mIoHandle = *input;
         mProfile->curOpenCount++;
     }
@@ -450,13 +463,13 @@ EffectDescriptorCollection AudioInputDescriptor::getEnabledEffects() const
     return enabledEffects;
 }
 
-void AudioInputDescriptor::setAppState(uid_t uid, app_state_t state)
+void AudioInputDescriptor::setAppState(audio_port_handle_t portId, app_state_t state)
 {
     RecordClientVector clients = clientsList(false /*activeOnly*/);
     RecordClientVector updatedClients;
 
     for (const auto& client : clients) {
-        if (uid == client->uid()) {
+        if (portId == client->portId()) {
             bool wasSilenced = client->isSilenced();
             client->setAppState(state);
             if (client->active() && wasSilenced != client->isSilenced()) {

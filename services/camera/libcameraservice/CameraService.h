@@ -258,6 +258,19 @@ public:
 
         // Block the client form using the camera
         virtual void block();
+
+        // set audio restriction from client
+        // Will call into camera service and hold mServiceLock
+        virtual status_t setAudioRestriction(int32_t mode);
+
+        // Get current global audio restriction setting
+        // Will call into camera service and hold mServiceLock
+        virtual int32_t getServiceAudioRestriction() const;
+
+        // Get current audio restriction setting for this client
+        virtual int32_t getAudioRestriction() const;
+
+        static bool isValidAudioRestriction(int32_t mode);
     protected:
         BasicClient(const sp<CameraService>& cameraService,
                 const sp<IBinder>& remoteCallback,
@@ -285,6 +298,9 @@ public:
         const uid_t                     mClientUid;
         const pid_t                     mServicePid;
         bool                            mDisconnected;
+
+        mutable Mutex                   mAudioRestrictionLock;
+        int32_t                         mAudioRestriction;
 
         // - The app-side Binder interface to receive callbacks from us
         sp<IBinder>                     mRemoteBinder;   // immutable after constructor
@@ -438,6 +454,9 @@ public:
                 const CameraService::DescriptorPtr& partial);
 
     }; // class CameraClientManager
+
+    int32_t updateAudioRestriction();
+    int32_t updateAudioRestrictionLocked();
 
 private:
 
@@ -648,6 +667,13 @@ private:
         return mCameraProviderManager->getSystemCameraKind(cameraId.c_str());
     }
 
+    // Update the set of API1Compatible camera devices without including system
+    // cameras and secure cameras. This is used for hiding system only cameras
+    // from clients using camera1 api and not having android.permission.SYSTEM_CAMERA.
+    // This function expects @param normalDeviceIds, to have normalDeviceIds
+    // sorted in alpha-numeric order.
+    void filterAPI1SystemCameraLocked(const std::vector<std::string> &normalDeviceIds);
+
     // Single implementation shared between the various connect calls
     template<class CALLBACK, class CLIENT>
     binder::Status connectHelper(const sp<CALLBACK>& cameraCb, const String8& cameraId,
@@ -802,9 +828,14 @@ private:
      */
     void updateCameraNumAndIds();
 
+    // Number of camera devices (excluding hidden secure cameras)
     int                 mNumberOfCameras;
+    // Number of camera devices (excluding hidden secure cameras and
+    // system cameras)
+    int                 mNumberOfCamerasWithoutSystemCamera;
 
     std::vector<std::string> mNormalDeviceIds;
+    std::vector<std::string> mNormalDeviceIdsWithoutSystemCamera;
 
     // sounds
     sp<MediaPlayer>     newMediaPlayer(const char *file);
@@ -966,6 +997,13 @@ private:
 
     void broadcastTorchModeStatus(const String8& cameraId,
             hardware::camera::common::V1_0::TorchModeStatus status);
+
+    // TODO: right now each BasicClient holds one AppOpsManager instance.
+    // We can refactor the code so all of clients share this instance
+    AppOpsManager mAppOps;
+
+    // Aggreated audio restriction mode for all camera clients
+    int32_t mAudioRestriction;
 };
 
 } // namespace android

@@ -82,19 +82,19 @@ public:
     status_t addInputProfile(const sp<IOProfile> &profile);
     status_t addProfile(const sp<IOProfile> &profile);
 
-    status_t addOutputProfile(const String8& name, const audio_config_t *config,
+    status_t addOutputProfile(const std::string& name, const audio_config_t *config,
             audio_devices_t device, const String8& address);
-    status_t removeOutputProfile(const String8& name);
-    status_t addInputProfile(const String8& name, const audio_config_t *config,
+    status_t removeOutputProfile(const std::string& name);
+    status_t addInputProfile(const std::string& name, const audio_config_t *config,
             audio_devices_t device, const String8& address);
-    status_t removeInputProfile(const String8& name);
+    status_t removeInputProfile(const std::string& name);
 
     audio_module_handle_t getHandle() const { return mHandle; }
     void setHandle(audio_module_handle_t handle);
 
-    sp<AudioPort> findPortByTagName(const String8 &tagName) const
+    sp<PolicyAudioPort> findPortByTagName(const std::string &tagName) const
     {
-        return mPorts.findByTagName(tagName);
+        return findByTagName(mPorts, tagName);
     }
 
     /**
@@ -106,7 +106,8 @@ public:
      * @return true if the HwModule supports the connection between the sink and the source,
      * false otherwise
      */
-    bool supportsPatch(const sp<AudioPort> &srcPort, const sp<AudioPort> &dstPort) const;
+    bool supportsPatch(const sp<PolicyAudioPort> &srcPort,
+                       const sp<PolicyAudioPort> &dstPort) const;
 
     // TODO remove from here (split serialization)
     void dump(String8 *dst) const;
@@ -123,7 +124,7 @@ private:
     DeviceVector mDeclaredDevices; // devices declared in audio_policy configuration file.
     DeviceVector mDynamicDevices; /**< devices that can be added/removed at runtime (e.g. rsbumix)*/
     AudioRouteVector mRoutes;
-    AudioPortVector mPorts;
+    PolicyAudioPortVector mPorts;
 };
 
 class HwModuleCollection : public Vector<sp<HwModule> >
