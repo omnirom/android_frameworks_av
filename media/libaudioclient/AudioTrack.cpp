@@ -353,7 +353,11 @@ void AudioTrack::createDummyAudioSessionForA2DP() {
 
    heap = new MemoryDealer(1024*1024, "AudioTrack Heap Base");
    iMem = heap->allocate(DUMMY_TRACK_SMP_BUF_SIZE*sizeof(short));
-   p = static_cast<uint8_t*>(iMem->pointer());
+   // TODO(b/142073222): Using unsecurePointer() has some associated security pitfalls
+   //       (see declaration for details).
+   //       Either document why it is safe in this case or address the
+   //       issue (e.g. by copying).
+   p = static_cast<uint8_t*>(iMem->unsecurePointer());
    memset(p, '\0', DUMMY_TRACK_SMP_BUF_SIZE*sizeof(short));
 
    dummyTrack = new AudioTrack(AUDIO_STREAM_MUSIC,// stream type
