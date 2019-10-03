@@ -218,8 +218,8 @@ int DeviceVector::do_compare(const void* lhs, const void* rhs) const {
     audio_devices_t ltype = ldevice->type();
     audio_devices_t rtype = rdevice->type();
 
-    String8 laddr = ldevice->address();
-    String8 raddr = rdevice->address();
+    std::string laddr = ldevice->address();
+    std::string raddr = rdevice->address();
 
     audio_port_handle_t lId = ldevice->getId();
     audio_port_handle_t rId = rdevice->getId();
