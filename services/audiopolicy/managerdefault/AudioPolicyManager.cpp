@@ -66,6 +66,9 @@ namespace android {
 // media / notification / system volume.
 constexpr float IN_CALL_EARPIECE_HEADROOM_DB = 3.f;
 
+static const unsigned int DEFAULT_MUTE_LATENCY_FACTOR = 2;
+static const unsigned int DEFAULT_ROUTING_LATENCY_MS = 50;
+
 // Compressed formats for MSD module, ordered from most preferred to least preferred.
 static const std::vector<audio_format_t> compressedFormatsOrder = {{
         AUDIO_FORMAT_MAT_2_1, AUDIO_FORMAT_MAT_2_0, AUDIO_FORMAT_E_AC3,
@@ -5053,6 +5056,12 @@ bool AudioPolicyManager::followsSameRouting(const audio_attributes_t &lAttr,
             mEngine->getProductStrategyForAttributes(rAttr);
 }
 
+const unsigned int muteLatencyFactor = property_get_int32(
+            "audio.sys.mute.latency.factor", DEFAULT_MUTE_LATENCY_FACTOR);
+
+const unsigned int routingLatency = property_get_int32(
+            "audio.sys.routing.latency", DEFAULT_ROUTING_LATENCY_MS);
+
 void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr)
 {
     auto psId = mEngine->getProductStrategyForAttributes(attr);
@@ -5084,6 +5093,8 @@ void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr
         // get maximum latency of all source outputs to determine the minimum mute time guaranteeing
         // audio from invalidated tracks will be rendered when unmuting
         uint32_t maxLatency = 0;
+        // factor to increase mute duration in case track is invalidated
+        uint32_t invalidationFactor = 1;
         for (audio_io_handle_t srcOut : srcOutputs) {
             sp<SwAudioOutputDescriptor> desc = mPreviousOutputs.valueFor(srcOut);
             if (desc != 0 && maxLatency < desc->latency()) {
@@ -5099,8 +5110,6 @@ void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr
             sp<SwAudioOutputDescriptor> desc = mPreviousOutputs.valueFor(srcOut);
             if (desc != 0 && desc->isStrategyActive(psId)) {
                 setStrategyMute(psId, true, desc);
-                setStrategyMute(psId, false, desc, maxLatency * LATENCY_MUTE_FACTOR,
-                                newDevices.types());
             }
             sp<SourceClientDescriptor> source = getSourceForAttributesOnOutput(srcOut, attr);
             if (source != 0){
@@ -5114,7 +5123,21 @@ void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr
         }
         // Move tracks associated to this stream (and linked) from previous output to new output
         for (auto stream :  mEngine->getStreamTypesForProductStrategy(psId)) {
+            // Do not invalidate stream if new music output and previous music output are same
+            if (stream == AUDIO_STREAM_MUSIC &&
+                    srcOutputs.indexOf(mMusicEffectOutput) >= 0)
+                continue;
             mpClientInterface->invalidateStream(stream);
+            if (isStreamActive(stream, 0) && invalidationFactor == 1)
+                invalidationFactor = 2;
+        }
+
+        for (audio_io_handle_t srcOut : srcOutputs) {
+            sp<SwAudioOutputDescriptor> desc = mPreviousOutputs.valueFor(srcOut);
+            if (desc != 0 && desc->isStrategyActive(psId))
+                setStrategyMute(psId, false, desc,
+                            (maxLatency * muteLatencyFactor * invalidationFactor)
+                             + routingLatency, newDevices.types());
         }
     }
 }
@@ -5474,9 +5497,11 @@ uint32_t AudioPolicyManager::checkDeviceMuteStrategies(const sp<AudioOutputDescr
     // temporary mute output if device selection changes to avoid volume bursts due to
     // different per device volumes
     if (outputDesc->isActive() && (devices != prevDevices)) {
-        uint32_t tempMuteWaitMs = outputDesc->latency() * 2;
-        // temporary mute duration is conservatively set to 4 times the reported latency
-        uint32_t tempMuteDurationMs = outputDesc->latency() * 4;
+        uint32_t tempMuteWaitMs = outputDesc->latency() * muteLatencyFactor;
+        // temporary mute duration can be configured by altering audio.sys.mute.latency.factor
+        // and audio.sys.routing.latency
+        uint32_t tempMuteDurationMs =
+                (outputDesc->latency() * muteLatencyFactor) + routingLatency;
         if (muteWaitMs < tempMuteWaitMs) {
             muteWaitMs = tempMuteWaitMs;
         }
