@@ -83,6 +83,8 @@ public:
     virtual void            notifyError(int32_t errorCode,
                                         const CaptureResultExtras& resultExtras);
     virtual status_t        setVideoTarget(const sp<IGraphicBufferProducer>& bufferProducer);
+    virtual status_t        setAudioRestriction(int mode);
+    virtual int32_t         getGlobalAudioRestriction();
 
     /**
      * Interface used by CameraService
@@ -121,6 +123,8 @@ public:
      */
 
     camera2::SharedParameters& getParameters();
+
+    void notifyRequestId(int32_t requestId);
 
     int getPreviewStreamId() const;
     int getCaptureStreamId() const;
@@ -227,6 +231,12 @@ private:
     status_t initializeImpl(TProviderPtr providerPtr, const String8& monitorTags);
 
     bool isZslEnabledInStillTemplate();
+
+    mutable Mutex mLatestRequestMutex;
+    Condition mLatestRequestSignal;
+    int32_t mLatestRequestId = -1;
+    status_t waitUntilRequestIdApplied(int32_t requestId, nsecs_t timeout);
+    status_t waitUntilCurrentRequestIdLocked();
 };
 
 }; // namespace android

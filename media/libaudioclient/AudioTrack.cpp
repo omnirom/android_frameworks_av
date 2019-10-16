@@ -353,7 +353,11 @@ void AudioTrack::createDummyAudioSessionForA2DP() {
 
    heap = new MemoryDealer(1024*1024, "AudioTrack Heap Base");
    iMem = heap->allocate(DUMMY_TRACK_SMP_BUF_SIZE*sizeof(short));
-   p = static_cast<uint8_t*>(iMem->pointer());
+   // TODO(b/142073222): Using unsecurePointer() has some associated security pitfalls
+   //       (see declaration for details).
+   //       Either document why it is safe in this case or address the
+   //       issue (e.g. by copying).
+   p = static_cast<uint8_t*>(iMem->unsecurePointer());
    memset(p, '\0', DUMMY_TRACK_SMP_BUF_SIZE*sizeof(short));
 
    dummyTrack = new AudioTrack(AUDIO_STREAM_MUSIC,// stream type
@@ -462,7 +466,7 @@ status_t AudioTrack::set(
     mDoNotReconnect = doNotReconnect;
 
     ALOGV_IF(sharedBuffer != 0, "%s(): sharedBuffer: %p, size: %zu",
-            __func__, sharedBuffer->pointer(), sharedBuffer->size());
+            __func__, sharedBuffer->unsecurePointer(), sharedBuffer->size());
 
     ALOGV("%s(): streamType %d frameCount %zu flags %04x",
             __func__, streamType, frameCount, flags);
@@ -1586,7 +1590,11 @@ status_t AudioTrack::createTrack_l()
         status = NO_INIT;
         goto exit;
     }
-    void *iMemPointer = iMem->pointer();
+    // TODO: Using unsecurePointer() has some associated security pitfalls
+    //       (see declaration for details).
+    //       Either document why it is safe in this case or address the
+    //       issue (e.g. by copying).
+    void *iMemPointer = iMem->unsecurePointer();
     if (iMemPointer == NULL) {
         ALOGE("%s(%d): Could not get control block pointer", __func__, mPortId);
         status = NO_INIT;
@@ -1641,7 +1649,11 @@ status_t AudioTrack::createTrack_l()
     if (mSharedBuffer == 0) {
         buffers = cblk + 1;
     } else {
-        buffers = mSharedBuffer->pointer();
+        // TODO: Using unsecurePointer() has some associated security pitfalls
+        //       (see declaration for details).
+        //       Either document why it is safe in this case or address the
+        //       issue (e.g. by copying).
+        buffers = mSharedBuffer->unsecurePointer();
         if (buffers == NULL) {
             ALOGE("%s(%d): Could not get buffer pointer", __func__, mPortId);
             status = NO_INIT;

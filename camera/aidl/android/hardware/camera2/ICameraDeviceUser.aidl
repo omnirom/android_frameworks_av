@@ -155,4 +155,26 @@ interface ICameraDeviceUser
     void updateOutputConfiguration(int streamId, in OutputConfiguration outputConfiguration);
 
     void finalizeOutputConfigurations(int streamId, in OutputConfiguration outputConfiguration);
+
+
+    // Keep in sync with public API in
+    // frameworks/base/core/java/android/hardware/camera2/CameraDevice.java
+    const int AUDIO_RESTRICTION_NONE = 0;
+    const int AUDIO_RESTRICTION_VIBRATION = 1;
+    const int AUDIO_RESTRICTION_VIBRATION_SOUND = 3;
+
+    /**
+      * Set audio restriction mode for this camera device.
+      *
+      * @param mode the audio restriction mode ID as above
+      *
+      */
+    void setCameraAudioRestriction(int mode);
+
+    /**
+      * Get global audio restriction mode for all camera clients.
+      *
+      * @return the currently applied system-wide audio restriction mode
+      */
+    int getGlobalAudioRestriction();
 }

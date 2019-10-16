@@ -18,12 +18,14 @@
 
 #define LOG_TAG "AudioFlinger"
 //#define LOG_NDEBUG 0
+#define ATRACE_TAG ATRACE_TAG_AUDIO
 
 #include "Configuration.h"
 #include <linux/futex.h>
 #include <math.h>
 #include <sys/syscall.h>
 #include <utils/Log.h>
+#include <utils/Trace.h>
 
 #include <private/media/AudioTrackShared.h>
 
@@ -148,7 +150,7 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
     if (client != 0) {
         mCblkMemory = client->heap()->allocate(size);
         if (mCblkMemory == 0 ||
-                (mCblk = static_cast<audio_track_cblk_t *>(mCblkMemory->pointer())) == NULL) {
+                (mCblk = static_cast<audio_track_cblk_t *>(mCblkMemory->unsecurePointer())) == NULL) {
             ALOGE("%s(%d): not enough memory for AudioTrack size=%zu", __func__, mId, size);
             client->heap()->dump("AudioTrack");
             mCblkMemory.clear();
@@ -170,7 +172,7 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
             const sp<MemoryDealer> roHeap(thread->readOnlyHeap());
             if (roHeap == 0 ||
                     (mBufferMemory = roHeap->allocate(bufferSize)) == 0 ||
-                    (mBuffer = mBufferMemory->pointer()) == NULL) {
+                    (mBuffer = mBufferMemory->unsecurePointer()) == NULL) {
                 ALOGE("%s(%d): not enough memory for read-only buffer size=%zu",
                         __func__, mId, bufferSize);
                 if (roHeap != 0) {
@@ -185,7 +187,7 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
         case ALLOC_PIPE:
             mBufferMemory = thread->pipeMemory();
             // mBuffer is the virtual address as seen from current process (mediaserver),
-            // and should normally be coming from mBufferMemory->pointer().
+            // and should normally be coming from mBufferMemory->unsecurePointer().
             // However in this case the TrackBase does not reference the buffer directly.
             // It should references the buffer via the pipe.
             // Therefore, to detect incorrect usage of the buffer, we set mBuffer to NULL.
@@ -237,12 +239,7 @@ AudioFlinger::ThreadBase::TrackBase::~TrackBase()
 {
     // delete the proxy before deleting the shared memory it refers to, to avoid dangling reference
     mServerProxy.clear();
-    if (mCblk != NULL) {
-        mCblk->~audio_track_cblk_t();   // destroy our shared-structure.
-        if (mClient == 0) {
-            free(mCblk);
-        }
-    }
+    releaseCblk();
     mCblkMemory.clear();    // free the shared memory before releasing the heap it belongs to
     if (mClient != 0) {
         // Client destructor must run with AudioFlinger client mutex locked
@@ -442,7 +439,7 @@ bool AudioFlinger::PlaybackThread::OpPlayAudioMonitor::hasOpPlayAudio() const {
     return mHasOpPlayAudio.load();
 }
 
-// Note this method is never called (and never to be) for audio server / root track
+// Note this method is never called (and never to be) for audio server / patch record track
 // - not called from constructor due to check on UID,
 // - not called from PlayAudioOpCallback because the callback is not installed in this case
 void AudioFlinger::PlaybackThread::OpPlayAudioMonitor::checkPlayAudioForUsage()
@@ -513,7 +510,11 @@ AudioFlinger::PlaybackThread::Track::Track(
             track_type type,
             audio_port_handle_t portId)
     :   TrackBase(thread, client, attr, sampleRate, format, channelMask, frameCount,
-                  (sharedBuffer != 0) ? sharedBuffer->pointer() : buffer,
+                  // TODO: Using unsecurePointer() has some associated security pitfalls
+                  //       (see declaration for details).
+                  //       Either document why it is safe in this case or address the
+                  //       issue (e.g. by copying).
+                  (sharedBuffer != 0) ? sharedBuffer->unsecurePointer() : buffer,
                   (sharedBuffer != 0) ? sharedBuffer->size() : bufferSize,
                   sessionId, creatorPid, uid, true /*isOut*/,
                   (type == TYPE_PATCH) ? ( buffer == NULL ? ALLOC_LOCAL : ALLOC_NONE) : ALLOC_CBLK,
@@ -543,9 +544,15 @@ AudioFlinger::PlaybackThread::Track::Track(
     ALOG_ASSERT(!(client == 0 && sharedBuffer != 0));
 
     ALOGV_IF(sharedBuffer != 0, "%s(%d): sharedBuffer: %p, size: %zu",
-            __func__, mId, sharedBuffer->pointer(), sharedBuffer->size());
+            __func__, mId, sharedBuffer->unsecurePointer(), sharedBuffer->size());
 
     if (mCblk == NULL) {
+        return;
+    }
+
+    if (!thread->isTrackAllowed_l(channelMask, format, sessionId, uid)) {
+        ALOGE("%s(%d): no more tracks available", __func__, mId);
+        releaseCblk(); // this makes the track invalid.
         return;
     }
 
@@ -558,10 +565,6 @@ AudioFlinger::PlaybackThread::Track::Track(
     }
     mServerProxy = mAudioTrackServerProxy;
 
-    if (!thread->isTrackAllowed_l(channelMask, format, sessionId, uid)) {
-        ALOGE("%s(%d): no more tracks available", __func__, mId);
-        return;
-    }
     // only allocate a fast track index if we were able to allocate a normal track name
     if (flags & AUDIO_OUTPUT_FLAG_FAST) {
         // FIXME: Not calling framesReadyIsCalledByMultipleThreads() exposes a potential
@@ -1825,9 +1828,19 @@ status_t AudioFlinger::PlaybackThread::PatchTrack::getNextBuffer(
     ALOG_ASSERT(mPeerProxy != 0, "%s(%d): called without peer proxy", __func__, mId);
     Proxy::Buffer buf;
     buf.mFrameCount = buffer->frameCount;
+    if (ATRACE_ENABLED()) {
+        std::string traceName("PTnReq");
+        traceName += std::to_string(id());
+        ATRACE_INT(traceName.c_str(), buf.mFrameCount);
+    }
     status_t status = mPeerProxy->obtainBuffer(&buf, &mPeerTimeout);
     ALOGV_IF(status != NO_ERROR, "%s(%d): getNextBuffer status %d", __func__, mId, status);
     buffer->frameCount = buf.mFrameCount;
+    if (ATRACE_ENABLED()) {
+        std::string traceName("PTnObt");
+        traceName += std::to_string(id());
+        ATRACE_INT(traceName.c_str(), buf.mFrameCount);
+    }
     if (buf.mFrameCount == 0) {
         return WOULD_BLOCK;
     }
@@ -1880,6 +1893,105 @@ void AudioFlinger::PlaybackThread::PatchTrack::restartIfDisabled()
 // ----------------------------------------------------------------------------
 //      Record
 // ----------------------------------------------------------------------------
+
+
+// ----------------------------------------------------------------------------
+//      AppOp for audio recording
+// -------------------------------
+
+#undef LOG_TAG
+#define LOG_TAG "AF::OpRecordAudioMonitor"
+
+// static
+sp<AudioFlinger::RecordThread::OpRecordAudioMonitor>
+AudioFlinger::RecordThread::OpRecordAudioMonitor::createIfNeeded(
+            uid_t uid, const String16& opPackageName)
+{
+    if (isServiceUid(uid)) {
+        ALOGV("not silencing record for service uid:%d pack:%s",
+                uid, String8(opPackageName).string());
+        return nullptr;
+    }
+
+    if (opPackageName.size() == 0) {
+        Vector<String16> packages;
+        // no package name, happens with SL ES clients
+        // query package manager to find one
+        PermissionController permissionController;
+        permissionController.getPackagesForUid(uid, packages);
+        if (packages.isEmpty()) {
+            return nullptr;
+        } else {
+            ALOGV("using pack:%s for uid:%d", String8(packages[0]).string(), uid);
+            return new OpRecordAudioMonitor(uid, packages[0]);
+        }
+    }
+
+    return new OpRecordAudioMonitor(uid, opPackageName);
+}
+
+AudioFlinger::RecordThread::OpRecordAudioMonitor::OpRecordAudioMonitor(
+        uid_t uid, const String16& opPackageName)
+        : mHasOpRecordAudio(true), mUid(uid), mPackage(opPackageName)
+{
+}
+
+AudioFlinger::RecordThread::OpRecordAudioMonitor::~OpRecordAudioMonitor()
+{
+    if (mOpCallback != 0) {
+        mAppOpsManager.stopWatchingMode(mOpCallback);
+    }
+    mOpCallback.clear();
+}
+
+void AudioFlinger::RecordThread::OpRecordAudioMonitor::onFirstRef()
+{
+    checkRecordAudio();
+    mOpCallback = new RecordAudioOpCallback(this);
+    ALOGV("start watching OP_RECORD_AUDIO for pack:%s", String8(mPackage).string());
+    mAppOpsManager.startWatchingMode(AppOpsManager::OP_RECORD_AUDIO, mPackage, mOpCallback);
+}
+
+bool AudioFlinger::RecordThread::OpRecordAudioMonitor::hasOpRecordAudio() const {
+    return mHasOpRecordAudio.load();
+}
+
+// Called by RecordAudioOpCallback when OP_RECORD_AUDIO is updated in AppOp callback
+// and in onFirstRef()
+// Note this method is never called (and never to be) for audio server / root track
+// due to the UID in createIfNeeded(). As a result for those record track, it's:
+// - not called from constructor,
+// - not called from RecordAudioOpCallback because the callback is not installed in this case
+void AudioFlinger::RecordThread::OpRecordAudioMonitor::checkRecordAudio()
+{
+    const int32_t mode = mAppOpsManager.checkOp(AppOpsManager::OP_RECORD_AUDIO,
+            mUid, mPackage);
+    const bool hasIt =  (mode == AppOpsManager::MODE_ALLOWED);
+    // verbose logging only log when appOp changed
+    ALOGI_IF(hasIt != mHasOpRecordAudio.load(),
+            "OP_RECORD_AUDIO missing, %ssilencing record uid%d pack:%s",
+            hasIt ? "un" : "", mUid, String8(mPackage).string());
+    mHasOpRecordAudio.store(hasIt);
+}
+
+AudioFlinger::RecordThread::OpRecordAudioMonitor::RecordAudioOpCallback::RecordAudioOpCallback(
+        const wp<OpRecordAudioMonitor>& monitor) : mMonitor(monitor)
+{ }
+
+void AudioFlinger::RecordThread::OpRecordAudioMonitor::RecordAudioOpCallback::opChanged(int32_t op,
+            const String16& packageName) {
+    UNUSED(packageName);
+    if (op != AppOpsManager::OP_RECORD_AUDIO) {
+        return;
+    }
+    sp<OpRecordAudioMonitor> monitor = mMonitor.promote();
+    if (monitor != NULL) {
+        monitor->checkRecordAudio();
+    }
+}
+
+
+
 #undef LOG_TAG
 #define LOG_TAG "AF::RecordHandle"
 
@@ -1951,6 +2063,7 @@ AudioFlinger::RecordThread::RecordTrack::RecordTrack(
             uid_t uid,
             audio_input_flags_t flags,
             track_type type,
+            const String16& opPackageName,
             audio_port_handle_t portId)
     :   TrackBase(thread, client, attr, sampleRate, format,
                   channelMask, frameCount, buffer, bufferSize, sessionId,
@@ -1964,7 +2077,8 @@ AudioFlinger::RecordThread::RecordTrack::RecordTrack(
         mResamplerBufferProvider(NULL), // initialize in case of early constructor exit
         mRecordBufferConverter(NULL),
         mFlags(flags),
-        mSilenced(false)
+        mSilenced(false),
+        mOpRecordAudioMonitor(OpRecordAudioMonitor::createIfNeeded(uid, opPackageName))
 {
     if (mCblk == NULL) {
         return;
@@ -2215,6 +2329,14 @@ void AudioFlinger::RecordThread::RecordTrack::updateTrackFrameInfo(
     mServerLatencyMs.store(latencyMs);
 }
 
+bool AudioFlinger::RecordThread::RecordTrack::isSilenced() const {
+    if (mSilenced) {
+        return true;
+    }
+    // The monitor is only created for record tracks that can be silenced.
+    return mOpRecordAudioMonitor ? !mOpRecordAudioMonitor->hasOpRecordAudio() : false;
+}
+
 status_t AudioFlinger::RecordThread::RecordTrack::getActiveMicrophones(
         std::vector<media::MicrophoneInfo>* activeMicrophones)
 {
@@ -2265,7 +2387,7 @@ AudioFlinger::RecordThread::PatchRecord::PatchRecord(RecordThread *recordThread,
                 audio_attributes_t{} /* currently unused for patch track */,
                 sampleRate, format, channelMask, frameCount,
                 buffer, bufferSize, AUDIO_SESSION_NONE, getpid(), AID_AUDIOSERVER,
-                flags, TYPE_PATCH),
+                flags, TYPE_PATCH, String16()),
         PatchTrackBase(new ClientProxy(mCblk, mBuffer, frameCount, mFrameSize, false, true),
                        *recordThread, timeout)
 {
@@ -2291,6 +2413,11 @@ status_t AudioFlinger::RecordThread::PatchRecord::getNextBuffer(
     ALOGV_IF(status != NO_ERROR,
              "%s(%d): mPeerProxy->obtainBuffer status %d", __func__, mId, status);
     buffer->frameCount = buf.mFrameCount;
+    if (ATRACE_ENABLED()) {
+        std::string traceName("PRnObt");
+        traceName += std::to_string(id());
+        ATRACE_INT(traceName.c_str(), buf.mFrameCount);
+    }
     if (buf.mFrameCount == 0) {
         return WOULD_BLOCK;
     }

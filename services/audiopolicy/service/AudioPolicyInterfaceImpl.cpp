@@ -223,7 +223,7 @@ status_t AudioPolicyService::getOutputForAttr(audio_attributes_t *attr,
 
     if (result == NO_ERROR) {
         sp <AudioPlaybackClient> client =
-            new AudioPlaybackClient(*attr, *output, uid, pid, session, *selectedDeviceId, *stream);
+            new AudioPlaybackClient(*attr, *output, uid, pid, session, *portId, *selectedDeviceId, *stream);
         mAudioPlaybackClients.add(*portId, client);
     }
     return result;
@@ -468,7 +468,7 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
             return status;
         }
 
-        sp<AudioRecordClient> client = new AudioRecordClient(*attr, *input, uid, pid, session,
+        sp<AudioRecordClient> client = new AudioRecordClient(*attr, *input, uid, pid, session, *portId,
                                                              *selectedDeviceId, opPackageName,
                                                              canCaptureOutput, canCaptureHotword);
         mAudioRecordClients.add(*portId, client);

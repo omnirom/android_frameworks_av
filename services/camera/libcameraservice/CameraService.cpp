@@ -135,7 +135,9 @@ sp<hardware::ICameraServiceProxy> CameraService::sCameraServiceProxy;
 CameraService::CameraService() :
         mEventLog(DEFAULT_EVENT_LOG_LENGTH),
         mNumberOfCameras(0),
-        mSoundRef(0), mInitialized(false) {
+        mNumberOfCamerasWithoutSystemCamera(0),
+        mSoundRef(0), mInitialized(false),
+        mAudioRestriction(hardware::camera2::ICameraDeviceUser::AUDIO_RESTRICTION_NONE) {
     ALOGI("CameraService started (pid=%d)", getpid());
     mServiceLockWrapper = std::make_shared<WaitableMutexWrapper>(&mServiceLock);
 }
@@ -158,17 +160,21 @@ void CameraService::onFirstRef()
         mInitialized = true;
     }
 
-    CameraService::pingCameraServiceProxy();
-
     mUidPolicy = new UidPolicy(this);
     mUidPolicy->registerSelf();
     mSensorPrivacyPolicy = new SensorPrivacyPolicy(this);
     mSensorPrivacyPolicy->registerSelf();
+    mAppOps.setCameraAudioRestriction(mAudioRestriction);
     sp<HidlCameraService> hcs = HidlCameraService::getInstance(this);
     if (hcs->registerAsService() != android::OK) {
         ALOGE("%s: Failed to register default android.frameworks.cameraservice.service@1.0",
               __FUNCTION__);
     }
+
+    // This needs to be last call in this function, so that it's as close to
+    // ServiceManager::addService() as possible.
+    CameraService::pingCameraServiceProxy();
+    ALOGI("CameraService pinged cameraservice proxy");
 }
 
 status_t CameraService::enumerateProviders() {
@@ -258,11 +264,32 @@ void CameraService::onNewProviderRegistered() {
     enumerateProviders();
 }
 
+void CameraService::filterAPI1SystemCameraLocked(
+        const std::vector<std::string> &normalDeviceIds) {
+    mNormalDeviceIdsWithoutSystemCamera.clear();
+    for (auto &deviceId : normalDeviceIds) {
+        if (getSystemCameraKind(String8(deviceId.c_str())) ==
+                SystemCameraKind::SYSTEM_ONLY_CAMERA) {
+            // All system camera ids will necessarily come after public camera
+            // device ids as per the HAL interface contract.
+            break;
+        }
+        mNormalDeviceIdsWithoutSystemCamera.push_back(deviceId);
+    }
+    ALOGV("%s: number of API1 compatible public cameras is %zu", __FUNCTION__,
+              mNormalDeviceIdsWithoutSystemCamera.size());
+}
+
 void CameraService::updateCameraNumAndIds() {
     Mutex::Autolock l(mServiceLock);
-    mNumberOfCameras = mCameraProviderManager->getCameraCount();
+    std::pair<int, int> systemAndNonSystemCameras = mCameraProviderManager->getCameraCount();
+    // Excludes hidden secure cameras
+    mNumberOfCameras =
+            systemAndNonSystemCameras.first + systemAndNonSystemCameras.second;
+    mNumberOfCamerasWithoutSystemCamera = systemAndNonSystemCameras.second;
     mNormalDeviceIds =
             mCameraProviderManager->getAPI1CompatibleCameraDeviceIds();
+    filterAPI1SystemCameraLocked(mNormalDeviceIds);
 }
 
 void CameraService::addStates(const String8 id) {
@@ -444,15 +471,31 @@ void CameraService::onTorchStatusChangedLocked(const String8& cameraId,
     broadcastTorchModeStatus(cameraId, newStatus);
 }
 
+static bool hasPermissionsForSystemCamera(int callingPid, int callingUid) {
+    return checkPermission(sSystemCameraPermission, callingPid, callingUid) &&
+            checkPermission(sCameraPermission, callingPid, callingUid);
+}
+
 Status CameraService::getNumberOfCameras(int32_t type, int32_t* numCameras) {
     ATRACE_CALL();
     Mutex::Autolock l(mServiceLock);
+    bool hasSystemCameraPermissions =
+            hasPermissionsForSystemCamera(CameraThreadState::getCallingPid(),
+                    CameraThreadState::getCallingUid());
     switch (type) {
         case CAMERA_TYPE_BACKWARD_COMPATIBLE:
-            *numCameras = static_cast<int>(mNormalDeviceIds.size());
+            if (hasSystemCameraPermissions) {
+                *numCameras = static_cast<int>(mNormalDeviceIds.size());
+            } else {
+                *numCameras = static_cast<int>(mNormalDeviceIdsWithoutSystemCamera.size());
+            }
             break;
         case CAMERA_TYPE_ALL:
-            *numCameras = mNumberOfCameras;
+            if (hasSystemCameraPermissions) {
+                *numCameras = mNumberOfCameras;
+            } else {
+                *numCameras = mNumberOfCamerasWithoutSystemCamera;
+            }
             break;
         default:
             ALOGW("%s: Unknown camera type %d",
@@ -467,20 +510,31 @@ Status CameraService::getCameraInfo(int cameraId,
         CameraInfo* cameraInfo) {
     ATRACE_CALL();
     Mutex::Autolock l(mServiceLock);
+    std::string cameraIdStr = cameraIdIntToStrLocked(cameraId);
+    if (shouldRejectSystemCameraConnection(String8(cameraIdStr.c_str()))) {
+        return STATUS_ERROR_FMT(ERROR_INVALID_OPERATION, "Unable to retrieve camera"
+                "characteristics for system only device %s: ", cameraIdStr.c_str());
+    }
 
     if (!mInitialized) {
         return STATUS_ERROR(ERROR_DISCONNECTED,
                 "Camera subsystem is not available");
     }
-
-    if (cameraId < 0 || cameraId >= mNumberOfCameras) {
+    bool hasSystemCameraPermissions =
+            hasPermissionsForSystemCamera(CameraThreadState::getCallingPid(),
+                    CameraThreadState::getCallingUid());
+    int cameraIdBound = mNumberOfCamerasWithoutSystemCamera;
+    if (hasSystemCameraPermissions) {
+        cameraIdBound = mNumberOfCameras;
+    }
+    if (cameraId < 0 || cameraId >= cameraIdBound) {
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT,
                 "CameraId is not valid");
     }
 
     Status ret = Status::ok();
     status_t err = mCameraProviderManager->getCameraInfo(
-            cameraIdIntToStrLocked(cameraId), cameraInfo);
+            cameraIdStr.c_str(), cameraInfo);
     if (err != OK) {
         ret = STATUS_ERROR_FMT(ERROR_INVALID_OPERATION,
                 "Error retrieving camera info from device %d: %s (%d)", cameraId,
@@ -491,13 +545,20 @@ Status CameraService::getCameraInfo(int cameraId,
 }
 
 std::string CameraService::cameraIdIntToStrLocked(int cameraIdInt) {
-    if (cameraIdInt < 0 || cameraIdInt >= static_cast<int>(mNormalDeviceIds.size())) {
+    const std::vector<std::string> *deviceIds = &mNormalDeviceIdsWithoutSystemCamera;
+    auto callingPid = CameraThreadState::getCallingPid();
+    auto callingUid = CameraThreadState::getCallingUid();
+    if (checkPermission(sSystemCameraPermission, callingPid, callingUid) ||
+            getpid() == callingPid) {
+        deviceIds = &mNormalDeviceIds;
+    }
+    if (cameraIdInt < 0 || cameraIdInt >= static_cast<int>(deviceIds->size())) {
         ALOGE("%s: input id %d invalid: valid range  (0, %zu)",
-                __FUNCTION__, cameraIdInt, mNormalDeviceIds.size());
+                __FUNCTION__, cameraIdInt, deviceIds->size());
         return std::string{};
     }
 
-    return mNormalDeviceIds[cameraIdInt];
+    return (*deviceIds)[cameraIdInt];
 }
 
 String8 CameraService::cameraIdIntToStr(int cameraIdInt) {
@@ -1346,11 +1407,6 @@ Status CameraService::connectLegacy(
     return ret;
 }
 
-static bool hasPermissionsForSystemCamera(int callingPid, int callingUid) {
-    return checkPermission(sSystemCameraPermission, callingPid, callingUid) &&
-            checkPermission(sCameraPermission, callingPid, callingUid);
-}
-
 bool CameraService::shouldSkipStatusUpdates(const String8& cameraId, bool isVendorListener,
         int clientPid, int clientUid) const {
     SystemCameraKind systemCameraKind = getSystemCameraKind(cameraId);
@@ -2027,6 +2083,7 @@ void CameraService::removeByClient(const BasicClient* client) {
             mActiveClientManager.remove(i);
         }
     }
+    updateAudioRestrictionLocked();
 }
 
 bool CameraService::evictClientIdByRemote(const wp<IBinder>& remote) {
@@ -2401,6 +2458,7 @@ CameraService::BasicClient::BasicClient(const sp<CameraService>& cameraService,
         mClientPackageName(clientPackageName), mClientPid(clientPid), mClientUid(clientUid),
         mServicePid(servicePid),
         mDisconnected(false),
+        mAudioRestriction(hardware::camera2::ICameraDeviceUser::AUDIO_RESTRICTION_NONE),
         mRemoteBinder(remoteCallback)
 {
     if (sCameraService == nullptr) {
@@ -2502,6 +2560,35 @@ uid_t CameraService::BasicClient::getClientUid() const {
 bool CameraService::BasicClient::canCastToApiClient(apiLevel level) const {
     // Defaults to API2.
     return level == API_2;
+}
+
+status_t CameraService::BasicClient::setAudioRestriction(int32_t mode) {
+    {
+        Mutex::Autolock l(mAudioRestrictionLock);
+        mAudioRestriction = mode;
+    }
+    sCameraService->updateAudioRestriction();
+    return OK;
+}
+
+int32_t CameraService::BasicClient::getServiceAudioRestriction() const {
+    return sCameraService->updateAudioRestriction();
+}
+
+int32_t CameraService::BasicClient::getAudioRestriction() const {
+    Mutex::Autolock l(mAudioRestrictionLock);
+    return mAudioRestriction;
+}
+
+bool CameraService::BasicClient::isValidAudioRestriction(int32_t mode) {
+    switch (mode) {
+        case hardware::camera2::ICameraDeviceUser::AUDIO_RESTRICTION_NONE:
+        case hardware::camera2::ICameraDeviceUser::AUDIO_RESTRICTION_VIBRATION:
+        case hardware::camera2::ICameraDeviceUser::AUDIO_RESTRICTION_VIBRATION_SOUND:
+            return true;
+        default:
+            return false;
+    }
 }
 
 status_t CameraService::BasicClient::startCameraOps() {
@@ -3119,6 +3206,8 @@ status_t CameraService::dump(int fd, const Vector<String16>& args) {
     dprintf(fd, "\n== Service global info: ==\n\n");
     dprintf(fd, "Number of camera devices: %d\n", mNumberOfCameras);
     dprintf(fd, "Number of normal camera devices: %zu\n", mNormalDeviceIds.size());
+    dprintf(fd, "Number of public camera devices visible to API1: %zu\n",
+            mNormalDeviceIdsWithoutSystemCamera.size());
     for (size_t i = 0; i < mNormalDeviceIds.size(); i++) {
         dprintf(fd, "    Device %zu maps to \"%s\"\n", i, mNormalDeviceIds[i].c_str());
     }
@@ -3531,6 +3620,27 @@ status_t CameraService::printHelp(int out) {
         "  set-uid-state <PACKAGE> <active|idle> [--user USER_ID] overrides the uid state\n"
         "  reset-uid-state <PACKAGE> [--user USER_ID] clears the uid state override\n"
         "  help print this message\n");
+}
+
+int32_t CameraService::updateAudioRestriction() {
+    Mutex::Autolock lock(mServiceLock);
+    return updateAudioRestrictionLocked();
+}
+
+int32_t CameraService::updateAudioRestrictionLocked() {
+    int32_t mode = 0;
+    // iterate through all active client
+    for (const auto& i : mActiveClientManager.getAll()) {
+        const auto clientSp = i->getValue();
+        mode |= clientSp->getAudioRestriction();
+    }
+
+    bool modeChanged = (mAudioRestriction != mode);
+    mAudioRestriction = mode;
+    if (modeChanged) {
+        mAppOps.setCameraAudioRestriction(mode);
+    }
+    return mode;
 }
 
 }; // namespace android
