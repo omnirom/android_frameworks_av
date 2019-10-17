@@ -1210,7 +1210,7 @@ status_t HeicCompositeStream::initializeCodec(uint32_t width, uint32_t height,
     outputFormat->setInt32(KEY_I_FRAME_INTERVAL, 0);
     outputFormat->setInt32(KEY_COLOR_FORMAT,
             useGrid ? COLOR_FormatYUV420Flexible : COLOR_FormatSurface);
-    outputFormat->setInt32(KEY_FRAME_RATE, gridRows * gridCols);
+    outputFormat->setInt32(KEY_FRAME_RATE, useGrid ? gridRows * gridCols : kNoGridOpRate);
     // This only serves as a hint to encoder when encoding is not real-time.
     outputFormat->setInt32(KEY_OPERATING_RATE, useGrid ? kGridOpRate : kNoGridOpRate);
 
@@ -1671,8 +1671,13 @@ void HeicCompositeStream::CodecCallbackHandler::onMessageReceived(const sp<AMess
                          ALOGE("CB_OUTPUT_FORMAT_CHANGED: format is expected.");
                          break;
                      }
-
-                     parent->onHeicFormatChanged(format);
+                     // Here format is MediaCodec's internal copy of output format.
+                     // Make a copy since onHeicFormatChanged() might modify it.
+                     sp<AMessage> formatCopy;
+                     if (format != nullptr) {
+                         formatCopy = format->dup();
+                     }
+                     parent->onHeicFormatChanged(formatCopy);
                      break;
                  }
 

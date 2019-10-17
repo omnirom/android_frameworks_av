@@ -43,6 +43,7 @@ namespace android {
 
 static const int64_t kBufferTimeOutUs = 10000LL; // 10 msec
 static const size_t kRetryCount = 50; // must be >0
+static const int64_t kDefaultSampleDurationUs = 33333LL; // 33ms
 
 sp<IMemory> allocVideoFrame(const sp<MetaData>& trackMeta,
         int32_t width, int32_t height, int32_t tileWidth, int32_t tileHeight,
@@ -98,7 +99,7 @@ sp<IMemory> allocVideoFrame(const sp<MetaData>& trackMeta,
         ALOGE("not enough memory for VideoFrame size=%zu", size);
         return NULL;
     }
-    VideoFrame* frameCopy = static_cast<VideoFrame*>(frameMem->pointer());
+    VideoFrame* frameCopy = static_cast<VideoFrame*>(frameMem->unsecurePointer());
     frameCopy->init(frame, iccData, iccSize);
 
     return frameMem;
@@ -199,7 +200,19 @@ sp<IMemory> FrameDecoder::getMetadataOnly(
             tileWidth = tileHeight = 0;
         }
     }
-    return allocMetaFrame(trackMeta, width, height, tileWidth, tileHeight, dstBpp);
+
+    sp<IMemory> metaMem = allocMetaFrame(trackMeta, width, height, tileWidth, tileHeight, dstBpp);
+
+    // try to fill sequence meta's duration based on average frame rate,
+    // default to 33ms if frame rate is unavailable.
+    int32_t frameRate;
+    VideoFrame* meta = static_cast<VideoFrame*>(metaMem->unsecurePointer());
+    if (trackMeta->findInt32(kKeyFrameRate, &frameRate) && frameRate > 0) {
+        meta->mDurationUs = 1000000LL / frameRate;
+    } else {
+        meta->mDurationUs = kDefaultSampleDurationUs;
+    }
+    return metaMem;
 }
 
 FrameDecoder::FrameDecoder(
@@ -446,7 +459,8 @@ VideoFrameDecoder::VideoFrameDecoder(
       mFrame(NULL),
       mIsAvcOrHevc(false),
       mSeekMode(MediaSource::ReadOptions::SEEK_PREVIOUS_SYNC),
-      mTargetTimeUs(-1LL) {
+      mTargetTimeUs(-1LL),
+      mDefaultSampleDurationUs(0) {
 }
 
 sp<AMessage> VideoFrameDecoder::onGetFormatAndSeekOptions(
@@ -514,6 +528,13 @@ sp<AMessage> VideoFrameDecoder::onGetFormatAndSeekOptions(
         }
     }
 
+    int32_t frameRate;
+    if (trackMeta()->findInt32(kKeyFrameRate, &frameRate) && frameRate > 0) {
+        mDefaultSampleDurationUs = 1000000LL / frameRate;
+    } else {
+        mDefaultSampleDurationUs = kDefaultSampleDurationUs;
+    }
+
     return videoFormat;
 }
 
@@ -534,6 +555,12 @@ status_t VideoFrameDecoder::onInputReceived(
         // option, in which case we need to actually decode to targetTimeUs.
         mIDRSent == false ? mIDRSent = true : *flags |= MediaCodec::BUFFER_FLAG_EOS;
     }
+    int64_t durationUs;
+    if (sampleMeta.findInt64(kKeyDuration, &durationUs)) {
+        mSampleDurations.push_back(durationUs);
+    } else {
+        mSampleDurations.push_back(mDefaultSampleDurationUs);
+    }
     return OK;
 }
 
@@ -541,6 +568,11 @@ status_t VideoFrameDecoder::onOutputReceived(
         const sp<MediaCodecBuffer> &videoFrameBuffer,
         const sp<AMessage> &outputFormat,
         int64_t timeUs, bool *done) {
+    int64_t durationUs = mDefaultSampleDurationUs;
+    if (!mSampleDurations.empty()) {
+        durationUs = *mSampleDurations.begin();
+        mSampleDurations.erase(mSampleDurations.begin());
+    }
     bool shouldOutput = (mTargetTimeUs < 0LL) || (timeUs >= mTargetTimeUs);
 
     // If this is not the target frame, skip color convert.
@@ -591,10 +623,12 @@ status_t VideoFrameDecoder::onOutputReceived(
                 0,
                 dstBpp(),
                 mSurfaceControl != nullptr /*allocRotated*/);
-        mFrame = static_cast<VideoFrame*>(frameMem->pointer());
+        mFrame = static_cast<VideoFrame*>(frameMem->unsecurePointer());
 
         setFrame(frameMem);
     }
+
+    mFrame->mDurationUs = durationUs;
 
     if (mSurfaceControl != nullptr) {
         return captureSurfaceControl();
@@ -888,7 +922,7 @@ status_t ImageDecoder::onOutputReceived(
     if (mFrame == NULL) {
         sp<IMemory> frameMem = allocVideoFrame(
                 trackMeta(), mWidth, mHeight, mTileWidth, mTileHeight, dstBpp());
-        mFrame = static_cast<VideoFrame*>(frameMem->pointer());
+        mFrame = static_cast<VideoFrame*>(frameMem->unsecurePointer());
 
         setFrame(frameMem);
     }

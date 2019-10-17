@@ -27,7 +27,7 @@
 #include "Engine.h"
 #include <android-base/macros.h>
 #include <AudioPolicyManagerObserver.h>
-#include <AudioPort.h>
+#include <PolicyAudioPort.h>
 #include <IOProfile.h>
 #include <AudioIODescriptorInterface.h>
 #include <policy.h>
@@ -213,7 +213,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                     String8(""), AUDIO_FORMAT_DEFAULT) == nullptr) ||
                     ((availPrimaryInputDevices.getDevice(
                             txDevice, String8(""), AUDIO_FORMAT_DEFAULT) != nullptr) &&
-                            (primaryOutput->getAudioPort()->getModuleVersionMajor() < 3))) {
+                            (primaryOutput->getPolicyAudioPort()->getModuleVersionMajor() < 3))) {
                 availableOutputDevices = availPrimaryOutputDevices;
             }
         }
@@ -357,7 +357,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             // compressed format as they would likely not be mixed and dropped.
             for (size_t i = 0; i < outputs.size(); i++) {
                 sp<AudioOutputDescriptor> desc = outputs.valueAt(i);
-                if (desc->isActive() && !audio_is_linear_pcm(desc->mFormat)) {
+                if (desc->isActive() && !audio_is_linear_pcm(desc->getFormat())) {
                     availableOutputDevices.remove(desc->devices().getDevicesFromTypeMask(
                             AUDIO_DEVICE_OUT_HDMI | AUDIO_DEVICE_OUT_SPDIF
                             | AUDIO_DEVICE_OUT_HDMI_ARC));

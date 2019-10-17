@@ -25,7 +25,7 @@
 #include <media/hardware/CryptoAPI.h>
 #include <media/MediaCodecInfo.h>
 #include <media/MediaResource.h>
-#include <media/MediaAnalyticsItem.h>
+#include <media/MediaMetrics.h>
 #include <media/stagefright/foundation/AHandler.h>
 #include <media/stagefright/FrameRenderTracker.h>
 #include <utils/Vector.h>
@@ -36,6 +36,7 @@ struct ABuffer;
 struct AMessage;
 struct AReplyToken;
 struct AString;
+struct BatteryChecker;
 class BufferChannelBase;
 struct CodecBase;
 class IBatteryStats;
@@ -190,7 +191,7 @@ struct MediaCodec : public AHandler {
 
     status_t getCodecInfo(sp<MediaCodecInfo> *codecInfo) const;
 
-    status_t getMetrics(MediaAnalyticsItem * &reply);
+    status_t getMetrics(mediametrics_handle_t &reply);
 
     status_t setParameters(const sp<AMessage> &params);
 
@@ -329,11 +330,11 @@ private:
     sp<Surface> mSurface;
     SoftwareRenderer *mSoftRenderer;
 
-    MediaAnalyticsItem *mAnalyticsItem;
-    void initAnalyticsItem();
-    void updateAnalyticsItem();
-    void flushAnalyticsItem();
-    void updateEphemeralAnalytics(MediaAnalyticsItem *item);
+    mediametrics_handle_t mMetricsHandle;
+    void initMediametrics();
+    void updateMediametrics();
+    void flushMediametrics();
+    void updateEphemeralMediametrics(mediametrics_handle_t item);
 
     sp<AMessage> mOutputFormat;
     sp<AMessage> mInputFormat;
@@ -465,11 +466,7 @@ private:
     Mutex mLatencyLock;
     int64_t mLatencyUnknown;    // buffers for which we couldn't calculate latency
 
-    int64_t mLastActivityTimeUs;
-    bool mBatteryStatNotified;
-    int32_t mBatteryCheckerGeneration;
-    void onBatteryChecker(const sp<AMessage>& msg);
-    void scheduleBatteryCheckerIfNeeded();
+    sp<BatteryChecker> mBatteryChecker;
 
     void statsBufferSent(int64_t presentationUs);
     void statsBufferReceived(int64_t presentationUs);
