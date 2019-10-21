@@ -183,6 +183,10 @@ status_t MediaTrackCUnwrapper::read(MediaBufferBase **buffer, const ReadOptions 
             meta.setData(kKeyAudioPresentationInfo,
                     MetaDataBase::Type::TYPE_NONE, valbuf->data(), valbuf->size());
         }
+        if (format->mFormat->findBuffer("hdr10-plus-info", &valbuf)) {
+            meta.setData(kKeyHdr10PlusInfo,
+                    MetaDataBase::Type::TYPE_NONE, valbuf->data(), valbuf->size());
+        }
     } else {
         *buffer = nullptr;
     }

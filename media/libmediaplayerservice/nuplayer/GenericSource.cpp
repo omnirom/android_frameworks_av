@@ -1285,6 +1285,14 @@ sp<ABuffer> NuPlayer::GenericSource::mediaBufferToABuffer(
         meta->setBuffer("mpeg-user-data", mpegUserData);
     }
 
+    const void *hdr10PlusInfo;
+    size_t hdr10PlusInfoLength;
+    if (mb->meta_data().findData(
+            kKeyHdr10PlusInfo, &dataType, &hdr10PlusInfo, &hdr10PlusInfoLength)) {
+        sp<ABuffer> hdr10PlusData = ABuffer::CreateAsCopy(hdr10PlusInfo, hdr10PlusInfoLength);
+        meta->setBuffer("hdr10-plus-info", hdr10PlusData);
+    }
+
     mb->release();
     mb = NULL;
 
