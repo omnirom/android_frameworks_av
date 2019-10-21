@@ -706,6 +706,7 @@ static std::vector<std::pair<const char *, uint32_t>> bufferMappings {
         { "crypto-key", kKeyCryptoKey },
         { "crypto-encrypted-sizes", kKeyEncryptedSizes },
         { "crypto-plain-sizes", kKeyPlainSizes },
+        { "hdr10-plus-info" , kKeyHdr10PlusInfo },
         { "icc-profile", kKeyIccProfile },
         { "sei", kKeySEI },
         { "text-format-data", kKeyTextFormatData },
