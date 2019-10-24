@@ -2,7 +2,7 @@ cc_library_headers {
     name: "libmedia_headers",
     vendor_available: true,
     export_include_dirs: ["include"],
-    header_libs:[
+    header_libs: [
         "libbase_headers",
         "libgui_headers",
         "libstagefright_headers",
@@ -22,13 +22,19 @@ cc_library {
         enabled: true,
     },
     double_loadable: true,
-    srcs: ["AudioParameter.cpp", "TypeConverter.cpp"],
+    srcs: [
+        "AudioParameter.cpp",
+        "TypeConverter.cpp",
+    ],
     cflags: [
         "-Werror",
         "-Wno-error=deprecated-declarations",
         "-Wall",
     ],
-    shared_libs: ["libutils", "liblog"],
+    shared_libs: [
+        "libutils",
+        "liblog",
+    ],
     header_libs: [
         "libmedia_headers",
         "libaudioclient_headers",
@@ -49,6 +55,21 @@ filegroup {
     path: "aidl",
 }
 
+aidl_interface {
+    name: "resourcemanager_aidl_interface",
+    local_include_dir: "aidl",
+    srcs: [
+        "aidl/android/media/IResourceManagerClient.aidl",
+        "aidl/android/media/IResourceManagerService.aidl",
+        "aidl/android/media/MediaResourceType.aidl",
+        "aidl/android/media/MediaResourceSubType.aidl",
+        "aidl/android/media/MediaResourceParcel.aidl",
+        "aidl/android/media/MediaResourcePolicyParcel.aidl",
+    ],
+    api_dir: "api/resourcemanager",
+    versions: ["1"],
+}
+
 cc_library_shared {
     name: "libmedia_omx",
     vendor_available: true,
@@ -60,10 +81,8 @@ cc_library_shared {
     srcs: [
         ":libmedia_omx_aidl",
 
-        "IMediaCodecList.cpp",
         "IOMX.cpp",
         "MediaCodecBuffer.cpp",
-        "MediaCodecInfo.cpp",
         "OMXBuffer.cpp",
         "omx/1.0/WGraphicBufferSource.cpp",
         "omx/1.0/WOmxBufferSource.cpp",
@@ -75,7 +94,7 @@ cc_library_shared {
         local_include_dirs: ["aidl"],
         export_aidl_headers: true,
     },
-    
+
     local_include_dirs: [
         "include",
     ],
@@ -128,7 +147,6 @@ cc_library_shared {
         cfi: true,
     },
 }
-
 
 cc_library_shared {
     name: "libmedia_omx_client",
@@ -217,6 +235,49 @@ cc_library_static {
     },
 }
 
+cc_library_shared {
+    name: "libmedia_codeclist",
+
+    srcs: [
+        "IMediaCodecList.cpp",
+        "MediaCodecInfo.cpp",
+    ],
+
+    local_include_dirs: [
+        "include",
+    ],
+
+    shared_libs: [
+        "android.hardware.media.omx@1.0",
+        "libbinder",
+        "liblog",
+        "libstagefright_foundation",
+        "libutils",
+    ],
+
+    include_dirs: [
+        "system/libhidl/transport/token/1.0/utils/include",
+    ],
+
+    export_include_dirs: [
+        "include",
+    ],
+
+    cflags: [
+        "-Werror",
+        "-Wno-error=deprecated-declarations",
+        "-Wall",
+    ],
+
+    sanitize: {
+        misc_undefined: [
+            "unsigned-integer-overflow",
+            "signed-integer-overflow",
+        ],
+        cfi: true,
+    },
+}
+
 cc_library {
     name: "libmedia",
 
@@ -236,16 +297,12 @@ cc_library {
         "IMediaSource.cpp",
         "IRemoteDisplay.cpp",
         "IRemoteDisplayClient.cpp",
-        "IResourceManagerClient.cpp",
-        "IResourceManagerService.cpp",
         "IStreamSource.cpp",
         "MediaUtils.cpp",
         "Metadata.cpp",
         "mediarecorder.cpp",
         "IMediaMetadataRetriever.cpp",
         "mediametadataretriever.cpp",
-        "MidiDeviceInfo.cpp",
-        "JetPlayer.cpp",
         "MediaScanner.cpp",
         "MediaScannerClient.cpp",
         "CharacterEncodingDetector.cpp",
@@ -291,6 +348,7 @@ cc_library {
         "libdl",
         "libaudioutils",
         "libaudioclient",
+        "libmedia_codeclist",
         "libmedia_omx",
     ],
 
@@ -303,8 +361,12 @@ cc_library {
     ],
 
     static_libs: [
-        "libc_malloc_debug_backtrace",  // for memory heap analysis
-        "libmedia_midiiowrapper",
+        "libc_malloc_debug_backtrace", // for memory heap analysis
+        "resourcemanager_aidl_interface-cpp",
+    ],
+
+    export_static_lib_headers: [
+        "resourcemanager_aidl_interface-cpp",
     ],
 
     whole_static_libs: [
@@ -322,67 +384,6 @@ cc_library {
     ],
 
     version_script: "exports.lds",
-
-    sanitize: {
-        misc_undefined: [
-            "unsigned-integer-overflow",
-            "signed-integer-overflow",
-        ],
-        cfi: true,
-    },
-}
-
-cc_library_static {
-    name: "libmedia_player2_util",
-
-    srcs: [
-        "AudioParameter.cpp",
-        "BufferingSettings.cpp",
-        "DataSourceDesc.cpp",
-        "MediaCodecBuffer.cpp",
-        "Metadata.cpp",
-        "NdkWrapper.cpp",
-    ],
-
-    shared_libs: [
-        "libbinder",
-        "libcutils",
-        "liblog",
-        "libmediandk",
-        "libnativewindow",
-        "libmediandk_utils",
-        "libstagefright_foundation",
-        "libui",
-        "libutils",
-    ],
-
-    export_shared_lib_headers: [
-        "libbinder",
-        "libmediandk",
-    ],
-
-    header_libs: [
-        "media_plugin_headers",
-    ],
-
-    include_dirs: [
-        "frameworks/av/media/ndk",
-    ],
-
-    static_libs: [
-        "libstagefright_rtsp",
-        "libstagefright_timedtext",
-    ],
-
-    export_include_dirs: [
-        "include",
-    ],
-
-    cflags: [
-        "-Werror",
-        "-Wno-error=deprecated-declarations",
-        "-Wall",
-    ],
 
     sanitize: {
         misc_undefined: [

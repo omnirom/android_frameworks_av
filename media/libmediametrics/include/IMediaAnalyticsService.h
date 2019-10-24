@@ -39,19 +39,16 @@ class IMediaAnalyticsService: public IInterface
 public:
     DECLARE_META_INTERFACE(MediaAnalyticsService);
 
-    // generate a unique sessionID to use across multiple requests
-    // 'unique' is within this device, since last reboot
-    virtual MediaAnalyticsItem::SessionID_t generateUniqueSessionID() = 0;
-
-    // submit the indicated record to the mediaanalytics service, where
-    // it will be merged (if appropriate) with incomplete records that
-    // share the same key and sessionid.
-    // 'forcenew' marks any matching incomplete record as complete before
-    // inserting this new record.
-    // returns the sessionID associated with that item.
-    // caller continues to own the passed item
-    virtual MediaAnalyticsItem::SessionID_t submit(MediaAnalyticsItem *item, bool forcenew) = 0;
-
+    /**
+     * Submits the indicated record to the mediaanalytics service, where
+     * it will be merged (if appropriate) with incomplete records that
+     * share the same key and sessionID.
+     *
+     * \param item the item to submit.
+     * \return status which is negative if an error is detected (some errors
+               may be silent and return 0 - success).
+     */
+    virtual status_t submit(MediaAnalyticsItem *item) = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -59,10 +56,15 @@ public:
 class BnMediaAnalyticsService: public BnInterface<IMediaAnalyticsService>
 {
 public:
-    virtual status_t    onTransact( uint32_t code,
-                                    const Parcel& data,
-                                    Parcel* reply,
-                                    uint32_t flags = 0);
+    status_t onTransact(uint32_t code,
+                        const Parcel& data,
+                        Parcel* reply,
+                        uint32_t flags = 0) override;
+
+protected:
+    // Internal call where release is true if the service is to delete the item.
+    virtual status_t submitInternal(
+            MediaAnalyticsItem *item, bool release) = 0;
 };
 
 }; // namespace android

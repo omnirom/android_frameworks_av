@@ -22,7 +22,7 @@
 
 #include <cutils/properties.h>
 #include <gui/Surface.h>
-#include <media/ICrypto.h>
+#include <mediadrm/ICrypto.h>
 #include <media/IMediaCodecList.h>
 #include <media/MediaCodecInfo.h>
 #include <media/MediaResourcePolicy.h>
@@ -264,7 +264,9 @@ void profileCodecs(
             }
         }
     }
-    global_results->add(kPolicySupportsMultipleSecureCodecs, supportMultipleSecureCodecs);
+    global_results->add(
+            MediaResourcePolicy::kPolicySupportsMultipleSecureCodecs().c_str(),
+            supportMultipleSecureCodecs);
 }
 
 static AString globalResultsToXml(const CodecSettings &results) {

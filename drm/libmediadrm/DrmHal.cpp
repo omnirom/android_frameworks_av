@@ -25,6 +25,7 @@
 
 #include <android/hardware/drm/1.2/types.h>
 #include <android/hidl/manager/1.2/IServiceManager.h>
+#include <android/media/BnResourceManagerClient.h>
 #include <hidl/ServiceManagement.h>
 #include <media/EventMetric.h>
 #include <media/PluginMetricsReporting.h>
@@ -293,28 +294,20 @@ static status_t toStatusT_1_2(Status_V1_2 status) {
     }
 }
 
-
 Mutex DrmHal::mLock;
 
-struct DrmSessionClient : public DrmSessionClientInterface {
-    explicit DrmSessionClient(DrmHal* drm) : mDrm(drm) {}
+struct DrmHal::DrmSessionClient : public android::media::BnResourceManagerClient {
+    explicit DrmSessionClient(DrmHal* drm, const Vector<uint8_t>& sessionId)
+      : mSessionId(sessionId),
+        mDrm(drm) {}
 
-    virtual bool reclaimSession(const Vector<uint8_t>& sessionId) {
-        sp<DrmHal> drm = mDrm.promote();
-        if (drm == NULL) {
-            return true;
-        }
-        status_t err = drm->closeSession(sessionId);
-        if (err != OK) {
-            return false;
-        }
-        drm->sendEvent(EventType::SESSION_RECLAIMED,
-                toHidlVec(sessionId), hidl_vec<uint8_t>());
-        return true;
-    }
+    ::android::binder::Status reclaimResource(bool* _aidl_return) override;
+    ::android::binder::Status getName(::std::string* _aidl_return) override;
+
+    const Vector<uint8_t> mSessionId;
 
 protected:
-    virtual ~DrmSessionClient() {}
+    virtual ~DrmSessionClient();
 
 private:
     wp<DrmHal> mDrm;
@@ -322,9 +315,47 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(DrmSessionClient);
 };
 
+::android::binder::Status DrmHal::DrmSessionClient::reclaimResource(bool* _aidl_return) {
+    sp<DrmHal> drm = mDrm.promote();
+    if (drm == NULL) {
+        *_aidl_return = true;
+        return ::android::binder::Status::ok();
+    }
+    status_t err = drm->closeSession(mSessionId);
+    if (err != OK) {
+        *_aidl_return = false;
+        return ::android::binder::Status::ok();
+    }
+    drm->sendEvent(EventType::SESSION_RECLAIMED,
+            toHidlVec(mSessionId), hidl_vec<uint8_t>());
+    *_aidl_return = true;
+    return ::android::binder::Status::ok();
+}
+
+::android::binder::Status DrmHal::DrmSessionClient::getName(::std::string* _aidl_return) {
+    String8 name;
+    sp<DrmHal> drm = mDrm.promote();
+    if (drm == NULL) {
+        name.append("<deleted>");
+    } else if (drm->getPropertyStringInternal(String8("vendor"), name) != OK
+        || name.isEmpty()) {
+      name.append("<Get vendor failed or is empty>");
+    }
+    name.append("[");
+    for (size_t i = 0; i < mSessionId.size(); ++i) {
+        name.appendFormat("%02x", mSessionId[i]);
+    }
+    name.append("]");
+    *_aidl_return = name;
+    return ::android::binder::Status::ok();
+}
+
+DrmHal::DrmSessionClient::~DrmSessionClient() {
+    DrmSessionManager::Instance()->removeSession(mSessionId);
+}
+
 DrmHal::DrmHal()
-   : mDrmSessionClient(new DrmSessionClient(this)),
-     mFactories(makeDrmFactories()),
+   : mFactories(makeDrmFactories()),
      mInitCheck((mFactories.size() == 0) ? ERROR_UNSUPPORTED : NO_INIT) {
 }
 
@@ -333,14 +364,13 @@ void DrmHal::closeOpenSessions() {
     auto openSessions = mOpenSessions;
     for (size_t i = 0; i < openSessions.size(); i++) {
         mLock.unlock();
-        closeSession(openSessions[i]);
+        closeSession(openSessions[i]->mSessionId);
         mLock.lock();
     }
     mOpenSessions.clear();
 }
 
 DrmHal::~DrmHal() {
-    DrmSessionManager::Instance()->removeDrm(mDrmSessionClient);
 }
 
 void DrmHal::cleanup() {
@@ -746,9 +776,9 @@ status_t DrmHal::openSession(DrmPlugin::SecurityLevel level,
     } while (retry);
 
     if (err == OK) {
-        DrmSessionManager::Instance()->addSession(getCallingPid(),
-                mDrmSessionClient, sessionId);
-        mOpenSessions.push(sessionId);
+        sp<DrmSessionClient> client(new DrmSessionClient(this, sessionId));
+        DrmSessionManager::Instance()->addSession(getCallingPid(), client, sessionId);
+        mOpenSessions.push(client);
         mMetrics.SetSessionStart(sessionId);
     }
 
@@ -765,7 +795,7 @@ status_t DrmHal::closeSession(Vector<uint8_t> const &sessionId) {
         if (status == Status::OK) {
             DrmSessionManager::Instance()->removeSession(sessionId);
             for (size_t i = 0; i < mOpenSessions.size(); i++) {
-                if (mOpenSessions[i] == sessionId) {
+                if (isEqualSessionId(mOpenSessions[i]->mSessionId, sessionId)) {
                     mOpenSessions.removeAt(i);
                     break;
                 }
@@ -893,9 +923,8 @@ status_t DrmHal::getKeyRequest(Vector<uint8_t> const &sessionId,
 status_t DrmHal::provideKeyResponse(Vector<uint8_t> const &sessionId,
         Vector<uint8_t> const &response, Vector<uint8_t> &keySetId) {
     Mutex::Autolock autoLock(mLock);
-    EventTimer<status_t> keyResponseTimer(&mMetrics.mProvideKeyResponseTimeUs);
-
     INIT_CHECK();
+    EventTimer<status_t> keyResponseTimer(&mMetrics.mProvideKeyResponseTimeUs);
 
     DrmSessionManager::Instance()->useSession(sessionId);
 
@@ -1569,7 +1598,6 @@ void DrmHal::writeByteArray(Parcel &obj, hidl_vec<uint8_t> const &vec)
 void DrmHal::reportFrameworkMetrics() const
 {
     std::unique_ptr<MediaAnalyticsItem> item(MediaAnalyticsItem::create("mediadrm"));
-    item->generateSessionID();
     item->setPkgName(mMetrics.GetAppPackageName().c_str());
     String8 vendor;
     String8 description;

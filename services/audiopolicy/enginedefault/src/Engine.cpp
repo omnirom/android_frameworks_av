@@ -31,6 +31,7 @@
 #include <IOProfile.h>
 #include <AudioIODescriptorInterface.h>
 #include <policy.h>
+#include <media/AudioContainers.h>
 #include <utils/String8.h>
 #include <utils/Log.h>
 #include <cutils/properties.h>
@@ -147,7 +148,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
     switch (strategy) {
 
     case STRATEGY_TRANSMITTED_THROUGH_SPEAKER:
-        devices = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_SPEAKER);
+        devices = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_SPEAKER);
         break;
 
     case STRATEGY_SONIFICATION_RESPECTFUL:
@@ -162,7 +163,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                         toVolumeSource(AUDIO_STREAM_ACCESSIBILITY),
                         SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY);
             // routing is same as media without the "remote" device
-            availableOutputDevices.remove(availableOutputDevices.getDevicesFromTypeMask(
+            availableOutputDevices.remove(availableOutputDevices.getDevicesFromType(
                     AUDIO_DEVICE_OUT_REMOTE_SUBMIX));
             devices = getDevicesForStrategyInt(STRATEGY_MEDIA,
                     availableOutputDevices,
@@ -172,7 +173,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             if (!media_active_locally) {
                 devices.replaceDevicesByType(
                         AUDIO_DEVICE_OUT_SPEAKER,
-                        availableOutputDevices.getDevicesFromTypeMask(
+                        availableOutputDevices.getDevicesFromType(
                                 AUDIO_DEVICE_OUT_SPEAKER_SAFE));
             }
         }
@@ -197,6 +198,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             audio_devices_t txDevice = getDeviceForInputSource(
                     AUDIO_SOURCE_VOICE_COMMUNICATION)->type();
             sp<AudioOutputDescriptor> primaryOutput = outputs.getPrimaryOutput();
+            LOG_ALWAYS_FATAL_IF(primaryOutput == nullptr, "Primary output not found");
             DeviceVector availPrimaryInputDevices =
                     availableInputDevices.getDevicesFromHwModule(primaryOutput->getModuleHandle());
 
@@ -204,10 +206,10 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             // audio_policy_configuration.xml, hearing aid is not there, but it's
             // a primary device
             // FIXME: this is not the right way of solving this problem
-            DeviceVector availPrimaryOutputDevices = availableOutputDevices.getDevicesFromTypeMask(
+            DeviceVector availPrimaryOutputDevices = availableOutputDevices.getDevicesFromTypes(
                     primaryOutput->supportedDevices().types());
             availPrimaryOutputDevices.add(
-                    availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_HEARING_AID));
+                    availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_HEARING_AID));
 
             if ((availableInputDevices.getDevice(AUDIO_DEVICE_IN_TELEPHONY_RX,
                     String8(""), AUDIO_FORMAT_DEFAULT) == nullptr) ||
@@ -222,7 +224,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
         switch (getForceUse(AUDIO_POLICY_FORCE_FOR_COMMUNICATION)) {
         case AUDIO_POLICY_FORCE_BT_SCO:
             if (!isInCall() || strategy != STRATEGY_DTMF) {
-                devices = availableOutputDevices.getDevicesFromTypeMask(
+                devices = availableOutputDevices.getDevicesFromType(
                         AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT);
                 if (!devices.isEmpty()) break;
             }
@@ -233,7 +235,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             FALLTHROUGH_INTENDED;
 
         default:    // FORCE_NONE
-            devices = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_HEARING_AID);
+            devices = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_HEARING_AID);
             if (!devices.isEmpty()) break;
             // when not in a phone call, phone strategy should route STREAM_VOICE_CALL to A2DP
             if (!isInCall() &&
@@ -259,7 +261,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                         AUDIO_DEVICE_OUT_AUX_DIGITAL, AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET});
                 if (!devices.isEmpty()) break;
             }
-            devices = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_EARPIECE);
+            devices = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_EARPIECE);
             break;
 
         case AUDIO_POLICY_FORCE_SPEAKER:
@@ -268,7 +270,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             if (!isInCall() &&
                     (getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) != AUDIO_POLICY_FORCE_NO_BT_A2DP) &&
                      outputs.isA2dpSupported()) {
-                devices = availableOutputDevices.getDevicesFromTypeMask(
+                devices = availableOutputDevices.getDevicesFromType(
                         AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER);
                 if (!devices.isEmpty()) break;
             }
@@ -279,7 +281,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                         AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET});
                 if (!devices.isEmpty()) break;
             }
-            devices = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_SPEAKER);
+            devices = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_SPEAKER);
             break;
         }
     break;
@@ -303,12 +305,12 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
 
         if ((strategy == STRATEGY_SONIFICATION) ||
                 (getForceUse(AUDIO_POLICY_FORCE_FOR_SYSTEM) == AUDIO_POLICY_FORCE_SYSTEM_ENFORCED)) {
-            devices = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_SPEAKER);
+            devices = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_SPEAKER);
         }
 
         // if SCO headset is connected and we are told to use it, play ringtone over
         // speaker and BT SCO
-        if (!availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_ALL_SCO).isEmpty()) {
+        if (!availableOutputDevices.getDevicesFromTypes(getAudioDeviceOutAllScoSet()).isEmpty()) {
             DeviceVector devices2;
             devices2 = availableOutputDevices.getFirstDevicesFromTypes({
                     AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT, AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET,
@@ -329,7 +331,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                 if (strategy == STRATEGY_SONIFICATION) {
                     devices.replaceDevicesByType(
                             AUDIO_DEVICE_OUT_SPEAKER,
-                            availableOutputDevices.getDevicesFromTypeMask(
+                            availableOutputDevices.getDevicesFromType(
                                     AUDIO_DEVICE_OUT_SPEAKER_SAFE));
                 }
                 if (!devices2.isEmpty()) {
@@ -358,9 +360,9 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             for (size_t i = 0; i < outputs.size(); i++) {
                 sp<AudioOutputDescriptor> desc = outputs.valueAt(i);
                 if (desc->isActive() && !audio_is_linear_pcm(desc->getFormat())) {
-                    availableOutputDevices.remove(desc->devices().getDevicesFromTypeMask(
-                            AUDIO_DEVICE_OUT_HDMI | AUDIO_DEVICE_OUT_SPDIF
-                            | AUDIO_DEVICE_OUT_HDMI_ARC));
+                    availableOutputDevices.remove(desc->devices().getDevicesFromTypes({
+                            AUDIO_DEVICE_OUT_HDMI, AUDIO_DEVICE_OUT_SPDIF,
+                            AUDIO_DEVICE_OUT_HDMI_ARC}));
                 }
             }
             if (outputs.isActive(toVolumeSource(AUDIO_STREAM_RING)) ||
@@ -404,7 +406,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
         // FIXME: Find a better solution to prevent routing to BT hearing aid(b/122931261).
         if ((devices2.isEmpty()) &&
                 (getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) != AUDIO_POLICY_FORCE_NO_BT_A2DP)) {
-            devices2 = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_HEARING_AID);
+            devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_HEARING_AID);
         }
         if ((devices2.isEmpty()) &&
                 (getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) != AUDIO_POLICY_FORCE_NO_BT_A2DP) &&
@@ -415,7 +417,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
         }
         if ((devices2.isEmpty()) &&
             (getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) == AUDIO_POLICY_FORCE_SPEAKER)) {
-            devices2 = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_SPEAKER);
+            devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_SPEAKER);
         }
         if (devices2.isEmpty()) {
             devices2 = availableOutputDevices.getFirstDevicesFromTypes({
@@ -432,11 +434,11 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
         }
         if ((devices2.isEmpty()) && (strategy != STRATEGY_SONIFICATION) && (devices.isEmpty())) {
             // no sonification on aux digital (e.g. HDMI)
-            devices2 = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_AUX_DIGITAL);
+            devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_AUX_DIGITAL);
         }
         if ((devices2.isEmpty()) &&
                 (getForceUse(AUDIO_POLICY_FORCE_FOR_DOCK) == AUDIO_POLICY_FORCE_ANALOG_DOCK)) {
-            devices2 = availableOutputDevices.getDevicesFromTypeMask(
+            devices2 = availableOutputDevices.getDevicesFromType(
                     AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET);
         }
         if ((devices2.isEmpty()) && (strategy != STRATEGY_SONIFICATION) && (devices.isEmpty())) {
@@ -444,13 +446,13 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             devices2 = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_PROXY);
         }
         if (devices2.isEmpty()) {
-            devices2 = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_SPEAKER);
+            devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_SPEAKER);
         }
         DeviceVector devices3;
         if (strategy == STRATEGY_MEDIA) {
             // ARC, SPDIF and AUX_LINE can co-exist with others.
-            devices3 = availableOutputDevices.getDevicesFromTypeMask(
-                    AUDIO_DEVICE_OUT_HDMI_ARC | AUDIO_DEVICE_OUT_SPDIF | AUDIO_DEVICE_OUT_AUX_LINE);
+            devices3 = availableOutputDevices.getDevicesFromTypes({
+                    AUDIO_DEVICE_OUT_HDMI_ARC, AUDIO_DEVICE_OUT_SPDIF, AUDIO_DEVICE_OUT_AUX_LINE});
         }
 
         devices2.add(devices3);
@@ -462,7 +464,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
         if ((strategy == STRATEGY_MEDIA) &&
             (getForceUse(AUDIO_POLICY_FORCE_FOR_HDMI_SYSTEM_AUDIO) ==
                 AUDIO_POLICY_FORCE_HDMI_SYSTEM_AUDIO_ENFORCED)) {
-            devices.remove(devices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_SPEAKER));
+            devices.remove(devices.getDevicesFromType(AUDIO_DEVICE_OUT_SPEAKER));
         }
 
         // for STRATEGY_SONIFICATION:
@@ -470,7 +472,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
         if (strategy == STRATEGY_SONIFICATION) {
             devices.replaceDevicesByType(
                     AUDIO_DEVICE_OUT_SPEAKER,
-                    availableOutputDevices.getDevicesFromTypeMask(
+                    availableOutputDevices.getDevicesFromType(
                             AUDIO_DEVICE_OUT_SPEAKER_SAFE));
         }
         } break;
@@ -503,8 +505,8 @@ sp<DeviceDescriptor> Engine::getDeviceForInputSource(audio_source_t inputSource)
     const SwAudioOutputCollection &outputs = getApmObserver()->getOutputs();
     DeviceVector availableDevices = availableInputDevices;
     sp<AudioOutputDescriptor> primaryOutput = outputs.getPrimaryOutput();
-    DeviceVector availablePrimaryDevices = availableInputDevices.getDevicesFromHwModule(
-            primaryOutput->getModuleHandle());
+    DeviceVector availablePrimaryDevices = primaryOutput == nullptr ? DeviceVector()
+            : availableInputDevices.getDevicesFromHwModule(primaryOutput->getModuleHandle());
     sp<DeviceDescriptor> device;
 
     // when a call is active, force device selection to match source VOICE_COMMUNICATION
@@ -552,6 +554,7 @@ sp<DeviceDescriptor> Engine::getDeviceForInputSource(audio_source_t inputSource)
         if ((getPhoneState() == AUDIO_MODE_IN_CALL) &&
                 (availableOutputDevices.getDevice(AUDIO_DEVICE_OUT_TELEPHONY_TX,
                         String8(""), AUDIO_FORMAT_DEFAULT)) == nullptr) {
+            LOG_ALWAYS_FATAL_IF(availablePrimaryDevices.isEmpty(), "Primary devices not found");
             availableDevices = availablePrimaryDevices;
         }
 
@@ -582,6 +585,9 @@ sp<DeviceDescriptor> Engine::getDeviceForInputSource(audio_source_t inputSource)
     case AUDIO_SOURCE_UNPROCESSED:
     case AUDIO_SOURCE_HOTWORD:
         if (inputSource == AUDIO_SOURCE_HOTWORD) {
+            // We should not use primary output criteria for Hotword but rather limit
+            // to devices attached to the same HW module as the build in mic
+            LOG_ALWAYS_FATAL_IF(availablePrimaryDevices.isEmpty(), "Primary devices not found");
             availableDevices = availablePrimaryDevices;
         }
         if (property_get_bool("vendor.audio.enable.mirrorlink", false)) {

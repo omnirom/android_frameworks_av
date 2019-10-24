@@ -17,4 +17,5 @@
 subdirs = [
     "src",
     "tests",
+    "MediaBenchmarkTest",
 ]
