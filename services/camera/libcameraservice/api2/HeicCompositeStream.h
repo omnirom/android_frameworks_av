@@ -207,6 +207,9 @@ private:
             static_cast<android_dataspace>(HAL_DATASPACE_JPEG_APP_SEGMENTS);
     static const android_dataspace kHeifDataSpace =
             static_cast<android_dataspace>(HAL_DATASPACE_HEIF);
+    // Use the limit of pipeline depth in the API sepc as maximum number of acquired
+    // app segment buffers.
+    static const uint32_t kMaxAcquiredAppSegment = 8;
 
     int               mAppSegmentStreamId, mAppSegmentSurfaceId;
     sp<CpuConsumer>   mAppSegmentConsumer;
@@ -231,6 +234,7 @@ private:
 
     // Keep all incoming APP segment Blob buffer pending further processing.
     std::vector<int64_t> mInputAppSegmentBuffers;
+    int32_t           mLockedAppSegmentBufferCnt;
 
     // Keep all incoming HEIC blob buffer pending further processing.
     std::vector<CodecOutputBufferInfo> mCodecOutputBuffers;
