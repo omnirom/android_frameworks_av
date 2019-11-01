@@ -436,6 +436,7 @@ void NuPlayer::Decoder::onSetParameters(const sp<AMessage> &params) {
 
     if (needAdjustLayers) {
         float decodeFrameRate = mFrameRateTotal;
+        float operating_rate;
         // enable temporal layering optimization only if we know the layering depth
         if (mNumVideoTemporalLayerTotal > 1) {
             int32_t layerId;
@@ -457,7 +458,10 @@ void NuPlayer::Decoder::onSetParameters(const sp<AMessage> &params) {
         }
 
         sp<AMessage> codecParams = new AMessage();
-        codecParams->setFloat("operating-rate", decodeFrameRate * mPlaybackSpeed);
+        operating_rate = decodeFrameRate * mPlaybackSpeed;
+        if ((int)operating_rate > 100)
+            mRequestInputBufferDelay = (1000.f/operating_rate) * 1000LL;
+        codecParams->setFloat("operating-rate", operating_rate);
         mCodec->setParameters(codecParams);
     }
 }
