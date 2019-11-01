@@ -247,7 +247,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                 if (!devices.isEmpty()) break;
             }
             if (getDpConnAndAllowedForVoice() && isInCall()) {
-                devices = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_AUX_DIGITAL);
+                devices = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_AUX_DIGITAL);
                 if (!devices.isEmpty()) break;
             }
             devices = availableOutputDevices.getFirstDevicesFromTypes({
@@ -343,7 +343,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
         // if display-port is connected and being used in voice usecase,
         // play ringtone over speaker and display-port
         if ((strategy == STRATEGY_SONIFICATION) && getDpConnAndAllowedForVoice()) {
-             DeviceVector devices2 = availableOutputDevices.getDevicesFromTypeMask(
+             DeviceVector devices2 = availableOutputDevices.getDevicesFromType(
                  AUDIO_DEVICE_OUT_AUX_DIGITAL);
              if (!devices2.isEmpty()) {
                devices.add(devices2);
@@ -427,10 +427,10 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                     AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET});
         }
         if (devices2.isEmpty()) {
-            devices2 = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_USB_DEVICE);
+            devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_USB_DEVICE);
         }
         if (devices2.isEmpty()) {
-            devices2 = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET);
+            devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET);
         }
         if ((devices2.isEmpty()) && (strategy != STRATEGY_SONIFICATION) && (devices.isEmpty())) {
             // no sonification on aux digital (e.g. HDMI)
@@ -443,7 +443,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
         }
         if ((devices2.isEmpty()) && (strategy != STRATEGY_SONIFICATION) && (devices.isEmpty())) {
             // no sonification on WFD sink
-            devices2 = availableOutputDevices.getDevicesFromTypeMask(AUDIO_DEVICE_OUT_PROXY);
+            devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_PROXY);
         }
         if (devices2.isEmpty()) {
             devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_SPEAKER);
