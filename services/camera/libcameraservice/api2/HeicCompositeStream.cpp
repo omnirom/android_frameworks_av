@@ -597,8 +597,7 @@ void HeicCompositeStream::compilePendingInputLocked() {
         // to look up timestamp.
         int64_t bufferTime = -1;
         if (mCodecOutputBufferTimestamps.empty()) {
-            ALOGV("%s: Failed to find buffer timestamp for codec output buffer!", __FUNCTION__);
-            break;
+            ALOGE("%s: Failed to find buffer timestamp for codec output buffer!", __FUNCTION__);
         } else {
             // Direct mapping between camera timestamp (in ns) and codec timestamp (in us).
             bufferTime = mCodecOutputBufferTimestamps.front();
