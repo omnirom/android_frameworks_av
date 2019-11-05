@@ -189,7 +189,7 @@ private:
     status_t processCompletedInputFrame(nsecs_t timestamp, InputFrame &inputFrame);
 
     void releaseInputFrameLocked(InputFrame *inputFrame /*out*/);
-    void releaseInputFramesLocked();
+    void releaseInputFramesLocked(int64_t currentTs);
 
     size_t findAppSegmentsSize(const uint8_t* appSegmentBuffer, size_t maxSize,
             size_t* app1SegmentSize);
@@ -211,6 +211,7 @@ private:
     int               mAppSegmentStreamId, mAppSegmentSurfaceId;
     sp<CpuConsumer>   mAppSegmentConsumer;
     sp<Surface>       mAppSegmentSurface;
+    bool              mAppSegmentBufferAcquired;
     size_t            mAppSegmentMaxSize;
     CameraMetadata    mStaticInfo;
 

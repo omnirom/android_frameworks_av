@@ -60,6 +60,7 @@ HeicCompositeStream::HeicCompositeStream(wp<CameraDeviceBase> device,
         mUseGrid(false),
         mAppSegmentStreamId(-1),
         mAppSegmentSurfaceId(-1),
+        mAppSegmentBufferAcquired(false),
         mMainImageStreamId(-1),
         mMainImageSurfaceId(-1),
         mYuvBufferAcquired(false),
@@ -131,7 +132,7 @@ status_t HeicCompositeStream::createInternalStreams(const std::vector<sp<Surface
     sp<IGraphicBufferProducer> producer;
     sp<IGraphicBufferConsumer> consumer;
     BufferQueue::createBufferQueue(&producer, &consumer);
-    mAppSegmentConsumer = new CpuConsumer(consumer, 2);
+    mAppSegmentConsumer = new CpuConsumer(consumer, 1);
     mAppSegmentConsumer->setFrameAvailableListener(this);
     mAppSegmentConsumer->setName(String8("Camera3-HeicComposite-AppSegmentStream"));
     mAppSegmentSurface = new Surface(producer);
@@ -526,7 +527,7 @@ void HeicCompositeStream::compilePendingInputLocked() {
         mSettingsByTimestamp.erase(it);
     }
 
-    while (!mInputAppSegmentBuffers.empty()) {
+    while (!mInputAppSegmentBuffers.empty() && !mAppSegmentBufferAcquired) {
         CpuConsumer::LockedBuffer imgBuffer;
         auto it = mInputAppSegmentBuffers.begin();
         auto res = mAppSegmentConsumer->lockNextBuffer(&imgBuffer);
@@ -552,6 +553,7 @@ void HeicCompositeStream::compilePendingInputLocked() {
             mAppSegmentConsumer->unlockBuffer(imgBuffer);
         } else {
             mPendingInputFrames[imgBuffer.timestamp].appSegmentBuffer = imgBuffer;
+            mAppSegmentBufferAcquired = true;
         }
         mInputAppSegmentBuffers.erase(it);
     }
@@ -934,16 +936,11 @@ status_t HeicCompositeStream::processAppSegment(nsecs_t timestamp, InputFrame &i
                 __FUNCTION__, strerror(-res), res);
         return res;
     }
+    inputFrame.appSegmentWritten = true;
 
     ALOGV("%s: [%" PRId64 "]: appSegmentSize is %zu, width %d, height %d, app1Size %zu",
           __FUNCTION__, timestamp, appSegmentSize, inputFrame.appSegmentBuffer.width,
           inputFrame.appSegmentBuffer.height, app1Size);
-
-    inputFrame.appSegmentWritten = true;
-    // Release the buffer now so any pending input app segments can be processed
-    mAppSegmentConsumer->unlockBuffer(inputFrame.appSegmentBuffer);
-    inputFrame.appSegmentBuffer.data = nullptr;
-
     return OK;
 }
 
@@ -1095,6 +1092,12 @@ void HeicCompositeStream::releaseInputFrameLocked(InputFrame *inputFrame /*out*/
         return;
     }
 
+    if (inputFrame->appSegmentBuffer.data != nullptr) {
+        mAppSegmentConsumer->unlockBuffer(inputFrame->appSegmentBuffer);
+        inputFrame->appSegmentBuffer.data = nullptr;
+        mAppSegmentBufferAcquired = false;
+    }
+
     while (!inputFrame->codecOutputBuffers.empty()) {
         auto it = inputFrame->codecOutputBuffers.begin();
         ALOGV("%s: releaseOutputBuffer index %d", __FUNCTION__, it->index);
@@ -1130,13 +1133,11 @@ void HeicCompositeStream::releaseInputFrameLocked(InputFrame *inputFrame /*out*/
     }
 }
 
-void HeicCompositeStream::releaseInputFramesLocked() {
+void HeicCompositeStream::releaseInputFramesLocked(int64_t currentTs) {
     auto it = mPendingInputFrames.begin();
     while (it != mPendingInputFrames.end()) {
-        auto& inputFrame = it->second;
-        if (inputFrame.error ||
-            (inputFrame.appSegmentWritten && inputFrame.pendingOutputTiles == 0)) {
-            releaseInputFrameLocked(&inputFrame);
+        if (it->first <= currentTs) {
+            releaseInputFrameLocked(&it->second);
             it = mPendingInputFrames.erase(it);
         } else {
             it++;
@@ -1540,7 +1541,7 @@ bool HeicCompositeStream::threadLoop() {
             // In case we landed in error state, return any pending buffers and
             // halt all further processing.
             compilePendingInputLocked();
-            releaseInputFramesLocked();
+            releaseInputFramesLocked(currentTs);
             return false;
         }
 
@@ -1582,7 +1583,11 @@ bool HeicCompositeStream::threadLoop() {
         mPendingInputFrames[currentTs].error = true;
     }
 
-    releaseInputFramesLocked();
+    if (mPendingInputFrames[currentTs].error ||
+            (mPendingInputFrames[currentTs].appSegmentWritten &&
+            mPendingInputFrames[currentTs].pendingOutputTiles == 0)) {
+        releaseInputFramesLocked(currentTs);
+    }
 
     return true;
 }
