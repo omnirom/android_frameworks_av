@@ -2517,7 +2517,7 @@ status_t CameraService::BasicClient::startCameraOps() {
     sCameraService->mUidPolicy->registerMonitorUid(mClientUid);
 
 #ifdef TARGET_NEEDS_CLIENT_INFO
-    std::ofstream cpf("/data/vendor/omni/client_package_name");
+    std::ofstream cpf("/data/misc/omni/client_package_name");
     std::string cpn = String8(mClientPackageName).string();
     cpf << cpn;
 #endif
