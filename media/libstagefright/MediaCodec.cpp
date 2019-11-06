@@ -908,11 +908,9 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
     //as these components are not present in media_codecs.xml and MediaCodecList won't find
     //these component by findCodecByName
     //Video and Flac decoder are present in list so exclude them.
-    //Include MPEG-H encoder/decoder as they are part of media_codecs.xml
     if ((!(name.find("qcom", 0) > 0 || name.find("qti", 0) > 0 || name.find("filter", 0) > 0)
-          || name.find("video", 0) > 0 || name.find("flac", 0) > 0
-            || name.find("c2.qti", 0) >= 0 || name.find("mpegh", 0) > 0)
-              && !(name.find("tme",0) > 0)) {
+          || name.find("video", 0) > 0 || name.find("flac", 0) > 0 || name.find("c2.qti", 0) >= 0)
+          && !(name.find("tme",0) > 0)) {
         const sp<IMediaCodecList> mcl = MediaCodecList::getInstance();
         if (mcl == NULL) {
             mCodec = NULL;  // remove the codec.
