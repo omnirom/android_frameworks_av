@@ -17,12 +17,11 @@
 #include "SineSource.h"
 
 #include <binder/ProcessState.h>
+#include <datasource/FileSource.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/ALooper.h>
 #include <media/stagefright/foundation/AMessage.h>
-#include <media/stagefright/AudioPlayer.h>
 #include <media/stagefright/CameraSource.h>
-#include <media/stagefright/FileSource.h>
 #include <media/stagefright/MediaBufferGroup.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaCodecSource.h>
@@ -32,6 +31,8 @@
 #include <media/stagefright/MPEG4Writer.h>
 #include <media/stagefright/SimpleDecodingSource.h>
 #include <media/MediaPlayerInterface.h>
+
+#include "AudioPlayer.h"
 
 using namespace android;
 

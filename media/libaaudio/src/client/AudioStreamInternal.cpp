@@ -232,6 +232,24 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
         mCallbackBuffer = new uint8_t[callbackBufferSize];
     }
 
+    // For debugging and analyzing the distribution of MMAP timestamps.
+    // For OUTPUT, use a NEGATIVE offset to move the CPU writes further BEFORE the HW reads.
+    // For INPUT, use a POSITIVE offset to move the CPU reads further AFTER the HW writes.
+    // You can use this offset to reduce glitching.
+    // You can also use this offset to force glitching. By iterating over multiple
+    // values you can reveal the distribution of the hardware timing jitter.
+    if (mAudioEndpoint.isFreeRunning()) { // MMAP?
+        int32_t offsetMicros = (getDirection() == AAUDIO_DIRECTION_OUTPUT)
+                ? AAudioProperty_getOutputMMapOffsetMicros()
+                : AAudioProperty_getInputMMapOffsetMicros();
+        // This log is used to debug some tricky glitch issues. Please leave.
+        ALOGD_IF(offsetMicros, "%s() - %s mmap offset = %d micros",
+                __func__,
+                (getDirection() == AAUDIO_DIRECTION_OUTPUT) ? "output" : "input",
+                offsetMicros);
+        mTimeOffsetNanos = offsetMicros * AAUDIO_NANOS_PER_MICROSECOND;
+    }
+
     setState(AAUDIO_STREAM_STATE_OPEN);
 
     return result;
@@ -478,7 +496,8 @@ aaudio_result_t AudioStreamInternal::onTimestampService(AAudioServiceMessage *me
 #if LOG_TIMESTAMPS
     logTimestamp(*message);
 #endif
-    processTimestamp(message->timestamp.position, message->timestamp.timestamp);
+    processTimestamp(message->timestamp.position,
+            message->timestamp.timestamp + mTimeOffsetNanos);
     return AAUDIO_OK;
 }
 
@@ -634,7 +653,7 @@ aaudio_result_t AudioStreamInternal::processData(void *buffer, int32_t numFrames
         // Should we block?
         if (timeoutNanoseconds == 0) {
             break; // don't block
-        } else if (framesLeft > 0) {
+        } else if (wakeTimeNanos != 0) {
             if (!mAudioEndpoint.isFreeRunning()) {
                 // If there is software on the other end of the FIFO then it may get delayed.
                 // So wake up just a little after we expect it to be ready.
@@ -693,37 +712,38 @@ void AudioStreamInternal::processTimestamp(uint64_t position, int64_t time) {
 
 aaudio_result_t AudioStreamInternal::setBufferSize(int32_t requestedFrames) {
     int32_t adjustedFrames = requestedFrames;
-    int32_t actualFrames = 0;
-    int32_t maximumSize = getBufferCapacity();
+    const int32_t maximumSize = getBufferCapacity() - mFramesPerBurst;
+    // The buffer size can be set to zero.
+    // This means that the callback may be called when the internal buffer becomes empty.
+    // This will be fine on some devices in ideal circumstances and will result in the
+    // lowest possible latency.
+    // If there are glitches then they should be detected as XRuns and the size can be increased.
+    static const int32_t minimumSize = 0;
 
     // Clip to minimum size so that rounding up will work better.
-    if (adjustedFrames < 1) {
-        adjustedFrames = 1;
-    }
+    adjustedFrames = std::max(minimumSize, adjustedFrames);
 
-    if (adjustedFrames > maximumSize) {
-        // Clip to maximum size.
+    // Prevent arithmetic overflow by clipping before we round.
+    if (adjustedFrames >= maximumSize) {
         adjustedFrames = maximumSize;
     } else {
         // Round to the next highest burst size.
         int32_t numBursts = (adjustedFrames + mFramesPerBurst - 1) / mFramesPerBurst;
         adjustedFrames = numBursts * mFramesPerBurst;
-        // Rounding may have gone above maximum.
-        if (adjustedFrames > maximumSize) {
-            adjustedFrames = maximumSize;
-        }
     }
 
-    aaudio_result_t result = mAudioEndpoint.setBufferSizeInFrames(adjustedFrames, &actualFrames);
-    if (result < 0) {
-        return result;
-    } else {
-        return (aaudio_result_t) actualFrames;
-    }
+    // Clip against the actual size from the endpoint.
+    int32_t actualFrames = 0;
+    mAudioEndpoint.setBufferSizeInFrames(maximumSize, &actualFrames);
+    // actualFrames should be <= maximumSize
+    adjustedFrames = std::min(actualFrames, adjustedFrames);
+
+    mBufferSizeInFrames = adjustedFrames;
+    return (aaudio_result_t) adjustedFrames;
 }
 
 int32_t AudioStreamInternal::getBufferSize() const {
-    return mAudioEndpoint.getBufferSizeInFrames();
+    return mBufferSizeInFrames;
 }
 
 int32_t AudioStreamInternal::getBufferCapacity() const {

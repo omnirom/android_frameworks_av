@@ -20,9 +20,13 @@ LOCAL_SRC_FILES:= \
     MediaDrmService.cpp \
     main_mediadrmserver.cpp
 
+LOCAL_HEADER_LIBRARIES:= \
+    libmediadrm_headers
+
 LOCAL_SHARED_LIBRARIES:= \
     libbinder \
     liblog \
+    libmedia \
     libmediadrm \
     libutils \
     libhidlbase \

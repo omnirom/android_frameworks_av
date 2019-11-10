@@ -53,6 +53,7 @@ cc_defaults {
         "AudioPresentationInfo.cpp",
         "ByteUtils.cpp",
         "ColorUtils.cpp",
+        "FoundationUtils.cpp",
         "MediaBuffer.cpp",
         "MediaBufferBase.cpp",
         "MediaBufferGroup.cpp",
@@ -65,6 +66,17 @@ cc_defaults {
         "base64.cpp",
         "hexdump.cpp",
     ],
+
+    target: {
+        vendor: {
+            exclude_shared_libs: [
+                "libbinder",
+            ],
+            cflags: [
+                "-DNO_IMEMORY",
+            ],
+        },
+    },
 
     clang: true,
 

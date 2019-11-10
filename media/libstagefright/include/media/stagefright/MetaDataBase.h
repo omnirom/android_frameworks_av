@@ -59,6 +59,7 @@ enum {
     kKeyAACProfile        = 'aacp',  // int32_t
     kKeyAVCC              = 'avcc',  // raw data
     kKeyHVCC              = 'hvcc',  // raw data
+    kKeyDVCC              = 'dvcc',  // raw data
     kKeyAV1C              = 'av1c',  // raw data
     kKeyThumbnailHVCC     = 'thvc',  // raw data
     kKeyD263              = 'd263',  // raw data
@@ -246,6 +247,7 @@ enum {
     kTypeAVCC        = 'avcc',
     kTypeHVCC        = 'hvcc',
     kTypeAV1C        = 'av1c',
+    kTypeDVCC        = 'dvcc',
     kTypeD263        = 'd263',
 };
 
@@ -320,8 +322,10 @@ private:
     struct Rect;
     struct MetaDataInternal;
     MetaDataInternal *mInternalData;
+#ifndef __ANDROID_VNDK__
     status_t writeToParcel(Parcel &parcel);
     status_t updateFromParcel(const Parcel &parcel);
+#endif
 };
 
 }  // namespace android
