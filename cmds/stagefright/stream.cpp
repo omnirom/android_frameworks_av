@@ -21,6 +21,7 @@
 #include <binder/ProcessState.h>
 #include <cutils/properties.h> // for property_get
 
+#include <datasource/DataSourceFactory.h>
 #include <media/DataSource.h>
 #include <media/IMediaHTTPService.h>
 #include <media/IStreamSource.h>
@@ -28,7 +29,6 @@
 #include <media/MediaSource.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
-#include <media/stagefright/DataSourceFactory.h>
 #include <media/stagefright/InterfaceUtils.h>
 #include <media/stagefright/MPEG2TSWriter.h>
 #include <media/stagefright/MediaExtractor.h>
@@ -164,7 +164,7 @@ MyConvertingStreamSource::MyConvertingStreamSource(const char *filename)
     : mCurrentBufferIndex(-1),
       mCurrentBufferOffset(0) {
     sp<DataSource> dataSource =
-        DataSourceFactory::CreateFromURI(NULL /* httpService */, filename);
+        DataSourceFactory::getInstance()->CreateFromURI(NULL /* httpService */, filename);
 
     CHECK(dataSource != NULL);
 

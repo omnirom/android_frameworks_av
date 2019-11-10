@@ -2,9 +2,16 @@
 // libmediadrm
 //
 
-// TODO: change it back to cc_library_shared when MediaPlayer2 switches to
-// using NdkMediaDrm, instead of MediaDrm.java.
-cc_library {
+cc_library_headers {
+    name: "libmediadrm_headers",
+
+    export_include_dirs: [
+        "interface"
+    ],
+
+}
+
+cc_library_shared {
     name: "libmediadrm",
 
     srcs: [
@@ -19,14 +26,25 @@ cc_library {
         "CryptoHal.cpp",
     ],
 
+    local_include_dirs: [
+        "include",
+        "interface"
+    ],
+
+    export_include_dirs: [
+        "include"
+    ],
+
     shared_libs: [
         "libbinder",
         "libcutils",
         "libdl",
         "liblog",
+        "libmedia",
         "libmediadrmmetrics_lite",
         "libmediametrics",
         "libmediautils",
+        "libresourcemanagerservice",
         "libstagefright_foundation",
         "libutils",
         "android.hardware.drm@1.0",
@@ -49,6 +67,10 @@ cc_library_shared {
         "DrmMetrics.cpp",
         "PluginMetricsReporting.cpp",
         "protos/metrics.proto",
+    ],
+
+    local_include_dirs: [
+        "include"
     ],
 
     proto: {
@@ -80,6 +102,10 @@ cc_library_shared {
         "DrmMetrics.cpp",
         "PluginMetricsReporting.cpp",
         "protos/metrics.proto",
+    ],
+
+    local_include_dirs: [
+        "include"
     ],
 
     proto: {

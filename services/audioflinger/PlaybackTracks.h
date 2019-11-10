@@ -74,7 +74,10 @@ public:
                                 uid_t uid,
                                 audio_output_flags_t flags,
                                 track_type type,
-                                audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE);
+                                audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE,
+                                /** default behaviour is to start when there are as many frames
+                                  * ready as possible (aka. Buffer is full). */
+                                size_t frameCountToBeReady = SIZE_MAX);
     virtual             ~Track();
     virtual status_t    initCheck() const;
 
@@ -263,11 +266,11 @@ protected:
     };
     sp<AudioVibrationController> mAudioVibrationController;
     sp<os::ExternalVibration>    mExternalVibration;
+    /** How many frames should be in the buffer before the track is considered ready */
+    const size_t        mFrameCountToBeReady;
 
 private:
     void                interceptBuffer(const AudioBufferProvider::Buffer& buffer);
-    /** Write the source data in the buffer provider. @return written frame count. */
-    size_t              writeFrames(AudioBufferProvider* dest, const void* src, size_t frameCount);
     template <class F>
     void                forEachTeePatchTrack(F f) {
         for (auto& tp : mTeePatches) { f(tp.patchTrack); }
@@ -384,8 +387,14 @@ public:
                                    void *buffer,
                                    size_t bufferSize,
                                    audio_output_flags_t flags,
-                                   const Timeout& timeout = {});
+                                   const Timeout& timeout = {},
+                                   size_t frameCountToBeReady = 1 /** Default behaviour is to start
+                                                                    *  as soon as possible to have
+                                                                    *  the lowest possible latency
+                                                                    *  even if it might glitch. */);
     virtual             ~PatchTrack();
+
+            size_t      framesReady() const override;
 
     virtual status_t    start(AudioSystem::sync_event_t event =
                                     AudioSystem::SYNC_EVENT_NONE,
@@ -402,5 +411,4 @@ public:
 
 private:
             void restartIfDisabled();
-
 };  // end of PatchTrack

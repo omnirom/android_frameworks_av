@@ -36,12 +36,14 @@
 #include <ctype.h>
 #include <cutils/properties.h>
 
+#include <datasource/HTTPBase.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/ALooper.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/Utils.h>
+#include <media/stagefright/FoundationUtils.h>
 
 #include <mediaplayerservice/AVMediaServiceExtensions.h>
 
@@ -49,7 +51,6 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-#include "HTTPBase.h"
 
 #if LOG_NDEBUG
 #define UNUSED_UNLESS_VERBOSE(x) (void)(x)

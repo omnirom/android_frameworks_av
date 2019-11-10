@@ -26,18 +26,16 @@
 #include <android_runtime/AndroidRuntime.h>
 #include <android_util_Binder.h>
 #include <cutils/properties.h>
-#include <utils/Log.h>
-#include <utils/StrongPointer.h>
+#include <datasource/DataSourceFactory.h>
+#include <datasource/HTTPBase.h>
+#include <datasource/NuCachedSource2.h>
 #include <media/IMediaHTTPService.h>
 #include <media/NdkMediaError.h>
 #include <media/NdkMediaDataSource.h>
-#include <media/stagefright/DataSourceFactory.h>
 #include <media/stagefright/InterfaceUtils.h>
-#include <mediaplayer2/JavaVMHelper.h>
-#include <mediaplayer2/JMedia2HTTPService.h>
+#include <utils/Log.h>
+#include <utils/StrongPointer.h>
 
-#include "../../libstagefright/include/HTTPBase.h"
-#include "../../libstagefright/include/NuCachedSource2.h"
 #include "NdkMediaDataSourceCallbacksPriv.h"
 
 
@@ -120,18 +118,11 @@ status_t NdkDataSource::getAvailableSize(off64_t offset, off64_t *sizeptr) {
     return size >= 0 ? OK : UNKNOWN_ERROR;
 }
 
-static sp<MediaHTTPService> createMediaHttpServiceFromJavaObj(JNIEnv *env, jobject obj, int version) {
+static sp<MediaHTTPService> createMediaHttpServiceFromJavaObj(JNIEnv *env, jobject obj) {
     if (obj == NULL) {
         return NULL;
     }
-    switch (version) {
-        case 1:
-            return interface_cast<IMediaHTTPService>(ibinderForJavaObject(env, obj));
-        case 2:
-            return new JMedia2HTTPService(env, obj);
-        default:
-            return NULL;
-    }
+    return interface_cast<IMediaHTTPService>(ibinderForJavaObject(env, obj));
 }
 
 static sp<MediaHTTPService> createMediaHttpServiceTemplate(
@@ -139,8 +130,7 @@ static sp<MediaHTTPService> createMediaHttpServiceTemplate(
         const char *uri,
         const char *clazz,
         const char *method,
-        const char *signature,
-        int version) {
+        const char *signature) {
     jobject service = NULL;
     if (env == NULL) {
         ALOGE("http service must be created from Java thread");
@@ -167,34 +157,22 @@ static sp<MediaHTTPService> createMediaHttpServiceTemplate(
     env->DeleteLocalRef(juri);
 
     env->ExceptionClear();
-    sp<MediaHTTPService> httpService = createMediaHttpServiceFromJavaObj(env, service, version);
+    sp<MediaHTTPService> httpService = createMediaHttpServiceFromJavaObj(env, service);
     return httpService;
 
 }
 
-sp<MediaHTTPService> createMediaHttpService(const char *uri, int version) {
+sp<MediaHTTPService> createMediaHttpService(const char *uri) {
 
     JNIEnv *env;
     const char *clazz, *method, *signature;
 
-    switch (version) {
-        case 1:
-            env = AndroidRuntime::getJNIEnv();
-            clazz = "android/media/MediaHTTPService";
-            method = "createHttpServiceBinderIfNecessary";
-            signature = "(Ljava/lang/String;)Landroid/os/IBinder;";
-            break;
-        case 2:
-            env = JavaVMHelper::getJNIEnv();
-            clazz = "android/media/Media2HTTPService";
-            method = "createHTTPService";
-            signature = "(Ljava/lang/String;)Landroid/media/Media2HTTPService;";
-            break;
-        default:
-            return NULL;
-    }
+    env = AndroidRuntime::getJNIEnv();
+    clazz = "android/media/MediaHTTPService";
+    method = "createHttpServiceBinderIfNecessary";
+    signature = "(Ljava/lang/String;)Landroid/os/IBinder;";
 
-    return createMediaHttpServiceTemplate(env, uri, clazz, method, signature, version);
+    return createMediaHttpServiceTemplate(env, uri, clazz, method, signature);
 
 }
 
@@ -216,7 +194,7 @@ AMediaDataSource* AMediaDataSource_newUri(
         int numheaders,
         const char * const *key_values) {
 
-    sp<MediaHTTPService> service = createMediaHttpService(uri, /* version = */ 1);
+    sp<MediaHTTPService> service = createMediaHttpService(uri);
     KeyedVector<String8, String8> headers;
     for (int i = 0; i < numheaders; ++i) {
         String8 key8(key_values[i * 2]);
@@ -224,7 +202,7 @@ AMediaDataSource* AMediaDataSource_newUri(
         headers.add(key8, value8);
     }
 
-    sp<DataSource> source = DataSourceFactory::CreateFromURI(service, uri, &headers);
+    sp<DataSource> source = DataSourceFactory::getInstance()->CreateFromURI(service, uri, &headers);
     if (source == NULL) {
         ALOGE("AMediaDataSource_newUri source is null");
         return NULL;

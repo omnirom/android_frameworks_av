@@ -23,7 +23,7 @@ cc_library_static {
 
     srcs: [
         "BenchmarkCommon.cpp",
-        "Timer.cpp",
+        "Stats.cpp",
     ],
 
     export_include_dirs: ["."],
@@ -45,10 +45,6 @@ cc_defaults {
 
 cc_defaults {
     name: "libbenchmark-defaults",
-
-    header_libs: [
-        "media_ndk_headers",
-    ],
 
     shared_libs: [
         "libmediandk",
@@ -73,6 +69,5 @@ cc_defaults {
             "signed-integer-overflow",
         ],
         cfi: true,
-        address: true,
     }
 }

@@ -20,8 +20,8 @@
 
 #include <utils/Vector.h>
 
+#include <datasource/DataSourceFactory.h>
 #include <media/DataSource.h>
-#include <media/stagefright/DataSourceFactory.h>
 #include <media/stagefright/InterfaceUtils.h>
 #include <media/stagefright/MediaExtractorFactory.h>
 #include <media/stagefright/RemoteDataSource.h>
@@ -55,7 +55,7 @@ sp<IMediaExtractor> MediaExtractorService::makeExtractor(
 
 sp<IDataSource> MediaExtractorService::makeIDataSource(int fd, int64_t offset, int64_t length)
 {
-    sp<DataSource> source = DataSourceFactory::CreateFromFd(fd, offset, length);
+    sp<DataSource> source = DataSourceFactory::getInstance()->CreateFromFd(fd, offset, length);
     return CreateIDataSourceFromDataSource(source);
 }
 
