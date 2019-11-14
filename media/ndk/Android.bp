@@ -90,7 +90,6 @@ cc_library_shared {
         "libutils",
         "libcutils",
         "libnativewindow",
-        "libbinder",
         "libhidlbase",
         "libgui",
         "libui",
@@ -147,6 +146,10 @@ cc_library {
         "-Werror",
         "-Wno-error=deprecated-declarations",
         "-Wall",
+    ],
+
+    header_libs: [
+        "libmedia_headers",
     ],
 
     shared_libs: [
