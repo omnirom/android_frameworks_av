@@ -32,6 +32,7 @@ namespace android {
 NuPlayer::DecoderBase::DecoderBase(const sp<AMessage> &notify)
     :  mNotify(notify),
        mBufferGeneration(0),
+       mRequestInputBufferDelay(10 * 1000LL),
        mPaused(false),
        mStats(new AMessage),
        mRequestInputBuffersPending(false) {
@@ -120,7 +121,7 @@ void NuPlayer::DecoderBase::onRequestInputBuffers() {
         mRequestInputBuffersPending = true;
 
         sp<AMessage> msg = new AMessage(kWhatRequestInputBuffers, this);
-        msg->post(10 * 1000LL);
+        msg->post(mRequestInputBufferDelay);
     }
 }
 
