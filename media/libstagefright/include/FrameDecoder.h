@@ -33,7 +33,6 @@ struct MediaCodec;
 class IMediaSource;
 class MediaCodecBuffer;
 class Surface;
-class SurfaceControl;
 class VideoFrame;
 
 struct FrameRect {
@@ -102,6 +101,7 @@ private:
 
     DISALLOW_EVIL_CONSTRUCTORS(FrameDecoder);
 };
+struct FrameCaptureLayer;
 
 struct VideoFrameDecoder : public FrameDecoder {
     VideoFrameDecoder(
@@ -134,8 +134,7 @@ protected:
             bool *done) override;
 
 private:
-    sp<SurfaceControl> mSurfaceControl;
-    sp<SurfaceControl> mParent;
+    sp<FrameCaptureLayer> mCaptureLayer;
     VideoFrame *mFrame;
     bool mIsAvcOrHevc;
     MediaSource::ReadOptions::SeekMode mSeekMode;
@@ -143,8 +142,8 @@ private:
     List<int64_t> mSampleDurations;
     int64_t mDefaultSampleDurationUs;
 
-    sp<Surface> initSurfaceControl();
-    status_t captureSurfaceControl();
+    sp<Surface> initSurface();
+    status_t captureSurface();
 };
 
 struct ImageDecoder : public FrameDecoder {

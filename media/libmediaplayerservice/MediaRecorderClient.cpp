@@ -34,6 +34,7 @@
 #include <cutils/atomic.h>
 #include <cutils/properties.h> // for property_get
 #include <gui/IGraphicBufferProducer.h>
+#include <mediautils/ServiceUtilities.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <system/audio.h>
@@ -46,7 +47,6 @@
 namespace android {
 
 const char* cameraPermission = "android.permission.CAMERA";
-const char* recordAudioPermission = "android.permission.RECORD_AUDIO";
 
 static bool checkPermission(const char* permissionString) {
     if (getpid() == IPCThreadState::self()->getCallingPid()) return true;
@@ -120,7 +120,16 @@ status_t MediaRecorderClient::setVideoSource(int vs)
 status_t MediaRecorderClient::setAudioSource(int as)
 {
     ALOGV("setAudioSource(%d)", as);
-    if (!checkPermission(recordAudioPermission)) {
+    if (as < AUDIO_SOURCE_DEFAULT
+            || (as >= AUDIO_SOURCE_CNT && as != AUDIO_SOURCE_FM_TUNER)) {
+        ALOGE("Invalid audio source: %d", as);
+        return BAD_VALUE;
+    }
+    pid_t pid = IPCThreadState::self()->getCallingPid();
+    uid_t uid = IPCThreadState::self()->getCallingUid();
+
+    if ((as == AUDIO_SOURCE_FM_TUNER && !captureAudioOutputAllowed(pid, uid))
+            || !recordingAllowed(String16(""), pid, uid)) {
         return PERMISSION_DENIED;
     }
     Mutex::Autolock lock(mLock);

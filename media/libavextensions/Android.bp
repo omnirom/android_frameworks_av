@@ -14,6 +14,7 @@ cc_library_static {
         "media_plugin_headers",
         "libbase_headers",
         "libaudioclient_headers",
+        "libmedia_headers",
     ],
 
     include_dirs: [
