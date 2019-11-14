@@ -36,7 +36,7 @@ class IMemoryHeap;
 
 namespace android {
 
-struct CryptoHal : public BnCrypto {
+struct CryptoHal : public ICrypto {
     CryptoHal();
     virtual ~CryptoHal();
 
@@ -97,7 +97,6 @@ private:
     };
 
     KeyedVector<int32_t, HeapBase> mHeapBases;
-    uint32_t mNextBufferId;
     int32_t mHeapSeqNum;
 
     Vector<sp<ICryptoFactory>> makeCryptoFactories();

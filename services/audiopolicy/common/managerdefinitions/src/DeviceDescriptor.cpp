@@ -26,14 +26,30 @@
 
 namespace android {
 
-DeviceDescriptor::DeviceDescriptor(audio_devices_t type, const std::string &tagName) :
-        DeviceDescriptor(type, FormatVector{}, tagName)
+DeviceDescriptor::DeviceDescriptor(audio_devices_t type) :
+        DeviceDescriptor(type, "" /*tagName*/)
 {
 }
 
-DeviceDescriptor::DeviceDescriptor(audio_devices_t type, const FormatVector &encodedFormats,
-        const std::string &tagName) :
-    DeviceDescriptorBase(type), mTagName(tagName), mEncodedFormats(encodedFormats)
+DeviceDescriptor::DeviceDescriptor(audio_devices_t type,
+                                   const std::string &tagName,
+                                   const FormatVector &encodedFormats) :
+        DeviceDescriptor(type, tagName, "" /*address*/, encodedFormats)
+{
+}
+
+DeviceDescriptor::DeviceDescriptor(audio_devices_t type,
+                                   const std::string &tagName,
+                                   const std::string &address,
+                                   const FormatVector &encodedFormats) :
+        DeviceDescriptor(AudioDeviceTypeAddr(type, address), tagName, encodedFormats)
+{
+}
+
+DeviceDescriptor::DeviceDescriptor(const AudioDeviceTypeAddr &deviceTypeAddr,
+                                   const std::string &tagName,
+                                   const FormatVector &encodedFormats) :
+        DeviceDescriptorBase(deviceTypeAddr), mTagName(tagName), mEncodedFormats(encodedFormats)
 {
     mCurrentEncodedFormat = AUDIO_FORMAT_DEFAULT;
     /* If framework runs against a pre 5.0 Audio HAL, encoded formats are absent from the config.
@@ -41,7 +57,7 @@ DeviceDescriptor::DeviceDescriptor(audio_devices_t type, const FormatVector &enc
      * For now, the workaround to remove AC3 and IEC61937 support on HDMI is to declare
      * something like 'encodedFormats="AUDIO_FORMAT_PCM_16_BIT"' on the HDMI devicePort.
      */
-    if (type == AUDIO_DEVICE_OUT_HDMI && mEncodedFormats.empty()) {
+    if (mDeviceTypeAddr.mType == AUDIO_DEVICE_OUT_HDMI && mEncodedFormats.empty()) {
         mEncodedFormats.push_back(AUDIO_FORMAT_AC3);
         mEncodedFormats.push_back(AUDIO_FORMAT_IEC61937);
     }
@@ -76,7 +92,7 @@ bool DeviceDescriptor::equals(const sp<DeviceDescriptor>& other) const
         return false;
     }
 
-    return (mDeviceType == other->mDeviceType) && (mAddress == other->mAddress) &&
+    return mDeviceTypeAddr.equals(other->mDeviceTypeAddr) &&
            checkEqual(mEncodedFormats, other->mEncodedFormats);
 }
 
@@ -135,7 +151,7 @@ void DeviceDescriptor::toAudioPortConfig(struct audio_port_config *dstConfig,
 
 void DeviceDescriptor::toAudioPort(struct audio_port *port) const
 {
-    ALOGV("DeviceDescriptor::toAudioPort() handle %d type %08x", mId, mDeviceType);
+    ALOGV("DeviceDescriptor::toAudioPort() handle %d type %08x", mId, mDeviceTypeAddr.mType);
     DeviceDescriptorBase::toAudioPort(port);
     port->ext.device.hw_module = getModuleHandle();
 }
