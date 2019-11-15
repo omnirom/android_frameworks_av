@@ -1058,7 +1058,8 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 }
 
                 // Pause the renderer till video queue pre-rolls
-                if (!mPaused && mVideoDecoder != NULL && mAudioDecoder != NULL) {
+                if (!mPaused && mVideoDecoder != NULL && mAudioDecoder != NULL
+                   && !mRenderer->isVideoSampleReceived()) {
                     ALOGI("NOTE: Pausing Renderer after decoders instantiated..");
                     mRenderer->pause();
                     // wake up renderer if timed out
