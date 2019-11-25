@@ -121,7 +121,8 @@ public:
                                   audio_output_flags_t *flags,
                                   audio_port_handle_t *selectedDeviceId,
                                   audio_port_handle_t *portId,
-                                  std::vector<audio_io_handle_t> *secondaryOutputs) override;
+                                  std::vector<audio_io_handle_t> *secondaryOutputs,
+                                  output_type_t *outputType) override;
         virtual status_t startOutput(audio_port_handle_t portId);
         virtual status_t stopOutput(audio_port_handle_t portId);
         virtual void releaseOutput(audio_port_handle_t portId);
@@ -306,6 +307,8 @@ public:
             return volumeGroup != VOLUME_GROUP_NONE ? NO_ERROR : BAD_VALUE;
         }
 
+        bool isCallScreenModeSupported() override;
+
         status_t initialize();
 
 protected:
@@ -476,6 +479,8 @@ protected:
         virtual bool isInCall();
         // true if given state represents a device in a telephony or VoIP call
         virtual bool isStateInCall(int state);
+        // true if playback to call TX or capture from call RX is possible
+        bool isCallAudioAccessible();
 
         // when a device is connected, checks if an open output can be routed
         // to this device. If none is open, tries to open one of the available outputs.
@@ -805,7 +810,8 @@ protected:
                 audio_output_flags_t *flags,
                 audio_port_handle_t *selectedDeviceId,
                 bool *isRequestedDeviceForExclusiveUse,
-                std::vector<sp<SwAudioOutputDescriptor>> *secondaryDescs);
+                std::vector<sp<SwAudioOutputDescriptor>> *secondaryDescs,
+                output_type_t *outputType);
         // internal method to return the output handle for the given device and format
         virtual audio_io_handle_t getOutputForDevices(
                 const DeviceVector &devices,

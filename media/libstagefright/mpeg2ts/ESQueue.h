@@ -27,7 +27,7 @@
 #include <utils/RefBase.h>
 #include <vector>
 
-#include "HlsSampleDecryptor.h"
+#include "SampleDecryptor.h"
 
 namespace android {
 
@@ -112,7 +112,7 @@ protected:
 
     sp<MetaData> mFormat;
 
-    sp<HlsSampleDecryptor> mSampleDecryptor;
+    sp<SampleDecryptor> mSampleDecryptor;
     int mAUIndex;
 
     bool isSampleEncrypted() const {

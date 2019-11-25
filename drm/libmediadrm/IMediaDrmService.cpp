@@ -29,31 +29,12 @@
 
 namespace android {
 
-enum {
-    MAKE_CRYPTO = IBinder::FIRST_CALL_TRANSACTION,
-    MAKE_DRM,
-};
-
 class BpMediaDrmService: public BpInterface<IMediaDrmService>
 {
 public:
     explicit BpMediaDrmService(const sp<IBinder>& impl)
         : BpInterface<IMediaDrmService>(impl)
     {
-    }
-
-    virtual sp<ICrypto> makeCrypto() {
-        Parcel data, reply;
-        data.writeInterfaceToken(IMediaDrmService::getInterfaceDescriptor());
-        remote()->transact(MAKE_CRYPTO, data, &reply);
-        return interface_cast<ICrypto>(reply.readStrongBinder());
-    }
-
-    virtual sp<IDrm> makeDrm() {
-        Parcel data, reply;
-        data.writeInterfaceToken(IMediaDrmService::getInterfaceDescriptor());
-        remote()->transact(MAKE_DRM, data, &reply);
-        return interface_cast<IDrm>(reply.readStrongBinder());
     }
 
 };
@@ -66,18 +47,6 @@ status_t BnMediaDrmService::onTransact(
     uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)
 {
     switch (code) {
-        case MAKE_CRYPTO: {
-            CHECK_INTERFACE(IMediaDrmService, data, reply);
-            sp<ICrypto> crypto = makeCrypto();
-            reply->writeStrongBinder(IInterface::asBinder(crypto));
-            return NO_ERROR;
-        } break;
-        case MAKE_DRM: {
-            CHECK_INTERFACE(IMediaDrmService, data, reply);
-            sp<IDrm> drm = makeDrm();
-            reply->writeStrongBinder(IInterface::asBinder(drm));
-            return NO_ERROR;
-        } break;
         default:
             return BBinder::onTransact(code, data, reply, flags);
     }

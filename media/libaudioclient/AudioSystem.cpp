@@ -1392,6 +1392,12 @@ status_t AudioSystem::getMicrophones(std::vector<media::MicrophoneInfo> *microph
     return af->getMicrophones(microphones);
 }
 
+status_t AudioSystem::setAudioHalPids(const std::vector<pid_t>& pids) {
+  const sp<IAudioFlinger>& af = AudioSystem::get_audio_flinger();
+  if (af == nullptr) return PERMISSION_DENIED;
+  return af->setAudioHalPids(pids);
+}
+
 status_t AudioSystem::getSurroundFormats(unsigned int *numSurroundFormats,
                                          audio_format_t *surroundFormats,
                                          bool *surroundFormatsEnabled,
@@ -1517,6 +1523,13 @@ status_t AudioSystem::setRttEnabled(bool enabled)
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
     if (aps == 0) return PERMISSION_DENIED;
     return aps->setRttEnabled(enabled);
+}
+
+bool AudioSystem::isCallScreenModeSupported()
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return false;
+    return aps->isCallScreenModeSupported();
 }
 
 // ---------------------------------------------------------------------------
