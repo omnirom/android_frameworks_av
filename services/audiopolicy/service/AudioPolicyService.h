@@ -260,6 +260,8 @@ public:
 
     virtual status_t setRttEnabled(bool enabled);
 
+            bool isCallScreenModeSupported() override;
+
             status_t doStopOutput(audio_port_handle_t portId);
             void doReleaseOutput(audio_port_handle_t portId);
 
@@ -372,7 +374,8 @@ private:
         void onUidActive(uid_t uid) override;
         void onUidGone(uid_t uid, bool disabled) override;
         void onUidIdle(uid_t uid, bool disabled) override;
-        void onUidStateChanged(uid_t uid, int32_t procState, int64_t procStateSeq);
+        void onUidStateChanged(uid_t uid, int32_t procState, int64_t procStateSeq,
+                int32_t capability);
 
         void addOverrideUid(uid_t uid, bool active) { updateOverrideUid(uid, active, true); }
         void removeOverrideUid(uid_t uid) { updateOverrideUid(uid, false, false); }

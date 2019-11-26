@@ -59,6 +59,7 @@
 #include <media/Metadata.h>
 #include <media/AudioTrack.h>
 #include <media/MemoryLeakTrackUtil.h>
+#include <media/stagefright/FrameCaptureProcessor.h>
 #include <media/stagefright/InterfaceUtils.h>
 #include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/MediaCodecList.h>
@@ -448,6 +449,8 @@ MediaPlayerService::MediaPlayerService()
     mNextConnId = 1;
 
     MediaPlayerFactory::registerBuiltinFactories();
+    // initialize the frame capture utilities
+    (void)FrameCaptureProcessor::getInstance();
 }
 
 MediaPlayerService::~MediaPlayerService()

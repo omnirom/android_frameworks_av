@@ -19,6 +19,7 @@
 
 #include <sys/types.h>
 
+#include <media/AudioDeviceTypeAddr.h>
 #include <media/AudioPolicy.h>
 #include <media/AudioProductStrategy.h>
 #include <media/AudioVolumeGroup.h>
@@ -395,6 +396,14 @@ public:
                                                       volume_group_t &volumeGroup);
 
     static status_t setRttEnabled(bool enabled);
+
+    static bool     isCallScreenModeSupported();
+
+     /**
+     * Send audio HAL server process pids to native audioserver process for use
+     * when generating audio HAL servers tombstones
+     */
+    static status_t setAudioHalPids(const std::vector<pid_t>& pids);
 
     // ----------------------------------------------------------------------------
 

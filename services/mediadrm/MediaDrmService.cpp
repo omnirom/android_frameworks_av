@@ -34,12 +34,4 @@ void MediaDrmService::instantiate() {
             String16("media.drm"), new MediaDrmService());
 }
 
-sp<ICrypto> MediaDrmService::makeCrypto() {
-    return new CryptoHal;
-}
-
-sp<IDrm> MediaDrmService::makeDrm() {
-    return new DrmHal;
-}
-
 } // namespace android
