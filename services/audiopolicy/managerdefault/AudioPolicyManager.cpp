@@ -5124,8 +5124,11 @@ void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr
         // Move tracks associated to this stream (and linked) from previous output to new output
         for (auto stream :  mEngine->getStreamTypesForProductStrategy(psId)) {
             // Do not invalidate stream if new music output and previous music output are same
+            sp<SwAudioOutputDescriptor> desc;
             if (stream == AUDIO_STREAM_MUSIC &&
-                    srcOutputs.indexOf(mMusicEffectOutput) >= 0)
+                   ((desc = mPreviousOutputs.valueFor(mMusicEffectOutput)) != 0) &&
+                   desc->supportsAllDevices(newDevices) &&
+                   desc->isActive(toVolumeSource(AUDIO_STREAM_MUSIC)))
                 continue;
             mpClientInterface->invalidateStream(stream);
             if (isStreamActive(stream, 0) && invalidationFactor == 1)
