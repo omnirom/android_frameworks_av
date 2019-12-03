@@ -633,7 +633,7 @@ MediaProfiles::getInstance()
                 if (!strncmp(value, "/vendor/etc", strlen("/vendor/etc"))) {
                     property_get("ro.board.platform", platform, NULL);
                     if (!strcmp(platform, "msm8953")){
-                        if (property_get("vendor.media.msm8953.version", value, "0") &&
+                        if (property_get("vendor.media.target.version", value, "0") &&
                             (atoi(value) == 1)){
                             strlcpy(value, "/vendor/etc/media_profiles_8953_v1.xml",
                                     PROPERTY_VALUE_MAX);
@@ -642,7 +642,7 @@ MediaProfiles::getInstance()
                                     PROPERTY_VALUE_MAX);
                         }
                     } else if (!strcmp(platform, "sdm660")) {
-                        property_get("vendor.media.sdm660.version", value, "0");
+                        property_get("vendor.media.target.version", value, "0");
                         if (atoi(value) == 1) {
                             strlcpy(value, "/vendor/etc/media_profiles_sdm660_v1.xml",
                                     PROPERTY_VALUE_MAX);
