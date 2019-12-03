@@ -26,11 +26,11 @@
 #include <android/hardware/drm/1.2/IDrmPlugin.h>
 #include <android/hardware/drm/1.2/IDrmPluginListener.h>
 
-#include <media/MediaAnalyticsItem.h>
 #include <mediadrm/DrmMetrics.h>
 #include <mediadrm/DrmSessionManager.h>
 #include <mediadrm/IDrm.h>
 #include <mediadrm/IDrmClient.h>
+#include <mediadrm/IDrmMetricsConsumer.h>
 #include <utils/threads.h>
 
 namespace drm = ::android::hardware::drm;
@@ -137,7 +137,7 @@ struct DrmHal : public IDrm,
     virtual status_t setPropertyString(String8 const &name, String8 const &value ) const;
     virtual status_t setPropertyByteArray(String8 const &name,
                                           Vector<uint8_t> const &value ) const;
-    virtual status_t getMetrics(os::PersistableBundle *metrics);
+    virtual status_t getMetrics(const sp<IDrmMetricsConsumer> &consumer);
 
     virtual status_t setCipherAlgorithm(Vector<uint8_t> const &sessionId,
                                         String8 const &algorithm);
@@ -198,7 +198,7 @@ private:
     mutable Mutex mEventLock;
     mutable Mutex mNotifyLock;
 
-    const Vector<sp<IDrmFactory>> mFactories;
+    const std::vector<sp<IDrmFactory>> mFactories;
     sp<IDrmPlugin> mPlugin;
     sp<drm::V1_1::IDrmPlugin> mPluginV1_1;
     sp<drm::V1_2::IDrmPlugin> mPluginV1_2;
@@ -207,7 +207,7 @@ private:
     // Mutable to allow modification within GetPropertyByteArray.
     mutable MediaDrmMetrics mMetrics;
 
-    Vector<sp<DrmSessionClient>> mOpenSessions;
+    std::vector<std::shared_ptr<DrmSessionClient>> mOpenSessions;
     void closeOpenSessions();
     void cleanup();
 
@@ -219,7 +219,7 @@ private:
      */
     status_t mInitCheck;
 
-    Vector<sp<IDrmFactory>> makeDrmFactories();
+    std::vector<sp<IDrmFactory>> makeDrmFactories();
     sp<IDrmPlugin> makeDrmPlugin(const sp<IDrmFactory>& factory,
             const uint8_t uuid[16], const String8& appPackageName);
 
