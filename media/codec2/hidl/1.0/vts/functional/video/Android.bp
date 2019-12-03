@@ -18,6 +18,14 @@ cc_test {
     name: "VtsHalMediaC2V1_0TargetVideoDecTest",
     defaults: ["VtsHalMediaC2V1_0Defaults"],
     srcs: ["VtsHalMediaC2V1_0TargetVideoDecTest.cpp"],
+    header_libs: [
+        "libnativewindow_headers",
+    ],
+    shared_libs: [
+        "libbinder",
+        "libgui",
+        "libutils",
+    ],
 }
 
 cc_test {

@@ -104,7 +104,7 @@ cc_library {
 
 // public dependency for Codec 2.0 HAL service implementations
 cc_defaults {
-    name: "libcodec2-hidl-defaults",
+    name: "libcodec2-hidl-defaults@1.0",
     defaults: ["libcodec2-impl-defaults"],
 
     shared_libs: [
@@ -115,7 +115,7 @@ cc_defaults {
 
 // public dependency for Codec 2.0 HAL client
 cc_defaults {
-    name: "libcodec2-hidl-client-defaults",
+    name: "libcodec2-hidl-client-defaults@1.0",
     defaults: ["libcodec2-impl-defaults"],
 
     shared_libs: [
