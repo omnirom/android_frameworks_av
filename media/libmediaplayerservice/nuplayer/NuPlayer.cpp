@@ -1058,7 +1058,8 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                 }
 
                 // Pause the renderer till video queue pre-rolls
-                if (!mPaused && mVideoDecoder != NULL && mAudioDecoder != NULL) {
+                if (!mPaused && mVideoDecoder != NULL && mAudioDecoder != NULL
+                   && !mRenderer->isVideoSampleReceived()) {
                     ALOGI("NOTE: Pausing Renderer after decoders instantiated..");
                     mRenderer->pause();
                     // wake up renderer if timed out
@@ -1539,15 +1540,8 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
         {
             // don't break pause if client requested renderer to pause too.
             if (!mPaused && mRenderer != NULL && !mRenderer->isVideoPrerollCompleted()) {
-                ALOGI("NOTE: Video preroll timed out or video encounterred error, "
-                    "resume renderer and shutdown video decoder");
+                ALOGI("NOTE: Video preroll timed out, resume renderer");
                 mRenderer->resume();
-                // Flush video decoder when preroll timeout, make playback audio only. If still keep
-                // video track, will see framedrop when video buffer coming.
-                mDeferredActions.push_back(
-                    new FlushDecoderAction(FLUSH_CMD_NONE /* audio */,
-                                        FLUSH_CMD_SHUTDOWN /*video */));
-                processDeferredActions();
             }
             break;
         }

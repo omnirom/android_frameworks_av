@@ -86,6 +86,7 @@ protected:
 
     sp<AMessage> mNotify;
     int32_t mBufferGeneration;
+    int64_t mRequestInputBufferDelay;
     bool mPaused;
     sp<AMessage> mStats;
 
