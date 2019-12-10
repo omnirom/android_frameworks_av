@@ -6337,7 +6337,7 @@ bool ACodec::BaseState::onOMXFillBufferDone(
 
         case RESUBMIT_BUFFERS:
         {
-            if (rangeLength == 0 && (!(flags & OMX_BUFFERFLAG_EOS)
+            if (rangeLength == 0 && !((flags & OMX_BUFFERFLAG_EOS)
                     || mCodec->mPortEOS[kPortIndexOutput])) {
                 ALOGV("[%s] calling fillBuffer %u",
                      mCodec->mComponentName.c_str(), info->mBufferID);
