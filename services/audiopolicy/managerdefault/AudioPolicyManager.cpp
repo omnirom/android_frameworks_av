@@ -5187,6 +5187,9 @@ void AudioPolicyManager::checkOutputForAttributes(const audio_attributes_t &attr
 
             if (desc->isStrategyActive(psId)) {
                 setStrategyMute(psId, true, desc);
+                setStrategyMute(psId, false, desc,
+                                (maxLatency * muteLatencyFactor) + routingLatency,
+                                newDevices.types());
             }
             sp<SourceClientDescriptor> source = getSourceForAttributesOnOutput(srcOut, attr);
             if (source != 0){
