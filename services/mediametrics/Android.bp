@@ -1,0 +1,73 @@
+// Media Statistics service
+//
+
+cc_binary {
+    name: "mediametrics",
+
+    srcs: [
+        "main_mediametrics.cpp",
+    ],
+
+    shared_libs: [
+        "libbinder",
+        "liblog",
+        "libmediametricsservice",
+        "libutils",
+    ],
+
+    init_rc: [
+        "mediametrics.rc",
+    ],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+    ],
+}
+
+cc_library_shared {
+    name: "libmediametricsservice",
+
+    srcs: [
+        "AudioAnalytics.cpp",
+        "iface_statsd.cpp",
+        "MediaMetricsService.cpp",
+        "statsd_audiopolicy.cpp",
+        "statsd_audiorecord.cpp",
+        "statsd_audiothread.cpp",
+        "statsd_audiotrack.cpp",
+        "statsd_codec.cpp",
+        "statsd_drm.cpp",
+        "statsd_extractor.cpp",
+        "statsd_nuplayer.cpp",
+        "statsd_recorder.cpp",
+    ],
+
+    proto: {
+        type: "lite",
+    },
+
+    shared_libs: [
+        "libbinder",
+        "liblog",
+        "libmediametrics",
+        "libprotobuf-cpp-lite",
+        "libstatslog",
+        "libutils",
+    ],
+
+    static_libs: [
+        "libplatformprotos",
+    ],
+
+    include_dirs: [
+        "system/media/audio_utils/include",
+    ],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+    ],
+}
