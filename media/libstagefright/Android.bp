@@ -228,6 +228,7 @@ cc_library {
         "libaudioutils",
         "libbase",
         "libbinder",
+        "libbinder_ndk",
         "libcamera_client",
         "libcutils",
         "libcrypto",
@@ -255,6 +256,7 @@ cc_library {
         "android.hidl.allocator@1.0",
         "android.hidl.memory@1.0",
         "android.hardware.cas.native@1.0",
+        "android.hardware.drm@1.0",
         "android.hardware.media.omx@1.0",
     ],
 

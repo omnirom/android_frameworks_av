@@ -1532,7 +1532,9 @@ void CCodec::flush() {
 
     {
         Mutexed<State>::Locked state(mState);
-        state->set(FLUSHED);
+        if (state->get() == FLUSHING) {
+            state->set(FLUSHED);
+        }
     }
     mCallback->onFlushCompleted();
 }
