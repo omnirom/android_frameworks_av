@@ -29,6 +29,7 @@
 #include <future>
 #include <inttypes.h>
 #include <hardware/camera_common.h>
+#include <android/hidl/manager/1.2/IServiceManager.h>
 #include <hidl/ServiceManagement.h>
 #include <functional>
 #include <camera_metadata_hidden.h>
@@ -47,10 +48,6 @@ using namespace ::android::hardware::camera::common::V1_0;
 using std::literals::chrono_literals::operator""s;
 
 namespace {
-// Hardcoded name for the passthrough HAL implementation, since it can't be discovered via the
-// service manager
-const std::string kLegacyProviderName("legacy/0");
-const std::string kExternalProviderName("external/0");
 const bool kEnableLazyHal(property_get_bool("ro.camera.enableLazyHal", false));
 } // anonymous namespace
 
@@ -60,6 +57,19 @@ CameraProviderManager::HardwareServiceInteractionProxy
 CameraProviderManager::sHardwareServiceInteractionProxy{};
 
 CameraProviderManager::~CameraProviderManager() {
+}
+
+hardware::hidl_vec<hardware::hidl_string>
+CameraProviderManager::HardwareServiceInteractionProxy::listServices() {
+    hardware::hidl_vec<hardware::hidl_string> ret;
+    auto manager = hardware::defaultServiceManager1_2();
+    if (manager != nullptr) {
+        manager->listManifestByInterface(provider::V2_4::ICameraProvider::descriptor,
+                [&ret](const hardware::hidl_vec<hardware::hidl_string> &registered) {
+                    ret = registered;
+                });
+    }
+    return ret;
 }
 
 status_t CameraProviderManager::initialize(wp<CameraProviderManager::StatusListener> listener,
@@ -84,9 +94,10 @@ status_t CameraProviderManager::initialize(wp<CameraProviderManager::StatusListe
         return INVALID_OPERATION;
     }
 
-    // See if there's a passthrough HAL, but let's not complain if there's not
-    addProviderLocked(kLegacyProviderName, /*expected*/ false);
-    addProviderLocked(kExternalProviderName, /*expected*/ false);
+
+    for (const auto& instance : mServiceProxy->listServices()) {
+        this->addProviderLocked(instance);
+    }
 
     IPCThreadState::self()->flushCommands();
 
@@ -97,7 +108,13 @@ int CameraProviderManager::getCameraCount() const {
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     int count = 0;
     for (auto& provider : mProviders) {
-        count += provider->mUniqueCameraIds.size();
+        for (auto& id : provider->mUniqueCameraIds) {
+            // Hidden secure camera ids are not to be exposed to camera1 api.
+            if (isPublicallyHiddenSecureCameraLocked(id)) {
+                continue;
+            }
+            count++;
+        }
     }
     return count;
 }
@@ -123,7 +140,11 @@ std::vector<std::string> CameraProviderManager::getAPI1CompatibleCameraDeviceIds
         // for each camera facing, only take the first id advertised by HAL in
         // all [logical, physical1, physical2, ...] id combos, and filter out the rest.
         filterLogicalCameraIdsLocked(providerDeviceIds);
-
+        // Hidden secure camera ids are not to be exposed to camera1 api.
+        providerDeviceIds.erase(std::remove_if(providerDeviceIds.begin(), providerDeviceIds.end(),
+                [this](const std::string& s) {
+                    return this->isPublicallyHiddenSecureCameraLocked(s);}),
+                providerDeviceIds.end());
         deviceIds.insert(deviceIds.end(), providerDeviceIds.begin(), providerDeviceIds.end());
     }
 
@@ -1035,9 +1056,12 @@ bool CameraProviderManager::isLogicalCamera(const std::string& id,
     return deviceInfo->mIsLogicalCamera;
 }
 
-bool CameraProviderManager::isPublicallyHiddenSecureCamera(const std::string& id) {
+bool CameraProviderManager::isPublicallyHiddenSecureCamera(const std::string& id) const {
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
+    return isPublicallyHiddenSecureCameraLocked(id);
+}
 
+bool CameraProviderManager::isPublicallyHiddenSecureCameraLocked(const std::string& id) const {
     auto deviceInfo = findDeviceInfoLocked(id);
     if (deviceInfo == nullptr) {
         return false;
@@ -1087,7 +1111,7 @@ bool CameraProviderManager::isHiddenPhysicalCamera(const std::string& cameraId) 
     return false;
 }
 
-status_t CameraProviderManager::addProviderLocked(const std::string& newProvider, bool expected) {
+status_t CameraProviderManager::addProviderLocked(const std::string& newProvider) {
     for (const auto& providerInfo : mProviders) {
         if (providerInfo->mProviderName == newProvider) {
             ALOGW("%s: Camera provider HAL with name '%s' already registered", __FUNCTION__,
@@ -1100,13 +1124,9 @@ status_t CameraProviderManager::addProviderLocked(const std::string& newProvider
     interface = mServiceProxy->getService(newProvider);
 
     if (interface == nullptr) {
-        if (expected) {
-            ALOGE("%s: Camera provider HAL '%s' is not actually available", __FUNCTION__,
-                    newProvider.c_str());
-            return BAD_VALUE;
-        } else {
-            return OK;
-        }
+        ALOGE("%s: Camera provider HAL '%s' is not actually available", __FUNCTION__,
+                newProvider.c_str());
+        return BAD_VALUE;
     }
 
     sp<ProviderInfo> providerInfo = new ProviderInfo(newProvider, this);
