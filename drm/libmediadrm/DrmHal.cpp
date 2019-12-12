@@ -20,14 +20,14 @@
 
 #include <utils/Log.h>
 
-#include <binder/IPCThreadState.h>
-#include <binder/IServiceManager.h>
+#include <android/binder_manager.h>
 
+#include <aidl/android/media/BnResourceManagerClient.h>
 #include <android/hardware/drm/1.2/types.h>
 #include <android/hidl/manager/1.2/IServiceManager.h>
-#include <android/media/BnResourceManagerClient.h>
 #include <hidl/ServiceManagement.h>
 #include <media/EventMetric.h>
+#include <media/MediaMetrics.h>
 #include <media/PluginMetricsReporting.h>
 #include <media/drm/DrmAPI.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -38,6 +38,8 @@
 #include <mediadrm/DrmHal.h>
 #include <mediadrm/DrmSessionClientInterface.h>
 #include <mediadrm/DrmSessionManager.h>
+#include <mediadrm/IDrmMetricsConsumer.h>
+#include <mediadrm/DrmUtils.h>
 
 #include <vector>
 
@@ -97,17 +99,6 @@ std::string toBase64StringNoPad(const T* data, size_t size) {
 namespace android {
 
 #define INIT_CHECK() {if (mInitCheck != OK) return mInitCheck;}
-
-static inline int getCallingPid() {
-    return IPCThreadState::self()->getCallingPid();
-}
-
-static bool checkPermission(const char* permissionString) {
-    if (getpid() == IPCThreadState::self()->getCallingPid()) return true;
-    bool ok = checkCallingPermission(String16(permissionString));
-    if (!ok) ALOGE("Request requires %s", permissionString);
-    return ok;
-}
 
 static const Vector<uint8_t> toVector(const hidl_vec<uint8_t> &vec) {
     Vector<uint8_t> vector;
@@ -298,17 +289,16 @@ static status_t toStatusT_1_2(Status_V1_2 status) {
 
 Mutex DrmHal::mLock;
 
-struct DrmHal::DrmSessionClient : public android::media::BnResourceManagerClient {
+struct DrmHal::DrmSessionClient : public aidl::android::media::BnResourceManagerClient {
     explicit DrmSessionClient(DrmHal* drm, const Vector<uint8_t>& sessionId)
       : mSessionId(sessionId),
         mDrm(drm) {}
 
-    ::android::binder::Status reclaimResource(bool* _aidl_return) override;
-    ::android::binder::Status getName(::std::string* _aidl_return) override;
+    ::ndk::ScopedAStatus reclaimResource(bool* _aidl_return) override;
+    ::ndk::ScopedAStatus getName(::std::string* _aidl_return) override;
 
     const Vector<uint8_t> mSessionId;
 
-protected:
     virtual ~DrmSessionClient();
 
 private:
@@ -317,24 +307,25 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(DrmSessionClient);
 };
 
-::android::binder::Status DrmHal::DrmSessionClient::reclaimResource(bool* _aidl_return) {
+::ndk::ScopedAStatus DrmHal::DrmSessionClient::reclaimResource(bool* _aidl_return) {
+    auto sessionId = mSessionId;
     sp<DrmHal> drm = mDrm.promote();
     if (drm == NULL) {
         *_aidl_return = true;
-        return ::android::binder::Status::ok();
+        return ::ndk::ScopedAStatus::ok();
     }
-    status_t err = drm->closeSession(mSessionId);
+    status_t err = drm->closeSession(sessionId);
     if (err != OK) {
         *_aidl_return = false;
-        return ::android::binder::Status::ok();
+        return ::ndk::ScopedAStatus::ok();
     }
     drm->sendEvent(EventType::SESSION_RECLAIMED,
-            toHidlVec(mSessionId), hidl_vec<uint8_t>());
+            toHidlVec(sessionId), hidl_vec<uint8_t>());
     *_aidl_return = true;
-    return ::android::binder::Status::ok();
+    return ::ndk::ScopedAStatus::ok();
 }
 
-::android::binder::Status DrmHal::DrmSessionClient::getName(::std::string* _aidl_return) {
+::ndk::ScopedAStatus DrmHal::DrmSessionClient::getName(::std::string* _aidl_return) {
     String8 name;
     sp<DrmHal> drm = mDrm.promote();
     if (drm == NULL) {
@@ -349,7 +340,7 @@ private:
     }
     name.append("]");
     *_aidl_return = name;
-    return ::android::binder::Status::ok();
+    return ::ndk::ScopedAStatus::ok();
 }
 
 DrmHal::DrmSessionClient::~DrmSessionClient() {
@@ -398,44 +389,8 @@ void DrmHal::cleanup() {
     mPluginV1_2.clear();
 }
 
-Vector<sp<IDrmFactory>> DrmHal::makeDrmFactories() {
-    Vector<sp<IDrmFactory>> factories;
-
-    auto manager = hardware::defaultServiceManager1_2();
-
-    if (manager != NULL) {
-        manager->listManifestByInterface(drm::V1_0::IDrmFactory::descriptor,
-                [&factories](const hidl_vec<hidl_string> &registered) {
-                    for (const auto &instance : registered) {
-                        auto factory = drm::V1_0::IDrmFactory::getService(instance);
-                        if (factory != NULL) {
-                            factories.push_back(factory);
-                        }
-                    }
-                }
-            );
-        manager->listManifestByInterface(drm::V1_1::IDrmFactory::descriptor,
-                [&factories](const hidl_vec<hidl_string> &registered) {
-                    for (const auto &instance : registered) {
-                        auto factory = drm::V1_1::IDrmFactory::getService(instance);
-                        if (factory != NULL) {
-                            factories.push_back(factory);
-                        }
-                    }
-                }
-            );
-        manager->listManifestByInterface(drm::V1_2::IDrmFactory::descriptor,
-                [&factories](const hidl_vec<hidl_string> &registered) {
-                    for (const auto &instance : registered) {
-                        auto factory = drm::V1_2::IDrmFactory::getService(instance);
-                        if (factory != NULL) {
-                            factories.push_back(factory);
-                        }
-                    }
-                }
-            );
-    }
-
+std::vector<sp<IDrmFactory>> DrmHal::makeDrmFactories() {
+    std::vector<sp<IDrmFactory>> factories(DrmUtils::MakeDrmFactories());
     if (factories.size() == 0) {
         // must be in passthrough mode, load the default passthrough service
         auto passthrough = IDrmFactory::getService();
@@ -453,6 +408,7 @@ sp<IDrmPlugin> DrmHal::makeDrmPlugin(const sp<IDrmFactory>& factory,
         const uint8_t uuid[16], const String8& appPackageName) {
     mAppPackageName = appPackageName;
     mMetrics.SetAppPackageName(appPackageName);
+    mMetrics.SetAppUid(AIBinder_getCallingUid());
 
     sp<IDrmPlugin> plugin;
     Return<void> hResult = factory->createPlugin(uuid, appPackageName.string(),
@@ -749,7 +705,7 @@ status_t DrmHal::openSession(DrmPlugin::SecurityLevel level,
             // reclaimSession may call back to closeSession, since mLock is
             // shared between Drm instances, we should unlock here to avoid
             // deadlock.
-            retry = DrmSessionManager::Instance()->reclaimSession(getCallingPid());
+            retry = DrmSessionManager::Instance()->reclaimSession(AIBinder_getCallingPid());
             mLock.lock();
         } else {
             retry = false;
@@ -757,9 +713,10 @@ status_t DrmHal::openSession(DrmPlugin::SecurityLevel level,
     } while (retry);
 
     if (err == OK) {
-        sp<DrmSessionClient> client(new DrmSessionClient(this, sessionId));
-        DrmSessionManager::Instance()->addSession(getCallingPid(), client, sessionId);
-        mOpenSessions.push(client);
+        std::shared_ptr<DrmSessionClient> client(new DrmSessionClient(this, sessionId));
+        DrmSessionManager::Instance()->addSession(AIBinder_getCallingPid(),
+                std::static_pointer_cast<IResourceManagerClient>(client), sessionId);
+        mOpenSessions.push_back(client);
         mMetrics.SetSessionStart(sessionId);
     }
 
@@ -775,9 +732,9 @@ status_t DrmHal::closeSession(Vector<uint8_t> const &sessionId) {
     if (status.isOk()) {
         if (status == Status::OK) {
             DrmSessionManager::Instance()->removeSession(sessionId);
-            for (size_t i = 0; i < mOpenSessions.size(); i++) {
-                if (isEqualSessionId(mOpenSessions[i]->mSessionId, sessionId)) {
-                    mOpenSessions.removeAt(i);
+            for (auto i = mOpenSessions.begin(); i != mOpenSessions.end(); i++) {
+                if (isEqualSessionId((*i)->mSessionId, sessionId)) {
+                    mOpenSessions.erase(i);
                     break;
                 }
             }
@@ -1371,11 +1328,11 @@ status_t DrmHal::setPropertyByteArray(String8 const &name,
     return status.isOk() ? toStatusT(status) : DEAD_OBJECT;
 }
 
-status_t DrmHal::getMetrics(PersistableBundle* metrics) {
-    if (metrics == nullptr) {
+status_t DrmHal::getMetrics(const sp<IDrmMetricsConsumer> &consumer) {
+    if (consumer == nullptr) {
         return UNEXPECTED_NULL;
     }
-    mMetrics.Export(metrics);
+    consumer->consumeFrameworkMetrics(mMetrics);
 
     // Append vendor metrics if they are supported.
     if (mPluginV1_1 != NULL) {
@@ -1402,11 +1359,7 @@ status_t DrmHal::getMetrics(PersistableBundle* metrics) {
                     if (status != Status::OK) {
                       ALOGV("Error getting plugin metrics: %d", status);
                     } else {
-                        PersistableBundle pluginBundle;
-                        if (MediaDrmMetrics::HidlMetricsToBundle(
-                                pluginMetrics, &pluginBundle) == OK) {
-                            metrics->putPersistableBundle(String16(vendor), pluginBundle);
-                        }
+                      consumer->consumeHidlMetrics(vendor, pluginMetrics);
                     }
                     err = toStatusT(status);
                 });
@@ -1540,10 +1493,6 @@ status_t DrmHal::signRSA(Vector<uint8_t> const &sessionId,
     Mutex::Autolock autoLock(mLock);
     INIT_CHECK();
 
-    if (!checkPermission("android.permission.ACCESS_DRM_CERTIFICATES")) {
-        return -EPERM;
-    }
-
     DrmSessionManager::Instance()->useSession(sessionId);
 
     status_t err = UNKNOWN_ERROR;
@@ -1563,21 +1512,21 @@ status_t DrmHal::signRSA(Vector<uint8_t> const &sessionId,
 
 void DrmHal::reportFrameworkMetrics() const
 {
-    std::unique_ptr<MediaAnalyticsItem> item(MediaAnalyticsItem::create("mediadrm"));
-    item->setPkgName(mMetrics.GetAppPackageName().c_str());
+    mediametrics_handle_t item(mediametrics_create("mediadrm"));
+    mediametrics_setUid(item, mMetrics.GetAppUid());
     String8 vendor;
     String8 description;
     status_t result = getPropertyStringInternal(String8("vendor"), vendor);
     if (result != OK) {
         ALOGE("Failed to get vendor from drm plugin: %d", result);
     } else {
-        item->setCString("vendor", vendor.c_str());
+        mediametrics_setCString(item, "vendor", vendor.c_str());
     }
     result = getPropertyStringInternal(String8("description"), description);
     if (result != OK) {
         ALOGE("Failed to get description from drm plugin: %d", result);
     } else {
-        item->setCString("description", description.c_str());
+        mediametrics_setCString(item, "description", description.c_str());
     }
 
     std::string serializedMetrics;
@@ -1588,11 +1537,12 @@ void DrmHal::reportFrameworkMetrics() const
     std::string b64EncodedMetrics = toBase64StringNoPad(serializedMetrics.data(),
                                                         serializedMetrics.size());
     if (!b64EncodedMetrics.empty()) {
-        item->setCString("serialized_metrics", b64EncodedMetrics.c_str());
+        mediametrics_setCString(item, "serialized_metrics", b64EncodedMetrics.c_str());
     }
-    if (!item->selfrecord()) {
+    if (!mediametrics_selfRecord(item)) {
         ALOGE("Failed to self record framework metrics");
     }
+    mediametrics_delete(item);
 }
 
 void DrmHal::reportPluginMetrics() const
@@ -1606,7 +1556,7 @@ void DrmHal::reportPluginMetrics() const
         std::string metricsString = toBase64StringNoPad(metricsVector.array(),
                                                         metricsVector.size());
         status_t res = android::reportDrmPluginMetrics(metricsString, vendor,
-                                                       description, mAppPackageName);
+                                                       description, mMetrics.GetAppUid());
         if (res != OK) {
             ALOGE("Metrics were retrieved but could not be reported: %d", res);
         }

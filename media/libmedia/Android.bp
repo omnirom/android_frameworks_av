@@ -23,6 +23,14 @@ filegroup {
     path: "aidl",
 }
 
+filegroup {
+    name: "mediaextractorservice_aidl",
+    srcs: [
+        "aidl/android/IMediaExtractorService.aidl",
+    ],
+    path: "aidl",
+}
+
 aidl_interface {
     name: "resourcemanager_aidl_interface",
     local_include_dir: "aidl",
@@ -34,7 +42,6 @@ aidl_interface {
         "aidl/android/media/MediaResourceParcel.aidl",
         "aidl/android/media/MediaResourcePolicyParcel.aidl",
     ],
-    api_dir: "api/resourcemanager",
     versions: ["1"],
 }
 
@@ -250,13 +257,13 @@ cc_library {
     name: "libmedia",
 
     srcs: [
+        ":mediaextractorservice_aidl",
         "IDataSource.cpp",
         "BufferingSettings.cpp",
         "mediaplayer.cpp",
         "IMediaHTTPConnection.cpp",
         "IMediaHTTPService.cpp",
         "IMediaExtractor.cpp",
-        "IMediaExtractorService.cpp",
         "IMediaPlayerService.cpp",
         "IMediaPlayerClient.cpp",
         "IMediaRecorderClient.cpp",
@@ -306,6 +313,7 @@ cc_library {
         "libprocessgroup",
         "libutils",
         "libbinder",
+        "libbinder_ndk",
         "libsonivox",
         "libandroidicu",
         "libexpat",
@@ -328,11 +336,11 @@ cc_library {
 
     static_libs: [
         "libc_malloc_debug_backtrace", // for memory heap analysis
-        "resourcemanager_aidl_interface-unstable-cpp",
+        "resourcemanager_aidl_interface-ndk_platform",
     ],
 
     export_static_lib_headers: [
-        "resourcemanager_aidl_interface-unstable-cpp",
+        "resourcemanager_aidl_interface-ndk_platform",
     ],
 
     whole_static_libs: [

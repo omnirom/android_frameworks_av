@@ -30,7 +30,7 @@
 #define LOG_TAG "AVUtils"
 #include <utils/Log.h>
 
-#include <media/IMediaExtractor.h>
+#include <android/IMediaExtractor.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/ABuffer.h>
