@@ -1844,12 +1844,7 @@ status_t ACodec::configureCodec(
         }
 
         if (!msg->findDouble("time-lapse-fps", &mCaptureFps)) {
-            float captureRate;
-            if (msg->findAsFloat(KEY_CAPTURE_RATE, &captureRate)) {
-                mCaptureFps = captureRate;
-            } else {
-                mCaptureFps = -1.0;
-            }
+            mCaptureFps = -1.0;
         }
 
         if (!msg->findInt32(
@@ -6360,7 +6355,7 @@ bool ACodec::BaseState::onOMXFillBufferDone(
 
         case RESUBMIT_BUFFERS:
         {
-            if (rangeLength == 0 && (!(flags & OMX_BUFFERFLAG_EOS)
+            if (rangeLength == 0 && !((flags & OMX_BUFFERFLAG_EOS)
                     || mCodec->mPortEOS[kPortIndexOutput])) {
                 ALOGV("[%s] calling fillBuffer %u",
                      mCodec->mComponentName.c_str(), info->mBufferID);
@@ -6975,7 +6970,7 @@ status_t ACodec::LoadedState::setupInputSurface() {
         }
     }
 
-    if (mCodec->mMaxPtsGapUs != 0LL) {
+    if (mCodec->mIsVideo && mCodec->mMaxPtsGapUs != 0LL) {
         OMX_PARAM_U32TYPE maxPtsGapParams;
         InitOMXParams(&maxPtsGapParams);
         maxPtsGapParams.nPortIndex = kPortIndexInput;

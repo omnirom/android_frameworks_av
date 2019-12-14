@@ -292,11 +292,6 @@ status_t StagefrightMetadataRetriever::getFrameInternal(
         if (!meta) {
             continue;
         }
-
-        if (meta == NULL) {
-            continue;
-        }
-
         const char *mime;
         CHECK(meta->findCString(kKeyMIMEType, &mime));
 
@@ -552,11 +547,6 @@ void StagefrightMetadataRetriever::parseMetaData() {
         if (!trackMeta) {
             continue;
         }
-
-        if (trackMeta == NULL) {
-            continue;
-        }
-
         int64_t durationUs;
         if (trackMeta->findInt64(kKeyDuration, &durationUs)) {
             if (durationUs > maxDurationUs) {
