@@ -1068,7 +1068,11 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
     if (!isSampleRateSpeedAllowed_l(effectiveRate, effectiveSpeed)) {
         ALOGW("%s(%d) (%f, %f) failed (buffer size)",
                 __func__, mPortId, playbackRate.mSpeed, playbackRate.mPitch);
-        return BAD_VALUE;
+        if (!mTrackOffloaded) {
+            return BAD_VALUE;
+        }
+        ALOGD("invalidate track-offloaded track on setPlaybackRate");
+        android_atomic_or(CBLK_INVALID, &mCblk->mFlags);
     }
 
     // Check resampler ratios are within bounds
