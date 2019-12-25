@@ -375,7 +375,11 @@ public:
 
         // consumer usage is queried earlier.
 
-        ALOGD("ISConfig%s", status.str().c_str());
+        if (status.str().empty()) {
+            ALOGD("ISConfig not changed");
+        } else {
+            ALOGD("ISConfig%s", status.str().c_str());
+        }
         return err;
     }
 
@@ -810,9 +814,17 @@ void CCodec::configure(const sp<AMessage> &msg) {
             }
 
             {
-                double value;
-                if (msg->findDouble("time-lapse-fps", &value)) {
-                    config->mISConfig->mCaptureFps = value;
+                bool captureFpsFound = false;
+                double timeLapseFps;
+                float captureRate;
+                if (msg->findDouble("time-lapse-fps", &timeLapseFps)) {
+                    config->mISConfig->mCaptureFps = timeLapseFps;
+                    captureFpsFound = true;
+                } else if (msg->findAsFloat(KEY_CAPTURE_RATE, &captureRate)) {
+                    config->mISConfig->mCaptureFps = captureRate;
+                    captureFpsFound = true;
+                }
+                if (captureFpsFound) {
                     (void)msg->findAsFloat(KEY_FRAME_RATE, &config->mISConfig->mCodedFps);
                 }
             }

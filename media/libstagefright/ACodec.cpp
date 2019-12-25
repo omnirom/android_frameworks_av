@@ -1844,7 +1844,12 @@ status_t ACodec::configureCodec(
         }
 
         if (!msg->findDouble("time-lapse-fps", &mCaptureFps)) {
-            mCaptureFps = -1.0;
+            float captureRate;
+            if (msg->findAsFloat(KEY_CAPTURE_RATE, &captureRate)) {
+                mCaptureFps = captureRate;
+            } else {
+                mCaptureFps = -1.0;
+            }
         }
 
         if (!msg->findInt32(
@@ -4559,6 +4564,10 @@ status_t ACodec::configureImageGrid(
         msg->findInt32("grid-rows", &gridRows) &&
         msg->findInt32("grid-cols", &gridCols)) {
         useGrid = OMX_TRUE;
+    } else {
+        // when bEnabled is false, the tile info is not used,
+        // but clear out these too.
+        tileWidth = tileHeight = gridRows = gridCols = 0;
     }
 
     if (!mIsImage && !useGrid) {
@@ -4573,6 +4582,13 @@ status_t ACodec::configureImageGrid(
     gridType.nTileHeight = tileHeight;
     gridType.nGridRows = gridRows;
     gridType.nGridCols = gridCols;
+
+    ALOGV("sending image grid info to component: bEnabled %d, tile %dx%d, grid %dx%d",
+            gridType.bEnabled,
+            gridType.nTileWidth,
+            gridType.nTileHeight,
+            gridType.nGridRows,
+            gridType.nGridCols);
 
     status_t err = mOMXNode->setParameter(
             (OMX_INDEXTYPE)OMX_IndexParamVideoAndroidImageGrid,
@@ -4593,6 +4609,13 @@ status_t ACodec::configureImageGrid(
     err = mOMXNode->getParameter(
             (OMX_INDEXTYPE)OMX_IndexParamVideoAndroidImageGrid,
             &gridType, sizeof(gridType));
+
+    ALOGV("received image grid info from component: bEnabled %d, tile %dx%d, grid %dx%d",
+            gridType.bEnabled,
+            gridType.nTileWidth,
+            gridType.nTileHeight,
+            gridType.nGridRows,
+            gridType.nGridCols);
 
     if (err == OK && gridType.bEnabled) {
         outputFormat->setInt32("tile-width", gridType.nTileWidth);
