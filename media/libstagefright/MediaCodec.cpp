@@ -1004,8 +1004,8 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
                 ALOGE("component not found");
                 return NAME_NOT_FOUND;
             }
-            owner = mCodecInfo->getOwnerName();
         }
+        owner = (mCodecInfo) ? mCodecInfo->getOwnerName() : "default";
     }
 
     mCodec = GetCodecBase(name, owner);
@@ -1036,11 +1036,9 @@ status_t MediaCodec::init(const AString &name, bool nameIsType) {
                     new BufferCallback(new AMessage(kWhatCodecNotify, this))));
 
     sp<AMessage> msg = new AMessage(kWhatInit, this);
-    if (mCodecInfo) {
-        msg->setObject("codecInfo", mCodecInfo);
-        // name may be different from mCodecInfo->getCodecName() if we stripped
-        // ".secure"
-    }
+    msg->setObject("codecInfo", mCodecInfo);
+    // name may be different from mCodecInfo->getCodecName() if we stripped
+    // ".secure"
     msg->setString("name", name);
     msg->setInt32("nameIsType", nameIsType);
 
@@ -2508,9 +2506,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
             msg->findInt32("nameIsType", &nameIsType);
 
             sp<AMessage> format = new AMessage;
-            if (codecInfo) {
-                format->setObject("codecInfo", codecInfo);
-            }
+            format->setObject("codecInfo", codecInfo);
             format->setString("componentName", name);
             format->setInt32("nameIsType", nameIsType);
 
