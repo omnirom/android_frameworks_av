@@ -27,3 +27,20 @@ cc_library_static {
 
     ldflags: ["-Wl,-Bsymbolic"]
 }
+
+cc_library_static {
+    name: "libmediabenchmark_codec2_extractor",
+    defaults: [
+        "libmediabenchmark_codec2_common-defaults",
+    ],
+
+    srcs: ["Extractor.cpp"],
+
+    static_libs: [
+        "libmediabenchmark_codec2_common",
+    ],
+
+    export_include_dirs: ["."],
+
+    ldflags: ["-Wl,-Bsymbolic"]
+}

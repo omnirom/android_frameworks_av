@@ -886,8 +886,6 @@ protected:
                 int delayMs,
                 uid_t uid,
                 sp<AudioPatch> *patchDescPtr);
-
-        void cleanUpEffectsForIo(audio_io_handle_t io);
 };
 
 };

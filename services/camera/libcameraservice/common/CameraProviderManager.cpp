@@ -40,6 +40,7 @@
 #include <utils/Trace.h>
 
 #include "api2/HeicCompositeStream.h"
+#include "device3/ZoomRatioMapper.h"
 
 namespace android {
 
@@ -230,6 +231,15 @@ bool CameraProviderManager::hasFlashUnit(const std::string &id) const {
     if (deviceInfo == nullptr) return false;
 
     return deviceInfo->hasFlashUnit();
+}
+
+bool CameraProviderManager::supportNativeZoomRatio(const std::string &id) const {
+    std::lock_guard<std::mutex> lock(mInterfaceMutex);
+
+    auto deviceInfo = findDeviceInfoLocked(id);
+    if (deviceInfo == nullptr) return false;
+
+    return deviceInfo->supportNativeZoomRatio();
 }
 
 status_t CameraProviderManager::getResourceCost(const std::string &id,
@@ -2035,6 +2045,13 @@ CameraProviderManager::ProviderInfo::DeviceInfo3::DeviceInfo3(const std::string&
                 __FUNCTION__, strerror(-res), res);
     }
 
+    res = camera3::ZoomRatioMapper::overrideZoomRatioTags(
+            &mCameraCharacteristics, &mSupportNativeZoomRatio);
+    if (OK != res) {
+        ALOGE("%s: Unable to override zoomRatio related tags: %s (%d)",
+                __FUNCTION__, strerror(-res), res);
+    }
+
     camera_metadata_entry flashAvailable =
             mCameraCharacteristics.find(ANDROID_FLASH_INFO_AVAILABLE);
     if (flashAvailable.count == 1 &&
@@ -2094,6 +2111,13 @@ CameraProviderManager::ProviderInfo::DeviceInfo3::DeviceInfo3(const std::string&
                         __FUNCTION__, id.c_str(), mId.c_str(),
                         CameraProviderManager::statusToString(status), status);
                 return;
+            }
+
+            res = camera3::ZoomRatioMapper::overrideZoomRatioTags(
+                    &mPhysicalCameraCharacteristics[id], &mSupportNativeZoomRatio);
+            if (OK != res) {
+                ALOGE("%s: Unable to override zoomRatio related tags: %s (%d)",
+                        __FUNCTION__, strerror(-res), res);
             }
         }
     }
