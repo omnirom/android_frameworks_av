@@ -91,7 +91,7 @@ struct AVFactory {
             int64_t timeBetweenFrameCaptureUs,
             bool storeMetaDataInVideoBuffers = true);
     virtual AudioSource* createAudioSource(
-            audio_source_t inputSource,
+            const audio_attributes_t *attr,
             const String16 &opPackageName,
             uint32_t sampleRate,
             uint32_t channels,

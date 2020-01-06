@@ -24,6 +24,7 @@ LOCAL_SHARED_LIBRARIES := \
     libbinder \
     libaudioclient \
     libaudioutils \
+    libaudiofoundation \
     libhardware_legacy \
     libaudiopolicymanager \
     libmedia_helper \
@@ -38,8 +39,6 @@ LOCAL_EXPORT_SHARED_LIBRARY_HEADERS := \
 
 LOCAL_STATIC_LIBRARIES := \
     libaudiopolicycomponents
-
-LOCAL_MULTILIB := $(AUDIOSERVER_MULTILIB)
 
 LOCAL_MODULE:= libaudiopolicyservice
 

@@ -409,22 +409,20 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_HEARING_AID);
         }
         if ((devices2.isEmpty()) &&
-                (getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) != AUDIO_POLICY_FORCE_NO_BT_A2DP) &&
-                 outputs.isA2dpSupported()) {
-            devices2 = availableOutputDevices.getFirstDevicesFromTypes({
-                    AUDIO_DEVICE_OUT_BLUETOOTH_A2DP, AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES,
-                    AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER});
-        }
-        if ((devices2.isEmpty()) &&
             (getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) == AUDIO_POLICY_FORCE_SPEAKER)) {
             devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_SPEAKER);
         }
-        if (devices2.isEmpty()) {
-            devices2 = availableOutputDevices.getFirstDevicesFromTypes({
-                    AUDIO_DEVICE_OUT_WIRED_HEADPHONE, AUDIO_DEVICE_OUT_LINE,
-                    AUDIO_DEVICE_OUT_WIRED_HEADSET, AUDIO_DEVICE_OUT_USB_HEADSET,
-                    AUDIO_DEVICE_OUT_USB_ACCESSORY, AUDIO_DEVICE_OUT_USB_DEVICE,
-                    AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET});
+        if (devices2.isEmpty() && (getLastRemovableMediaDevices().size() > 0)) {
+            if ((getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) != AUDIO_POLICY_FORCE_NO_BT_A2DP) &&
+                    outputs.isA2dpSupported()) {
+                // Get the last connected device of wired and bluetooth a2dp
+                devices2 = availableOutputDevices.getFirstDevicesFromTypes(
+                        getLastRemovableMediaDevices());
+            } else {
+                // Get the last connected device of wired except bluetooth a2dp
+                devices2 = availableOutputDevices.getFirstDevicesFromTypes(
+                        getLastRemovableMediaDevices(GROUP_WIRED));
+            }
         }
         if (devices2.isEmpty()) {
             devices2 = availableOutputDevices.getDevicesFromType(AUDIO_DEVICE_OUT_USB_DEVICE);
@@ -653,7 +651,7 @@ sp<DeviceDescriptor> Engine::getDeviceForInputSource(audio_source_t inputSource)
 void Engine::updateDeviceSelectionCache()
 {
     for (const auto &iter : getProductStrategies()) {
-        const auto &strategy = iter.second;
+        const auto& strategy = iter.second;
         auto devices = getDevicesForProductStrategy(strategy->getId());
         mDevicesForStrategies[strategy->getId()] = devices;
         strategy->setDeviceTypes(devices.types());
@@ -661,14 +659,30 @@ void Engine::updateDeviceSelectionCache()
     }
 }
 
-DeviceVector Engine::getDevicesForProductStrategy(product_strategy_t strategy) const
-{
+DeviceVector Engine::getDevicesForProductStrategy(product_strategy_t strategy) const {
     DeviceVector availableOutputDevices = getApmObserver()->getAvailableOutputDevices();
-    DeviceVector availableInputDevices = getApmObserver()->getAvailableInputDevices();
-    const SwAudioOutputCollection &outputs = getApmObserver()->getOutputs();
 
+    // check if this strategy has a preferred device that is available,
+    // if yes, give priority to it
+    AudioDeviceTypeAddr preferredStrategyDevice;
+    const status_t status = getPreferredDeviceForStrategy(strategy, preferredStrategyDevice);
+    if (status == NO_ERROR) {
+        // there is a preferred device, is it available?
+        sp<DeviceDescriptor> preferredAvailableDevDescr = availableOutputDevices.getDevice(
+                preferredStrategyDevice.mType,
+                String8(preferredStrategyDevice.mAddress.c_str()),
+                AUDIO_FORMAT_DEFAULT);
+        if (preferredAvailableDevDescr != nullptr) {
+            ALOGVV("%s using pref device 0x%08x/%s for strategy %u", __FUNCTION__,
+                   preferredStrategyDevice.mType, preferredStrategyDevice.mAddress, strategy);
+            return DeviceVector(preferredAvailableDevDescr);
+        }
+    }
+
+    DeviceVector availableInputDevices = getApmObserver()->getAvailableInputDevices();
+    const SwAudioOutputCollection& outputs = getApmObserver()->getOutputs();
     auto legacyStrategy = mLegacyStrategyMap.find(strategy) != end(mLegacyStrategyMap) ?
-                mLegacyStrategyMap.at(strategy) : STRATEGY_NONE;
+                          mLegacyStrategyMap.at(strategy) : STRATEGY_NONE;
     return getDevicesForStrategyInt(legacyStrategy,
                                     availableOutputDevices,
                                     availableInputDevices, outputs);

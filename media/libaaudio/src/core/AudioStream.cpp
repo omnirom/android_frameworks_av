@@ -91,6 +91,7 @@ aaudio_result_t AudioStream::open(const AudioStreamBuilder& builder)
     if (mAllowedCapturePolicy == AAUDIO_UNSPECIFIED) {
         mAllowedCapturePolicy = AAUDIO_ALLOW_CAPTURE_BY_ALL;
     }
+    mIsPrivacySensitive = builder.isPrivacySensitive();
 
     // callbacks
     mFramesPerDataCallback = builder.getFramesPerDataCallback();
@@ -474,7 +475,7 @@ AudioStream::MyPlayerBase::~MyPlayerBase() {
 
 void AudioStream::MyPlayerBase::registerWithAudioManager() {
     if (!mRegistered) {
-        init(android::PLAYER_TYPE_AAUDIO, AUDIO_USAGE_MEDIA);
+        init(android::PLAYER_TYPE_AAUDIO, AAudioConvert_usageToInternal(mParent->getUsage()));
         mRegistered = true;
     }
 }

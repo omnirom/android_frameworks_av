@@ -1589,33 +1589,58 @@ size_t AudioFlinger::getInputBufferSize(uint32_t sampleRate, audio_format_t form
     proposed.format = format;
 
     sp<DeviceHalInterface> dev = mPrimaryHardwareDev->hwDevice();
-    size_t frames = 0;
-    for (;;) {
-        // Note: config is currently a const parameter for get_input_buffer_size()
-        // but we use a copy from proposed in case config changes from the call.
-        config = proposed;
-        status_t result = dev->getInputBufferSize(&config, &frames);
-        if (result == OK && frames != 0) {
-            break; // hal success, config is the result
-        }
-        // change one parameter of the configuration each iteration to a more "common" value
-        // to see if the device will support it.
-        if (proposed.format != AUDIO_FORMAT_PCM_16_BIT) {
-            proposed.format = AUDIO_FORMAT_PCM_16_BIT;
-        } else if (proposed.sample_rate != 44100) { // 44.1 is claimed as must in CDD as well as
-            proposed.sample_rate = 44100;           // legacy AudioRecord.java. TODO: Query hw?
-        } else {
-            ALOGW("getInputBufferSize failed with minimum buffer size sampleRate %u, "
-                    "format %#x, channelMask 0x%X",
-                    sampleRate, format, channelMask);
-            break; // retries failed, break out of loop with frames == 0.
-        }
-    }
+    std::vector<audio_channel_mask_t> channelMasks = {channelMask};
+    if (channelMask != AUDIO_CHANNEL_IN_MONO)
+        channelMasks.push_back(AUDIO_CHANNEL_IN_MONO);
+    if (channelMask != AUDIO_CHANNEL_IN_STEREO)
+        channelMasks.push_back(AUDIO_CHANNEL_IN_STEREO);
+
+    std::vector<audio_format_t> formats = {format};
+    if (format != AUDIO_FORMAT_PCM_16_BIT)
+        formats.push_back(AUDIO_FORMAT_PCM_16_BIT);
+
+    std::vector<uint32_t> sampleRates = {sampleRate};
+    static const uint32_t SR_44100 = 44100;
+    static const uint32_t SR_48000 = 48000;
+
+    if (sampleRate != SR_48000)
+        sampleRates.push_back(SR_48000);
+    if (sampleRate != SR_44100)
+        sampleRates.push_back(SR_44100);
+
     mHardwareStatus = AUDIO_HW_IDLE;
-    if (frames > 0 && config.sample_rate != sampleRate) {
-        frames = destinationFramesPossible(frames, sampleRate, config.sample_rate);
+
+    for (auto testChannelMask : channelMasks) {
+        config.channel_mask = testChannelMask;
+        for (auto testFormat : formats) {
+            config.format = testFormat;
+            for (auto testSampleRate : sampleRates) {
+                config.sample_rate = testSampleRate;
+                size_t bytes = 0;
+                status_t result = dev->getInputBufferSize(&config, &bytes);
+                if (result != OK || bytes == 0) {
+                    continue;
+                }
+
+                if (config.sample_rate != sampleRate || config.channel_mask != channelMask ||
+                    config.format != format) {
+                    uint32_t dstChannelCount = audio_channel_count_from_in_mask(channelMask);
+                    uint32_t srcChannelCount =
+                        audio_channel_count_from_in_mask(config.channel_mask);
+                    size_t srcFrames =
+                        bytes / audio_bytes_per_frame(srcChannelCount, config.format);
+                    size_t dstFrames = destinationFramesPossible(
+                        srcFrames, config.sample_rate, sampleRate);
+                    bytes = dstFrames * audio_bytes_per_frame(dstChannelCount, format);
+                }
+                return bytes;
+            }
+        }
     }
-    return frames; // may be converted to bytes at the Java level.
+
+    ALOGW("getInputBufferSize failed with minimum buffer size sampleRate %u, "
+              "format %#x, channelMask %#x",sampleRate, format, channelMask);
+    return 0;
 }
 
 uint32_t AudioFlinger::getInputFramesLost(audio_io_handle_t ioHandle) const
@@ -2649,9 +2674,6 @@ sp<AudioFlinger::ThreadBase> AudioFlinger::openInput_l(audio_module_handle_t mod
         return 0;
     }
 
-    // Some flags are specific to framework and must not leak to the HAL.
-    flags = static_cast<audio_input_flags_t>(flags & ~AUDIO_INPUT_FRAMEWORK_FLAGS);
-
     // Audio Policy can request a specific handle for hardware hotword.
     // The goal here is not to re-open an already opened input.
     // It is to use a pre-assigned I/O handle.
@@ -2944,7 +2966,7 @@ std::vector<sp<AudioFlinger::EffectModule>> AudioFlinger::purgeStaleEffects_l() 
         Mutex::Autolock _l(t->mLock);
         for (size_t j = 0; j < t->mEffectChains.size(); j++) {
             sp<EffectChain> ec = t->mEffectChains[j];
-            if (ec->sessionId() > AUDIO_SESSION_OUTPUT_MIX) {
+            if (!audio_is_global_session(ec->sessionId())) {
                 chains.push(ec);
             }
         }
@@ -3294,6 +3316,7 @@ sp<IEffect> AudioFlinger::createEffect(
         int32_t priority,
         audio_io_handle_t io,
         audio_session_t sessionId,
+        const AudioDeviceTypeAddr& device __unused,
         const String16& opPackageName,
         pid_t pid,
         status_t *status,
@@ -3346,6 +3369,18 @@ sp<IEffect> AudioFlinger::createEffect(
             lStatus = BAD_VALUE;
             goto Exit;
         }
+    } else if (sessionId == AUDIO_SESSION_DEVICE) {
+        if (!modifyDefaultAudioEffectsAllowed(pid, callingUid)) {
+            ALOGE("%s: device effect permission denied for uid %d", __func__, callingUid);
+            lStatus = PERMISSION_DENIED;
+            goto Exit;
+        }
+        if (io != AUDIO_IO_HANDLE_NONE) {
+            ALOGE("%s: io handle should not be specified for device effect", __func__);
+            lStatus = BAD_VALUE;
+            goto Exit;
+        }
+        //TODO: add check on device ID when added to arguments
     } else {
         // general sessionId.
 
@@ -3381,7 +3416,7 @@ sp<IEffect> AudioFlinger::createEffect(
         // check recording permission for visualizer
         if ((memcmp(&desc.type, SL_IID_VISUALIZATION, sizeof(effect_uuid_t)) == 0) &&
             // TODO: Do we need to start/stop op - i.e. is there recording being performed?
-            !recordingAllowed(opPackageName, pid, IPCThreadState::self()->getCallingUid())) {
+            !recordingAllowed(opPackageName, pid, callingUid)) {
             lStatus = PERMISSION_DENIED;
             goto Exit;
         }
@@ -3479,7 +3514,7 @@ sp<IEffect> AudioFlinger::createEffect(
         sp<Client> client = registerPid(pid);
 
         // create effect on selected output thread
-        bool pinned = (sessionId > AUDIO_SESSION_OUTPUT_MIX) && isSessionAcquired_l(sessionId);
+        bool pinned = !audio_is_global_session(sessionId) && isSessionAcquired_l(sessionId);
         handle = thread->createEffect_l(client, effectClient, priority, sessionId,
                 &desc, enabled, &lStatus, pinned);
         if (lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
