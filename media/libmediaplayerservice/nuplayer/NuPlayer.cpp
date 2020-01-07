@@ -1885,7 +1885,9 @@ void NuPlayer::tryOpenAudioSinkForOffload(
 }
 
 void NuPlayer::closeAudioSink() {
-    mRenderer->closeAudioSink();
+    if (mRenderer != NULL) {
+        mRenderer->closeAudioSink();
+    }
 }
 
 void NuPlayer::restartAudio(
