@@ -2455,10 +2455,12 @@ status_t ACodec::setOperatingRate(float rateFloat, bool isVideo) {
     }
     OMX_U32 rate;
     if (isVideo) {
-        if (rateFloat > 65535) {
-            return BAD_VALUE;
+        rateFloat = rateFloat * 65536.0f + 0.5f;
+        if (rateFloat >= (float)INT_MAX) {
+            rate = INT_MAX;
+        } else {
+            rate = (OMX_U32)rateFloat;
         }
-        rate = (OMX_U32)(rateFloat * 65536.0f + 0.5f);
     } else {
         if (rateFloat > (float)UINT_MAX) {
             return BAD_VALUE;
