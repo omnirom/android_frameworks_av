@@ -58,6 +58,7 @@
 #include "device3/Camera3InputStream.h"
 #include "device3/Camera3DummyStream.h"
 #include "device3/Camera3SharedOutputStream.h"
+#include "device3/Camera3OfflineSession.h"
 #include "CameraService.h"
 #include "utils/CameraThreadState.h"
 
@@ -132,6 +133,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
         session->close();
         return res;
     }
+    mSupportNativeZoomRatio = manager->supportNativeZoomRatio(mId.string());
 
     std::vector<std::string> physicalCameraIds;
     bool isLogical = manager->isLogicalCamera(mId.string(), &physicalCameraIds);
@@ -146,8 +148,11 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
                 return res;
             }
 
-            if (DistortionMapper::isDistortionSupported(mPhysicalDeviceInfoMap[physicalId])) {
-                mDistortionMappers[physicalId].setupStaticInfo(mPhysicalDeviceInfoMap[physicalId]);
+            bool usePrecorrectArray =
+                    DistortionMapper::isDistortionSupported(mPhysicalDeviceInfoMap[physicalId]);
+            if (usePrecorrectArray) {
+                res = mDistortionMappers[physicalId].setupStaticInfo(
+                        mPhysicalDeviceInfoMap[physicalId]);
                 if (res != OK) {
                     SET_ERR_L("Unable to read camera %s's calibration fields for distortion "
                             "correction", physicalId.c_str());
@@ -155,6 +160,10 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
                     return res;
                 }
             }
+
+            mZoomRatioMappers[physicalId] = ZoomRatioMapper(
+                    &mPhysicalDeviceInfoMap[physicalId],
+                    mSupportNativeZoomRatio, usePrecorrectArray);
         }
     }
 
@@ -206,7 +215,15 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
             ANDROID_INFO_SUPPORTED_BUFFER_MANAGEMENT_VERSION_HIDL_DEVICE_3_5);
     }
 
-    mInterface = new HalInterface(session, queue, mUseHalBufManager);
+    camera_metadata_entry_t capabilities = mDeviceInfo.find(ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
+    for (size_t i = 0; i < capabilities.count; i++) {
+        uint8_t capability = capabilities.data.u8[i];
+        if (capability == ANDROID_REQUEST_AVAILABLE_CAPABILITIES_OFFLINE_PROCESSING) {
+            mSupportOfflineProcessing = true;
+        }
+    }
+
+    mInterface = new HalInterface(session, queue, mUseHalBufManager, mSupportOfflineProcessing);
     std::string providerType;
     mVendorTagId = manager->getProviderTagIdLocked(mId.string());
     mTagMonitor.initialize(mVendorTagId);
@@ -227,9 +244,8 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager, const Stri
             maxVersion.get_major(), maxVersion.get_minor());
 
     bool isMonochrome = false;
-    camera_metadata_entry_t entry = mDeviceInfo.find(ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
-    for (size_t i = 0; i < entry.count; i++) {
-        uint8_t capability = entry.data.u8[i];
+    for (size_t i = 0; i < capabilities.count; i++) {
+        uint8_t capability = capabilities.data.u8[i];
         if (capability == ANDROID_REQUEST_AVAILABLE_CAPABILITIES_MONOCHROME) {
             isMonochrome = true;
         }
@@ -323,13 +339,18 @@ status_t Camera3Device::initializeCommonLocked() {
         }
     }
 
-    if (DistortionMapper::isDistortionSupported(mDeviceInfo)) {
+    bool usePrecorrectArray = DistortionMapper::isDistortionSupported(mDeviceInfo);
+    if (usePrecorrectArray) {
         res = mDistortionMappers[mId.c_str()].setupStaticInfo(mDeviceInfo);
         if (res != OK) {
             SET_ERR_L("Unable to read necessary calibration fields for distortion correction");
             return res;
         }
     }
+
+    mZoomRatioMappers[mId.c_str()] = ZoomRatioMapper(&mDeviceInfo,
+            mSupportNativeZoomRatio, usePrecorrectArray);
+
     return OK;
 }
 
@@ -2113,6 +2134,15 @@ status_t Camera3Device::createDefaultRequest(int templateId,
         set_camera_metadata_vendor_id(rawRequest, mVendorTagId);
         mRequestTemplateCache[templateId].acquire(rawRequest);
 
+        // Override the template request with zoomRatioMapper
+        res = mZoomRatioMappers[mId.c_str()].initZoomRatioInTemplate(
+                &mRequestTemplateCache[templateId]);
+        if (res != OK) {
+            CLOGE("Failed to update zoom ratio for template %d: %s (%d)",
+                    templateId, strerror(-res), res);
+            return res;
+        }
+
         *request = mRequestTemplateCache[templateId];
         mLastTemplateId = templateId;
     }
@@ -2171,7 +2201,9 @@ void Camera3Device::internalUpdateStatusLocked(Status status) {
 }
 
 void Camera3Device::pauseStateNotify(bool enable) {
-    Mutex::Autolock il(mInterfaceLock);
+    // We must not hold mInterfaceLock here since this function is called from
+    // RequestThread::threadLoop and holding mInterfaceLock could lead to
+    // deadlocks (http://b/143513518)
     Mutex::Autolock l(mLock);
 
     mPauseStateNotify = enable;
@@ -2748,7 +2780,9 @@ bool Camera3Device::reconfigureCamera(const CameraMetadata& sessionParams) {
     ATRACE_CALL();
     bool ret = false;
 
-    Mutex::Autolock il(mInterfaceLock);
+    // We must not hold mInterfaceLock here since this function is called from
+    // RequestThread::threadLoop and holding mInterfaceLock could lead to
+    // deadlocks (http://b/143513518)
     nsecs_t maxExpectedDuration = getExpectedInFlightDuration();
 
     Mutex::Autolock l(mLock);
@@ -3144,14 +3178,15 @@ status_t Camera3Device::registerInFlight(uint32_t frameNumber,
         int32_t numBuffers, CaptureResultExtras resultExtras, bool hasInput,
         bool hasAppCallback, nsecs_t maxExpectedDuration,
         std::set<String8>& physicalCameraIds, bool isStillCapture,
-        bool isZslCapture, const SurfaceMap& outputSurfaces) {
+        bool isZslCapture, const std::set<std::string>& cameraIdsWithZoom,
+        const SurfaceMap& outputSurfaces) {
     ATRACE_CALL();
     Mutex::Autolock l(mInFlightLock);
 
     ssize_t res;
     res = mInFlightMap.add(frameNumber, InFlightRequest(numBuffers, resultExtras, hasInput,
             hasAppCallback, maxExpectedDuration, physicalCameraIds, isStillCapture, isZslCapture,
-            outputSurfaces));
+            cameraIdsWithZoom, outputSurfaces));
     if (res < 0) return res;
 
     if (mInFlightMap.size() == 1) {
@@ -3502,7 +3537,7 @@ void Camera3Device::sendCaptureResult(CameraMetadata &pendingMetadata,
         CaptureResultExtras &resultExtras,
         CameraMetadata &collectedPartialResult,
         uint32_t frameNumber,
-        bool reprocess, bool zslStillCapture,
+        bool reprocess, bool zslStillCapture, const std::set<std::string>& cameraIdsWithZoom,
         const std::vector<PhysicalCaptureResultInfo>& physicalMetadatas) {
     ATRACE_CALL();
     if (pendingMetadata.isEmpty())
@@ -3571,19 +3606,39 @@ void Camera3Device::sendCaptureResult(CameraMetadata &pendingMetadata,
             mDistortionMappers[mId.c_str()].correctCaptureResult(&captureResult.mMetadata);
     if (res != OK) {
         SET_ERR("Unable to correct capture result metadata for frame %d: %s (%d)",
-                frameNumber, strerror(res), res);
+                frameNumber, strerror(-res), res);
         return;
     }
+
+    // Fix up result metadata to account for zoom ratio availabilities between
+    // HAL and app.
+    bool zoomRatioIs1 = cameraIdsWithZoom.find(mId.c_str()) == cameraIdsWithZoom.end();
+    res = mZoomRatioMappers[mId.c_str()].updateCaptureResult(
+            &captureResult.mMetadata, zoomRatioIs1);
+    if (res != OK) {
+        SET_ERR("Failed to update capture result zoom ratio metadata for frame %d: %s (%d)",
+                frameNumber, strerror(-res), res);
+        return;
+    }
+
     for (auto& physicalMetadata : captureResult.mPhysicalMetadatas) {
         String8 cameraId8(physicalMetadata.mPhysicalCameraId);
-        if (mDistortionMappers.find(cameraId8.c_str()) == mDistortionMappers.end()) {
-            continue;
+        if (mDistortionMappers.find(cameraId8.c_str()) != mDistortionMappers.end()) {
+            res = mDistortionMappers[cameraId8.c_str()].correctCaptureResult(
+                    &physicalMetadata.mPhysicalCameraMetadata);
+            if (res != OK) {
+                SET_ERR("Unable to correct physical capture result metadata for frame %d: %s (%d)",
+                        frameNumber, strerror(-res), res);
+                return;
+            }
         }
-        res = mDistortionMappers[cameraId8.c_str()].correctCaptureResult(
-                &physicalMetadata.mPhysicalCameraMetadata);
+
+        zoomRatioIs1 = cameraIdsWithZoom.find(cameraId8.c_str()) == cameraIdsWithZoom.end();
+        res = mZoomRatioMappers[cameraId8.c_str()].updateCaptureResult(
+                &physicalMetadata.mPhysicalCameraMetadata, zoomRatioIs1);
         if (res != OK) {
-            SET_ERR("Unable to correct physical capture result metadata for frame %d: %s (%d)",
-                    frameNumber, strerror(res), res);
+            SET_ERR("Failed to update camera %s's physical zoom ratio metadata for "
+                    "frame %d: %s(%d)", cameraId8.c_str(), frameNumber, strerror(-res), res);
             return;
         }
     }
@@ -3788,7 +3843,7 @@ void Camera3Device::processCaptureResult(const camera3_capture_result *result) {
                 sendCaptureResult(metadata, request.resultExtras,
                     collectedPartialResult, frameNumber,
                     hasInputBufferInRequest, request.zslCapture && request.stillCapture,
-                    request.physicalMetadatas);
+                    request.cameraIdsWithZoom, request.physicalMetadatas);
             }
         }
 
@@ -4006,7 +4061,7 @@ void Camera3Device::notifyShutter(const camera3_shutter_msg_t &msg,
                 sendCaptureResult(r.pendingMetadata, r.resultExtras,
                     r.collectedPartialResult, msg.frame_number,
                     r.hasInputBuffer, r.zslCapture && r.stillCapture,
-                    r.physicalMetadatas);
+                    r.cameraIdsWithZoom, r.physicalMetadatas);
             }
             bool timestampIncreasing = !(r.zslCapture || r.hasInputBuffer);
             returnOutputBuffers(r.pendingOutputBuffers.array(),
@@ -4051,13 +4106,18 @@ void Camera3Device::monitorMetadata(TagMonitor::eventSource source,
 Camera3Device::HalInterface::HalInterface(
             sp<ICameraDeviceSession> &session,
             std::shared_ptr<RequestMetadataQueue> queue,
-            bool useHalBufManager) :
+            bool useHalBufManager, bool supportOfflineProcessing) :
         mHidlSession(session),
         mRequestMetadataQueue(queue),
         mUseHalBufManager(useHalBufManager),
-        mIsReconfigurationQuerySupported(true) {
+        mIsReconfigurationQuerySupported(true),
+        mSupportOfflineProcessing(supportOfflineProcessing) {
     // Check with hardware service manager if we can downcast these interfaces
     // Somewhat expensive, so cache the results at startup
+    auto castResult_3_6 = device::V3_6::ICameraDeviceSession::castFrom(mHidlSession);
+    if (castResult_3_6.isOk()) {
+        mHidlSession_3_6 = castResult_3_6;
+    }
     auto castResult_3_5 = device::V3_5::ICameraDeviceSession::castFrom(mHidlSession);
     if (castResult_3_5.isOk()) {
         mHidlSession_3_5 = castResult_3_5;
@@ -4072,18 +4132,22 @@ Camera3Device::HalInterface::HalInterface(
     }
 }
 
-Camera3Device::HalInterface::HalInterface() : mUseHalBufManager(false) {}
+Camera3Device::HalInterface::HalInterface() :
+        mUseHalBufManager(false),
+        mSupportOfflineProcessing(false) {}
 
 Camera3Device::HalInterface::HalInterface(const HalInterface& other) :
         mHidlSession(other.mHidlSession),
         mRequestMetadataQueue(other.mRequestMetadataQueue),
-        mUseHalBufManager(other.mUseHalBufManager) {}
+        mUseHalBufManager(other.mUseHalBufManager),
+        mSupportOfflineProcessing(other.mSupportOfflineProcessing) {}
 
 bool Camera3Device::HalInterface::valid() {
     return (mHidlSession != nullptr);
 }
 
 void Camera3Device::HalInterface::clear() {
+    mHidlSession_3_6.clear();
     mHidlSession_3_5.clear();
     mHidlSession_3_4.clear();
     mHidlSession_3_3.clear();
@@ -4759,6 +4823,38 @@ void Camera3Device::HalInterface::signalPipelineDrain(const std::vector<int>& st
     }
 }
 
+status_t Camera3Device::HalInterface::switchToOffline(
+        const std::vector<int32_t>& streamsToKeep,
+        /*out*/hardware::camera::device::V3_6::CameraOfflineSessionInfo* offlineSessionInfo,
+        /*out*/sp<hardware::camera::device::V3_6::ICameraOfflineSession>* offlineSession) {
+    ATRACE_NAME("CameraHal::switchToOffline");
+    if (!valid() || mHidlSession_3_6 == nullptr) {
+        ALOGE("%s called on invalid camera!", __FUNCTION__);
+        return INVALID_OPERATION;
+    }
+
+    if (offlineSessionInfo == nullptr || offlineSession == nullptr) {
+        ALOGE("%s: offlineSessionInfo and offlineSession must not be null!", __FUNCTION__);
+        return INVALID_OPERATION;
+    }
+
+    common::V1_0::Status status = common::V1_0::Status::INTERNAL_ERROR;
+
+    auto resultCallback =
+        [&status, &offlineSessionInfo, &offlineSession] (auto s, auto info, auto session) {
+                status = s;
+                *offlineSessionInfo = info;
+                *offlineSession = session;
+        };
+    auto err = mHidlSession_3_6->switchToOffline(streamsToKeep, resultCallback);
+
+    if (!err.isOk()) {
+        ALOGE("%s: Transaction error: %s", __FUNCTION__, err.description().c_str());
+        return DEAD_OBJECT;
+    }
+    return CameraProviderManager::mapToStatusT(status);
+}
+
 void Camera3Device::HalInterface::getInflightBufferKeys(
         std::vector<std::pair<int32_t, int32_t>>* out) {
     std::lock_guard<std::mutex> lock(mInflightLock);
@@ -5408,6 +5504,9 @@ bool Camera3Device::RequestThread::updateSessionParameters(const CameraMetadata&
 bool Camera3Device::RequestThread::threadLoop() {
     ATRACE_CALL();
     status_t res;
+    // Any function called from threadLoop() must not hold mInterfaceLock since
+    // it could lead to deadlocks (disconnect() -> hold mInterfaceMutex -> wait for request thread
+    // to finish -> request thread waits on mInterfaceMutex) http://b/143513518
 
     // Handle paused state.
     if (waitIfPaused()) {
@@ -5536,6 +5635,7 @@ bool Camera3Device::RequestThread::threadLoop() {
         Mutex::Autolock l(mRequestLock);
         mNextRequests.clear();
     }
+    mRequestSubmittedSignal.signal();
 
     return submitRequestSuccess;
 }
@@ -5572,6 +5672,7 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
                 // request in a batch as new
                 !(batchedRequest && i > 0);
         if (newRequest) {
+            std::set<std::string> cameraIdsWithZoom;
             /**
              * HAL workaround:
              * Insert a dummy trigger ID if a trigger is set but no trigger ID is
@@ -5604,6 +5705,28 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
                             return INVALID_OPERATION;
                         }
                     }
+
+                    for (it = captureRequest->mSettingsList.begin();
+                            it != captureRequest->mSettingsList.end(); it++) {
+                        if (parent->mZoomRatioMappers.find(it->cameraId) ==
+                                parent->mZoomRatioMappers.end()) {
+                            continue;
+                        }
+
+                        camera_metadata_entry_t e = it->metadata.find(ANDROID_CONTROL_ZOOM_RATIO);
+                        if (e.count > 0 && e.data.f[0] != 1.0f) {
+                            cameraIdsWithZoom.insert(it->cameraId);
+                        }
+
+                        res = parent->mZoomRatioMappers[it->cameraId].updateCaptureRequest(
+                            &(it->metadata));
+                        if (res != OK) {
+                            SET_ERR("RequestThread: Unable to correct capture requests "
+                                    "for zoom ratio for request %d: %s (%d)",
+                                    halRequest->frame_number, strerror(-res), res);
+                            return INVALID_OPERATION;
+                        }
+                    }
                 }
             }
 
@@ -5614,6 +5737,7 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
             captureRequest->mSettingsList.begin()->metadata.sort();
             halRequest->settings = captureRequest->mSettingsList.begin()->metadata.getAndLock();
             mPrevRequest = captureRequest;
+            mPrevCameraIdsWithZoom = cameraIdsWithZoom;
             ALOGVV("%s: Request settings are NEW", __FUNCTION__);
 
             IF_ALOGV() {
@@ -5801,7 +5925,7 @@ status_t Camera3Device::RequestThread::prepareHalRequests() {
                 /*hasInput*/halRequest->input_buffer != NULL,
                 hasCallback,
                 calculateMaxExpectedDuration(halRequest->settings),
-                requestedPhysicalCameras, isStillCapture, isZslCapture,
+                requestedPhysicalCameras, isStillCapture, isZslCapture, mPrevCameraIdsWithZoom,
                 (mUseHalBufManager) ? uniqueSurfaceIdMap :
                                       SurfaceMap{});
         ALOGVV("%s: registered in flight requestId = %" PRId32 ", frameNumber = %" PRId64
@@ -5913,6 +6037,32 @@ void Camera3Device::RequestThread::signalPipelineDrain(const std::vector<int>& s
     // If request thread is still busy, wait until paused then notify HAL
     mNotifyPipelineDrain = true;
     mStreamIdsToBeDrained = streamIds;
+}
+
+status_t Camera3Device::RequestThread::switchToOffline(
+        const std::vector<int32_t>& streamsToKeep,
+        /*out*/hardware::camera::device::V3_6::CameraOfflineSessionInfo* offlineSessionInfo,
+        /*out*/sp<hardware::camera::device::V3_6::ICameraOfflineSession>* offlineSession) {
+    Mutex::Autolock l(mRequestLock);
+    clearRepeatingRequestsLocked(/*lastFrameNumber*/nullptr);
+
+    // Theoretically we should also check for mRepeatingRequests.empty(), but the API interface
+    // is serialized by mInterfaceLock so skip that check.
+    bool queueEmpty = mNextRequests.empty() && mRequestQueue.empty();
+    while (!queueEmpty) {
+        status_t res = mRequestSubmittedSignal.waitRelative(mRequestLock, kRequestSubmitTimeout);
+        if (res == TIMED_OUT) {
+            ALOGE("%s: request thread failed to submit a request within timeout!", __FUNCTION__);
+            return res;
+        } else if (res != OK) {
+            ALOGE("%s: request thread failed to submit a request: %s (%d)!",
+                    __FUNCTION__, strerror(-res), res);
+            return res;
+        }
+        queueEmpty = mNextRequests.empty() && mRequestQueue.empty();
+    }
+    return mInterface->switchToOffline(
+            streamsToKeep, offlineSessionInfo, offlineSession);
 }
 
 nsecs_t Camera3Device::getExpectedInFlightDuration() {
@@ -6822,6 +6972,36 @@ status_t Camera3Device::fixupMonochromeTags(const CameraMetadata& deviceInfo,
     }
 
     return res;
+}
+
+status_t Camera3Device::switchToOffline(
+        const std::vector<int32_t>& streamsToKeep,
+        /*out*/ sp<CameraOfflineSessionBase>* session) {
+    ATRACE_CALL();
+    if (session == nullptr) {
+        ALOGE("%s: session must not be null", __FUNCTION__);
+        return BAD_VALUE;
+    }
+
+    Mutex::Autolock il(mInterfaceLock);
+    Mutex::Autolock l(mLock);
+
+    // 1. Stop repeating request, wait until request thread submitted all requests, then
+    //    call HAL switchToOffline
+    hardware::camera::device::V3_6::CameraOfflineSessionInfo offlineSessionInfo;
+    sp<hardware::camera::device::V3_6::ICameraOfflineSession> offlineSession;
+
+    mRequestThread->switchToOffline(streamsToKeep, &offlineSessionInfo, &offlineSession);
+
+
+    // 2. Verify offlineSessionInfo
+    // 3. create Camera3OfflineSession and transfer object ownership
+    //   (streams, inflight requests, buffer caches)
+    *session = new Camera3OfflineSession(mId);
+
+    // 4. Delete unneeded streams
+    // 5. Verify Camera3Device is in unconfigured state
+    return OK;
 }
 
 }; // namespace android

@@ -46,7 +46,6 @@
 #include <utils/Log.h>
 #include <media/AudioParameter.h>
 #include <private/android_filesystem_config.h>
-#include <soundtrigger/SoundTrigger.h>
 #include <system/audio.h>
 #include "AudioPolicyManager.h"
 #include <Serializer.h>
@@ -1383,6 +1382,14 @@ status_t AudioPolicyManager::getBestMsdAudioProfileFor(const sp<DeviceDescriptor
     // For encoded streams force direct flag to prevent downstream mixing.
     sinkConfig->flags.output = static_cast<audio_output_flags_t>(
             sinkConfig->flags.output | AUDIO_OUTPUT_FLAG_DIRECT);
+    if (audio_is_iec61937_compatible(sinkConfig->format)) {
+        // For formats compatible with IEC61937 encapsulation, assume that
+        // the record thread input from MSD is IEC61937 framed (for proportional buffer sizing).
+        // Add the AUDIO_OUTPUT_FLAG_IEC958_NONAUDIO flag so downstream HAL can distinguish between
+        // raw and IEC61937 framed streams.
+        sinkConfig->flags.output = static_cast<audio_output_flags_t>(
+                sinkConfig->flags.output | AUDIO_OUTPUT_FLAG_IEC958_NONAUDIO);
+    }
     sourceConfig->sample_rate = bestSinkConfig.sample_rate;
     // Specify exact channel mask to prevent guessing by bit count in PatchPanel.
     sourceConfig->channel_mask = audio_channel_mask_out_to_in(bestSinkConfig.channel_mask);
@@ -2294,7 +2301,7 @@ status_t AudioPolicyManager::startInput(audio_port_handle_t portId)
         DeviceVector primaryInputDevices = availablePrimaryModuleInputDevices();
         if (primaryInputDevices.contains(device) &&
                 mInputs.activeInputsCountOnDevices(primaryInputDevices) == 1) {
-            SoundTrigger::setCaptureState(true);
+            mpClientInterface->setSoundTriggerCaptureState(true);
         }
 
         // automatically enable the remote submix output when input is started if not
@@ -2377,7 +2384,7 @@ status_t AudioPolicyManager::stopInput(audio_port_handle_t portId)
         DeviceVector primaryInputDevices = availablePrimaryModuleInputDevices();
         if (primaryInputDevices.contains(inputDesc->getDevice()) &&
                 mInputs.activeInputsCountOnDevices(primaryInputDevices) == 0) {
-            SoundTrigger::setCaptureState(false);
+            mpClientInterface->setSoundTriggerCaptureState(false);
         }
         inputDesc->clearPreemptedSessions();
     }
@@ -2810,16 +2817,6 @@ status_t AudioPolicyManager::unregisterEffect(int id)
         setEffectEnabled(id, false);
     }
     return mEffects.unregisterEffect(id);
-}
-
-void AudioPolicyManager::cleanUpEffectsForIo(audio_io_handle_t io)
-{
-    EffectDescriptorCollection effects = mEffects.getEffectsForIo(io);
-    for (size_t i = 0; i < effects.size(); i++) {
-        ALOGW("%s removing stale effect %s, id %d on closed IO %d",
-              __func__, effects.valueAt(i)->mDesc.name, effects.keyAt(i), io);
-        unregisterEffect(effects.keyAt(i));
-    }
 }
 
 status_t AudioPolicyManager::setEffectEnabled(int id, bool enabled)
@@ -5069,8 +5066,6 @@ void AudioPolicyManager::closeOutput(audio_io_handle_t output)
             setMsdPatch();
         }
     }
-
-    cleanUpEffectsForIo(output);
 }
 
 void AudioPolicyManager::closeInput(audio_io_handle_t input)
@@ -5100,10 +5095,8 @@ void AudioPolicyManager::closeInput(audio_io_handle_t input)
     DeviceVector primaryInputDevices = availablePrimaryModuleInputDevices();
     if (primaryInputDevices.contains(device) &&
             mInputs.activeInputsCountOnDevices(primaryInputDevices) == 0) {
-        SoundTrigger::setCaptureState(false);
+        mpClientInterface->setSoundTriggerCaptureState(false);
     }
-
-    cleanUpEffectsForIo(input);
 }
 
 SortedVector<audio_io_handle_t> AudioPolicyManager::getOutputsForDevices(
@@ -6193,6 +6186,7 @@ bool AudioPolicyManager::isValidAttributes(const audio_attributes_t *paa)
     case AUDIO_USAGE_GAME:
     case AUDIO_USAGE_VIRTUAL_SOURCE:
     case AUDIO_USAGE_ASSISTANT:
+    case AUDIO_USAGE_CALL_ASSISTANT:
         break;
     default:
         return false;

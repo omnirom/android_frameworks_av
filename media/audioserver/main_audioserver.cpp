@@ -36,7 +36,6 @@
 #include "utility/AAudioUtilities.h"
 #include "MediaLogService.h"
 #include "MediaUtils.h"
-#include "SoundTriggerHwService.h"
 
 #ifdef VRAUDIOSERVICE_ENABLE
 namespace android {
@@ -208,7 +207,6 @@ int main(int argc __unused, char **argv)
             AAudioService::instantiate();
         }
 
-        SoundTriggerHwService::instantiate();
         ProcessState::self()->startThreadPool();
         IPCThreadState::self()->joinThreadPool();
     }
