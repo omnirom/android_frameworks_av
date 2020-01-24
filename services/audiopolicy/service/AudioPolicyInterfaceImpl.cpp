@@ -20,7 +20,7 @@
 #include "AudioPolicyService.h"
 #include "TypeConverter.h"
 #include <cutils/properties.h>
-#include <media/MediaAnalyticsItem.h>
+#include <media/MediaMetricsItem.h>
 #include <media/AudioPolicy.h>
 #include <utils/Log.h>
 
@@ -565,7 +565,7 @@ status_t AudioPolicyService::startInput(audio_port_handle_t portId)
         static constexpr char kAudioPolicyActiveDevice[] =
                 "android.media.audiopolicy.active.device";
 
-        MediaAnalyticsItem *item = MediaAnalyticsItem::create(kAudioPolicy);
+        mediametrics::Item *item = mediametrics::Item::create(kAudioPolicy);
         if (item != NULL) {
 
             item->setInt32(kAudioPolicyStatus, status);

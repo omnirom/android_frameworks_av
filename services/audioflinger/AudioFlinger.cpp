@@ -1582,11 +1582,6 @@ size_t AudioFlinger::getInputBufferSize(uint32_t sampleRate, audio_format_t form
 
     AutoMutex lock(mHardwareLock);
     mHardwareStatus = AUDIO_HW_GET_INPUT_BUFFER_SIZE;
-    audio_config_t config, proposed;
-    memset(&proposed, 0, sizeof(proposed));
-    proposed.sample_rate = sampleRate;
-    proposed.channel_mask = channelMask;
-    proposed.format = format;
 
     sp<DeviceHalInterface> dev = mPrimaryHardwareDev->hwDevice();
     std::vector<audio_channel_mask_t> channelMasks = {channelMask};
@@ -1610,12 +1605,16 @@ size_t AudioFlinger::getInputBufferSize(uint32_t sampleRate, audio_format_t form
 
     mHardwareStatus = AUDIO_HW_IDLE;
 
+    // Change parameters of the configuration each iteration until we find a
+    // configuration that the device will support.
+    audio_config_t config = AUDIO_CONFIG_INITIALIZER;
     for (auto testChannelMask : channelMasks) {
         config.channel_mask = testChannelMask;
         for (auto testFormat : formats) {
             config.format = testFormat;
             for (auto testSampleRate : sampleRates) {
                 config.sample_rate = testSampleRate;
+
                 size_t bytes = 0;
                 status_t result = dev->getInputBufferSize(&config, &bytes);
                 if (result != OK || bytes == 0) {
@@ -2993,7 +2992,7 @@ std::vector<sp<AudioFlinger::EffectModule>> AudioFlinger::purgeStaleEffects_l() 
     for (size_t i = 0; i < chains.size(); i++) {
         sp<EffectChain> ec = chains[i];
         int sessionid = ec->sessionId();
-        sp<ThreadBase> t = ec->mThread.promote();
+        sp<ThreadBase> t = ec->thread().promote();
         if (t == 0) {
             continue;
         }
@@ -3016,7 +3015,7 @@ std::vector<sp<AudioFlinger::EffectModule>> AudioFlinger::purgeStaleEffects_l() 
                 effect->unPin();
                 t->removeEffect_l(effect, /*release*/ true);
                 if (effect->purgeHandles()) {
-                    t->checkSuspendOnEffectEnabled_l(effect, false, effect->sessionId());
+                    effect->checkSuspendOnEffectEnabled(false, true /*threadLocked*/);
                 }
                 removedEffects.push_back(effect);
             }
@@ -3529,7 +3528,7 @@ sp<IEffect> AudioFlinger::createEffect(
 
     if (lStatus == NO_ERROR || lStatus == ALREADY_EXISTS) {
         // Check CPU and memory usage
-        sp<EffectModule> effect = handle->effect().promote();
+        sp<EffectBase> effect = handle->effect().promote();
         if (effect != nullptr) {
             status_t rStatus = effect->updatePolicyState();
             if (rStatus != NO_ERROR) {
@@ -3639,7 +3638,7 @@ status_t AudioFlinger::moveEffectChain_l(audio_session_t sessionId,
         // if the move request is not received from audio policy manager, the effect must be
         // re-registered with the new strategy and output
         if (dstChain == 0) {
-            dstChain = effect->chain().promote();
+            dstChain = effect->callback()->chain().promote();
             if (dstChain == 0) {
                 ALOGW("moveEffectChain_l() cannot get chain from effect %p", effect.get());
                 status = NO_INIT;
@@ -3689,7 +3688,7 @@ status_t AudioFlinger::moveAuxEffectToIo(int EffectId,
             goto Exit;
         }
 
-        dstChain = effect->chain().promote();
+        dstChain = effect->callback()->chain().promote();
         if (dstChain == 0) {
             thread->addEffect_l(effect);
             status = INVALID_OPERATION;

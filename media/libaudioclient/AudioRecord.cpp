@@ -32,7 +32,7 @@
 #include <private/media/AudioTrackShared.h>
 #include <processgroup/sched_policy.h>
 #include <media/IAudioFlinger.h>
-#include <media/MediaAnalyticsItem.h>
+#include <media/MediaMetricsItem.h>
 #include <media/TypeConverter.h>
 #include <media/SeempLog.h>
 
@@ -80,37 +80,37 @@ void AudioRecord::MediaMetrics::gather(const AudioRecord *record)
 #define MM_PREFIX "android.media.audiorecord." // avoid cut-n-paste errors.
 
     // Java API 28 entries, do not change.
-    mAnalyticsItem->setCString(MM_PREFIX "encoding", toString(record->mFormat).c_str());
-    mAnalyticsItem->setCString(MM_PREFIX "source", toString(record->mAttributes.source).c_str());
-    mAnalyticsItem->setInt32(MM_PREFIX "latency", (int32_t)record->mLatency); // bad estimate.
-    mAnalyticsItem->setInt32(MM_PREFIX "samplerate", (int32_t)record->mSampleRate);
-    mAnalyticsItem->setInt32(MM_PREFIX "channels", (int32_t)record->mChannelCount);
+    mMetricsItem->setCString(MM_PREFIX "encoding", toString(record->mFormat).c_str());
+    mMetricsItem->setCString(MM_PREFIX "source", toString(record->mAttributes.source).c_str());
+    mMetricsItem->setInt32(MM_PREFIX "latency", (int32_t)record->mLatency); // bad estimate.
+    mMetricsItem->setInt32(MM_PREFIX "samplerate", (int32_t)record->mSampleRate);
+    mMetricsItem->setInt32(MM_PREFIX "channels", (int32_t)record->mChannelCount);
 
     // Non-API entries, these can change.
-    mAnalyticsItem->setInt32(MM_PREFIX "portId", (int32_t)record->mPortId);
-    mAnalyticsItem->setInt32(MM_PREFIX "frameCount", (int32_t)record->mFrameCount);
-    mAnalyticsItem->setCString(MM_PREFIX "attributes", toString(record->mAttributes).c_str());
-    mAnalyticsItem->setInt64(MM_PREFIX "channelMask", (int64_t)record->mChannelMask);
+    mMetricsItem->setInt32(MM_PREFIX "portId", (int32_t)record->mPortId);
+    mMetricsItem->setInt32(MM_PREFIX "frameCount", (int32_t)record->mFrameCount);
+    mMetricsItem->setCString(MM_PREFIX "attributes", toString(record->mAttributes).c_str());
+    mMetricsItem->setInt64(MM_PREFIX "channelMask", (int64_t)record->mChannelMask);
 
     // log total duration recording, including anything currently running.
     int64_t activeNs = 0;
     if (mStartedNs != 0) {
         activeNs = systemTime() - mStartedNs;
     }
-    mAnalyticsItem->setDouble(MM_PREFIX "durationMs", (mDurationNs + activeNs) * 1e-6);
-    mAnalyticsItem->setInt64(MM_PREFIX "startCount", (int64_t)mCount);
+    mMetricsItem->setDouble(MM_PREFIX "durationMs", (mDurationNs + activeNs) * 1e-6);
+    mMetricsItem->setInt64(MM_PREFIX "startCount", (int64_t)mCount);
 
     if (mLastError != NO_ERROR) {
-        mAnalyticsItem->setInt32(MM_PREFIX "lastError.code", (int32_t)mLastError);
-        mAnalyticsItem->setCString(MM_PREFIX "lastError.at", mLastErrorFunc.c_str());
+        mMetricsItem->setInt32(MM_PREFIX "lastError.code", (int32_t)mLastError);
+        mMetricsItem->setCString(MM_PREFIX "lastError.at", mLastErrorFunc.c_str());
     }
 }
 
 // hand the user a snapshot of the metrics.
-status_t AudioRecord::getMetrics(MediaAnalyticsItem * &item)
+status_t AudioRecord::getMetrics(mediametrics::Item * &item)
 {
     mMediaMetrics.gather(this);
-    MediaAnalyticsItem *tmp = mMediaMetrics.dup();
+    mediametrics::Item *tmp = mMediaMetrics.dup();
     if (tmp == nullptr) {
         return BAD_VALUE;
     }
@@ -903,7 +903,6 @@ status_t AudioRecord::obtainBuffer(Buffer* audioBuffer, const struct timespec *r
 {
     // previous and new IAudioRecord sequence numbers are used to detect track re-creation
     uint32_t oldSequence = 0;
-    uint32_t newSequence;
 
     Proxy::Buffer buffer;
     status_t status = NO_ERROR;
@@ -921,7 +920,7 @@ status_t AudioRecord::obtainBuffer(Buffer* audioBuffer, const struct timespec *r
             // start of lock scope
             AutoMutex lock(mLock);
 
-            newSequence = mSequence;
+            uint32_t newSequence = mSequence;
             // did previous obtainBuffer() fail due to media server death or voluntary invalidation?
             if (status == DEAD_OBJECT) {
                 // re-create track, unless someone else has already done so
@@ -958,6 +957,7 @@ status_t AudioRecord::obtainBuffer(Buffer* audioBuffer, const struct timespec *r
     audioBuffer->frameCount = buffer.mFrameCount;
     audioBuffer->size = buffer.mFrameCount * mFrameSize;
     audioBuffer->raw = buffer.mRaw;
+    audioBuffer->sequence = oldSequence;
     if (nonContig != NULL) {
         *nonContig = buffer.mNonContig;
     }
@@ -978,6 +978,12 @@ void AudioRecord::releaseBuffer(const Buffer* audioBuffer)
     buffer.mRaw = audioBuffer->raw;
 
     AutoMutex lock(mLock);
+    if (audioBuffer->sequence != mSequence) {
+        // This Buffer came from a different IAudioRecord instance, so ignore the releaseBuffer
+        ALOGD("%s is no-op due to IAudioRecord sequence mismatch %u != %u",
+                __func__, audioBuffer->sequence, mSequence);
+        return;
+    }
     mInOverrun = false;
     mProxy->releaseBuffer(&buffer);
 
