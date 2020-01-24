@@ -26,6 +26,44 @@
 
 namespace android {
 
+const std::vector<audio_usage_t>& SYSTEM_USAGES = {
+    AUDIO_USAGE_CALL_ASSISTANT,
+    AUDIO_USAGE_EMERGENCY,
+    AUDIO_USAGE_SAFETY,
+    AUDIO_USAGE_VEHICLE_STATUS,
+    AUDIO_USAGE_ANNOUNCEMENT
+};
+
+bool isSystemUsage(audio_usage_t usage) {
+    return std::find(std::begin(SYSTEM_USAGES), std::end(SYSTEM_USAGES), usage)
+        != std::end(SYSTEM_USAGES);
+}
+
+bool AudioPolicyService::isSupportedSystemUsage(audio_usage_t usage) {
+    return std::find(std::begin(mSupportedSystemUsages), std::end(mSupportedSystemUsages), usage)
+        != std::end(mSupportedSystemUsages);
+}
+
+status_t AudioPolicyService::validateUsage(audio_usage_t usage) {
+     return validateUsage(usage, IPCThreadState::self()->getCallingPid(),
+        IPCThreadState::self()->getCallingUid());
+}
+
+status_t AudioPolicyService::validateUsage(audio_usage_t usage, pid_t pid, uid_t uid) {
+    if (isSystemUsage(usage)) {
+        if (isSupportedSystemUsage(usage)) {
+            if (!modifyAudioRoutingAllowed(pid, uid)) {
+                ALOGE("permission denied: modify audio routing not allowed for uid %d", uid);
+                return PERMISSION_DENIED;
+            }
+        } else {
+            return BAD_VALUE;
+        }
+    }
+    return NO_ERROR;
+}
+
+
 
 // ----------------------------------------------------------------------------
 
@@ -182,6 +220,12 @@ status_t AudioPolicyService::getOutputForAttr(audio_attributes_t *attr,
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
+
+    status_t result = validateUsage(attr->usage, pid, uid);
+    if (result != NO_ERROR) {
+        return result;
+    }
+
     ALOGV("%s()", __func__);
     Mutex::Autolock _l(mLock);
 
@@ -200,7 +244,7 @@ status_t AudioPolicyService::getOutputForAttr(audio_attributes_t *attr,
     }
     AutoCallerClear acc;
     AudioPolicyInterface::output_type_t outputType;
-    status_t result = mAudioPolicyManager->getOutputForAttr(attr, output, session, stream, uid,
+    result = mAudioPolicyManager->getOutputForAttr(attr, output, session, stream, uid,
                                                  config,
                                                  &flags, selectedDeviceId, portId,
                                                  secondaryOutputs,
@@ -373,12 +417,22 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
         return NO_INIT;
     }
 
+    status_t result = validateUsage(attr->usage, pid, uid);
+    if (result != NO_ERROR) {
+        return result;
+    }
+
+    audio_source_t inputSource = attr->source;
+    if (inputSource == AUDIO_SOURCE_DEFAULT) {
+        inputSource = AUDIO_SOURCE_MIC;
+    }
+
     // already checked by client, but double-check in case the client wrapper is bypassed
-    if ((attr->source < AUDIO_SOURCE_DEFAULT)
-            || (attr->source >= AUDIO_SOURCE_CNT
-                && attr->source != AUDIO_SOURCE_HOTWORD
-                && attr->source != AUDIO_SOURCE_FM_TUNER
-                && attr->source != AUDIO_SOURCE_ECHO_REFERENCE)) {
+    if ((inputSource < AUDIO_SOURCE_DEFAULT)
+            || (inputSource >= AUDIO_SOURCE_CNT
+                && inputSource != AUDIO_SOURCE_HOTWORD
+                && inputSource != AUDIO_SOURCE_FM_TUNER
+                && inputSource != AUDIO_SOURCE_ECHO_REFERENCE)) {
         return BAD_VALUE;
     }
 
@@ -409,17 +463,17 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
     }
 
     bool canCaptureOutput = captureAudioOutputAllowed(pid, uid);
-    if ((attr->source == AUDIO_SOURCE_VOICE_UPLINK ||
-        attr->source == AUDIO_SOURCE_VOICE_DOWNLINK ||
-        attr->source == AUDIO_SOURCE_VOICE_CALL ||
-        attr->source == AUDIO_SOURCE_ECHO_REFERENCE||
-        attr->source == AUDIO_SOURCE_FM_TUNER) &&
+    if ((inputSource == AUDIO_SOURCE_VOICE_UPLINK ||
+        inputSource == AUDIO_SOURCE_VOICE_DOWNLINK ||
+        inputSource == AUDIO_SOURCE_VOICE_CALL ||
+        inputSource == AUDIO_SOURCE_ECHO_REFERENCE||
+        inputSource == AUDIO_SOURCE_FM_TUNER) &&
         !canCaptureOutput) {
         return PERMISSION_DENIED;
     }
 
     bool canCaptureHotword = captureHotwordAllowed(opPackageName, pid, uid);
-    if ((attr->source == AUDIO_SOURCE_HOTWORD) && !canCaptureHotword) {
+    if ((inputSource == AUDIO_SOURCE_HOTWORD) && !canCaptureHotword) {
         return BAD_VALUE;
     }
 
@@ -491,7 +545,7 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
 
     if (audioPolicyEffects != 0) {
         // create audio pre processors according to input source
-        status_t status = audioPolicyEffects->addInputEffects(*input, attr->source, session);
+        status_t status = audioPolicyEffects->addInputEffects(*input, inputSource, session);
         if (status != NO_ERROR && status != ALREADY_EXISTS) {
             ALOGW("Failed to add effects on input %d", *input);
         }
@@ -818,6 +872,17 @@ audio_devices_t AudioPolicyService::getDevicesForStream(audio_stream_type_t stre
     return mAudioPolicyManager->getDevicesForStream(stream);
 }
 
+status_t AudioPolicyService::getDevicesForAttributes(const AudioAttributes &aa,
+                                                     AudioDeviceTypeAddrVector *devices) const
+{
+    if (mAudioPolicyManager == NULL) {
+        return NO_INIT;
+    }
+    Mutex::Autolock _l(mLock);
+    AutoCallerClear acc;
+    return mAudioPolicyManager->getDevicesForAttributes(aa.getAttributes(), devices);
+}
+
 audio_io_handle_t AudioPolicyService::getOutputForEffect(const effect_descriptor_t *desc)
 {
     // FIXME change return type to status_t, and return NO_INIT here
@@ -1003,6 +1068,22 @@ status_t AudioPolicyService::removeStreamDefaultEffect(audio_unique_id_t id)
     return audioPolicyEffects->removeStreamDefaultEffect(id);
 }
 
+status_t AudioPolicyService::setSupportedSystemUsages(const std::vector<audio_usage_t>& systemUsages) {
+    Mutex::Autolock _l(mLock);
+    if(!modifyAudioRoutingAllowed()) {
+        return PERMISSION_DENIED;
+    }
+
+    bool areAllSystemUsages = std::all_of(begin(systemUsages), end(systemUsages),
+        [](audio_usage_t usage) { return isSystemUsage(usage); });
+    if (!areAllSystemUsages) {
+        return BAD_VALUE;
+    }
+
+    mSupportedSystemUsages = systemUsages;
+    return NO_ERROR;
+}
+
 status_t AudioPolicyService::setAllowedCapturePolicy(uid_t uid, audio_flags_mask_t capturePolicy) {
     Mutex::Autolock _l(mLock);
     if (mAudioPolicyManager == NULL) {
@@ -1034,6 +1115,12 @@ bool AudioPolicyService::isDirectOutputSupported(const audio_config_base_t& conf
         ALOGV("mAudioPolicyManager == NULL");
         return false;
     }
+
+    status_t result = validateUsage(attributes.usage);
+    if (result != NO_ERROR) {
+        return result;
+    }
+
     Mutex::Autolock _l(mLock);
     return mAudioPolicyManager->isDirectOutputSupported(config, attributes);
 }
@@ -1202,6 +1289,12 @@ status_t AudioPolicyService::startAudioSource(const struct audio_port_config *so
     if (mAudioPolicyManager == NULL) {
         return NO_INIT;
     }
+
+    status_t result = validateUsage(attributes->usage);
+    if (result != NO_ERROR) {
+        return result;
+    }
+
     // startAudioSource should be created as the calling uid
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
     AutoCallerClear acc;

@@ -56,6 +56,7 @@ public:
     status_t configureStream() override;
     status_t insertGbp(SurfaceMap* /*out*/outSurfaceMap, Vector<int32_t>* /*out*/outputStreamIds,
             int32_t* /*out*/currentStreamId) override;
+    status_t insertCompositeStreamIds(std::vector<int32_t>* compositeStreamIds /*out*/) override;
     int getStreamId() override { return mBlobStreamId; }
 
     // CpuConsumer listener implementation
@@ -126,8 +127,6 @@ private:
     std::vector<std::tuple<size_t, size_t>> mSupportedDepthSizes;
     std::vector<float>   mIntrinsicCalibration, mLensDistortion;
     bool                 mIsLogicalCamera;
-    void*                mDepthPhotoLibHandle;
-    process_depth_photo_frame mDepthPhotoProcess;
 
     // Keep all incoming Depth buffer timestamps pending further processing.
     std::vector<int64_t> mInputDepthBuffers;

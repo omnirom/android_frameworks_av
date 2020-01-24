@@ -225,12 +225,12 @@ int32_t Decoder::decode(uint8_t *inputBuffer, vector<AMediaCodecBufferInfo> &fra
 }
 
 void Decoder::deInitCodec() {
-    int64_t sTime = mStats->getCurTime();
     if (mFormat) {
         AMediaFormat_delete(mFormat);
         mFormat = nullptr;
     }
     if (!mCodec) return;
+    int64_t sTime = mStats->getCurTime();
     AMediaCodec_stop(mCodec);
     AMediaCodec_delete(mCodec);
     int64_t eTime = mStats->getCurTime();
@@ -238,10 +238,11 @@ void Decoder::deInitCodec() {
     mStats->setDeInitTime(timeTaken);
 }
 
-void Decoder::dumpStatistics(string inputReference) {
+void Decoder::dumpStatistics(string inputReference, string componentName, string mode,
+                             string statsFile) {
     int64_t durationUs = mExtractor->getClipDuration();
     string operation = "decode";
-    mStats->dumpStatistics(operation, inputReference, durationUs);
+    mStats->dumpStatistics(operation, inputReference, durationUs, componentName, mode, statsFile);
 }
 
 void Decoder::resetDecoder() {

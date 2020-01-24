@@ -170,6 +170,7 @@ AudioFlinger::AudioFlinger()
       mClientSharedHeapSize(kMinimumClientSharedHeapSizeBytes),
       mGlobalEffectEnableTime(0),
       mPatchPanel(this),
+      mDeviceEffectManager(this),
       mSystemReady(false)
 {
     // unsigned instead of audio_unique_id_use_t, because ++ operator is unavailable for enum
@@ -347,6 +348,9 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
         thread->configure(&localAttr, streamType, actualSessionId, callback, *deviceId, portId);
         *handle = portId;
         *sessionId = actualSessionId;
+        config->sample_rate = thread->sampleRate();
+        config->channel_mask = thread->channelMask();
+        config->format = thread->format();
     } else {
         if (direction == MmapStreamInterface::DIRECTION_OUTPUT) {
             AudioSystem::releaseOutput(portId);
@@ -380,6 +384,24 @@ void AudioFlinger::onExternalVibrationStop(const sp<os::ExternalVibration>& exte
     if (evs != 0) {
         evs->onExternalVibrationStop(*externalVibration);
     }
+}
+
+status_t AudioFlinger::addEffectToHal(audio_port_handle_t deviceId,
+        audio_module_handle_t hwModuleId, sp<EffectHalInterface> effect) {
+    AudioHwDevice *audioHwDevice = mAudioHwDevs.valueFor(hwModuleId);
+    if (audioHwDevice == nullptr) {
+        return NO_INIT;
+    }
+    return audioHwDevice->hwDevice()->addDeviceEffect(deviceId, effect);
+}
+
+status_t AudioFlinger::removeEffectFromHal(audio_port_handle_t deviceId,
+        audio_module_handle_t hwModuleId, sp<EffectHalInterface> effect) {
+    AudioHwDevice *audioHwDevice = mAudioHwDevs.valueFor(hwModuleId);
+    if (audioHwDevice == nullptr) {
+        return NO_INIT;
+    }
+    return audioHwDevice->hwDevice()->removeDeviceEffect(deviceId, effect);
 }
 
 static const char * const audio_interfaces[] = {
@@ -422,31 +444,32 @@ AudioHwDevice* AudioFlinger::findSuitableHwDev_l(
 
 void AudioFlinger::dumpClients(int fd, const Vector<String16>& args __unused)
 {
-    const size_t SIZE = 256;
-    char buffer[SIZE];
     String8 result;
 
     result.append("Clients:\n");
     for (size_t i = 0; i < mClients.size(); ++i) {
         sp<Client> client = mClients.valueAt(i).promote();
         if (client != 0) {
-            snprintf(buffer, SIZE, "  pid: %d\n", client->pid());
-            result.append(buffer);
+            result.appendFormat("  pid: %d\n", client->pid());
         }
     }
 
     result.append("Notification Clients:\n");
+    result.append("   pid    uid  name\n");
     for (size_t i = 0; i < mNotificationClients.size(); ++i) {
-        snprintf(buffer, SIZE, "  pid: %d\n", mNotificationClients.keyAt(i));
-        result.append(buffer);
+        const pid_t pid = mNotificationClients[i]->getPid();
+        const uid_t uid = mNotificationClients[i]->getUid();
+        const mediautils::UidInfo::Info info = mUidInfo.getInfo(uid);
+        result.appendFormat("%6d %6u  %s\n", pid, uid, info.package.c_str());
     }
 
     result.append("Global session refs:\n");
-    result.append("  session   pid count\n");
+    result.append("  session  cnt     pid    uid  name\n");
     for (size_t i = 0; i < mAudioSessionRefs.size(); i++) {
         AudioSessionRef *r = mAudioSessionRefs[i];
-        snprintf(buffer, SIZE, "  %7d %5d %5d\n", r->mSessionid, r->mPid, r->mCnt);
-        result.append(buffer);
+        const mediautils::UidInfo::Info info = mUidInfo.getInfo(r->mUid);
+        result.appendFormat("  %7d %4d %7d %6u  %s\n", r->mSessionid, r->mCnt, r->mPid,
+                r->mUid, info.package.c_str());
     }
     write(fd, result.string(), result.size());
 }
@@ -557,6 +580,8 @@ status_t AudioFlinger::dump(int fd, const Vector<String16>& args)
         }
 
         mPatchPanel.dump(fd);
+
+        mDeviceEffectManager.dump(fd);
 
         // dump external setParameters
         auto dumpLogger = [fd](SimpleLog& logger, const char* name) {
@@ -1694,13 +1719,16 @@ void AudioFlinger::registerClient(const sp<IAudioFlingerClient>& client)
         return;
     }
     pid_t pid = IPCThreadState::self()->getCallingPid();
+    const uid_t uid = IPCThreadState::self()->getCallingUid();
     {
         Mutex::Autolock _cl(mClientLock);
         if (mNotificationClients.indexOfKey(pid) < 0) {
             sp<NotificationClient> notificationClient = new NotificationClient(this,
                                                                                 client,
-                                                                                pid);
-            ALOGV("registerClient() client %p, pid %d", notificationClient.get(), pid);
+                                                                                pid,
+                                                                                uid);
+            ALOGV("registerClient() client %p, pid %d, uid %u",
+                    notificationClient.get(), pid, uid);
 
             mNotificationClients.add(pid, notificationClient);
 
@@ -1840,8 +1868,9 @@ sp<MemoryDealer> AudioFlinger::Client::heap() const
 
 AudioFlinger::NotificationClient::NotificationClient(const sp<AudioFlinger>& audioFlinger,
                                                      const sp<IAudioFlingerClient>& client,
-                                                     pid_t pid)
-    : mAudioFlinger(audioFlinger), mPid(pid), mAudioFlingerClient(client)
+                                                     pid_t pid,
+                                                     uid_t uid)
+    : mAudioFlinger(audioFlinger), mPid(pid), mUid(uid), mAudioFlingerClient(client)
 {
 }
 
@@ -2868,14 +2897,18 @@ audio_unique_id_t AudioFlinger::newAudioUniqueId(audio_unique_id_use_t use)
     return nextUniqueId(use);
 }
 
-void AudioFlinger::acquireAudioSessionId(audio_session_t audioSession, pid_t pid)
+void AudioFlinger::acquireAudioSessionId(
+        audio_session_t audioSession, pid_t pid, uid_t uid)
 {
     Mutex::Autolock _l(mLock);
     pid_t caller = IPCThreadState::self()->getCallingPid();
     ALOGV("acquiring %d from %d, for %d", audioSession, caller, pid);
     const uid_t callerUid = IPCThreadState::self()->getCallingUid();
-    if (pid != -1 && isAudioServerUid(callerUid)) { // check must match releaseAudioSessionId()
-        caller = pid;
+    if (pid != (pid_t)-1 && isAudioServerOrMediaServerUid(callerUid)) {
+        caller = pid;  // check must match releaseAudioSessionId()
+    }
+    if (uid == (uid_t)-1 || !isAudioServerOrMediaServerUid(callerUid)) {
+        uid = callerUid;
     }
 
     {
@@ -2899,7 +2932,7 @@ void AudioFlinger::acquireAudioSessionId(audio_session_t audioSession, pid_t pid
             return;
         }
     }
-    mAudioSessionRefs.push(new AudioSessionRef(audioSession, caller));
+    mAudioSessionRefs.push(new AudioSessionRef(audioSession, caller, uid));
     ALOGV(" added new entry for %d", audioSession);
 }
 
@@ -2911,8 +2944,8 @@ void AudioFlinger::releaseAudioSessionId(audio_session_t audioSession, pid_t pid
         pid_t caller = IPCThreadState::self()->getCallingPid();
         ALOGV("releasing %d from %d for %d", audioSession, caller, pid);
         const uid_t callerUid = IPCThreadState::self()->getCallingUid();
-        if (pid != -1 && isAudioServerUid(callerUid)) { // check must match acquireAudioSessionId()
-            caller = pid;
+        if (pid != (pid_t)-1 && isAudioServerOrMediaServerUid(callerUid)) {
+            caller = pid;  // check must match acquireAudioSessionId()
         }
         size_t num = mAudioSessionRefs.size();
         for (size_t i = 0; i < num; i++) {
@@ -3315,7 +3348,7 @@ sp<IEffect> AudioFlinger::createEffect(
         int32_t priority,
         audio_io_handle_t io,
         audio_session_t sessionId,
-        const AudioDeviceTypeAddr& device __unused,
+        const AudioDeviceTypeAddr& device,
         const String16& opPackageName,
         pid_t pid,
         status_t *status,
@@ -3379,7 +3412,6 @@ sp<IEffect> AudioFlinger::createEffect(
             lStatus = BAD_VALUE;
             goto Exit;
         }
-        //TODO: add check on device ID when added to arguments
     } else {
         // general sessionId.
 
@@ -3431,6 +3463,23 @@ sp<IEffect> AudioFlinger::createEffect(
         }
 
         Mutex::Autolock _l(mLock);
+
+        if (sessionId == AUDIO_SESSION_DEVICE) {
+            sp<Client> client = registerPid(pid);
+            ALOGV("%s device type %d address %s", __func__, device.mType, device.getAddress());
+            handle = mDeviceEffectManager.createEffect_l(
+                    &desc, device, client, effectClient, mPatchPanel.patches_l(),
+                    enabled, &lStatus);
+            if (lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
+                // remove local strong reference to Client with mClientLock held
+                Mutex::Autolock _cl(mClientLock);
+                client.clear();
+            } else {
+                // handle must be valid here, but check again to be safe.
+                if (handle.get() != nullptr && id != nullptr) *id = handle->id();
+            }
+            goto Register;
+        }
 
         // If output is not specified try to find a matching audio session ID in one of the
         // output threads.
@@ -3526,6 +3575,7 @@ sp<IEffect> AudioFlinger::createEffect(
         }
     }
 
+Register:
     if (lStatus == NO_ERROR || lStatus == ALREADY_EXISTS) {
         // Check CPU and memory usage
         sp<EffectBase> effect = handle->effect().promote();

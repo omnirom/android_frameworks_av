@@ -1,5 +1,7 @@
 cc_defaults {
     name: "libstagefright_omx_defaults",
+    double_loadable: true,
+
     srcs: [
         "OMXMaster.cpp",
         "OMXNodeInstance.cpp",

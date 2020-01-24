@@ -127,6 +127,8 @@ public:
 
     virtual uint32_t getStrategyForStream(audio_stream_type_t stream);
     virtual audio_devices_t getDevicesForStream(audio_stream_type_t stream);
+    virtual status_t getDevicesForAttributes(const AudioAttributes &aa,
+                                             AudioDeviceTypeAddrVector *devices) const;
 
     virtual audio_io_handle_t getOutputForEffect(const effect_descriptor_t *desc);
     virtual status_t registerEffect(const effect_descriptor_t *desc,
@@ -185,6 +187,7 @@ public:
                                      audio_io_handle_t output,
                                      int delayMs = 0);
     virtual status_t setVoiceVolume(float volume, int delayMs = 0);
+    status_t setSupportedSystemUsages(const std::vector<audio_usage_t>& systemUsages);
     status_t setAllowedCapturePolicy(uint_t uid, audio_flags_mask_t capturePolicy) override;
     virtual bool isOffloadSupported(const audio_offload_info_t &config);
     virtual bool isDirectOutputSupported(const audio_config_base_t& config,
@@ -342,6 +345,10 @@ private:
     status_t getAudioPolicyEffects(sp<AudioPolicyEffects>& audioPolicyEffects);
 
     app_state_t apmStatFromAmState(int amState);
+
+    bool isSupportedSystemUsage(audio_usage_t usage);
+    status_t validateUsage(audio_usage_t usage);
+    status_t validateUsage(audio_usage_t usage, pid_t pid, uid_t uid);
 
     void updateUidStates();
     void updateUidStates_l();
@@ -869,6 +876,7 @@ private:
     struct audio_policy *mpAudioPolicy;
     AudioPolicyInterface *mAudioPolicyManager;
     AudioPolicyClient *mAudioPolicyClient;
+    std::vector<audio_usage_t> mSupportedSystemUsages;
 
     DefaultKeyedVector< int64_t, sp<NotificationClient> >    mNotificationClients;
     Mutex mNotificationClientsLock;  // protects mNotificationClients
