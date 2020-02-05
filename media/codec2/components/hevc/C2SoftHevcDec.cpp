@@ -497,7 +497,7 @@ status_t C2SoftHevcDec::getVersion() {
 status_t C2SoftHevcDec::initDecoder() {
     if (OK != createDecoder()) return UNKNOWN_ERROR;
     mNumCores = MIN(getCpuCoreCount(), MAX_NUM_CORES);
-    mStride = ALIGN64(mWidth);
+    mStride = ALIGN128(mWidth);
     mSignalledError = false;
     resetPlugin();
     (void) setNumCores();
@@ -752,8 +752,8 @@ c2_status_t C2SoftHevcDec::ensureDecoderState(const std::shared_ptr<C2BlockPool>
         ALOGE("not supposed to be here, invalid decoder context");
         return C2_CORRUPTED;
     }
-    if (mStride != ALIGN64(mWidth)) {
-        mStride = ALIGN64(mWidth);
+    if (mStride != ALIGN128(mWidth)) {
+        mStride = ALIGN128(mWidth);
         if (OK != setParams(mStride, IVD_DECODE_FRAME)) return C2_CORRUPTED;
     }
     if (mOutBlock &&
@@ -904,7 +904,7 @@ void C2SoftHevcDec::process(
         if (0 < s_decode_op.u4_pic_wd && 0 < s_decode_op.u4_pic_ht) {
             if (mHeaderDecoded == false) {
                 mHeaderDecoded = true;
-                setParams(ALIGN64(s_decode_op.u4_pic_wd), IVD_DECODE_FRAME);
+                setParams(ALIGN128(s_decode_op.u4_pic_wd), IVD_DECODE_FRAME);
             }
             if (s_decode_op.u4_pic_wd != mWidth ||  s_decode_op.u4_pic_ht != mHeight) {
                 mWidth = s_decode_op.u4_pic_wd;

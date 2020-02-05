@@ -36,12 +36,11 @@
 #include <hardware/gralloc.h>
 #include <nativebase/nativebase.h>
 
-#include "CCodecConfig.h"
-
 namespace android {
 
 class CCodecBufferChannel;
 class InputSurfaceWrapper;
+struct CCodecConfig;
 struct MediaCodecInfo;
 
 class CCodec : public CodecBase {
@@ -68,6 +67,24 @@ public:
     void initiateReleaseIfStuck();
     void onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems);
     void onInputBufferDone(uint64_t frameIndex, size_t arrayIndex);
+
+    static PersistentSurface *CreateInputSurface();
+
+    static status_t CanFetchLinearBlock(
+            const std::vector<std::string> &names, const C2MemoryUsage &usage, bool *isCompatible);
+
+    static std::shared_ptr<C2LinearBlock> FetchLinearBlock(
+            size_t capacity, const C2MemoryUsage &usage, const std::vector<std::string> &names);
+
+    static status_t CanFetchGraphicBlock(
+            const std::vector<std::string> &names, bool *isCompatible);
+
+    static std::shared_ptr<C2GraphicBlock> FetchGraphicBlock(
+            int32_t width,
+            int32_t height,
+            int32_t format,
+            uint64_t usage,
+            const std::vector<std::string> &names);
 
 protected:
     virtual ~CCodec();
@@ -173,7 +190,7 @@ private:
 
     Mutexed<NamedTimePoint> mDeadline;
     typedef CCodecConfig Config;
-    Mutexed<Config> mConfig;
+    Mutexed<std::unique_ptr<CCodecConfig>> mConfig;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;
 
     friend class CCodecCallbackImpl;

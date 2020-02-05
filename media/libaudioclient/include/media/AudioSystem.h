@@ -27,6 +27,7 @@
 #include <media/IAudioFlingerClient.h>
 #include <media/IAudioPolicyServiceClient.h>
 #include <media/MicrophoneInfo.h>
+#include <set>
 #include <system/audio.h>
 #include <system/audio_effect.h>
 #include <system/audio_policy.h>
@@ -107,7 +108,16 @@ public:
     static status_t setParameters(const String8& keyValuePairs);
     static String8  getParameters(const String8& keys);
 
-    static void setErrorCallback(audio_error_callback cb);
+    // Registers an error callback. When this callback is invoked, it means all
+    // state implied by this interface has been reset.
+    // Returns a token that can be used for un-registering.
+    // Might block while callbacks are being invoked.
+    static uintptr_t addErrorCallback(audio_error_callback cb);
+
+    // Un-registers a callback previously added with addErrorCallback.
+    // Might block while callbacks are being invoked.
+    static void removeErrorCallback(uintptr_t cb);
+
     static void setDynPolicyCallback(dynamic_policy_callback cb);
     static void setRecordConfigCallback(record_config_callback);
 
@@ -172,7 +182,7 @@ public:
     //       or an unspecified existing unique ID.
     static audio_unique_id_t newAudioUniqueId(audio_unique_id_use_t use);
 
-    static void acquireAudioSessionId(audio_session_t audioSession, pid_t pid);
+    static void acquireAudioSessionId(audio_session_t audioSession, pid_t pid, uid_t uid);
     static void releaseAudioSessionId(audio_session_t audioSession, pid_t pid);
 
     // Get the HW synchronization source used for an audio session.
@@ -279,6 +289,8 @@ public:
 
     static uint32_t getStrategyForStream(audio_stream_type_t stream);
     static audio_devices_t getDevicesForStream(audio_stream_type_t stream);
+    static status_t getDevicesForAttributes(const AudioAttributes &aa,
+                                            AudioDeviceTypeAddrVector *devices);
 
     static audio_io_handle_t getOutputForEffect(const effect_descriptor_t *desc);
     static status_t registerEffect(const effect_descriptor_t *desc,
@@ -301,6 +313,8 @@ public:
     static size_t getPrimaryOutputFrameCount();
 
     static status_t setLowRamDevice(bool isLowRamDevice, int64_t totalMemory);
+
+    static status_t setSupportedSystemUsages(const std::vector<audio_usage_t>& systemUsages);
 
     static status_t setAllowedCapturePolicy(uid_t uid, audio_flags_mask_t flags);
 
@@ -560,15 +574,19 @@ private:
     static const sp<AudioFlingerClient> getAudioFlingerClient();
     static sp<AudioIoDescriptor> getIoDescriptor(audio_io_handle_t ioHandle);
 
+    // Invokes all registered error callbacks with the given error code.
+    static void reportError(status_t err);
+
     static sp<AudioFlingerClient> gAudioFlingerClient;
     static sp<AudioPolicyServiceClient> gAudioPolicyServiceClient;
     friend class AudioFlingerClient;
     friend class AudioPolicyServiceClient;
 
-    static Mutex gLock;      // protects gAudioFlinger and gAudioErrorCallback,
+    static Mutex gLock;      // protects gAudioFlinger
+    static Mutex gLockErrorCallbacks;      // protects gAudioErrorCallbacks
     static Mutex gLockAPS;   // protects gAudioPolicyService and gAudioPolicyServiceClient
     static sp<IAudioFlinger> gAudioFlinger;
-    static audio_error_callback gAudioErrorCallback;
+    static std::set<audio_error_callback> gAudioErrorCallbacks;
     static dynamic_policy_callback gDynPolicyCallback;
     static record_config_callback gRecordConfigCallback;
 
