@@ -1857,8 +1857,10 @@ typedef enum acamera_metadata_tag {
      * stream combinations of LIMITED hardware level are guaranteed.</p>
      * <p>For a logical multi-camera, bokeh may be implemented by stereo vision from sub-cameras
      * with different field of view. As a result, when bokeh mode is enabled, the camera device
-     * may override android.scaler.CropRegion, and the field of view will be smaller than when
+     * may override ACAMERA_SCALER_CROP_REGION, and the field of view will be smaller than when
      * bokeh mode is off.</p>
+     *
+     * @see ACAMERA_SCALER_CROP_REGION
      */
     ACAMERA_CONTROL_BOKEH_MODE =                                // byte (acamera_metadata_enum_android_control_bokeh_mode_t)
             ACAMERA_CONTROL_START + 45,
@@ -1873,8 +1875,10 @@ typedef enum acamera_metadata_tag {
      * </ul></p>
      *
      * <p>If the camera device supports zoom-out from 1x zoom, minZoom will be less than 1.0, and
-     * setting android.control.zoomRation to values less than 1.0 increases the camera's field
+     * setting ACAMERA_CONTROL_ZOOM_RATIO to values less than 1.0 increases the camera's field
      * of view.</p>
+     *
+     * @see ACAMERA_CONTROL_ZOOM_RATIO
      */
     ACAMERA_CONTROL_ZOOM_RATIO_RANGE =                          // float[2]
             ACAMERA_CONTROL_START + 46,
@@ -2505,6 +2509,11 @@ typedef enum acamera_metadata_tag {
      * <p><code>p' = Rp</code></p>
      * <p>where <code>p</code> is in the device sensor coordinate system, and
      *  <code>p'</code> is in the camera-oriented coordinate system.</p>
+     * <p>If ACAMERA_LENS_POSE_REFERENCE is UNDEFINED, the quaternion rotation cannot
+     *  be accurately represented by the camera device, and will be represented by
+     *  default values matching its default facing.</p>
+     *
+     * @see ACAMERA_LENS_POSE_REFERENCE
      */
     ACAMERA_LENS_POSE_ROTATION =                                // float[4]
             ACAMERA_LENS_START + 6,
@@ -2545,6 +2554,8 @@ typedef enum acamera_metadata_tag {
      * <p>When ACAMERA_LENS_POSE_REFERENCE is GYROSCOPE, then this position is relative to
      * the center of the primary gyroscope on the device. The axis definitions are the same as
      * with PRIMARY_CAMERA.</p>
+     * <p>When ACAMERA_LENS_POSE_REFERENCE is UNDEFINED, this position cannot be accurately
+     * represented by the camera device, and will be represented as <code>(0, 0, 0)</code>.</p>
      *
      * @see ACAMERA_LENS_DISTORTION
      * @see ACAMERA_LENS_INTRINSIC_CALIBRATION
@@ -2687,8 +2698,10 @@ typedef enum acamera_metadata_tag {
     ACAMERA_LENS_RADIAL_DISTORTION =                            // Deprecated! DO NOT USE
             ACAMERA_LENS_START + 11,
     /**
-     * <p>The origin for ACAMERA_LENS_POSE_TRANSLATION.</p>
+     * <p>The origin for ACAMERA_LENS_POSE_TRANSLATION, and the accuracy of
+     * ACAMERA_LENS_POSE_TRANSLATION and ACAMERA_LENS_POSE_ROTATION.</p>
      *
+     * @see ACAMERA_LENS_POSE_ROTATION
      * @see ACAMERA_LENS_POSE_TRANSLATION
      *
      * <p>Type: byte (acamera_metadata_enum_android_lens_pose_reference_t)</p>
@@ -3284,32 +3297,70 @@ typedef enum acamera_metadata_tag {
      * <p>For devices not supporting ACAMERA_DISTORTION_CORRECTION_MODE control, the coordinate
      * system always follows that of ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE, with <code>(0, 0)</code> being
      * the top-left pixel of the active array.</p>
-     * <p>For devices supporting ACAMERA_DISTORTION_CORRECTION_MODE control, the coordinate
-     * system depends on the mode being set.
-     * When the distortion correction mode is OFF, the coordinate system follows
-     * ACAMERA_SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE, with
-     * <code>(0, 0)</code> being the top-left pixel of the pre-correction active array.
-     * When the distortion correction mode is not OFF, the coordinate system follows
-     * ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE, with
-     * <code>(0, 0)</code> being the top-left pixel of the active array.</p>
-     * <p>Output streams use this rectangle to produce their output,
-     * cropping to a smaller region if necessary to maintain the
-     * stream's aspect ratio, then scaling the sensor input to
+     * <p>For devices supporting ACAMERA_DISTORTION_CORRECTION_MODE control, the coordinate system
+     * depends on the mode being set.  When the distortion correction mode is OFF, the
+     * coordinate system follows ACAMERA_SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE, with <code>(0,
+     * 0)</code> being the top-left pixel of the pre-correction active array.  When the distortion
+     * correction mode is not OFF, the coordinate system follows
+     * ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE, with <code>(0, 0)</code> being the top-left pixel of the
+     * active array.</p>
+     * <p>Output streams use this rectangle to produce their output, cropping to a smaller region
+     * if necessary to maintain the stream's aspect ratio, then scaling the sensor input to
      * match the output's configured resolution.</p>
-     * <p>The crop region is applied after the RAW to other color
-     * space (e.g. YUV) conversion. Since raw streams
-     * (e.g. RAW16) don't have the conversion stage, they are not
+     * <p>The crop region is applied after the RAW to other color space (e.g. YUV)
+     * conversion. Since raw streams (e.g. RAW16) don't have the conversion stage, they are not
      * croppable. The crop region will be ignored by raw streams.</p>
-     * <p>For non-raw streams, any additional per-stream cropping will
-     * be done to maximize the final pixel area of the stream.</p>
-     * <p>For example, if the crop region is set to a 4:3 aspect
-     * ratio, then 4:3 streams will use the exact crop
-     * region. 16:9 streams will further crop vertically
-     * (letterbox).</p>
-     * <p>Conversely, if the crop region is set to a 16:9, then 4:3
-     * outputs will crop horizontally (pillarbox), and 16:9
-     * streams will match exactly. These additional crops will
-     * be centered within the crop region.</p>
+     * <p>For non-raw streams, any additional per-stream cropping will be done to maximize the
+     * final pixel area of the stream.</p>
+     * <p>For example, if the crop region is set to a 4:3 aspect ratio, then 4:3 streams will use
+     * the exact crop region. 16:9 streams will further crop vertically (letterbox).</p>
+     * <p>Conversely, if the crop region is set to a 16:9, then 4:3 outputs will crop horizontally
+     * (pillarbox), and 16:9 streams will match exactly. These additional crops will be
+     * centered within the crop region.</p>
+     * <p>To illustrate, here are several scenarios of different crop regions and output streams,
+     * for a hypothetical camera device with an active array of size <code>(2000,1500)</code>.  Note that
+     * several of these examples use non-centered crop regions for ease of illustration; such
+     * regions are only supported on devices with FREEFORM capability
+     * (ACAMERA_SCALER_CROPPING_TYPE <code>== FREEFORM</code>), but this does not affect the way the crop
+     * rules work otherwise.</p>
+     * <ul>
+     * <li>Camera Configuration:<ul>
+     * <li>Active array size: <code>2000x1500</code> (3 MP, 4:3 aspect ratio)</li>
+     * <li>Output stream #1: <code>640x480</code> (VGA, 4:3 aspect ratio)</li>
+     * <li>Output stream #2: <code>1280x720</code> (720p, 16:9 aspect ratio)</li>
+     * </ul>
+     * </li>
+     * <li>Case #1: 4:3 crop region with 2x digital zoom<ul>
+     * <li>Crop region: <code>Rect(500, 375, 1500, 1125) // (left, top, right, bottom)</code></li>
+     * <li><img alt="4:3 aspect ratio crop diagram" src="../images/camera2/metadata/android.scaler.cropRegion/crop-region-43-ratio.png" /></li>
+     * <li><code>640x480</code> stream source area: <code>(500, 375, 1500, 1125)</code> (equal to crop region)</li>
+     * <li><code>1280x720</code> stream source area: <code>(500, 469, 1500, 1031)</code> (letterboxed)</li>
+     * </ul>
+     * </li>
+     * <li>Case #2: 16:9 crop region with ~1.5x digital zoom.<ul>
+     * <li>Crop region: <code>Rect(500, 375, 1833, 1125)</code></li>
+     * <li><img alt="16:9 aspect ratio crop diagram" src="../images/camera2/metadata/android.scaler.cropRegion/crop-region-169-ratio.png" /></li>
+     * <li><code>640x480</code> stream source area: <code>(666, 375, 1666, 1125)</code> (pillarboxed)</li>
+     * <li><code>1280x720</code> stream source area: <code>(500, 375, 1833, 1125)</code> (equal to crop region)</li>
+     * </ul>
+     * </li>
+     * <li>Case #3: 1:1 crop region with ~2.6x digital zoom.<ul>
+     * <li>Crop region: <code>Rect(500, 375, 1250, 1125)</code></li>
+     * <li><img alt="1:1 aspect ratio crop diagram" src="../images/camera2/metadata/android.scaler.cropRegion/crop-region-11-ratio.png" /></li>
+     * <li><code>640x480</code> stream source area: <code>(500, 469, 1250, 1031)</code> (letterboxed)</li>
+     * <li><code>1280x720</code> stream source area: <code>(500, 543, 1250, 957)</code> (letterboxed)</li>
+     * </ul>
+     * </li>
+     * <li>Case #4: Replace <code>640x480</code> stream with <code>1024x1024</code> stream, with 4:3 crop region:<ul>
+     * <li>Crop region: <code>Rect(500, 375, 1500, 1125)</code></li>
+     * <li><img alt="Square output, 4:3 aspect ratio crop diagram" src="../images/camera2/metadata/android.scaler.cropRegion/crop-region-43-square-ratio.png" /></li>
+     * <li><code>1024x1024</code> stream source area: <code>(625, 375, 1375, 1125)</code> (pillarboxed)</li>
+     * <li><code>1280x720</code> stream source area: <code>(500, 469, 1500, 1031)</code> (letterboxed)</li>
+     * <li>Note that in this case, neither of the two outputs is a subset of the other, with
+     *   each containing image data the other doesn't have.</li>
+     * </ul>
+     * </li>
+     * </ul>
      * <p>If the coordinate system is ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE, the width and height
      * of the crop region cannot be set to be smaller than
      * <code>floor( activeArraySize.width / ACAMERA_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM )</code> and
@@ -3320,23 +3371,22 @@ typedef enum acamera_metadata_tag {
      * and
      * <code>floor( preCorrectionActiveArraySize.height / ACAMERA_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM )</code>,
      * respectively.</p>
-     * <p>The camera device may adjust the crop region to account
-     * for rounding and other hardware requirements; the final
-     * crop region used will be included in the output capture
-     * result.</p>
+     * <p>The camera device may adjust the crop region to account for rounding and other hardware
+     * requirements; the final crop region used will be included in the output capture result.</p>
      * <p>Starting from API level 30, it's strongly recommended to use ACAMERA_CONTROL_ZOOM_RATIO
      * to take advantage of better support for zoom with logical multi-camera. The benefits
      * include better precision with optical-digital zoom combination, and ability to do
      * zoom-out from 1.0x. When using ACAMERA_CONTROL_ZOOM_RATIO for zoom, the crop region in
      * the capture request must be either letterboxing or pillarboxing (but not both). The
      * coordinate system is post-zoom, meaning that the activeArraySize or
-     * preCorrectionActiveArraySize covers the camera device's field of view "after" zoom.
-     * See ACAMERA_CONTROL_ZOOM_RATIO for details.</p>
+     * preCorrectionActiveArraySize covers the camera device's field of view "after" zoom.  See
+     * ACAMERA_CONTROL_ZOOM_RATIO for details.</p>
      * <p>The data representation is int[4], which maps to (left, top, width, height).</p>
      *
      * @see ACAMERA_CONTROL_ZOOM_RATIO
      * @see ACAMERA_DISTORTION_CORRECTION_MODE
      * @see ACAMERA_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM
+     * @see ACAMERA_SCALER_CROPPING_TYPE
      * @see ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE
      * @see ACAMERA_SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE
      */
@@ -7498,6 +7548,19 @@ typedef enum acamera_metadata_enum_acamera_lens_pose_reference {
      */
     ACAMERA_LENS_POSE_REFERENCE_GYROSCOPE                            = 1,
 
+    /**
+     * <p>The camera device cannot represent the values of ACAMERA_LENS_POSE_TRANSLATION
+     * and ACAMERA_LENS_POSE_ROTATION accurately enough. One such example is a camera device
+     * on the cover of a foldable phone: in order to measure the pose translation and rotation,
+     * some kind of hinge position sensor would be needed.</p>
+     * <p>The value of ACAMERA_LENS_POSE_TRANSLATION must be all zeros, and
+     * ACAMERA_LENS_POSE_ROTATION must be values matching its default facing.</p>
+     *
+     * @see ACAMERA_LENS_POSE_ROTATION
+     * @see ACAMERA_LENS_POSE_TRANSLATION
+     */
+    ACAMERA_LENS_POSE_REFERENCE_UNDEFINED                            = 2,
+
 } acamera_metadata_enum_android_lens_pose_reference_t;
 
 
@@ -8339,12 +8402,16 @@ typedef enum acamera_metadata_enum_acamera_sensor_info_color_filter_arrangement 
 // ACAMERA_SENSOR_INFO_TIMESTAMP_SOURCE
 typedef enum acamera_metadata_enum_acamera_sensor_info_timestamp_source {
     /**
-     * <p>Timestamps from ACAMERA_SENSOR_TIMESTAMP are in nanoseconds and monotonic,
-     * but can not be compared to timestamps from other subsystems
-     * (e.g. accelerometer, gyro etc.), or other instances of the same or different
-     * camera devices in the same system. Timestamps between streams and results for
-     * a single camera instance are comparable, and the timestamps for all buffers
-     * and the result metadata generated by a single capture are identical.</p>
+     * <p>Timestamps from ACAMERA_SENSOR_TIMESTAMP are in nanoseconds and monotonic, but can
+     * not be compared to timestamps from other subsystems (e.g. accelerometer, gyro etc.),
+     * or other instances of the same or different camera devices in the same system with
+     * accuracy. However, the timestamps are roughly in the same timebase as
+     * <a href="https://developer.android.com/reference/android/os/SystemClock.html#uptimeMillis">SystemClock#uptimeMillis</a>.  The accuracy is sufficient for tasks
+     * like A/V synchronization for video recording, at least, and the timestamps can be
+     * directly used together with timestamps from the audio subsystem for that task.</p>
+     * <p>Timestamps between streams and results for a single camera instance are comparable,
+     * and the timestamps for all buffers and the result metadata generated by a single
+     * capture are identical.</p>
      *
      * @see ACAMERA_SENSOR_TIMESTAMP
      */
@@ -8354,6 +8421,14 @@ typedef enum acamera_metadata_enum_acamera_sensor_info_timestamp_source {
      * <p>Timestamps from ACAMERA_SENSOR_TIMESTAMP are in the same timebase as
      * <a href="https://developer.android.com/reference/android/os/SystemClock.html#elapsedRealtimeNanos">SystemClock#elapsedRealtimeNanos</a>,
      * and they can be compared to other timestamps using that base.</p>
+     * <p>When buffers from a REALTIME device are passed directly to a video encoder from the
+     * camera, automatic compensation is done to account for differing timebases of the
+     * audio and camera subsystems.  If the application is receiving buffers and then later
+     * sending them to a video encoder or other application where they are compared with
+     * audio subsystem timestamps or similar, this compensation is not present.  In those
+     * cases, applications need to adjust the timestamps themselves.  Since <a href="https://developer.android.com/reference/android/os/SystemClock.html#elapsedRealtimeNanos">SystemClock#elapsedRealtimeNanos</a> and <a href="https://developer.android.com/reference/android/os/SystemClock.html#uptimeMillis">SystemClock#uptimeMillis</a> only diverge while the device is asleep, an
+     * offset between the two sources can be measured once per active session and applied
+     * to timestamps for sufficient accuracy for A/V sync.</p>
      *
      * @see ACAMERA_SENSOR_TIMESTAMP
      */

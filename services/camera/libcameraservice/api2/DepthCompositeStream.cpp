@@ -20,7 +20,6 @@
 
 #include "api1/client2/JpegProcessor.h"
 #include "common/CameraProviderManager.h"
-#include "dlfcn.h"
 #include <gui/Surface.h>
 #include <utils/Log.h>
 #include <utils/Trace.h>
@@ -43,9 +42,7 @@ DepthCompositeStream::DepthCompositeStream(wp<CameraDeviceBase> device,
         mBlobBufferAcquired(false),
         mProducerListener(new ProducerListener()),
         mMaxJpegSize(-1),
-        mIsLogicalCamera(false),
-        mDepthPhotoLibHandle(nullptr),
-        mDepthPhotoProcess(nullptr) {
+        mIsLogicalCamera(false) {
     sp<CameraDeviceBase> cameraDevice = device.promote();
     if (cameraDevice.get() != nullptr) {
         CameraMetadata staticInfo = cameraDevice->info();
@@ -83,19 +80,6 @@ DepthCompositeStream::DepthCompositeStream(wp<CameraDeviceBase> device,
         }
 
         getSupportedDepthSizes(staticInfo, &mSupportedDepthSizes);
-
-        mDepthPhotoLibHandle = dlopen(camera3::kDepthPhotoLibrary, RTLD_NOW | RTLD_LOCAL);
-        if (mDepthPhotoLibHandle != nullptr) {
-            mDepthPhotoProcess = reinterpret_cast<camera3::process_depth_photo_frame> (
-                    dlsym(mDepthPhotoLibHandle, camera3::kDepthPhotoProcessFunction));
-            if (mDepthPhotoProcess == nullptr) {
-                ALOGE("%s: Failed to link to depth photo process function: %s", __FUNCTION__,
-                        dlerror());
-            }
-        } else {
-            ALOGE("%s: Failed to link to depth photo library: %s", __FUNCTION__, dlerror());
-        }
-
     }
 }
 
@@ -108,11 +92,6 @@ DepthCompositeStream::~DepthCompositeStream() {
     mDepthSurface.clear();
     mDepthConsumer = nullptr;
     mDepthSurface = nullptr;
-    if (mDepthPhotoLibHandle != nullptr) {
-        dlclose(mDepthPhotoLibHandle);
-        mDepthPhotoLibHandle = nullptr;
-    }
-    mDepthPhotoProcess = nullptr;
 }
 
 void DepthCompositeStream::compilePendingInputLocked() {
@@ -356,7 +335,7 @@ status_t DepthCompositeStream::processInputFrame(nsecs_t ts, const InputFrame &i
     }
 
     size_t actualJpegSize = 0;
-    res = mDepthPhotoProcess(depthPhoto, finalJpegBufferSize, dstBuffer, &actualJpegSize);
+    res = processDepthPhotoFrame(depthPhoto, finalJpegBufferSize, dstBuffer, &actualJpegSize);
     if (res != 0) {
         ALOGE("%s: Depth photo processing failed: %s (%d)", __FUNCTION__, strerror(-res), res);
         outputANW->cancelBuffer(mOutputSurface.get(), anb, /*fence*/ -1);
@@ -583,11 +562,6 @@ status_t DepthCompositeStream::configureStream() {
         return NO_ERROR;
     }
 
-    if ((mDepthPhotoLibHandle == nullptr) || (mDepthPhotoProcess == nullptr)) {
-        ALOGE("%s: Depth photo library is not present!", __FUNCTION__);
-        return NO_INIT;
-    }
-
     if (mOutputSurface.get() == nullptr) {
         ALOGE("%s: No valid output surface set!", __FUNCTION__);
         return NO_INIT;
@@ -707,6 +681,18 @@ status_t DepthCompositeStream::insertGbp(SurfaceMap* /*out*/outSurfaceMap,
     }
 
     return NO_ERROR;
+}
+
+status_t DepthCompositeStream::insertCompositeStreamIds(
+        std::vector<int32_t>* compositeStreamIds /*out*/) {
+    if (compositeStreamIds == nullptr) {
+        return BAD_VALUE;
+    }
+
+    compositeStreamIds->push_back(mDepthStreamId);
+    compositeStreamIds->push_back(mBlobStreamId);
+
+    return OK;
 }
 
 void DepthCompositeStream::onResultError(const CaptureResultExtras& resultExtras) {

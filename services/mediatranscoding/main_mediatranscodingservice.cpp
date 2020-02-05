@@ -29,7 +29,7 @@ int main(int argc __unused, char** argv) {
     strcpy(argv[0], "media.transcoding");
     sp<ProcessState> proc(ProcessState::self());
     sp<IServiceManager> sm = defaultServiceManager();
-    android::media::MediaTranscodingService::instantiate();
+    android::MediaTranscodingService::instantiate();
 
     ProcessState::self()->startThreadPool();
     IPCThreadState::self()->joinThreadPool();

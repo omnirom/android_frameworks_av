@@ -35,6 +35,49 @@
 
 namespace android {
 
+/*
+ * MediaMetrics Keys and Properties for Audio.
+ *
+ * C/C++ friendly constants that ensure
+ * 1) Compilation error on misspelling
+ * 2) Consistent behavior and documentation.
+ *
+ * TODO: Move to separate header file.
+ */
+
+// Taxonomy of audio keys
+
+// Key Prefixes are used for MediaMetrics Item Keys and ends with a ".".
+// They must be appended with another value to make a key.
+#define AMEDIAMETRICS_KEY_PREFIX_AUDIO "audio."
+
+// The AudioRecord key appends the "trackId" to the prefix.
+#define AMEDIAMETRICS_KEY_PREFIX_AUDIO_RECORD AMEDIAMETRICS_KEY_PREFIX_AUDIO "record."
+
+// The AudioThread key appends the "threadId" to the prefix.
+#define AMEDIAMETRICS_KEY_PREFIX_AUDIO_THREAD AMEDIAMETRICS_KEY_PREFIX_AUDIO "thread."
+
+// The AudioTrack key appends the "trackId" to the prefix.
+#define AMEDIAMETRICS_KEY_PREFIX_AUDIO_TRACK  AMEDIAMETRICS_KEY_PREFIX_AUDIO "track."
+
+// Keys are strings used for MediaMetrics Item Keys
+#define AMEDIAMETRICS_KEY_AUDIO_FLINGER       AMEDIAMETRICS_KEY_PREFIX_AUDIO "flinger"
+#define AMEDIAMETRICS_KEY_AUDIO_POLICY        AMEDIAMETRICS_KEY_PREFIX_AUDIO "policy"
+
+// Props are properties allowed for Mediametrics Items.
+#define AMEDIAMETRICS_PROP_EVENT          "event"          // string value (often func name)
+#define AMEDIAMETRICS_PROP_LATENCYMS      "latencyMs"      // double value
+#define AMEDIAMETRICS_PROP_OUTPUTDEVICES  "outputDevices"  // string value
+#define AMEDIAMETRICS_PROP_STARTUPMS      "startupMs"      // double value
+#define AMEDIAMETRICS_PROP_THREADID       "threadId"       // int32 value io handle
+
+// Values are strings accepted for a given property.
+
+// An event is a general description, which often is a function name.
+#define AMEDIAMETRICS_PROP_EVENT_VALUE_CTOR       "ctor"
+#define AMEDIAMETRICS_PROP_EVENT_VALUE_DTOR       "dtor"
+#define AMEDIAMETRICS_PROP_EVENT_VALUE_UNDERRUN   "underrun" // from Thread
+
 class IMediaMetricsService;
 class Parcel;
 
@@ -1004,7 +1047,81 @@ public:
         const char *toCString();
         const char *toCString(int version);
 
+    /**
+     * Returns true if the item has a property with a target value.
+     *
+     * If propName is nullptr, hasPropElem() returns false.
+     *
+     * \param propName is the property name.
+     * \param elem is the value to match.  std::monostate matches any.
+     */
+    bool hasPropElem(const char *propName, const Prop::Elem& elem) const {
+        if (propName == nullptr) return false;
+        const Prop::Elem *e = get(propName);
+        return e != nullptr && (std::holds_alternative<std::monostate>(elem) || elem == *e);
+    }
+
+    /**
+     * Returns -2, -1, 0 (success) if the item has a property (wildcard matched) with a
+     * target value.
+     *
+     * The enum RecursiveWildcardCheck designates the meaning of the returned value.
+     *
+     * RECURSIVE_WILDCARD_CHECK_NO_MATCH_NO_WILDCARD = -2,
+     * RECURSIVE_WILDCARD_CHECK_NO_MATCH_WILDCARD_FOUND = -1,
+     * RECURSIVE_WILDCARD_CHECK_MATCH_FOUND = 0.
+     *
+     * If url is nullptr, RECURSIVE_WILDCARD_CHECK_NO_MATCH_NO_WILDCARD is returned.
+     *
+     * \param url is the full item + property name, which may have wildcards '*'
+     *            denoting an arbitrary sequence of 0 or more characters.
+     * \param elem is the target property value to match. std::monostate matches any.
+     * \return 0 if the property was matched,
+     *         -1 if the property was not matched and a wildcard char was encountered,
+     *         -2 if the property was not matched with no wildcard char encountered.
+     */
+    enum RecursiveWildcardCheck {
+        RECURSIVE_WILDCARD_CHECK_NO_MATCH_NO_WILDCARD = -2,
+        RECURSIVE_WILDCARD_CHECK_NO_MATCH_WILDCARD_FOUND = -1,
+        RECURSIVE_WILDCARD_CHECK_MATCH_FOUND = 0,
+    };
+
+    enum RecursiveWildcardCheck recursiveWildcardCheckElem(
+        const char *url, const Prop::Elem& elem) const {
+        if (url == nullptr) return RECURSIVE_WILDCARD_CHECK_NO_MATCH_NO_WILDCARD;
+        return recursiveWildcardCheckElem(getKey().c_str(), url, elem);
+    }
+
 private:
+
+    enum RecursiveWildcardCheck recursiveWildcardCheckElem(
+            const char *itemKeyPtr, const char *url, const Prop::Elem& elem) const {
+        for (; *url && *itemKeyPtr; ++url, ++itemKeyPtr) {
+            if (*url != *itemKeyPtr) {
+                if (*url == '*') { // wildcard
+                    ++url;
+                    while (true) {
+                        if (recursiveWildcardCheckElem(itemKeyPtr, url, elem)
+                                == RECURSIVE_WILDCARD_CHECK_MATCH_FOUND) {
+                            return RECURSIVE_WILDCARD_CHECK_MATCH_FOUND;
+                        }
+                        if (*itemKeyPtr == 0) break;
+                        ++itemKeyPtr;
+                    }
+                    return RECURSIVE_WILDCARD_CHECK_NO_MATCH_WILDCARD_FOUND;
+                }
+                return RECURSIVE_WILDCARD_CHECK_NO_MATCH_NO_WILDCARD;
+            }
+        }
+        if (itemKeyPtr[0] != 0 || url[0] != '.') {
+            return RECURSIVE_WILDCARD_CHECK_NO_MATCH_NO_WILDCARD;
+        }
+        const char *propName = url + 1; // skip the '.'
+        return hasPropElem(propName, elem)
+                ? RECURSIVE_WILDCARD_CHECK_MATCH_FOUND
+                : RECURSIVE_WILDCARD_CHECK_NO_MATCH_NO_WILDCARD;
+    }
+
     // handle Parcel version 0
     int32_t writeToParcel0(Parcel *) const;
     int32_t readFromParcel0(const Parcel&);

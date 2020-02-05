@@ -154,11 +154,12 @@ void Encoder::setupEncoder() {
 }
 
 void Encoder::deInitCodec() {
-    int64_t sTime = mStats->getCurTime();
     if (mFormat) {
         AMediaFormat_delete(mFormat);
         mFormat = nullptr;
     }
+    if (!mCodec) return;
+    int64_t sTime = mStats->getCurTime();
     AMediaCodec_stop(mCodec);
     AMediaCodec_delete(mCodec);
     int64_t eTime = mStats->getCurTime();
@@ -174,9 +175,10 @@ void Encoder::resetEncoder() {
     memset(&mParams, 0, sizeof mParams);
 }
 
-void Encoder::dumpStatistics(string inputReference, int64_t durationUs) {
+void Encoder::dumpStatistics(string inputReference, int64_t durationUs, string componentName,
+                             string mode, string statsFile) {
     string operation = "encode";
-    mStats->dumpStatistics(operation, inputReference, durationUs);
+    mStats->dumpStatistics(operation, inputReference, durationUs, componentName, mode, statsFile);
 }
 
 int32_t Encoder::encode(string &codecName, ifstream &eleStream, size_t eleSize,

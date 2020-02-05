@@ -984,19 +984,21 @@ status_t AudioPolicyManager::getOutputForAttrInt(
     if (usePrimaryOutputFromPolicyMixes) {
         *output = policyDesc->mIoHandle;
         sp<AudioPolicyMix> mix = policyDesc->mPolicyMix.promote();
-        sp<DeviceDescriptor> deviceDesc =
-                mAvailableOutputDevices.getDevice(mix->mDeviceType,
-                                                  mix->mDeviceAddress,
-                                                  AUDIO_FORMAT_DEFAULT);
-        *selectedDeviceId = deviceDesc != 0 ? deviceDesc->getId() : AUDIO_PORT_HANDLE_NONE;
+        if (mix != nullptr) {
+            sp<DeviceDescriptor> deviceDesc =
+                    mAvailableOutputDevices.getDevice(mix->mDeviceType,
+                                                      mix->mDeviceAddress,
+                                                      AUDIO_FORMAT_DEFAULT);
+            *selectedDeviceId = deviceDesc != 0 ? deviceDesc->getId() : AUDIO_PORT_HANDLE_NONE;
 
-        ALOGV("getOutputForAttr() returns output %d", *output);
-        if (resultAttr->usage == AUDIO_USAGE_VIRTUAL_SOURCE) {
-            *outputType = API_OUT_MIX_PLAYBACK;
-        } else {
-            *outputType = API_OUTPUT_LEGACY;
+            ALOGV("getOutputForAttr() returns output %d", *output);
+            if (resultAttr->usage == AUDIO_USAGE_VIRTUAL_SOURCE) {
+                *outputType = API_OUT_MIX_PLAYBACK;
+            } else {
+                *outputType = API_OUTPUT_LEGACY;
+            }
+            return NO_ERROR;
         }
-        return NO_ERROR;
     }
     // Virtual sources must always be dynamicaly or explicitly routed
     if (resultAttr->usage == AUDIO_USAGE_VIRTUAL_SOURCE) {
@@ -1659,7 +1661,7 @@ status_t AudioPolicyManager::startSource(const sp<SwAudioOutputDescriptor>& outp
     DeviceVector devices;
     sp<AudioPolicyMix> policyMix = outputDesc->mPolicyMix.promote();
     const char *address = NULL;
-    if (policyMix != NULL) {
+    if (policyMix != nullptr) {
         audio_devices_t newDeviceType;
         address = policyMix->mDeviceAddress.string();
         if ((policyMix->mRouteFlags & MIX_ROUTE_FLAG_LOOP_BACK) == MIX_ROUTE_FLAG_LOOP_BACK) {
@@ -1841,7 +1843,7 @@ status_t AudioPolicyManager::stopSource(const sp<SwAudioOutputDescriptor>& outpu
             sp<AudioPolicyMix> policyMix = outputDesc->mPolicyMix.promote();
             if (isSingleDeviceType(
                     outputDesc->devices().types(), &audio_is_remote_submix_device) &&
-                policyMix != NULL &&
+                policyMix != nullptr &&
                 policyMix->mMixType == MIX_TYPE_RECORDERS) {
                 setDeviceConnectionStateInt(AUDIO_DEVICE_IN_REMOTE_SUBMIX,
                                             AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
@@ -2292,7 +2294,7 @@ status_t AudioPolicyManager::startInput(audio_port_handle_t portId)
     if (status == NO_ERROR && inputDesc->activeCount() == 1) {
         sp<AudioPolicyMix> policyMix = inputDesc->mPolicyMix.promote();
         // if input maps to a dynamic policy with an activity listener, notify of state change
-        if ((policyMix != NULL)
+        if ((policyMix != nullptr)
                 && ((policyMix->mCbFlags & AudioMix::kCbFlagNotifyActivity) != 0)) {
             mpClientInterface->onDynamicPolicyMixStateUpdate(policyMix->mDeviceAddress,
                     MIX_STATE_MIXING);
@@ -2309,7 +2311,7 @@ status_t AudioPolicyManager::startInput(audio_port_handle_t portId)
         // For remote submix (a virtual device), we open only one input per capture request.
         if (audio_is_remote_submix_device(inputDesc->getDeviceType())) {
             String8 address = String8("");
-            if (policyMix == NULL) {
+            if (policyMix == nullptr) {
                 address = String8("0");
             } else if (policyMix->mMixType == MIX_TYPE_PLAYERS) {
                 address = policyMix->mDeviceAddress;
@@ -2356,7 +2358,7 @@ status_t AudioPolicyManager::stopInput(audio_port_handle_t portId)
     } else {
         sp<AudioPolicyMix> policyMix = inputDesc->mPolicyMix.promote();
         // if input maps to a dynamic policy with an activity listener, notify of state change
-        if ((policyMix != NULL)
+        if ((policyMix != nullptr)
                 && ((policyMix->mCbFlags & AudioMix::kCbFlagNotifyActivity) != 0)) {
             mpClientInterface->onDynamicPolicyMixStateUpdate(policyMix->mDeviceAddress,
                     MIX_STATE_IDLE);
@@ -2366,7 +2368,7 @@ status_t AudioPolicyManager::stopInput(audio_port_handle_t portId)
         // used by a policy mix of type MIX_TYPE_RECORDERS
         if (audio_is_remote_submix_device(inputDesc->getDeviceType())) {
             String8 address = String8("");
-            if (policyMix == NULL) {
+            if (policyMix == nullptr) {
                 address = String8("0");
             } else if (policyMix->mMixType == MIX_TYPE_PLAYERS) {
                 address = policyMix->mDeviceAddress;
@@ -2794,12 +2796,14 @@ status_t AudioPolicyManager::registerEffect(const effect_descriptor_t *desc,
                                 int session,
                                 int id)
 {
-    ssize_t index = mOutputs.indexOfKey(io);
-    if (index < 0) {
-        index = mInputs.indexOfKey(io);
+    if (session != AUDIO_SESSION_DEVICE) {
+        ssize_t index = mOutputs.indexOfKey(io);
         if (index < 0) {
-            ALOGW("registerEffect() unknown io %d", io);
-            return INVALID_OPERATION;
+            index = mInputs.indexOfKey(io);
+            if (index < 0) {
+                ALOGW("registerEffect() unknown io %d", io);
+                return INVALID_OPERATION;
+            }
         }
     }
     return mEffects.registerEffect(desc, io, session, id,
@@ -5474,6 +5478,35 @@ audio_devices_t AudioPolicyManager::getDevicesForStream(audio_stream_type_t stre
     return deviceTypesToBitMask(devices.types());
 }
 
+status_t AudioPolicyManager::getDevicesForAttributes(
+        const audio_attributes_t &attr, AudioDeviceTypeAddrVector *devices) {
+    if (devices == nullptr) {
+        return BAD_VALUE;
+    }
+    // check dynamic policies but only for primary descriptors (secondary not used for audible
+    // audio routing, only used for duplication for playback capture)
+    sp<SwAudioOutputDescriptor> policyDesc;
+    status_t status = mPolicyMixes.getOutputForAttr(attr, 0 /*uid unknown here*/,
+            AUDIO_OUTPUT_FLAG_NONE, policyDesc, nullptr);
+    if (status != OK) {
+        return status;
+    }
+    if (policyDesc != nullptr) {
+        sp<AudioPolicyMix> mix = policyDesc->mPolicyMix.promote();
+        if (mix != nullptr) {
+            AudioDeviceTypeAddr device(mix->mDeviceType, mix->mDeviceAddress.c_str());
+            devices->push_back(device);
+            return NO_ERROR;
+        }
+    }
+
+    DeviceVector curDevices = mEngine->getOutputDevicesForAttributes(attr, nullptr, false);
+    for (const auto& device : curDevices) {
+        devices->push_back(device->getDeviceTypeAddr());
+    }
+    return NO_ERROR;
+}
+
 void AudioPolicyManager::handleNotificationRoutingForStream(audio_stream_type_t stream) {
     switch(stream) {
     case AUDIO_STREAM_MUSIC:
@@ -6093,7 +6126,7 @@ void AudioPolicyManager::applyStreamVolumes(const sp<AudioOutputDescriptor>& out
                                             int delayMs,
                                             bool force)
 {
-    ALOGVV("applyStreamVolumes() for device %08x", device);
+    ALOGVV("applyStreamVolumes() for device %s", dumpDeviceTypes(deviceTypes).c_str());
     for (const auto &volumeGroup : mEngine->getVolumeGroups()) {
         auto &curves = getVolumeCurves(toVolumeSource(volumeGroup));
         checkAndSetVolume(curves, toVolumeSource(volumeGroup),
@@ -6187,6 +6220,10 @@ bool AudioPolicyManager::isValidAttributes(const audio_attributes_t *paa)
     case AUDIO_USAGE_VIRTUAL_SOURCE:
     case AUDIO_USAGE_ASSISTANT:
     case AUDIO_USAGE_CALL_ASSISTANT:
+    case AUDIO_USAGE_EMERGENCY:
+    case AUDIO_USAGE_SAFETY:
+    case AUDIO_USAGE_VEHICLE_STATUS:
+    case AUDIO_USAGE_ANNOUNCEMENT:
         break;
     default:
         return false;

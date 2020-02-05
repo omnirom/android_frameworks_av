@@ -3,12 +3,15 @@
 cc_library_shared {
     name: "libaudioflinger",
 
+    tidy: false, // b/146435095, segmentation fault with Effects.cpp
+
     srcs: [
         "AudioFlinger.cpp",
         "AudioHwDevice.cpp",
         "AudioStreamOut.cpp",
         "AudioWatchdog.cpp",
         "BufLog.cpp",
+        "DeviceEffectManager.cpp",
         "Effects.cpp",
         "FastCapture.cpp",
         "FastCaptureDumpState.cpp",
@@ -62,6 +65,7 @@ cc_library_shared {
     ],
 
     header_libs: [
+        "libaudiohal_headers",
         "libmedia_headers",
     ],
 
