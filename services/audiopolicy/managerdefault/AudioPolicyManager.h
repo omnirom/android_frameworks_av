@@ -238,7 +238,10 @@ public:
         virtual status_t getAudioPort(struct audio_port *port);
         virtual status_t createAudioPatch(const struct audio_patch *patch,
                                            audio_patch_handle_t *handle,
-                                           uid_t uid);
+                                           uid_t uid) {
+            return createAudioPatchInternal(patch, handle, uid);
+        }
+
         virtual status_t releaseAudioPatch(audio_patch_handle_t handle,
                                               uid_t uid);
         virtual status_t listAudioPatches(unsigned int *num_patches,
@@ -262,6 +265,9 @@ public:
         virtual status_t setUidDeviceAffinities(uid_t uid,
                 const Vector<AudioDeviceTypeAddr>& devices);
         virtual status_t removeUidDeviceAffinities(uid_t uid);
+        virtual status_t setUserIdDeviceAffinities(int userId,
+                const Vector<AudioDeviceTypeAddr>& devices);
+        virtual status_t removeUserIdDeviceAffinities(int userId);
 
         virtual status_t setPreferredDeviceForStrategy(product_strategy_t strategy,
                                                    const AudioDeviceTypeAddr &device);
@@ -878,6 +884,29 @@ protected:
             param.addInt(String8(AudioParameter::keyMonoOutput), (int)mMasterMono);
             mpClientInterface->setParameters(output, param.toString());
         }
+
+        /**
+         * @brief createAudioPatchInternal internal function to manage audio patch creation
+         * @param[in] patch structure containing sink and source ports configuration
+         * @param[out] handle patch handle to be provided if patch installed correctly
+         * @param[in] uid of the client
+         * @param[in] delayMs if required
+         * @param[in] sourceDesc [optional] in case of external source, source client to be
+         * configured by the patch, i.e. assigning an Output (HW or SW)
+         * @return NO_ERROR if patch installed correctly, error code otherwise.
+         */
+        status_t createAudioPatchInternal(const struct audio_patch *patch,
+                                          audio_patch_handle_t *handle,
+                                          uid_t uid, uint32_t delayMs = 0,
+                                          const sp<SourceClientDescriptor>& sourceDesc = nullptr);
+        /**
+         * @brief releaseAudioPatchInternal internal function to remove an audio patch
+         * @param[in] handle of the patch to be removed
+         * @param[in] delayMs if required
+         * @return NO_ERROR if patch removed correctly, error code otherwise.
+         */
+        status_t releaseAudioPatchInternal(audio_patch_handle_t handle, uint32_t delayMs = 0);
+
         status_t installPatch(const char *caller,
                 audio_patch_handle_t *patchHandle,
                 AudioIODescriptorInterface *ioDescriptor,

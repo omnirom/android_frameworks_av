@@ -74,6 +74,8 @@ public:
     status_t initialize(sp<CameraProviderManager> /*manager*/,
             const String8& /*monitorTags*/) override;
 
+    status_t setRotateAndCropOverride(uint8_t rotateAndCrop) override;
+
     // permissions management
     status_t startCameraOps() override;
     status_t finishCameraOps() override;
@@ -98,6 +100,8 @@ private:
     sp<hardware::camera2::ICameraDeviceCallbacks> mRemoteCallback;
 
     sp<CameraOfflineSessionBase> mOfflineSession;
+
+    sp<camera2::FrameProcessorBase> mFrameProcessor;
 
     // Offline composite stream map, output surface -> composite stream
     KeyedVector<sp<IBinder>, sp<CompositeStream>> mCompositeStreamMap;
