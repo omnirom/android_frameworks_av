@@ -1433,7 +1433,8 @@ binder::Status CameraDeviceClient::createSurfaceFromGbp(
     uint64_t allowedFlags = GraphicBuffer::USAGE_SW_READ_MASK |
                            GraphicBuffer::USAGE_HW_TEXTURE |
                            GraphicBuffer::USAGE_HW_COMPOSER;
-    bool flexibleConsumer = !mPrivilegedClient && (consumerUsage & disallowedFlags) == 0 &&
+    // TODO(b/149088757) - restore privileged client check
+    bool flexibleConsumer = /*!mPrivilegedClient &&*/ (consumerUsage & disallowedFlags) == 0 &&
             (consumerUsage & allowedFlags) != 0;
 
     surface = new Surface(gbp, useAsync);
