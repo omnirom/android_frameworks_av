@@ -187,6 +187,7 @@ protected:
     int32_t mAudioDecoderGeneration;
     int32_t mVideoDecoderGeneration;
     int32_t mRendererGeneration;
+    int32_t mMaxOutputFrameRate;
 
     Mutex mPlayingTimeLock;
     int64_t mLastStartedPlayingTimeNs;
