@@ -31,12 +31,14 @@
 #include <binder/IAppOpsCallback.h>
 #include <binder/IUidObserver.h>
 #include <hardware/camera.h>
+#include <sensorprivacy/SensorPrivacyManager.h>
 
 #include <android/hardware/camera/common/1.0/types.h>
 
 #include <camera/VendorTagDescriptor.h>
 #include <camera/CaptureResult.h>
 #include <camera/CameraParameters.h>
+#include <camera/camera2/ConcurrentCamera.h>
 
 #include "CameraFlashlight.h"
 
@@ -103,6 +105,9 @@ public:
 
     virtual void        onDeviceStatusChanged(const String8 &cameraId,
             hardware::camera::common::V1_0::CameraDeviceStatus newHalStatus) override;
+    virtual void        onDeviceStatusChanged(const String8 &cameraId,
+            const String8 &physicalCameraId,
+            hardware::camera::common::V1_0::CameraDeviceStatus newHalStatus) override;
     virtual void        onTorchStatusChanged(const String8& cameraId,
             hardware::camera::common::V1_0::TorchModeStatus newStatus) override;
     virtual void        onNewProviderRegistered() override;
@@ -146,6 +151,14 @@ public:
             std::vector<hardware::CameraStatus>* cameraStatuses);
     virtual binder::Status    removeListener(
             const sp<hardware::ICameraServiceListener>& listener);
+
+    virtual binder::Status getConcurrentStreamingCameraIds(
+        /*out*/
+        std::vector<hardware::camera2::utils::ConcurrentCameraIdCombination>* concurrentCameraIds);
+
+    virtual binder::Status isConcurrentSessionConfigurationSupported(
+        const std::vector<hardware::camera2::utils::CameraIdAndSessionConfiguration>& sessions,
+        /*out*/bool* supported);
 
     virtual binder::Status    getLegacyParameters(
             int32_t cameraId,
@@ -277,6 +290,10 @@ public:
         virtual int32_t getAudioRestriction() const;
 
         static bool isValidAudioRestriction(int32_t mode);
+
+        // Override rotate-and-crop AUTO behavior
+        virtual status_t setRotateAndCropOverride(uint8_t rotateAndCrop) = 0;
+
     protected:
         BasicClient(const sp<CameraService>& cameraService,
                 const sp<IBinder>& remoteCallback,
@@ -556,11 +573,24 @@ private:
          */
         SystemCameraKind getSystemCameraKind() const;
 
+        /**
+         * Add/Remove the unavailable physical camera ID.
+         */
+        bool addUnavailablePhysicalId(const String8& physicalId);
+        bool removeUnavailablePhysicalId(const String8& physicalId);
+
+        /**
+         * Return the unavailable physical ids for this device.
+         *
+         * This method acquires mStatusLock.
+         */
+        std::vector<String8> getUnavailablePhysicalIds() const;
     private:
         const String8 mId;
         StatusInternal mStatus; // protected by mStatusLock
         const int mCost;
         std::set<String8> mConflicting;
+        std::set<String8> mUnavailablePhysicalIds;
         mutable Mutex mStatusLock;
         CameraParameters mShimParams;
         const SystemCameraKind mSystemCameraKind;
@@ -627,6 +657,7 @@ private:
             virtual void binderDied(const wp<IBinder> &who);
 
         private:
+            SensorPrivacyManager mSpm;
             wp<CameraService> mService;
             Mutex mSensorPrivacyLock;
             bool mSensorPrivacyEnabled;
@@ -962,6 +993,9 @@ private:
     status_t setTorchStatusLocked(const String8 &cameraId,
             hardware::camera::common::V1_0::TorchModeStatus status);
 
+    // notify physical camera status when the physical camera is public.
+    void notifyPhysicalCameraStatusLocked(int32_t status, const String8& cameraId);
+
     // IBinder::DeathRecipient implementation
     virtual void        binderDied(const wp<IBinder> &who);
 
@@ -994,6 +1028,12 @@ private:
 
     // Gets the UID state
     status_t handleGetUidState(const Vector<String16>& args, int out, int err);
+
+    // Set the rotate-and-crop AUTO override behavior
+    status_t handleSetRotateAndCrop(const Vector<String16>& args);
+
+    // Get the rotate-and-crop AUTO override behavior
+    status_t handleGetRotateAndCrop(int out);
 
     // Prints the shell command help
     status_t printHelp(int out);
@@ -1040,6 +1080,9 @@ private:
 
     // Aggreated audio restriction mode for all camera clients
     int32_t mAudioRestriction;
+
+    // Current override rotate-and-crop mode
+    uint8_t mOverrideRotateAndCropMode = ANDROID_SCALER_ROTATE_AND_CROP_AUTO;
 };
 
 } // namespace android

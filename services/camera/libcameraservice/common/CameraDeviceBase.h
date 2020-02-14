@@ -34,6 +34,7 @@
 #include "gui/IGraphicBufferProducer.h"
 #include "device3/Camera3StreamInterface.h"
 #include "binder/Status.h"
+#include "FrameProducer.h"
 
 #include "CameraOfflineSessionBase.h"
 
@@ -48,14 +49,9 @@ typedef std::unordered_map<int, std::vector<size_t> > SurfaceMap;
  * Base interface for version >= 2 camera device classes, which interface to
  * camera HAL device versions >= 2.
  */
-class CameraDeviceBase : public virtual RefBase {
+class CameraDeviceBase : public virtual FrameProducer {
   public:
     virtual ~CameraDeviceBase();
-
-    /**
-     * The device's camera ID
-     */
-    virtual const String8& getId() const = 0;
 
     /**
      * The device vendor tag ID
@@ -68,13 +64,9 @@ class CameraDeviceBase : public virtual RefBase {
     virtual status_t dump(int fd, const Vector<String16> &args) = 0;
 
     /**
-     * The device's static characteristics metadata buffer
-     */
-    virtual const CameraMetadata& info() const = 0;
-    /**
      * The physical camera device's static characteristics metadata buffer
      */
-    virtual const CameraMetadata& info(const String8& physicalId) const = 0;
+    virtual const CameraMetadata& infoPhysical(const String8& physicalId) const = 0;
 
     struct PhysicalCameraSettings {
         std::string cameraId;
@@ -278,21 +270,6 @@ class CameraDeviceBase : public virtual RefBase {
     virtual bool     willNotify3A() = 0;
 
     /**
-     * Wait for a new frame to be produced, with timeout in nanoseconds.
-     * Returns TIMED_OUT when no frame produced within the specified duration
-     * May be called concurrently to most methods, except for getNextFrame
-     */
-    virtual status_t waitForNextFrame(nsecs_t timeout) = 0;
-
-    /**
-     * Get next capture result frame from the result queue. Returns NOT_ENOUGH_DATA
-     * if the queue is empty; caller takes ownership of the metadata buffer inside
-     * the capture result object's metadata field.
-     * May be called concurrently to most methods, except for waitForNextFrame.
-     */
-    virtual status_t getNextResult(CaptureResult *frame) = 0;
-
-    /**
      * Trigger auto-focus. The latest ID used in a trigger autofocus or cancel
      * autofocus call will be returned by the HAL in all subsequent AF
      * notifications.
@@ -375,6 +352,16 @@ class CameraDeviceBase : public virtual RefBase {
     virtual status_t switchToOffline(
             const std::vector<int32_t>& streamsToKeep,
             /*out*/ sp<CameraOfflineSessionBase>* session) = 0;
+
+    /**
+     * Set the current behavior for the ROTATE_AND_CROP control when in AUTO.
+     *
+     * The value must be one of the ROTATE_AND_CROP_* values besides AUTO,
+     * and defaults to NONE.
+     */
+    virtual status_t setRotateAndCropAutoBehavior(
+            camera_metadata_enum_android_scaler_rotate_and_crop_t rotateAndCropValue) = 0;
+
 };
 
 }; // namespace android

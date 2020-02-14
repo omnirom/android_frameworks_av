@@ -23,12 +23,15 @@
 #include <string>
 #include <mutex>
 
+#include <camera/camera2/ConcurrentCamera.h>
 #include <camera/CameraParameters2.h>
 #include <camera/CameraMetadata.h>
 #include <camera/CameraBase.h>
 #include <utils/Errors.h>
 #include <android/hardware/camera/common/1.0/types.h>
 #include <android/hardware/camera/provider/2.5/ICameraProvider.h>
+#include <android/hardware/camera/provider/2.6/ICameraProviderCallback.h>
+#include <android/hardware/camera/provider/2.6/ICameraProvider.h>
 #include <android/hardware/camera/device/3.4/ICameraDeviceSession.h>
 #include <android/hidl/manager/1.0/IServiceNotification.h>
 #include <camera/VendorTagDescriptor.h>
@@ -136,6 +139,9 @@ public:
 
         virtual void onDeviceStatusChanged(const String8 &cameraId,
                 hardware::camera::common::V1_0::CameraDeviceStatus newStatus) = 0;
+        virtual void onDeviceStatusChanged(const String8 &cameraId,
+                const String8 &physicalCameraId,
+                hardware::camera::common::V1_0::CameraDeviceStatus newStatus) = 0;
         virtual void onTorchStatusChanged(const String8 &cameraId,
                 hardware::camera::common::V1_0::TorchModeStatus newStatus) = 0;
         virtual void onNewProviderRegistered() = 0;
@@ -210,6 +216,12 @@ public:
     status_t getCameraCharacteristics(const std::string &id,
             CameraMetadata* characteristics) const;
 
+    status_t isConcurrentSessionConfigurationSupported(
+            const std::vector<hardware::camera2::utils::CameraIdAndSessionConfiguration>
+                    &cameraIdsAndSessionConfigs,
+            bool *isSupported);
+
+    std::vector<std::unordered_set<std::string>> getConcurrentStreamingCameraIds() const;
     /**
      * Check for device support of specific stream combination.
      */
@@ -342,7 +354,7 @@ private:
     std::mutex mProviderInterfaceMapLock;
 
     struct ProviderInfo :
-            virtual public hardware::camera::provider::V2_4::ICameraProviderCallback,
+            virtual public hardware::camera::provider::V2_6::ICameraProviderCallback,
             virtual public hardware::hidl_death_recipient
     {
         const std::string mProviderName;
@@ -380,12 +392,16 @@ private:
         status_t dump(int fd, const Vector<String16>& args) const;
 
         // ICameraProviderCallbacks interface - these lock the parent mInterfaceMutex
-        virtual hardware::Return<void> cameraDeviceStatusChange(
+        hardware::Return<void> cameraDeviceStatusChange(
                 const hardware::hidl_string& cameraDeviceName,
                 hardware::camera::common::V1_0::CameraDeviceStatus newStatus) override;
-        virtual hardware::Return<void> torchModeStatusChange(
+        hardware::Return<void> torchModeStatusChange(
                 const hardware::hidl_string& cameraDeviceName,
                 hardware::camera::common::V1_0::TorchModeStatus newStatus) override;
+        hardware::Return<void> physicalCameraDeviceStatusChange(
+                const hardware::hidl_string& cameraDeviceName,
+                const hardware::hidl_string& physicalCameraDeviceName,
+                hardware::camera::common::V1_0::CameraDeviceStatus newStatus) override;
 
         // hidl_death_recipient interface - this locks the parent mInterfaceMutex
         virtual void serviceDied(uint64_t cookie, const wp<hidl::base::V1_0::IBase>& who) override;
@@ -401,6 +417,14 @@ private:
         status_t notifyDeviceStateChange(
                 hardware::hidl_bitfield<hardware::camera::provider::V2_5::DeviceState>
                     newDeviceState);
+        /**
+         * Query the camera provider for concurrent stream configuration support
+         */
+        status_t isConcurrentSessionConfigurationSupported(
+                const hardware::hidl_vec<
+                        hardware::camera::provider::V2_6::CameraIdAndStreamCombination>
+                                &halCameraIdsAndStreamCombinations,
+                bool *isSupported);
 
         // Basic device information, common to all camera devices
         struct DeviceInfo {
@@ -417,6 +441,8 @@ private:
             const hardware::camera::common::V1_0::CameraResourceCost mResourceCost;
 
             hardware::camera::common::V1_0::CameraDeviceStatus mStatus;
+            std::map<std::string, hardware::camera::common::V1_0::CameraDeviceStatus>
+                    mPhysicalStatus;
 
             sp<ProviderInfo> mParentProvider;
 
@@ -484,6 +510,8 @@ private:
         // physical camera IDs.
         std::vector<std::string> mProviderPublicCameraIds;
 
+        std::vector<std::unordered_set<std::string>> mConcurrentCameraIdCombinations;
+
         // HALv1-specific camera fields, including the actual device interface
         struct DeviceInfo1 : public DeviceInfo {
             typedef hardware::camera::device::V1_0::ICameraDevice InterfaceT;
@@ -535,6 +563,9 @@ private:
             SystemCameraKind getSystemCameraKind();
             status_t fixupMonochromeTags();
             status_t addDynamicDepthTags();
+            status_t deriveHeicTags();
+            status_t addRotateCropTags();
+
             static void getSupportedSizes(const CameraMetadata& ch, uint32_t tag,
                     android_pixel_format_t format,
                     std::vector<std::tuple<size_t, size_t>> *sizes /*out*/);
@@ -557,7 +588,6 @@ private:
                     std::vector<int64_t>* stallDurations,
                     const camera_metadata_entry& halStreamConfigs,
                     const camera_metadata_entry& halStreamDurations);
-            status_t deriveHeicTags();
         };
 
     private:
@@ -606,6 +636,8 @@ private:
 
     status_t addProviderLocked(const std::string& newProvider);
 
+    bool isLogicalCameraLocked(const std::string& id, std::vector<std::string>* physicalCameraIds);
+
     status_t removeProvider(const std::string& provider);
     sp<StatusListener> getStatusListener() const;
 
@@ -636,6 +668,13 @@ private:
     void collectDeviceIdsLocked(const std::vector<std::string> deviceIds,
             std::vector<std::string>& normalDeviceIds,
             std::vector<std::string>& systemCameraDeviceIds) const;
+
+    status_t convertToHALStreamCombinationAndCameraIdsLocked(
+              const std::vector<hardware::camera2::utils::CameraIdAndSessionConfiguration>
+                      &cameraIdsAndSessionConfigs,
+              hardware::hidl_vec<hardware::camera::provider::V2_6::CameraIdAndStreamCombination>
+                      *halCameraIdsAndStreamCombinations,
+              bool *earlyExit);
 };
 
 } // namespace android

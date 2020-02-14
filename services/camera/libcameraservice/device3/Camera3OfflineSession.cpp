@@ -71,6 +71,7 @@ Camera3OfflineSession::Camera3OfflineSession(const String8 &id,
         mPhysicalDeviceInfoMap(offlineStates.mPhysicalDeviceInfoMap),
         mDistortionMappers(offlineStates.mDistortionMappers),
         mZoomRatioMappers(offlineStates.mZoomRatioMappers),
+        mRotateAndCropMappers(offlineStates.mRotateAndCropMappers),
         mStatus(STATUS_UNINITIALIZED) {
     ATRACE_CALL();
     ALOGV("%s: Created offline session for camera %s", __FUNCTION__, mId.string());
@@ -166,7 +167,9 @@ status_t Camera3OfflineSession::disconnectImpl() {
         streams.push_back(mInputStream);
     }
 
-    mSession->close();
+    if (mSession != nullptr) {
+        mSession->close();
+    }
 
     FlushInflightReqStates states {
         mId, mOfflineReqsLock, mOfflineReqs, mUseHalBufManager,
@@ -252,8 +255,8 @@ hardware::Return<void> Camera3OfflineSession::processCaptureResult_3_4(
         mNextReprocessResultFrameNumber, mNextZslStillResultFrameNumber,
         mUseHalBufManager, mUsePartialResult, mNeedFixupMonochromeTags,
         mNumPartialResults, mVendorTagId, mDeviceInfo, mPhysicalDeviceInfoMap,
-        mResultMetadataQueue, mDistortionMappers, mZoomRatioMappers, mTagMonitor,
-        mInputStream, mOutputStreams, listener, *this, *this, mBufferRecords
+        mResultMetadataQueue, mDistortionMappers, mZoomRatioMappers, mRotateAndCropMappers,
+        mTagMonitor, mInputStream, mOutputStreams, listener, *this, *this, mBufferRecords
     };
 
     std::lock_guard<std::mutex> lock(mProcessCaptureResultLock);
@@ -290,8 +293,8 @@ hardware::Return<void> Camera3OfflineSession::processCaptureResult(
         mNextReprocessResultFrameNumber, mNextZslStillResultFrameNumber,
         mUseHalBufManager, mUsePartialResult, mNeedFixupMonochromeTags,
         mNumPartialResults, mVendorTagId, mDeviceInfo, mPhysicalDeviceInfoMap,
-        mResultMetadataQueue, mDistortionMappers, mZoomRatioMappers, mTagMonitor,
-        mInputStream, mOutputStreams, listener, *this, *this, mBufferRecords
+        mResultMetadataQueue, mDistortionMappers, mZoomRatioMappers, mRotateAndCropMappers,
+        mTagMonitor, mInputStream, mOutputStreams, listener, *this, *this, mBufferRecords
     };
 
     std::lock_guard<std::mutex> lock(mProcessCaptureResultLock);
@@ -323,8 +326,8 @@ hardware::Return<void> Camera3OfflineSession::notify(
         mNextReprocessResultFrameNumber, mNextZslStillResultFrameNumber,
         mUseHalBufManager, mUsePartialResult, mNeedFixupMonochromeTags,
         mNumPartialResults, mVendorTagId, mDeviceInfo, mPhysicalDeviceInfoMap,
-        mResultMetadataQueue, mDistortionMappers, mZoomRatioMappers, mTagMonitor,
-        mInputStream, mOutputStreams, listener, *this, *this, mBufferRecords
+        mResultMetadataQueue, mDistortionMappers, mZoomRatioMappers, mRotateAndCropMappers,
+        mTagMonitor, mInputStream, mOutputStreams, listener, *this, *this, mBufferRecords
     };
     for (const auto& msg : msgs) {
         camera3::notify(states, msg);
@@ -458,6 +461,10 @@ std::vector<sp<Camera3StreamInterface>> Camera3OfflineSession::getAllStreams() {
         ret.push_back(mOutputStreams[i]);
     }
     return ret;
+}
+
+const CameraMetadata& Camera3OfflineSession::info() const {
+    return mDeviceInfo;
 }
 
 }; // namespace android

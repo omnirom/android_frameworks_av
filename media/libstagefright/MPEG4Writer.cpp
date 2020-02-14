@@ -634,8 +634,10 @@ status_t MPEG4Writer::addSource(const sp<MediaSource> &source) {
     CHECK(source.get() != NULL);
 
     const char *mime;
-    source->getFormat()->findCString(kKeyMIMEType, &mime);
+    sp<MetaData> meta = source->getFormat();
+    meta->findCString(kKeyMIMEType, &mime);
     bool isAudio = !strncasecmp(mime, "audio/", 6);
+
     if (Track::getFourCCForMime(mime) == NULL) {
         ALOGE("Unsupported mime '%s'", mime);
         return ERROR_UNSUPPORTED;
