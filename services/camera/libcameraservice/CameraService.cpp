@@ -43,6 +43,7 @@
 #include <binder/PermissionController.h>
 #include <binder/ProcessInfoService.h>
 #include <binder/IResultReceiver.h>
+#include <binderthreadstate/CallerUtils.h>
 #include <cutils/atomic.h>
 #include <cutils/properties.h>
 #include <cutils/misc.h>
@@ -456,10 +457,14 @@ void CameraService::onDeviceStatusChanged(const String8& id,
     }
 
     if (updated) {
-        logDeviceRemoved(id, String8::format("Device %s-%s availability changed from %d to %d",
-                id.string(), physicalId.string(),
-                newStatus != StatusInternal::PRESENT,
-                newStatus == StatusInternal::PRESENT));
+        String8 idCombo = id + " : " + physicalId;
+        if (newStatus == StatusInternal::PRESENT) {
+            logDeviceAdded(idCombo,
+                    String8::format("Device status changed to %d", newStatus));
+        } else {
+            logDeviceRemoved(idCombo,
+                    String8::format("Device status changed to %d", newStatus));
+        }
 
         String16 id16(id), physicalId16(physicalId);
         Mutex::Autolock lock(mStatusListenerLock);
@@ -1179,7 +1184,7 @@ Status CameraService::validateClientPermissionsLocked(const String8& cameraId,
 
     // Only allow clients who are being used by the current foreground device user, unless calling
     // from our own process OR the caller is using the cameraserver's HIDL interface.
-    if (!hardware::IPCThreadState::self()->isServingCall() && callingPid != getpid() &&
+    if (getCurrentServingCall() != BinderCallType::HWBINDER && callingPid != getpid() &&
             (mAllowedUsers.find(clientUserId) == mAllowedUsers.end())) {
         ALOGE("CameraService::connect X (PID %d) rejected (cannot connect from "
                 "device user %d, currently allowed device users: %s)", callingPid, clientUserId,
@@ -1534,7 +1539,7 @@ bool CameraService::shouldRejectSystemCameraConnection(const String8& cameraId) 
         return false;
     }
     // (2)
-    if (!hardware::IPCThreadState::self()->isServingCall() &&
+    if (getCurrentServingCall() != BinderCallType::HWBINDER &&
             systemCameraKind == SystemCameraKind::HIDDEN_SECURE_CAMERA) {
         ALOGW("Rejecting access to secure hidden camera %s", cameraId.c_str());
         return true;
@@ -1543,7 +1548,7 @@ bool CameraService::shouldRejectSystemCameraConnection(const String8& cameraId) 
     //     getCameraCharacteristics() allows for calls to succeed (albeit after hiding some
     //     characteristics) even if clients don't have android.permission.CAMERA. We do not want the
     //     same behavior for system camera devices.
-    if (!hardware::IPCThreadState::self()->isServingCall() &&
+    if (getCurrentServingCall() != BinderCallType::HWBINDER &&
             systemCameraKind == SystemCameraKind::SYSTEM_ONLY_CAMERA &&
             !hasPermissionsForSystemCamera(cPid, cUid)) {
         ALOGW("Rejecting access to system only camera %s, inadequete permissions",
@@ -1569,7 +1574,7 @@ Status CameraService::connectDevice(
     sp<CameraDeviceClient> client = nullptr;
     String16 clientPackageNameAdj = clientPackageName;
 
-    if (hardware::IPCThreadState::self()->isServingCall()) {
+    if (getCurrentServingCall() == BinderCallType::HWBINDER) {
         std::string vendorClient =
                 StringPrintf("vendor.client.pid<%d>", CameraThreadState::getCallingPid());
         clientPackageNameAdj = String16(vendorClient.c_str());
@@ -2779,7 +2784,7 @@ CameraService::BasicClient::BasicClient(const sp<CameraService>& cameraService,
         }
         mClientPackageName = packages[0];
     }
-    if (!hardware::IPCThreadState::self()->isServingCall()) {
+    if (getCurrentServingCall() != BinderCallType::HWBINDER) {
         mAppOpsManager = std::make_unique<AppOpsManager>();
     }
 }
@@ -3451,7 +3456,7 @@ CameraService::DescriptorPtr CameraService::CameraClientManager::makeClientDescr
         const std::set<String8>& conflictingKeys, int32_t score, int32_t ownerId,
         int32_t state) {
 
-    bool isVendorClient = hardware::IPCThreadState::self()->isServingCall();
+    bool isVendorClient = getCurrentServingCall() == BinderCallType::HWBINDER;
     int32_t score_adj = isVendorClient ? kVendorClientScore : score;
     int32_t state_adj = isVendorClient ? kVendorClientState: state;
 
