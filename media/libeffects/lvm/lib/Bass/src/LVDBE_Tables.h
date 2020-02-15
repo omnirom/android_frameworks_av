@@ -24,9 +24,6 @@
 #ifndef __LVBDE_TABLES_H__
 #define __LVBDE_TABLES_H__
 
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
 
 #include "BIQUAD.h"
 #include "LVM_Types.h"
@@ -128,8 +125,5 @@ extern const LVM_FLOAT LVDBE_VolumeTCTable[];
 extern const LVM_INT16 LVDBE_MixerTCTable[];
 
 
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
 
 #endif /* __LVBDE_TABLES_H__ */

@@ -56,12 +56,12 @@
 #include <media/IMediaHTTPService.h>
 #include <media/mediaplayer.h>
 #include <mediautils/BatteryNotifier.h>
-#include <sensorprivacy/SensorPrivacyManager.h>
 #include <utils/Errors.h>
 #include <utils/Log.h>
 #include <utils/String16.h>
 #include <utils/SystemClock.h>
 #include <utils/Trace.h>
+#include <utils/CallStack.h>
 #include <private/android_filesystem_config.h>
 #include <system/camera_vendor_tags.h>
 #include <system/camera_metadata.h>
@@ -91,6 +91,8 @@ using hardware::ICameraServiceProxy;
 using hardware::ICameraServiceListener;
 using hardware::camera::common::V1_0::CameraDeviceStatus;
 using hardware::camera::common::V1_0::TorchModeStatus;
+using hardware::camera2::utils::CameraIdAndSessionConfiguration;
+using hardware::camera2::utils::ConcurrentCameraIdCombination;
 
 // ----------------------------------------------------------------------------
 // Logging support -- this is for debugging only
@@ -420,7 +422,52 @@ void CameraService::onDeviceStatusChanged(const String8& id,
         }
         updateStatus(newStatus, id);
     }
+}
 
+void CameraService::onDeviceStatusChanged(const String8& id,
+        const String8& physicalId,
+        CameraDeviceStatus newHalStatus) {
+    ALOGI("%s: Status changed for cameraId=%s, physicalCameraId=%s, newStatus=%d",
+            __FUNCTION__, id.string(), physicalId.string(), newHalStatus);
+
+    StatusInternal newStatus = mapToInternal(newHalStatus);
+
+    std::shared_ptr<CameraState> state = getCameraState(id);
+
+    if (state == nullptr) {
+        ALOGE("%s: Physical camera id %s status change on a non-present ID %s",
+                __FUNCTION__, id.string(), physicalId.string());
+        return;
+    }
+
+    StatusInternal logicalCameraStatus = state->getStatus();
+    if (logicalCameraStatus != StatusInternal::PRESENT &&
+            logicalCameraStatus != StatusInternal::NOT_AVAILABLE) {
+        ALOGE("%s: Physical camera id %s status %d change for an invalid logical camera state %d",
+                __FUNCTION__, physicalId.string(), newHalStatus, logicalCameraStatus);
+        return;
+    }
+
+    bool updated = false;
+    if (newStatus == StatusInternal::PRESENT) {
+        updated = state->removeUnavailablePhysicalId(physicalId);
+    } else {
+        updated = state->addUnavailablePhysicalId(physicalId);
+    }
+
+    if (updated) {
+        logDeviceRemoved(id, String8::format("Device %s-%s availability changed from %d to %d",
+                id.string(), physicalId.string(),
+                newStatus != StatusInternal::PRESENT,
+                newStatus == StatusInternal::PRESENT));
+
+        String16 id16(id), physicalId16(physicalId);
+        Mutex::Autolock lock(mStatusListenerLock);
+        for (auto& listener : mListenerList) {
+            listener->getListener()->onPhysicalCameraStatusChanged(mapToInterface(newStatus),
+                    id16, physicalId16);
+        }
+    }
 }
 
 void CameraService::disconnectClient(const String8& id, sp<BasicClient> clientToDisconnect) {
@@ -1686,6 +1733,11 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
             }
         }
 
+        // Set rotate-and-crop override behavior
+        if (mOverrideRotateAndCropMode != ANDROID_SCALER_ROTATE_AND_CROP_AUTO) {
+            client->setRotateAndCropOverride(mOverrideRotateAndCropMode);
+        }
+
         if (shimUpdateOnly) {
             // If only updating legacy shim parameters, immediately disconnect client
             mServiceLock.unlock();
@@ -1990,6 +2042,83 @@ Status CameraService::notifyDeviceStateChange(int64_t newState) {
     return Status::ok();
 }
 
+ Status CameraService::getConcurrentStreamingCameraIds(
+        std::vector<ConcurrentCameraIdCombination>* concurrentCameraIds) {
+    ATRACE_CALL();
+    if (!concurrentCameraIds) {
+        ALOGE("%s: concurrentCameraIds is NULL", __FUNCTION__);
+        return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "concurrentCameraIds is NULL");
+    }
+
+    if (!mInitialized) {
+        ALOGE("%s: Camera HAL couldn't be initialized", __FUNCTION__);
+        return STATUS_ERROR(ERROR_DISCONNECTED,
+                "Camera subsystem is not available");
+    }
+    // First call into the provider and get the set of concurrent camera
+    // combinations
+    std::vector<std::unordered_set<std::string>> concurrentCameraCombinations =
+            mCameraProviderManager->getConcurrentStreamingCameraIds();
+    for (auto &combination : concurrentCameraCombinations) {
+        std::vector<std::string> validCombination;
+        for (auto &cameraId : combination) {
+            // if the camera state is not present, skip
+            String8 cameraIdStr(cameraId.c_str());
+            auto state = getCameraState(cameraIdStr);
+            if (state == nullptr) {
+                ALOGW("%s: camera id %s does not exist", __FUNCTION__, cameraId.c_str());
+                continue;
+            }
+            StatusInternal status = state->getStatus();
+            if (status == StatusInternal::NOT_PRESENT || status == StatusInternal::ENUMERATING) {
+                continue;
+            }
+            if (shouldRejectSystemCameraConnection(cameraIdStr)) {
+                continue;
+            }
+            validCombination.push_back(cameraId);
+        }
+        if (validCombination.size() != 0) {
+            concurrentCameraIds->push_back(std::move(validCombination));
+        }
+    }
+    return Status::ok();
+}
+
+Status CameraService::isConcurrentSessionConfigurationSupported(
+        const std::vector<CameraIdAndSessionConfiguration>& cameraIdsAndSessionConfigurations,
+        /*out*/bool* isSupported) {
+    if (!isSupported) {
+        ALOGE("%s: isSupported is NULL", __FUNCTION__);
+        return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "isSupported is NULL");
+    }
+
+    if (!mInitialized) {
+        ALOGE("%s: Camera HAL couldn't be initialized", __FUNCTION__);
+        return STATUS_ERROR(ERROR_DISCONNECTED,
+                "Camera subsystem is not available");
+    }
+
+    // Check for camera permissions
+    int callingPid = CameraThreadState::getCallingPid();
+    int callingUid = CameraThreadState::getCallingUid();
+    if ((callingPid != getpid()) && !checkPermission(sCameraPermission, callingPid, callingUid)) {
+        ALOGE("%s: pid %d doesn't have camera permissions", __FUNCTION__, callingPid);
+        return STATUS_ERROR(ERROR_PERMISSION_DENIED,
+                "android.permission.CAMERA needed to call"
+                "isConcurrentSessionConfigurationSupported");
+    }
+
+    status_t res =
+            mCameraProviderManager->isConcurrentSessionConfigurationSupported(
+                    cameraIdsAndSessionConfigurations, isSupported);
+    if (res != OK) {
+        return STATUS_ERROR_FMT(ERROR_INVALID_OPERATION, "Unable to query session configuration "
+                "support %s (%d)", strerror(-res), res);
+    }
+    return Status::ok();
+}
+
 Status CameraService::addListener(const sp<ICameraServiceListener>& listener,
         /*out*/
         std::vector<hardware::CameraStatus> *cameraStatuses) {
@@ -2045,7 +2174,8 @@ Status CameraService::addListenerHelper(const sp<ICameraServiceListener>& listen
     {
         Mutex::Autolock lock(mCameraStatesLock);
         for (auto& i : mCameraStates) {
-            cameraStatuses->emplace_back(i.first, mapToInterface(i.second->getStatus()));
+            cameraStatuses->emplace_back(i.first,
+                    mapToInterface(i.second->getStatus()), i.second->getUnavailablePhysicalIds());
         }
     }
     // Remove the camera statuses that should be hidden from the client, we do
@@ -3128,10 +3258,9 @@ void CameraService::SensorPrivacyPolicy::registerSelf() {
     if (mRegistered) {
         return;
     }
-    SensorPrivacyManager spm;
-    spm.addSensorPrivacyListener(this);
-    mSensorPrivacyEnabled = spm.isSensorPrivacyEnabled();
-    status_t res = spm.linkToDeath(this);
+    mSpm.addSensorPrivacyListener(this);
+    mSensorPrivacyEnabled = mSpm.isSensorPrivacyEnabled();
+    status_t res = mSpm.linkToDeath(this);
     if (res == OK) {
         mRegistered = true;
         ALOGV("SensorPrivacyPolicy: Registered with SensorPrivacyManager");
@@ -3140,9 +3269,8 @@ void CameraService::SensorPrivacyPolicy::registerSelf() {
 
 void CameraService::SensorPrivacyPolicy::unregisterSelf() {
     Mutex::Autolock _l(mSensorPrivacyLock);
-    SensorPrivacyManager spm;
-    spm.removeSensorPrivacyListener(this);
-    spm.unlinkToDeath(this);
+    mSpm.removeSensorPrivacyListener(this);
+    mSpm.unlinkToDeath(this);
     mRegistered = false;
     ALOGV("SensorPrivacyPolicy: Unregistered with SensorPrivacyManager");
 }
@@ -3189,6 +3317,12 @@ CameraService::StatusInternal CameraService::CameraState::getStatus() const {
     return mStatus;
 }
 
+std::vector<String8> CameraService::CameraState::getUnavailablePhysicalIds() const {
+    Mutex::Autolock lock(mStatusLock);
+    std::vector<String8> res(mUnavailablePhysicalIds.begin(), mUnavailablePhysicalIds.end());
+    return res;
+}
+
 CameraParameters CameraService::CameraState::getShimParams() const {
     return mShimParams;
 }
@@ -3211,6 +3345,18 @@ String8 CameraService::CameraState::getId() const {
 
 SystemCameraKind CameraService::CameraState::getSystemCameraKind() const {
     return mSystemCameraKind;
+}
+
+bool CameraService::CameraState::addUnavailablePhysicalId(const String8& physicalId) {
+    Mutex::Autolock lock(mStatusLock);
+    auto result = mUnavailablePhysicalIds.insert(physicalId);
+    return result.second;
+}
+
+bool CameraService::CameraState::removeUnavailablePhysicalId(const String8& physicalId) {
+    Mutex::Autolock lock(mStatusLock);
+    auto count = mUnavailablePhysicalIds.erase(physicalId);
+    return count > 0;
 }
 
 // ----------------------------------------------------------------------------
@@ -3570,7 +3716,7 @@ void CameraService::updateStatus(StatusInternal status, const String8& cameraId,
         return;
     }
     // Update the status for this camera state, then send the onStatusChangedCallbacks to each
-    // of the listeners with both the mStatusStatus and mStatusListenerLock held
+    // of the listeners with both the mStatusLock and mStatusListenerLock held
     state->updateStatus(status, cameraId, rejectSourceStates, [this, &deviceKind, &supportsHAL3]
             (const String8& cameraId, StatusInternal status) {
 
@@ -3591,6 +3737,8 @@ void CameraService::updateStatus(StatusInternal status, const String8& cameraId,
             }
 
             Mutex::Autolock lock(mStatusListenerLock);
+
+            notifyPhysicalCameraStatusLocked(mapToInterface(status), cameraId);
 
             for (auto& listener : mListenerList) {
                 bool isVendorListener = listener->isVendorListener();
@@ -3685,6 +3833,28 @@ status_t CameraService::setTorchStatusLocked(const String8& cameraId,
     return OK;
 }
 
+void CameraService::notifyPhysicalCameraStatusLocked(int32_t status, const String8& cameraId) {
+    Mutex::Autolock lock(mCameraStatesLock);
+    for (const auto& state : mCameraStates) {
+        std::vector<std::string> physicalCameraIds;
+        if (!mCameraProviderManager->isLogicalCamera(state.first.c_str(), &physicalCameraIds)) {
+            // This is not a logical multi-camera.
+            continue;
+        }
+        if (std::find(physicalCameraIds.begin(), physicalCameraIds.end(), cameraId.c_str())
+                == physicalCameraIds.end()) {
+            // cameraId is not a physical camera of this logical multi-camera.
+            continue;
+        }
+
+        String16 id16(state.first), physicalId16(cameraId);
+        for (auto& listener : mListenerList) {
+            listener->getListener()->onPhysicalCameraStatusChanged(status,
+                    id16, physicalId16);
+        }
+    }
+}
+
 void CameraService::blockClientsForUid(uid_t uid) {
     const auto clients = mActiveClientManager.getAll();
     for (auto& current : clients) {
@@ -3723,6 +3893,10 @@ status_t CameraService::shellCommand(int in, int out, int err, const Vector<Stri
         return handleResetUidState(args, err);
     } else if (args.size() >= 2 && args[0] == String16("get-uid-state")) {
         return handleGetUidState(args, out, err);
+    } else if (args.size() >= 2 && args[0] == String16("set-rotate-and-crop")) {
+        return handleSetRotateAndCrop(args);
+    } else if (args.size() >= 1 && args[0] == String16("get-rotate-and-crop")) {
+        return handleGetRotateAndCrop(out);
     } else if (args.size() == 1 && args[0] == String16("help")) {
         printHelp(out);
         return NO_ERROR;
@@ -3793,11 +3967,43 @@ status_t CameraService::handleGetUidState(const Vector<String16>& args, int out,
     }
 }
 
+status_t CameraService::handleSetRotateAndCrop(const Vector<String16>& args) {
+    int rotateValue = atoi(String8(args[1]));
+    if (rotateValue < ANDROID_SCALER_ROTATE_AND_CROP_NONE ||
+            rotateValue > ANDROID_SCALER_ROTATE_AND_CROP_AUTO) return BAD_VALUE;
+    Mutex::Autolock lock(mServiceLock);
+
+    mOverrideRotateAndCropMode = rotateValue;
+
+    if (rotateValue == ANDROID_SCALER_ROTATE_AND_CROP_AUTO) return OK;
+
+    const auto clients = mActiveClientManager.getAll();
+    for (auto& current : clients) {
+        if (current != nullptr) {
+            const auto basicClient = current->getValue();
+            if (basicClient.get() != nullptr) {
+                basicClient->setRotateAndCropOverride(rotateValue);
+            }
+        }
+    }
+
+    return OK;
+}
+
+status_t CameraService::handleGetRotateAndCrop(int out) {
+    Mutex::Autolock lock(mServiceLock);
+
+    return dprintf(out, "rotateAndCrop override: %d\n", mOverrideRotateAndCropMode);
+}
+
 status_t CameraService::printHelp(int out) {
     return dprintf(out, "Camera service commands:\n"
         "  get-uid-state <PACKAGE> [--user USER_ID] gets the uid state\n"
         "  set-uid-state <PACKAGE> <active|idle> [--user USER_ID] overrides the uid state\n"
         "  reset-uid-state <PACKAGE> [--user USER_ID] clears the uid state override\n"
+        "  set-rotate-and-crop <ROTATION> overrides the rotate-and-crop value for AUTO backcompat\n"
+        "      Valid values 0=0 deg, 1=90 deg, 2=180 deg, 3=270 deg, 4=No override\n"
+        "  get-rotate-and-crop returns the current override rotate-and-crop value\n"
         "  help print this message\n");
 }
 

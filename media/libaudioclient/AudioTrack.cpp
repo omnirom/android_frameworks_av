@@ -303,6 +303,12 @@ AudioTrack::~AudioTrack()
     // pull together the numbers, before we clean up our structures
     mMediaMetrics.gather(this);
 
+    mediametrics::LogItem(mMetricsId)
+        .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_DTOR)
+        .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
+        .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)mStatus)
+        .record();
+
     // To avoid A2DP session stop on remote device during Next/Prev of playback
     // for split a2dp solution via offload path, create dummy Low latency session
     // which will ensure session is active
@@ -689,11 +695,23 @@ exit:
 
 status_t AudioTrack::start()
 {
+    const int64_t beginNs = systemTime();
     AutoMutex lock(mLock);
+
+    status_t status = NO_ERROR; // logged: make sure to set this before returning.
+    mediametrics::Defer([&] {
+        mediametrics::LogItem(mMetricsId)
+            .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_START)
+            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
+            .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)status)
+            .record(); });
+
     ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
     if (mState == STATE_ACTIVE) {
-        return INVALID_OPERATION;
+        status = INVALID_OPERATION;
+        return status;
     }
 
     mInUnderrun = true;
@@ -767,7 +785,6 @@ status_t AudioTrack::start()
     mNewPosition = mPosition + mUpdatePeriod;
     int32_t flags = android_atomic_and(~(CBLK_STREAM_END_DONE | CBLK_DISABLED), &mCblk->mFlags);
 
-    status_t status = NO_ERROR;
     if (!(flags & CBLK_INVALID)) {
         status = mAudioTrack->start();
         if (status == DEAD_OBJECT) {
@@ -813,7 +830,16 @@ status_t AudioTrack::start()
 
 void AudioTrack::stop()
 {
+    const int64_t beginNs = systemTime();
+
     AutoMutex lock(mLock);
+    mediametrics::Defer([&]() {
+        mediametrics::LogItem(mMetricsId)
+            .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_STOP)
+            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
+            .record(); });
+
     ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
     if (mState != STATE_ACTIVE && mState != STATE_PAUSED) {
@@ -865,7 +891,15 @@ bool AudioTrack::stopped() const
 
 void AudioTrack::flush()
 {
+    const int64_t beginNs = systemTime();
     AutoMutex lock(mLock);
+    mediametrics::Defer([&]() {
+        mediametrics::LogItem(mMetricsId)
+            .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_FLUSH)
+            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
+            .record(); });
+
     ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
     if (mSharedBuffer != 0) {
@@ -898,7 +932,15 @@ void AudioTrack::flush_l()
 
 void AudioTrack::pause()
 {
+    const int64_t beginNs = systemTime();
     AutoMutex lock(mLock);
+    mediametrics::Defer([&]() {
+        mediametrics::LogItem(mMetricsId)
+            .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_PAUSE)
+            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
+            .record(); });
+
     ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
     if (mState == STATE_ACTIVE) {
@@ -940,6 +982,12 @@ status_t AudioTrack::setVolume(float left, float right)
             isnanf(right) || right < GAIN_FLOAT_ZERO || right > GAIN_FLOAT_UNITY) {
         return BAD_VALUE;
     }
+
+    mediametrics::LogItem(mMetricsId)
+        .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_SETVOLUME)
+        .set(AMEDIAMETRICS_PROP_VOLUME_LEFT, (double)left)
+        .set(AMEDIAMETRICS_PROP_VOLUME_RIGHT, (double)right)
+        .record();
 
     AutoMutex lock(mLock);
     mVolume[AUDIO_INTERLEAVE_LEFT] = left;
@@ -1092,6 +1140,20 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
     //set effective rates
     mProxy->setPlaybackRate(playbackRateTemp);
     mProxy->setSampleRate(effectiveRate); // FIXME: not quite "atomic" with setPlaybackRate
+
+    mediametrics::LogItem(mMetricsId)
+        .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_SETPLAYBACKPARAM)
+        .set(AMEDIAMETRICS_PROP_SAMPLERATE, (int32_t)mSampleRate)
+        .set(AMEDIAMETRICS_PROP_PLAYBACK_SPEED, (double)mPlaybackRate.mSpeed)
+        .set(AMEDIAMETRICS_PROP_PLAYBACK_PITCH, (double)mPlaybackRate.mPitch)
+        .set(AMEDIAMETRICS_PROP_PREFIX_EFFECTIVE
+                AMEDIAMETRICS_PROP_SAMPLERATE, (int32_t)effectiveRate)
+        .set(AMEDIAMETRICS_PROP_PREFIX_EFFECTIVE
+                AMEDIAMETRICS_PROP_PLAYBACK_SPEED, (double)playbackRateTemp.mSpeed)
+        .set(AMEDIAMETRICS_PROP_PREFIX_EFFECTIVE
+                AMEDIAMETRICS_PROP_PLAYBACK_PITCH, (double)playbackRateTemp.mPitch)
+        .record();
+
 
     if (mTrackOffloaded &&
         !isAudioPlaybackRateEqual(mPlaybackRate, AUDIO_PLAYBACK_RATE_DEFAULT)) {
@@ -1700,6 +1762,48 @@ status_t AudioTrack::createTrack_l()
     mDeathNotifier = new DeathNotifier(this);
     IInterface::asBinder(mAudioTrack)->linkToDeath(mDeathNotifier, this);
 
+    // This is the first log sent from the AudioTrack client.
+    // The creation of the audio track by AudioFlinger (in the code above)
+    // is the first log of the AudioTrack and must be present before
+    // any AudioTrack client logs will be accepted.
+    mMetricsId = std::string(AMEDIAMETRICS_KEY_PREFIX_AUDIO_TRACK) + std::to_string(mPortId);
+    mediametrics::LogItem(mMetricsId)
+        .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_CREATE)
+        // the following are immutable
+        .set(AMEDIAMETRICS_PROP_FLAGS, (int32_t)mFlags)
+        .set(AMEDIAMETRICS_PROP_ORIGINALFLAGS, (int32_t)mOrigFlags)
+        .set(AMEDIAMETRICS_PROP_SESSIONID, (int32_t)mSessionId)
+        .set(AMEDIAMETRICS_PROP_TRACKID, mPortId) // dup from key
+        .set(AMEDIAMETRICS_PROP_STREAMTYPE, toString(mStreamType).c_str())
+        .set(AMEDIAMETRICS_PROP_CONTENTTYPE, toString(mAttributes.content_type).c_str())
+        .set(AMEDIAMETRICS_PROP_USAGE, toString(mAttributes.usage).c_str())
+        .set(AMEDIAMETRICS_PROP_THREADID, (int32_t)output.outputId)
+        .set(AMEDIAMETRICS_PROP_SELECTEDDEVICEID, (int32_t)mSelectedDeviceId)
+        .set(AMEDIAMETRICS_PROP_ROUTEDDEVICEID, (int32_t)mRoutedDeviceId)
+        .set(AMEDIAMETRICS_PROP_ENCODING, toString(mFormat).c_str())
+        .set(AMEDIAMETRICS_PROP_CHANNELMASK, (int32_t)mChannelMask)
+        .set(AMEDIAMETRICS_PROP_FRAMECOUNT, (int32_t)mFrameCount)
+        // the following are NOT immutable
+        .set(AMEDIAMETRICS_PROP_VOLUME_LEFT, (double)mVolume[AUDIO_INTERLEAVE_LEFT])
+        .set(AMEDIAMETRICS_PROP_VOLUME_RIGHT, (double)mVolume[AUDIO_INTERLEAVE_RIGHT])
+        .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
+        .set(AMEDIAMETRICS_PROP_AUXEFFECTID, (int32_t)mAuxEffectId)
+        .set(AMEDIAMETRICS_PROP_SAMPLERATE, (int32_t)mSampleRate)
+        .set(AMEDIAMETRICS_PROP_PLAYBACK_SPEED, (double)mPlaybackRate.mSpeed)
+        .set(AMEDIAMETRICS_PROP_PLAYBACK_PITCH, (double)mPlaybackRate.mPitch)
+        .set(AMEDIAMETRICS_PROP_PREFIX_EFFECTIVE
+                AMEDIAMETRICS_PROP_SAMPLERATE, (int32_t)effectiveSampleRate)
+        .set(AMEDIAMETRICS_PROP_PREFIX_EFFECTIVE
+                AMEDIAMETRICS_PROP_PLAYBACK_SPEED, (double)effectiveSpeed)
+        .set(AMEDIAMETRICS_PROP_PREFIX_EFFECTIVE
+                AMEDIAMETRICS_PROP_PLAYBACK_PITCH, (double)effectivePitch)
+        .record();
+
+    // mSendLevel
+    // mReqFrameCount?
+    // mNotificationFramesAct, mNotificationFramesReq, mNotificationsPerBufferReq
+    // mLatency, mAfLatency, mAfFrameCount, mAfSampleRate
+
     }
 
 exit:
@@ -1755,7 +1859,6 @@ status_t AudioTrack::obtainBuffer(Buffer* audioBuffer, const struct timespec *re
 {
     // previous and new IAudioTrack sequence numbers are used to detect track re-creation
     uint32_t oldSequence = 0;
-    uint32_t newSequence;
 
     Proxy::Buffer buffer;
     status_t status = NO_ERROR;
@@ -1772,7 +1875,7 @@ status_t AudioTrack::obtainBuffer(Buffer* audioBuffer, const struct timespec *re
         {   // start of lock scope
             AutoMutex lock(mLock);
 
-            newSequence = mSequence;
+            uint32_t newSequence = mSequence;
             // did previous obtainBuffer() fail due to media server death or voluntary invalidation?
             if (status == DEAD_OBJECT) {
                 // re-create track, unless someone else has already done so
@@ -1819,6 +1922,7 @@ status_t AudioTrack::obtainBuffer(Buffer* audioBuffer, const struct timespec *re
     audioBuffer->frameCount = buffer.mFrameCount;
     audioBuffer->size = buffer.mFrameCount * mFrameSize;
     audioBuffer->raw = buffer.mRaw;
+    audioBuffer->sequence = oldSequence;
     if (nonContig != NULL) {
         *nonContig = buffer.mNonContig;
     }
@@ -1842,6 +1946,12 @@ void AudioTrack::releaseBuffer(const Buffer* audioBuffer)
     buffer.mRaw = audioBuffer->raw;
 
     AutoMutex lock(mLock);
+    if (audioBuffer->sequence != mSequence) {
+        // This Buffer came from a different IAudioTrack instance, so ignore the releaseBuffer
+        ALOGD("%s is no-op due to IAudioTrack sequence mismatch %u != %u",
+                __func__, audioBuffer->sequence, mSequence);
+        return;
+    }
     mReleased += stepCount;
     mInUnderrun = false;
     mProxy->releaseBuffer(&buffer);
@@ -2376,6 +2486,17 @@ nsecs_t AudioTrack::processAudioBuffer()
 
 status_t AudioTrack::restoreTrack_l(const char *from)
 {
+    status_t result = NO_ERROR;  // logged: make sure to set this before returning.
+    const int64_t beginNs = systemTime();
+    mediametrics::Defer([&] {
+        mediametrics::LogItem(mMetricsId)
+            .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_RESTORE)
+            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
+            .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)result)
+            .set(AMEDIAMETRICS_PROP_WHERE, from)
+            .record(); });
+
     ALOGW("%s(%d): dead IAudioTrack, %s, creating a new one from %s()",
             __func__, mPortId, isOffloadedOrDirect_l() ? "Offloaded or Direct" : "PCM", from);
     ++mSequence;
@@ -2394,7 +2515,8 @@ status_t AudioTrack::restoreTrack_l(const char *from)
         // continuous creation and tear down.
         if (!mTrackOffloaded ||
               isAudioPlaybackRateEqual(mPlaybackRate, AUDIO_PLAYBACK_RATE_DEFAULT)) {
-            return DEAD_OBJECT;
+            result = DEAD_OBJECT;
+            return result;
         }
     }
 
@@ -2426,7 +2548,7 @@ retry:
     // following member variables: mAudioTrack, mCblkMemory and mCblk.
     // It will also delete the strong references on previous IAudioTrack and IMemory.
     // If a new IAudioTrack cannot be created, the previous (dead) instance will be left intact.
-    status_t result = createTrack_l();
+    result = createTrack_l();
 
     if (result == NO_ERROR) {
         // take the frames that will be lost by track recreation into account in saved position

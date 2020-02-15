@@ -62,24 +62,27 @@ cc_library_shared {
         "device3/CoordinateMapper.cpp",
         "device3/DistortionMapper.cpp",
         "device3/ZoomRatioMapper.cpp",
+        "device3/RotateAndCropMapper.cpp",
         "device3/Camera3OutputStreamInterface.cpp",
         "device3/Camera3OutputUtils.cpp",
         "gui/RingBufferConsumer.cpp",
-        "utils/CameraThreadState.cpp",
         "hidl/AidlCameraDeviceCallbacks.cpp",
         "hidl/AidlCameraServiceListener.cpp",
         "hidl/Convert.cpp",
         "hidl/HidlCameraDeviceUser.cpp",
         "hidl/HidlCameraService.cpp",
+        "utils/CameraThreadState.cpp",
         "utils/CameraTraces.cpp",
         "utils/AutoConditionLock.cpp",
         "utils/ExifUtils.cpp",
+        "utils/SessionConfigurationUtils.cpp",
         "utils/TagMonitor.cpp",
         "utils/LatencyHistogram.cpp",
     ],
 
     header_libs: [
-        "libmediadrm_headers"
+        "libmediadrm_headers",
+        "libmediametrics_headers",
     ],
 
     shared_libs: [
@@ -117,6 +120,7 @@ cc_library_shared {
         "android.hardware.camera.common@1.0",
         "android.hardware.camera.provider@2.4",
         "android.hardware.camera.provider@2.5",
+        "android.hardware.camera.provider@2.6",
         "android.hardware.camera.device@1.0",
         "vendor.qti.hardware.camera.device@1.0",
         "android.hardware.camera.device@3.2",
