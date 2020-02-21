@@ -224,6 +224,10 @@ AudioPolicyMixCollection::MixMatchStatus AudioPolicyMixCollection::mixMatch(
                 hasFlag(attributes.flags, AUDIO_FLAG_NO_MEDIA_PROJECTION)) {
                 return MixMatchStatus::NO_MATCH;
             }
+            if (attributes.usage == AUDIO_USAGE_VOICE_COMMUNICATION &&
+                !mix->mVoiceCommunicationCaptureAllowed) {
+                return MixMatchStatus::NO_MATCH;
+            }
             if (!(attributes.usage == AUDIO_USAGE_UNKNOWN ||
                   attributes.usage == AUDIO_USAGE_MEDIA ||
                   attributes.usage == AUDIO_USAGE_GAME ||
@@ -353,11 +357,11 @@ AudioPolicyMixCollection::MixMatchStatus AudioPolicyMixCollection::mixMatch(
         // determine if exiting on success (or implicit failure as desc is 0)
         if (hasAddrMatch ||
                 !((hasUsageExcludeRules && usageExclusionFound) ||
-                  (hasUserIdExcludeRules && userIdExclusionFound) ||
                   (hasUsageMatchRules && !usageMatchFound)  ||
                   (hasUidExcludeRules && uidExclusionFound) ||
-                  (hasUidMatchRules && !uidMatchFound)) ||
-                  (hasUserIdMatchRules && !userIdMatchFound)) {
+                  (hasUidMatchRules && !uidMatchFound) ||
+                  (hasUserIdExcludeRules && userIdExclusionFound) ||
+                  (hasUserIdMatchRules && !userIdMatchFound))) {
             ALOGV("\tgetOutputForAttr will use mix %zu", mixIndex);
             return MixMatchStatus::MATCH;
         }
