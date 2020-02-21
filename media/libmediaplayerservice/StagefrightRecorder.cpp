@@ -1815,6 +1815,8 @@ status_t StagefrightRecorder::setupVideoEncoder(
     format->setInt32("bitrate", mVideoBitRate);
     format->setInt32("frame-rate", mFrameRate);
     format->setInt32("i-frame-interval", mIFramesIntervalSec);
+    // In order to customize native recordings
+    format->setInt32("vendor.qti-ext-enc-info-native_recording.value", 1);
 
     if (mVideoTimeScale > 0) {
         format->setInt32("time-scale", mVideoTimeScale);
