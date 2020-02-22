@@ -111,7 +111,6 @@ cc_library_shared {
         "libutils",
         "liblog",
         "libui",
-        "libgui_vendor",
         "libcutils",
         "libstagefright_foundation_ext",
         "libstagefright_bufferqueue_helper",
@@ -119,7 +118,6 @@ cc_library_shared {
         "libdl",
         "libhidlbase",
         "libhidlmemory",
-        "libnativewindow", // TODO(b/62923479): use header library
         "libvndksupport",
         "android.hardware.media.omx@1.0",
         "android.hardware.graphics.bufferqueue@1.0",

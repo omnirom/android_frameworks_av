@@ -1,31 +1,20 @@
 {
-  "presubmit": [
+  "postsubmit": [
     {
-      "name": "GtsMediaTestCases",
-      "options" : [
+      // TODO: move to presubmit once we verify the tests are not flaky
+      "name": "CtsMediaTestCases",
+      "options": [
         {
-	  "include-annotation": "android.platform.test.annotations.Presubmit"
+          "include-annotation": "android.platform.test.annotations.Presubmit"
         },
         {
-          "include-filter": "com.google.android.media.gts.WidevineGenericOpsTests"
-        }
-      ]
-    },
-    {
-      "name": "GtsExoPlayerTestCases",
-      "options" : [
-        {
-	  "include-annotation": "android.platform.test.annotations.SocPresubmit"
+          "exclude-annotation": "android.platform.test.annotations.RequiresDevice"
         },
+        // TODO: b/149314419
         {
-          "include-filter": "com.google.android.exoplayer.gts.DashTest#testWidevine23FpsH264Fixed"
+          "exclude-filter": "android.media.cts.AudioPlaybackCaptureTest"
         }
       ]
-    }
-  ],
-  "imports": [
-    {
-      "path": "frameworks/av/drm/mediadrm/plugins"
     }
   ]
 }
