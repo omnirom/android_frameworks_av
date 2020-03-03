@@ -200,6 +200,7 @@ struct MediaCodec::ResourceManagerServiceProxy : public RefBase {
     void addResource(const MediaResourceParcel &resource);
     void removeResource(const MediaResourceParcel &resource);
     void removeClient();
+    void markClientForPendingRemoval();
     bool reclaimResource(const std::vector<MediaResourceParcel> &resources);
 
 private:
@@ -279,6 +280,14 @@ void MediaCodec::ResourceManagerServiceProxy::removeClient() {
         return;
     }
     mService->removeClient(mPid, getId(mClient));
+}
+
+void MediaCodec::ResourceManagerServiceProxy::markClientForPendingRemoval() {
+    Mutex::Autolock _l(mLock);
+    if (mService == nullptr) {
+        return;
+    }
+    mService->markClientForPendingRemoval(mPid, getId(mClient));
 }
 
 bool MediaCodec::ResourceManagerServiceProxy::reclaimResource(
@@ -1446,7 +1455,13 @@ status_t MediaCodec::reclaim(bool force) {
 
 status_t MediaCodec::release() {
     sp<AMessage> msg = new AMessage(kWhatRelease, this);
+    sp<AMessage> response;
+    return PostAndAwaitResponse(msg, &response);
+}
 
+status_t MediaCodec::releaseAsync() {
+    sp<AMessage> msg = new AMessage(kWhatRelease, this);
+    msg->setInt32("async", 1);
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
@@ -2619,7 +2634,9 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
                     mResourceManagerProxy->removeClient();
 
-                    (new AMessage)->postReply(mReplyID);
+                    if (mReplyID != nullptr) {
+                        (new AMessage)->postReply(mReplyID);
+                    }
                     break;
                 }
 
@@ -3017,6 +3034,14 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
             if (mSoftRenderer != NULL && (mFlags & kFlagPushBlankBuffersOnShutdown)) {
                 pushBlankBuffersToNativeWindow(mSurface.get());
+            }
+
+            int32_t async = 0;
+            if (msg->findInt32("async", &async) && async) {
+                mResourceManagerProxy->markClientForPendingRemoval();
+                handleSetSurface(NULL);
+                (new AMessage)->postReply(mReplyID);
+                mReplyID = 0;
             }
 
             break;
