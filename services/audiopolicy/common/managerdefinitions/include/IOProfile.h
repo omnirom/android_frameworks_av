@@ -137,8 +137,10 @@ public:
         }
         DeviceVector deviceList =
             mSupportedDevices.getDevicesFromTypes(deviceTypes);
-        if (!deviceList.empty()) {
-            return deviceList.itemAt(0)->hasCurrentEncodedFormat();
+        for (const auto& device : deviceList) {
+            if (device->hasCurrentEncodedFormat()) {
+                return true;
+            }
         }
         return false;
     }
