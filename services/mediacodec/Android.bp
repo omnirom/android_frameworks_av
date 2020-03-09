@@ -132,9 +132,10 @@ cc_binary {
 
     arch: {
         arm: {
-            cflags: [
-                "-DENABLE_BINDER_BUFFER_TUNING_FOR_32_BIT",
-            ],
+            // TODO(b/151100811): reenable ENABLE_BINDER_BUFFER_TUNING_FOR_32_BIT flag
+            //cflags: [
+            //    "-DENABLE_BINDER_BUFFER_TUNING_FOR_32_BIT",
+            //],
         },
     },
 }
