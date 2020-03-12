@@ -32,7 +32,6 @@
 
 #include <common/AVExtensionsCommon.h>
 #include <hardware/audio.h>
-#include <media/AudioTrack.h>
 
 namespace android {
 
