@@ -59,7 +59,6 @@ struct C2Config {
     enum drc_compression_mode_t : int32_t;  ///< DRC compression mode
     enum drc_effect_type_t : int32_t;       ///< DRC effect type
     enum drc_album_mode_t : int32_t;        ///< DRC album mode
-    enum drc_output_loudness : int32_t;     ///< DRC output loudness
     enum intra_refresh_mode_t : uint32_t;   ///< intra refresh modes
     enum level_t : uint32_t;                ///< coding level
     enum ordinal_key_t : uint32_t;          ///< work ordering keys
@@ -248,7 +247,7 @@ enum C2ParamIndexKind : C2Param::type_index_t {
 
     kParamIndexSurfaceAllocator, // u32
 
-    // low latency mode for decoders
+    // low latency mode
     kParamIndexLowLatencyMode, // bool
 };
 
@@ -812,9 +811,10 @@ typedef C2PipelineDelayTuning C2ActualPipelineDelayTuning; // deprecated
 constexpr char C2_PARAMKEY_PIPELINE_DELAY[] = "algo.delay";
 
 /**
- * Enable/disable low latency decoding mode.
- * If true, low latency decoding mode is enabled, and the decoder doesn't hold input and output
- * data more than required by the codec standards.
+ * Enable/disable low latency mode.
+ * If true, low latency is preferred over low power. Disable power optimizations that
+ * may result in increased latency. For decoders, this means that the decoder does not
+ * hold input and output data more than required by the codec standards.
  */
 typedef C2GlobalParam<C2Tuning, C2EasyBoolValue, kParamIndexLowLatencyMode>
         C2GlobalLowLatencyModeTuning;
