@@ -156,6 +156,9 @@ static const nsecs_t kOffloadStandbyDelayNs = seconds(3);
 // Direct output thread minimum sleep time in idle or active(underrun) state
 static const nsecs_t kDirectMinSleepTimeUs = 10000;
 
+static const effect_uuid_t IID_VISUALIZER = {0x1d0a1a53, 0x7d5d, 0x48f2, 0x8e71, {0x27,
+                                             0xfb, 0xd1, 0x0d, 0x84, 0x2c}};
+
 // The universal constant for ubiquitous 20ms value. The value of 20ms seems to provide a good
 // balance between power consumption and latency, and allows threads to be scheduled reliably
 // by the CFS scheduler.
@@ -1475,12 +1478,12 @@ void AudioFlinger::ThreadBase::disconnectEffectHandle(EffectHandle *handle,
 }
 
 void AudioFlinger::ThreadBase::onEffectEnable(const sp<EffectModule>& effect) {
-    if (mType == OFFLOAD || mType == MMAP) {
+    if (mType == OFFLOAD || mType == MMAP || mType == DIRECT) {
         Mutex::Autolock _l(mLock);
         broadcast_l();
     }
     if (!effect->isOffloadable()) {
-        if (mType == ThreadBase::OFFLOAD) {
+        if (mType == ThreadBase::OFFLOAD || mType == ThreadBase::DIRECT) {
             PlaybackThread *t = (PlaybackThread *)this;
             t->invalidateTracks(AUDIO_STREAM_MUSIC);
         }
@@ -1488,10 +1491,16 @@ void AudioFlinger::ThreadBase::onEffectEnable(const sp<EffectModule>& effect) {
             mAudioFlinger->onNonOffloadableGlobalEffectEnable();
         }
     }
+    if ((mType== OFFLOAD) && (AudioSystem::getDeviceConnectionState(AUDIO_DEVICE_OUT_PROXY, "")
+        == AUDIO_POLICY_DEVICE_STATE_AVAILABLE) && (memcmp (&effect->mDescriptor.uuid,
+        &IID_VISUALIZER, sizeof (effect_uuid_t)) == 0)) {
+        PlaybackThread *t = (PlaybackThread *)this;
+        t->invalidateTracks(AUDIO_STREAM_MUSIC);
+    }
 }
 
 void AudioFlinger::ThreadBase::onEffectDisable() {
-    if (mType == OFFLOAD || mType == MMAP) {
+    if (mType == OFFLOAD || mType == MMAP || mType == DIRECT) {
         Mutex::Autolock _l(mLock);
         broadcast_l();
     }

@@ -542,7 +542,7 @@ AudioFlinger::EffectModule::EffectModule(const sp<AudioFlinger::EffectCallbackIn
         goto Error;
     }
 
-    setOffloaded(callback->isOffload(), callback->io());
+    setOffloaded(callback->isOffloadOrDirect(), callback->io());
     ALOGV("Constructor success name %s, Interface %p", mDescriptor.name, mEffectInterface.get());
 
     return;
@@ -2037,7 +2037,7 @@ void AudioFlinger::EffectChain::process_l()
     // never process effects when:
     // - on an OFFLOAD thread
     // - no more tracks are on the session and the effect tail has been rendered
-    bool doProcess = !mEffectCallback->isOffloadOrMmap();
+    bool doProcess = !mEffectCallback->isOffloadOrMmap() && !mEffectCallback->isOffloadOrDirect();
     if (!audio_is_global_session(mSessionId)) {
         bool tracksOnSession = (trackCnt() != 0);
 
