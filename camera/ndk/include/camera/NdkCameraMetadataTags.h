@@ -984,10 +984,10 @@ typedef enum acamera_metadata_tag {
      * capture parameters itself.</p>
      * <p>When set to AUTO, the individual algorithm controls in
      * ACAMERA_CONTROL_* are in effect, such as ACAMERA_CONTROL_AF_MODE.</p>
-     * <p>When set to USE_SCENE_MODE, the individual controls in
+     * <p>When set to USE_SCENE_MODE or USE_EXTENDED_SCENE_MODE, the individual controls in
      * ACAMERA_CONTROL_* are mostly disabled, and the camera device
-     * implements one of the scene mode settings (such as ACTION,
-     * SUNSET, or PARTY) as it wishes. The camera device scene mode
+     * implements one of the scene mode or extended scene mode settings (such as ACTION,
+     * SUNSET, PARTY, or BOKEH) as it wishes. The camera device scene mode
      * 3A settings are provided by {@link ACameraCaptureSession_captureCallback_result capture results}.</p>
      * <p>When set to OFF_KEEP_STATE, it is similar to OFF mode, the only difference
      * is that this frame will not be used by camera device background 3A statistics
@@ -1768,10 +1768,11 @@ typedef enum acamera_metadata_tag {
     ACAMERA_CONTROL_AF_SCENE_CHANGE =                           // byte (acamera_metadata_enum_android_control_af_scene_change_t)
             ACAMERA_CONTROL_START + 42,
     /**
-     * <p>The list of bokeh modes for ACAMERA_CONTROL_BOKEH_MODE that are supported by this camera
-     * device, and each bokeh mode's maximum streaming (non-stall) size with bokeh effect.</p>
+     * <p>The list of extended scene modes for ACAMERA_CONTROL_EXTENDED_SCENE_MODE that are supported
+     * by this camera device, and each extended scene mode's maximum streaming (non-stall) size
+     * with  effect.</p>
      *
-     * @see ACAMERA_CONTROL_BOKEH_MODE
+     * @see ACAMERA_CONTROL_EXTENDED_SCENE_MODE
      *
      * <p>Type: int32[3*n]</p>
      *
@@ -1780,28 +1781,28 @@ typedef enum acamera_metadata_tag {
      *   <li>ACameraMetadata from ACameraManager_getCameraCharacteristics</li>
      * </ul></p>
      *
-     * <p>For OFF mode, the camera behaves normally with no bokeh effect.</p>
-     * <p>For STILL_CAPTURE mode, the maximum streaming dimension specifies the limit under which
-     * bokeh is effective when capture intent is PREVIEW. Note that when capture intent is
-     * PREVIEW, the bokeh effect may not be as high quality compared to STILL_CAPTURE intent
-     * in order to maintain reasonable frame rate. The maximum streaming dimension must be one
-     * of the YUV_420_888 or PRIVATE resolutions in availableStreamConfigurations, or (0, 0)
-     * if preview bokeh is not supported. If the application configures a stream larger than
-     * the maximum streaming dimension, bokeh effect may not be applied for this stream for
-     * PREVIEW intent.</p>
-     * <p>For CONTINUOUS mode, the maximum streaming dimension specifies the limit under which
-     * bokeh is effective. This dimension must be one of the YUV_420_888 or PRIVATE resolutions
-     * in availableStreamConfigurations, and if the sensor maximum resolution is larger than or
-     * equal to 1080p, the maximum streaming dimension must be at least 1080p. If the
-     * application configures a stream with larger dimension, the stream may not have bokeh
-     * effect applied.</p>
+     * <p>For DISABLED mode, the camera behaves normally with no extended scene mode enabled.</p>
+     * <p>For BOKEH_STILL_CAPTURE mode, the maximum streaming dimension specifies the limit
+     * under which bokeh is effective when capture intent is PREVIEW. Note that when capture
+     * intent is PREVIEW, the bokeh effect may not be as high in quality compared to
+     * STILL_CAPTURE intent in order to maintain reasonable frame rate. The maximum streaming
+     * dimension must be one of the YUV_420_888 or PRIVATE resolutions in
+     * availableStreamConfigurations, or (0, 0) if preview bokeh is not supported. If the
+     * application configures a stream larger than the maximum streaming dimension, bokeh
+     * effect may not be applied for this stream for PREVIEW intent.</p>
+     * <p>For BOKEH_CONTINUOUS mode, the maximum streaming dimension specifies the limit under
+     * which bokeh is effective. This dimension must be one of the YUV_420_888 or PRIVATE
+     * resolutions in availableStreamConfigurations, and if the sensor maximum resolution is
+     * larger than or equal to 1080p, the maximum streaming dimension must be at least 1080p.
+     * If the application configures a stream with larger dimension, the stream may not have
+     * bokeh effect applied.</p>
      */
-    ACAMERA_CONTROL_AVAILABLE_BOKEH_MAX_SIZES =                 // int32[3*n]
+    ACAMERA_CONTROL_AVAILABLE_EXTENDED_SCENE_MODE_MAX_SIZES =   // int32[3*n]
             ACAMERA_CONTROL_START + 43,
     /**
-     * <p>The ranges of supported zoom ratio for non-OFF ACAMERA_CONTROL_BOKEH_MODE.</p>
+     * <p>The ranges of supported zoom ratio for non-DISABLED ACAMERA_CONTROL_EXTENDED_SCENE_MODE.</p>
      *
-     * @see ACAMERA_CONTROL_BOKEH_MODE
+     * @see ACAMERA_CONTROL_EXTENDED_SCENE_MODE
      *
      * <p>Type: float[2*n]</p>
      *
@@ -1810,20 +1811,19 @@ typedef enum acamera_metadata_tag {
      *   <li>ACameraMetadata from ACameraManager_getCameraCharacteristics</li>
      * </ul></p>
      *
-     * <p>When bokeh mode is enabled, the camera device may have limited range of zoom ratios
-     * compared to when bokeh mode is disabled. This tag lists the zoom ratio ranges for all
-     * supported non-OFF bokeh modes, in the same order as in
-     * ACAMERA_CONTROL_AVAILABLE_BOKEH_CAPABILITIES.</p>
+     * <p>When extended scene mode is set, the camera device may have limited range of zoom ratios
+     * compared to when extended scene mode is DISABLED. This tag lists the zoom ratio ranges
+     * for all supported non-DISABLED extended scene modes, in the same order as in
+     * android.control.availableExtended.</p>
      * <p>Range [1.0, 1.0] means that no zoom (optical or digital) is supported.</p>
-     *
-     * @see ACAMERA_CONTROL_AVAILABLE_BOKEH_CAPABILITIES
      */
-    ACAMERA_CONTROL_AVAILABLE_BOKEH_ZOOM_RATIO_RANGES =         // float[2*n]
+    ACAMERA_CONTROL_AVAILABLE_EXTENDED_SCENE_MODE_ZOOM_RATIO_RANGES = 
+                                                                // float[2*n]
             ACAMERA_CONTROL_START + 44,
     /**
-     * <p>Whether bokeh mode is enabled for a particular capture request.</p>
+     * <p>Whether extended scene mode is enabled for a particular capture request.</p>
      *
-     * <p>Type: byte (acamera_metadata_enum_android_control_bokeh_mode_t)</p>
+     * <p>Type: byte (acamera_metadata_enum_android_control_extended_scene_mode_t)</p>
      *
      * <p>This tag may appear in:
      * <ul>
@@ -1833,36 +1833,33 @@ typedef enum acamera_metadata_tag {
      *
      * <p>With bokeh mode, the camera device may blur out the parts of scene that are not in
      * focus, creating a bokeh (or shallow depth of field) effect for people or objects.</p>
-     * <p>When set to STILL_CAPTURE bokeh mode with STILL_CAPTURE capture intent, due to the extra
+     * <p>When set to BOKEH_STILL_CAPTURE mode with STILL_CAPTURE capture intent, due to the extra
      * processing needed for high quality bokeh effect, the stall may be longer than when
      * capture intent is not STILL_CAPTURE.</p>
-     * <p>When set to STILL_CAPTURE bokeh mode with PREVIEW capture intent,</p>
+     * <p>When set to BOKEH_STILL_CAPTURE mode with PREVIEW capture intent,</p>
      * <ul>
      * <li>If the camera device has BURST_CAPTURE capability, the frame rate requirement of
      * BURST_CAPTURE must still be met.</li>
-     * <li>All streams not larger than the maximum streaming dimension for STILL_CAPTURE mode
-     * (queried via {@link ACAMERA_CONTROL_AVAILABLE_BOKEH_CAPABILITIES })
+     * <li>All streams not larger than the maximum streaming dimension for BOKEH_STILL_CAPTURE mode
+     * (queried via {@link ACAMERA_CONTROL_AVAILABLE_EXTENDED_SCENE_MODE_CAPABILITIES })
      * will have preview bokeh effect applied.</li>
      * </ul>
-     * <p>When set to CONTINUOUS mode, configured streams dimension should not exceed this mode's
+     * <p>When set to BOKEH_CONTINUOUS mode, configured streams dimension should not exceed this mode's
      * maximum streaming dimension in order to have bokeh effect applied. Bokeh effect may not
      * be available for streams larger than the maximum streaming dimension.</p>
-     * <p>Switching between different bokeh modes may involve reconfiguration of the camera
+     * <p>Switching between different extended scene modes may involve reconfiguration of the camera
      * pipeline, resulting in long latency. The application should check this key against the
      * available session keys queried via
      * {@link ACameraManager_getCameraCharacteristics }.</p>
-     * <p>When bokeh mode is on, the camera device may override certain control parameters, such as
-     * reduce frame rate or use face priority scene mode, to achieve best power and quality
-     * tradeoffs. When turned on, AE, AWB, and AF run in auto modes, and only the mandatory
-     * stream combinations of LIMITED hardware level are guaranteed.</p>
      * <p>For a logical multi-camera, bokeh may be implemented by stereo vision from sub-cameras
      * with different field of view. As a result, when bokeh mode is enabled, the camera device
-     * may override ACAMERA_SCALER_CROP_REGION, and the field of view will be smaller than when
-     * bokeh mode is off.</p>
+     * may override ACAMERA_SCALER_CROP_REGION or ACAMERA_CONTROL_ZOOM_RATIO, and the field of
+     * view may be smaller than when bokeh mode is off.</p>
      *
+     * @see ACAMERA_CONTROL_ZOOM_RATIO
      * @see ACAMERA_SCALER_CROP_REGION
      */
-    ACAMERA_CONTROL_BOKEH_MODE =                                // byte (acamera_metadata_enum_android_control_bokeh_mode_t)
+    ACAMERA_CONTROL_EXTENDED_SCENE_MODE =                       // byte (acamera_metadata_enum_android_control_extended_scene_mode_t)
             ACAMERA_CONTROL_START + 45,
     /**
      * <p>Minimum and maximum zoom ratios supported by this camera device.</p>
@@ -1898,27 +1895,66 @@ typedef enum acamera_metadata_tag {
      * ACAMERA_SCALER_CROP_REGION can still be used to specify the horizontal or vertical
      * crop to achieve aspect ratios different than the native camera sensor.</p>
      * <p>By using this control, the application gains a simpler way to control zoom, which can
-     * be a combination of optical and digital zoom. More specifically, for a logical
-     * multi-camera with more than one focal length, using a floating point zoom ratio offers
-     * more zoom precision when a telephoto lens is used, as well as allowing zoom ratio of
-     * less than 1.0 to zoom out to a wide field of view.</p>
-     * <p>Note that the coordinate system of cropRegion, AE/AWB/AF regions, and faces now changes
-     * to the effective after-zoom field-of-view represented by rectangle of (0, 0,
-     * activeArrayWidth, activeArrayHeight).</p>
-     * <p>For example, if ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE is 4032*3024, and the preview stream
-     * is configured to the same 4:3 aspect ratio, the application can achieve 2.0x zoom in
-     * one of two ways:</p>
+     * be a combination of optical and digital zoom. For example, a multi-camera system may
+     * contain more than one lens with different focal lengths, and the user can use optical
+     * zoom by switching between lenses. Using zoomRatio has benefits in the scenarios below:
+     * <em> Zooming in from a wide-angle lens to a telephoto lens: A floating-point ratio provides
+     *   better precision compared to an integer value of ACAMERA_SCALER_CROP_REGION.
+     * </em> Zooming out from a wide lens to an ultrawide lens: zoomRatio supports zoom-out whereas
+     *   ACAMERA_SCALER_CROP_REGION doesn't.</p>
+     * <p>To illustrate, here are several scenarios of different zoom ratios, crop regions,
+     * and output streams, for a hypothetical camera device with an active array of size
+     * <code>(2000,1500)</code>.</p>
      * <ul>
-     * <li>zoomRatio = 2.0, scaler.cropRegion = (0, 0, 4032, 3024)</li>
-     * <li>zoomRatio = 1.0 (default), scaler.cropRegion = (1008, 756, 3024, 2268)</li>
+     * <li>Camera Configuration:<ul>
+     * <li>Active array size: <code>2000x1500</code> (3 MP, 4:3 aspect ratio)</li>
+     * <li>Output stream #1: <code>640x480</code> (VGA, 4:3 aspect ratio)</li>
+     * <li>Output stream #2: <code>1280x720</code> (720p, 16:9 aspect ratio)</li>
      * </ul>
-     * <p>If the application intends to set aeRegions to be top-left quarter of the preview
-     * field-of-view, the ACAMERA_CONTROL_AE_REGIONS should be set to (0, 0, 2016, 1512) with
+     * </li>
+     * <li>Case #1: 4:3 crop region with 2.0x zoom ratio<ul>
+     * <li>Zoomed field of view: 1/4 of original field of view</li>
+     * <li>Crop region: <code>Rect(0, 0, 2000, 1500) // (left, top, right, bottom)</code> (post zoom)</li>
+     * </ul>
+     * </li>
+     * <li><img alt="4:3 aspect ratio crop diagram" src="../images/camera2/metadata/android.control.zoomRatio/zoom-ratio-2-crop-43.png" /><ul>
+     * <li><code>640x480</code> stream source area: <code>(0, 0, 2000, 1500)</code> (equal to crop region)</li>
+     * <li><code>1280x720</code> stream source area: <code>(0, 187, 2000, 1312)</code> (letterboxed)</li>
+     * </ul>
+     * </li>
+     * <li>Case #2: 16:9 crop region with 2.0x zoom.<ul>
+     * <li>Zoomed field of view: 1/4 of original field of view</li>
+     * <li>Crop region: <code>Rect(0, 187, 2000, 1312)</code></li>
+     * <li><img alt="16:9 aspect ratio crop diagram" src="../images/camera2/metadata/android.control.zoomRatio/zoom-ratio-2-crop-169.png" /></li>
+     * <li><code>640x480</code> stream source area: <code>(250, 187, 1750, 1312)</code> (pillarboxed)</li>
+     * <li><code>1280x720</code> stream source area: <code>(0, 187, 2000, 1312)</code> (equal to crop region)</li>
+     * </ul>
+     * </li>
+     * <li>Case #3: 1:1 crop region with 0.5x zoom out to ultrawide lens.<ul>
+     * <li>Zoomed field of view: 4x of original field of view (switched from wide lens to ultrawide lens)</li>
+     * <li>Crop region: <code>Rect(250, 0, 1750, 1500)</code></li>
+     * <li><img alt="1:1 aspect ratio crop diagram" src="../images/camera2/metadata/android.control.zoomRatio/zoom-ratio-0.5-crop-11.png" /></li>
+     * <li><code>640x480</code> stream source area: <code>(250, 187, 1750, 1312)</code> (letterboxed)</li>
+     * <li><code>1280x720</code> stream source area: <code>(250, 328, 1750, 1172)</code> (letterboxed)</li>
+     * </ul>
+     * </li>
+     * </ul>
+     * <p>As seen from the graphs above, the coordinate system of cropRegion now changes to the
+     * effective after-zoom field-of-view, and is represented by the rectangle of (0, 0,
+     * activeArrayWith, activeArrayHeight). The same applies to AE/AWB/AF regions, and faces.
+     * This coordinate system change isn't applicable to RAW capture and its related
+     * metadata such as intrinsicCalibration and lensShadingMap.</p>
+     * <p>Using the same hypothetical example above, and assuming output stream #1 (640x480) is
+     * the viewfinder stream, the application can achieve 2.0x zoom in one of two ways:</p>
+     * <ul>
+     * <li>zoomRatio = 2.0, scaler.cropRegion = (0, 0, 2000, 1500)</li>
+     * <li>zoomRatio = 1.0 (default), scaler.cropRegion = (500, 375, 1500, 1125)</li>
+     * </ul>
+     * <p>If the application intends to set aeRegions to be top-left quarter of the viewfinder
+     * field-of-view, the ACAMERA_CONTROL_AE_REGIONS should be set to (0, 0, 1000, 750) with
      * zoomRatio set to 2.0. Alternatively, the application can set aeRegions to the equivalent
-     * region of (1008, 756, 2016, 1512) for zoomRatio of 1.0. If the application doesn't
+     * region of (500, 375, 1000, 750) for zoomRatio of 1.0. If the application doesn't
      * explicitly set ACAMERA_CONTROL_ZOOM_RATIO, its value defaults to 1.0.</p>
-     * <p>This coordinate system change isn't applicable to RAW capture and its related metadata
-     * such as intrinsicCalibration and lensShadingMap.</p>
      * <p>One limitation of controlling zoom using zoomRatio is that the ACAMERA_SCALER_CROP_REGION
      * must only be used for letterboxing or pillarboxing of the sensor active array, and no
      * FREEFORM cropping can be used with ACAMERA_CONTROL_ZOOM_RATIO other than 1.0.</p>
@@ -1926,7 +1962,6 @@ typedef enum acamera_metadata_tag {
      * @see ACAMERA_CONTROL_AE_REGIONS
      * @see ACAMERA_CONTROL_ZOOM_RATIO
      * @see ACAMERA_SCALER_CROP_REGION
-     * @see ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE
      */
     ACAMERA_CONTROL_ZOOM_RATIO =                                // float
             ACAMERA_CONTROL_START + 47,
@@ -2398,8 +2433,11 @@ typedef enum acamera_metadata_tag {
      * frames before the lens can change to the requested focal length.
      * While the focal length is still changing, ACAMERA_LENS_STATE will
      * be set to MOVING.</p>
-     * <p>Optical zoom will not be supported on most devices.</p>
+     * <p>Optical zoom via this control will not be supported on most devices. Starting from API
+     * level 30, the camera device may combine optical and digital zoom through the
+     * ACAMERA_CONTROL_ZOOM_RATIO control.</p>
      *
+     * @see ACAMERA_CONTROL_ZOOM_RATIO
      * @see ACAMERA_LENS_APERTURE
      * @see ACAMERA_LENS_FOCUS_DISTANCE
      * @see ACAMERA_LENS_STATE
@@ -6891,6 +6929,7 @@ typedef enum acamera_metadata_enum_acamera_control_mode {
      * This setting can only be used if scene mode is supported (i.e.
      * ACAMERA_CONTROL_AVAILABLE_SCENE_MODES
      * contain some modes other than DISABLED).</p>
+     * <p>For extended scene modes such as BOKEH, please use USE_EXTENDED_SCENE_MODE instead.</p>
      *
      * @see ACAMERA_CONTROL_AVAILABLE_SCENE_MODES
      */
@@ -6907,6 +6946,18 @@ typedef enum acamera_metadata_enum_acamera_control_mode {
      * discarded by the camera device.</p>
      */
     ACAMERA_CONTROL_MODE_OFF_KEEP_STATE                              = 3,
+
+    /**
+     * <p>Use a specific extended scene mode.</p>
+     * <p>When extended scene mode is on, the camera device may override certain control
+     * parameters, such as targetFpsRange, AE, AWB, and AF modes, to achieve best power and
+     * quality tradeoffs. Only the mandatory stream combinations of LIMITED hardware level
+     * are guaranteed.</p>
+     * <p>This setting can only be used if extended scene mode is supported (i.e.
+     * android.control.availableExtendedSceneModes
+     * contains some modes other than DISABLED).</p>
+     */
+    ACAMERA_CONTROL_MODE_USE_EXTENDED_SCENE_MODE                     = 4,
 
 } acamera_metadata_enum_android_control_mode_t;
 
@@ -7297,12 +7348,12 @@ typedef enum acamera_metadata_enum_acamera_control_af_scene_change {
 
 } acamera_metadata_enum_android_control_af_scene_change_t;
 
-// ACAMERA_CONTROL_BOKEH_MODE
-typedef enum acamera_metadata_enum_acamera_control_bokeh_mode {
+// ACAMERA_CONTROL_EXTENDED_SCENE_MODE
+typedef enum acamera_metadata_enum_acamera_control_extended_scene_mode {
     /**
-     * <p>Bokeh mode is disabled.</p>
+     * <p>Extended scene mode is disabled.</p>
      */
-    ACAMERA_CONTROL_BOKEH_MODE_OFF                                   = 0,
+    ACAMERA_CONTROL_EXTENDED_SCENE_MODE_DISABLED                     = 0,
 
     /**
      * <p>High quality bokeh mode is enabled for all non-raw streams (including YUV,
@@ -7310,7 +7361,7 @@ typedef enum acamera_metadata_enum_acamera_control_bokeh_mode {
      * extra image processing, this mode may introduce additional stall to non-raw streams.
      * This mode should be used in high quality still capture use case.</p>
      */
-    ACAMERA_CONTROL_BOKEH_MODE_STILL_CAPTURE                         = 1,
+    ACAMERA_CONTROL_EXTENDED_SCENE_MODE_BOKEH_STILL_CAPTURE          = 1,
 
     /**
      * <p>Bokeh effect must not slow down capture rate relative to sensor raw output,
@@ -7318,9 +7369,9 @@ typedef enum acamera_metadata_enum_acamera_control_bokeh_mode {
      * streaming dimension. This mode should be used if performance and power are a
      * priority, such as video recording.</p>
      */
-    ACAMERA_CONTROL_BOKEH_MODE_CONTINUOUS                            = 2,
+    ACAMERA_CONTROL_EXTENDED_SCENE_MODE_BOKEH_CONTINUOUS             = 2,
 
-} acamera_metadata_enum_android_control_bokeh_mode_t;
+} acamera_metadata_enum_android_control_extended_scene_mode_t;
 
 
 
