@@ -1362,7 +1362,8 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
         effect_descriptor_t *desc,
         int *enabled,
         status_t *status,
-        bool pinned)
+        bool pinned,
+        bool probe)
 {
     sp<EffectModule> effect;
     sp<EffectHandle> handle;
@@ -1384,7 +1385,7 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
         Mutex::Autolock _l(mLock);
 
         lStatus = checkEffectCompatibility_l(desc, sessionId);
-        if (lStatus != NO_ERROR) {
+        if (probe || lStatus != NO_ERROR) {
             goto Exit;
         }
 
@@ -1430,7 +1431,7 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
     }
 
 Exit:
-    if (lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
+    if (!probe && lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
         Mutex::Autolock _l(mLock);
         if (effectCreated) {
             chain->removeEffect_l(effect);
