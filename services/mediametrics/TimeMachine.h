@@ -93,7 +93,7 @@ private:
 
         template <typename T>
         status_t getValue(const std::string &property, T* value, int64_t time = 0) const {
-            if (time == 0) time = systemTime(SYSTEM_TIME_BOOTTIME);
+            if (time == 0) time = systemTime(SYSTEM_TIME_REALTIME);
             const auto tsptr = mPropertyMap.find(property);
             if (tsptr == mPropertyMap.end()) return BAD_VALUE;
             const auto& timeSequence = tsptr->second;
@@ -122,14 +122,25 @@ private:
         template <typename T>
         void putValue(const std::string &property,
                 T&& e, int64_t time = 0) {
-            if (time == 0) time = systemTime(SYSTEM_TIME_BOOTTIME);
+            if (time == 0) time = systemTime(SYSTEM_TIME_REALTIME);
             mLastModificationTime = time;
+            if (mPropertyMap.size() >= kKeyMaxProperties &&
+                    !mPropertyMap.count(property)) {
+                ALOGV("%s: too many properties, rejecting %s", __func__, property.c_str());
+                return;
+            }
             auto& timeSequence = mPropertyMap[property];
             Elem el{std::forward<T>(e)};
             if (timeSequence.empty()           // no elements
                     || property.back() == AMEDIAMETRICS_PROP_SUFFIX_CHAR_DUPLICATES_ALLOWED
                     || timeSequence.rbegin()->second != el) { // value changed
                 timeSequence.emplace(time, std::move(el));
+
+                if (timeSequence.size() > kTimeSequenceMaxElements) {
+                    ALOGV("%s: restricting maximum elements (discarding oldest) for %s",
+                            __func__, property.c_str());
+                    timeSequence.erase(timeSequence.begin());
+                }
             }
         }
 
@@ -188,6 +199,8 @@ private:
 
     using History = std::map<std::string /* key */, std::shared_ptr<KeyHistory>>;
 
+    static inline constexpr size_t kTimeSequenceMaxElements = 100;
+    static inline constexpr size_t kKeyMaxProperties = 100;
     static inline constexpr size_t kKeyLowWaterMark = 500;
     static inline constexpr size_t kKeyHighWaterMark = 1000;
 
@@ -239,6 +252,9 @@ public:
         const int64_t time = item->getTimestamp();
         const std::string &key = item->getKey();
 
+        ALOGV("%s(%zu, %zu): key: %s  isTrusted:%d  size:%zu",
+                __func__, mKeyLowWaterMark, mKeyHighWaterMark,
+                key.c_str(), (int)isTrusted, item->count());
         std::shared_ptr<KeyHistory> keyHistory;
         {
             std::vector<std::any> garbage;
@@ -324,7 +340,7 @@ public:
     /**
      * Individual property put.
      *
-     * Put takes in a time (if none is provided then BOOTTIME is used).
+     * Put takes in a time (if none is provided then SYSTEM_TIME_REALTIME is used).
      */
     template <typename T>
     status_t put(const std::string &url, T &&e, int64_t time = 0) {
@@ -333,7 +349,7 @@ public:
         std::shared_ptr<KeyHistory> keyHistory =
             getKeyHistoryFromUrl(url, &key, &prop);
         if (keyHistory == nullptr) return BAD_VALUE;
-        if (time == 0) time = systemTime(SYSTEM_TIME_BOOTTIME);
+        if (time == 0) time = systemTime(SYSTEM_TIME_REALTIME);
         std::lock_guard lock(getLockForKey(key));
         keyHistory->putValue(prop, std::forward<T>(e), time);
         return NO_ERROR;
@@ -445,6 +461,9 @@ private:
     // GUARDED_BY mLock
     /**
      * Garbage collects if the TimeMachine size exceeds the high water mark.
+     *
+     * This GC operation limits the number of keys stored (not the size of properties
+     * stored in each key).
      *
      * \param garbage a type-erased vector of elements to be destroyed
      *        outside of lock.  Move large items to be destroyed here.

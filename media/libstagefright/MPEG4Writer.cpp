@@ -1146,8 +1146,8 @@ status_t MPEG4Writer::reset(bool stopSource) {
         err = writerErr;
     }
 
-    // Do not write out movie header on error.
-    if (err != OK) {
+    // Do not write out movie header on error except malformed track.
+    if (err != OK && err != ERROR_MALFORMED) {
         release();
         return err;
     }
@@ -2716,7 +2716,7 @@ status_t MPEG4Writer::Track::pause() {
 status_t MPEG4Writer::Track::stop(bool stopSource) {
     ALOGD("%s track stopping. %s source", getTrackType(), stopSource ? "Stop" : "Not Stop");
     if (!mStarted) {
-        ALOGE("Stop() called but track is not started");
+        ALOGE("Stop() called but track is not started or stopped");
         return ERROR_END_OF_STREAM;
     }
 
@@ -2740,6 +2740,7 @@ status_t MPEG4Writer::Track::stop(bool stopSource) {
     err = static_cast<status_t>(reinterpret_cast<uintptr_t>(dummy));
     WARN_UNLESS(err == 0, "%s track stopped. Status :%d. %s source", getTrackType(), err,
                 stopSource ? "Stop" : "Not Stop");
+    mStarted = false;
     return err;
 }
 
@@ -3216,6 +3217,7 @@ status_t MPEG4Writer::Track::threadEntry() {
     int32_t nActualFrames = 0;        // frames containing non-CSD data (non-0 length)
     int32_t nZeroLengthFrames = 0;
     int64_t lastTimestampUs = 0;      // Previous sample time stamp
+    int64_t previousSampleTimestampWithoutFudgeUs = 0; // Timestamp received/without fudge for STTS
     int64_t lastDurationUs = 0;       // Between the previous two samples
     int64_t currDurationTicks = 0;    // Timescale based ticks
     int64_t lastDurationTicks = 0;    // Timescale based ticks
@@ -3228,6 +3230,8 @@ status_t MPEG4Writer::Track::threadEntry() {
     int64_t lastCttsOffsetTimeTicks = -1;  // Timescale based ticks
     int32_t cttsSampleCount = 0;           // Sample count in the current ctts table entry
     uint32_t lastSamplesPerChunk = 0;
+    int64_t lastSampleDurationUs = -1;      // Duration calculated from EOS buffer and its timestamp
+    int64_t lastSampleDurationTicks = -1;   // Timescale based ticks
 
     if (mIsAudio) {
         prctl(PR_SET_NAME, (unsigned long)"AudioTrackWriterThread", 0, 0, 0);
@@ -3247,13 +3251,33 @@ status_t MPEG4Writer::Track::threadEntry() {
     MediaBufferBase *buffer;
     const char *trackName = getTrackType();
     while (!mDone && (err = mSource->read(&buffer)) == OK) {
+        int32_t isEOS = false;
         if (buffer->range_length() == 0) {
-            buffer->release();
-            buffer = NULL;
-            ++nZeroLengthFrames;
-            continue;
+            if (buffer->meta_data().findInt32(kKeyIsEndOfStream, &isEOS) && isEOS) {
+                int64_t eosSampleTimestampUs = -1;
+                CHECK(buffer->meta_data().findInt64(kKeyTime, &eosSampleTimestampUs));
+                if (eosSampleTimestampUs > 0) {
+                    lastSampleDurationUs = eosSampleTimestampUs -
+                                           previousSampleTimestampWithoutFudgeUs -
+                                           previousPausedDurationUs;
+                    if (lastSampleDurationUs >= 0) {
+                        lastSampleDurationTicks = (lastSampleDurationUs * mTimeScale + 500000LL) /
+                                                  1000000LL;
+                    } else {
+                        ALOGW("lastSampleDurationUs %" PRId64 " is negative", lastSampleDurationUs);
+                    }
+                }
+                buffer->release();
+                buffer = nullptr;
+                mSource->stop();
+                break;
+            } else {
+                buffer->release();
+                buffer = nullptr;
+                ++nZeroLengthFrames;
+                continue;
+            }
         }
-
 
         // If the codec specific data has not been received yet, delay pause.
         // After the codec specific data is received, discard what we received
@@ -3587,6 +3611,8 @@ status_t MPEG4Writer::Track::threadEntry() {
                 break;
             }
 
+            previousSampleTimestampWithoutFudgeUs = timestampUs;
+
             // if the duration is different for this sample, see if it is close enough to the previous
             // duration that we can fudge it and use the same value, to avoid filling the stts table
             // with lots of near-identical entries.
@@ -3684,47 +3710,61 @@ status_t MPEG4Writer::Track::threadEntry() {
         }
     }
     if (isTrackMalFormed()) {
+        mIsMalformed = true;
         dumpTimeStamps();
         err = ERROR_MALFORMED;
     }
 
     mOwner->trackProgressStatus(mTrackId, -1, err);
 
-    if (mIsHeic) {
-        if (!mChunkSamples.empty()) {
-            bufferChunk(0);
-            ++nChunks;
-        }
-    } else {
-        // Last chunk
-        if (!hasMultipleTracks) {
-            addOneStscTableEntry(1, mStszTableEntries->count());
-        } else if (!mChunkSamples.empty()) {
-            addOneStscTableEntry(++nChunks, mChunkSamples.size());
-            bufferChunk(timestampUs);
-        }
-
-        // We don't really know how long the last frame lasts, since
-        // there is no frame time after it, just repeat the previous
-        // frame's duration.
-        if (mStszTableEntries->count() == 1) {
-            lastDurationUs = 0;  // A single sample's duration
-            lastDurationTicks = 0;
+    // Add final entries only for non-empty tracks.
+    if (mStszTableEntries->count() > 0) {
+        if (mIsHeic) {
+            if (!mChunkSamples.empty()) {
+                bufferChunk(0);
+                ++nChunks;
+            }
         } else {
-            ++sampleCount;  // Count for the last sample
-        }
+            // Last chunk
+            if (!hasMultipleTracks) {
+                addOneStscTableEntry(1, mStszTableEntries->count());
+            } else if (!mChunkSamples.empty()) {
+                addOneStscTableEntry(++nChunks, mChunkSamples.size());
+                bufferChunk(timestampUs);
+            }
 
-        addOneSttsTableEntry(sampleCount, lastDurationTicks);
+            // We don't really know how long the last frame lasts, since
+            // there is no frame time after it, just repeat the previous
+            // frame's duration.
+            if (mStszTableEntries->count() == 1) {
+                if (lastSampleDurationUs >= 0) {
+                    addOneSttsTableEntry(sampleCount, lastSampleDurationTicks);
+                } else {
+                    lastDurationUs = 0;  // A single sample's duration
+                    lastDurationTicks = 0;
+                    addOneSttsTableEntry(sampleCount, lastDurationTicks);
+                }
+            } else if (lastSampleDurationUs >= 0) {
+                addOneSttsTableEntry(sampleCount, lastDurationTicks);
+                addOneSttsTableEntry(1, lastSampleDurationTicks);
+            } else {
+                ++sampleCount;  // Count for the last sample
+                addOneSttsTableEntry(sampleCount, lastDurationTicks);
+            }
 
-        // The last ctts box entry may not have been written yet, and this
-        // is to make sure that we write out the last ctts box entry.
-        if (currCttsOffsetTimeTicks == lastCttsOffsetTimeTicks) {
-            if (cttsSampleCount > 0) {
-                addOneCttsTableEntry(cttsSampleCount, lastCttsOffsetTimeTicks);
+            // The last ctts box entry may not have been written yet, and this
+            // is to make sure that we write out the last ctts box entry.
+            if (currCttsOffsetTimeTicks == lastCttsOffsetTimeTicks) {
+                if (cttsSampleCount > 0) {
+                    addOneCttsTableEntry(cttsSampleCount, lastCttsOffsetTimeTicks);
+                }
+            }
+            if (lastSampleDurationUs >= 0) {
+                mTrackDurationUs += lastSampleDurationUs;
+            } else {
+                mTrackDurationUs += lastDurationUs;
             }
         }
-
-        mTrackDurationUs += lastDurationUs;
     }
     mReachedEOS = true;
 
@@ -3749,14 +3789,24 @@ bool MPEG4Writer::Track::isTrackMalFormed() const {
         return true;
     }
 
-    if (!mIsHeic && mStszTableEntries->count() == 0) {  // no samples written
-        ALOGE("The number of recorded samples is 0");
-        return true;
-    }
-
-    if (mIsVideo && mStssTableEntries->count() == 0) {  // no sync frames for video
-        ALOGE("There are no sync frames for video track");
-        return true;
+    int32_t emptyTrackMalformed = false;
+    if (mOwner->mStartMeta &&
+        mOwner->mStartMeta->findInt32(kKeyEmptyTrackMalFormed, &emptyTrackMalformed) &&
+        emptyTrackMalformed) {
+        if (!mIsHeic && mStszTableEntries->count() == 0) {  // no samples written
+            ALOGE("The number of recorded samples is 0");
+            return true;
+        }
+        if (mIsVideo && mStssTableEntries->count() == 0) {  // no sync frames for video
+            ALOGE("There are no sync frames for video track");
+            return true;
+        }
+    } else {
+        // No sync frames for video.
+        if (mIsVideo && mStszTableEntries->count() > 0 && mStssTableEntries->count() == 0) {
+            ALOGE("There are no sync frames for video track");
+            return true;
+        }
     }
 
     if (OK != checkCodecSpecificData()) {         // no codec specific data
@@ -4008,25 +4058,28 @@ int64_t MPEG4Writer::Track::getMinCttsOffsetTimeUs() {
 
 void MPEG4Writer::Track::writeStblBox() {
     mOwner->beginBox("stbl");
-    mOwner->beginBox("stsd");
-    mOwner->writeInt32(0);               // version=0, flags=0
-    mOwner->writeInt32(1);               // entry count
-    if (mIsAudio) {
-        writeAudioFourCCBox();
-    } else if (mIsVideo) {
-        writeVideoFourCCBox();
-    } else {
-        writeMetadataFourCCBox();
+    // Add subboxes only for non-empty tracks.
+    if (mStszTableEntries->count() > 0) {
+        mOwner->beginBox("stsd");
+        mOwner->writeInt32(0);               // version=0, flags=0
+        mOwner->writeInt32(1);               // entry count
+        if (mIsAudio) {
+            writeAudioFourCCBox();
+        } else if (mIsVideo) {
+            writeVideoFourCCBox();
+        } else {
+            writeMetadataFourCCBox();
+        }
+        mOwner->endBox();  // stsd
+        writeSttsBox();
+        if (mIsVideo) {
+            writeCttsBox();
+            writeStssBox();
+        }
+        writeStszBox();
+        writeStscBox();
+        writeCo64Box();
     }
-    mOwner->endBox();  // stsd
-    writeSttsBox();
-    if (mIsVideo) {
-        writeCttsBox();
-        writeStssBox();
-    }
-    writeStszBox();
-    writeStscBox();
-    writeCo64Box();
     mOwner->endBox();  // stbl
 }
 

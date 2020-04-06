@@ -221,7 +221,8 @@ AudioTrack::AudioTrack()
       mPausedPosition(0),
       mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
       mRoutedDeviceId(AUDIO_PORT_HANDLE_NONE),
-      mPauseTimeRealUs(0)
+      mPauseTimeRealUs(0),
+      mAudioTrackCallback(new AudioTrackCallback())
 {
     mAttributes.content_type = AUDIO_CONTENT_TYPE_UNKNOWN;
     mAttributes.usage = AUDIO_USAGE_UNKNOWN;
@@ -253,7 +254,8 @@ AudioTrack::AudioTrack(
       mPreviousPriority(ANDROID_PRIORITY_NORMAL),
       mPreviousSchedulingGroup(SP_DEFAULT),
       mPausedPosition(0),
-      mPauseTimeRealUs(0)
+      mPauseTimeRealUs(0),
+      mAudioTrackCallback(new AudioTrackCallback())
 {
     mAttributes = AUDIO_ATTRIBUTES_INITIALIZER;
 
@@ -288,7 +290,8 @@ AudioTrack::AudioTrack(
       mPausedPosition(0),
       mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
       mPauseTimeRealUs(0),
-      mTrackOffloaded(false)
+      mTrackOffloaded(false),
+      mAudioTrackCallback(new AudioTrackCallback())
 {
     mAttributes = AUDIO_ATTRIBUTES_INITIALIZER;
 
@@ -1608,6 +1611,7 @@ status_t AudioTrack::createTrack_l()
     input.notificationFrameCount = mNotificationFramesReq;
     input.selectedDeviceId = mSelectedDeviceId;
     input.sessionId = mSessionId;
+    input.audioTrackCallback = mAudioTrackCallback;
 
     IAudioFlinger::CreateTrackOutput output;
 
@@ -3464,6 +3468,25 @@ void AudioTrack::AudioTrackThread::pauseInternal(nsecs_t ns)
     AutoMutex _l(mMyLock);
     mPausedInt = true;
     mPausedNs = ns;
+}
+
+binder::Status AudioTrack::AudioTrackCallback::onCodecFormatChanged(
+        const std::vector<uint8_t>& audioMetadata)
+{
+    AutoMutex _l(mAudioTrackCbLock);
+    sp<media::IAudioTrackCallback> callback = mCallback.promote();
+    if (callback.get() != nullptr) {
+        callback->onCodecFormatChanged(audioMetadata);
+    } else {
+        mCallback.clear();
+    }
+    return binder::Status::ok();
+}
+
+void AudioTrack::AudioTrackCallback::setAudioTrackCallback(
+        const sp<media::IAudioTrackCallback> &callback) {
+    AutoMutex lock(mAudioTrackCbLock);
+    mCallback = callback;
 }
 
 } // namespace android
