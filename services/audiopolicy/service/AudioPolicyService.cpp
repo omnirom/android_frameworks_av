@@ -437,6 +437,8 @@ void AudioPolicyService::updateUidStates_l()
 //            OR all active clients are using HOTWORD source
 //        AND no call is active
 //            OR client has CAPTURE_AUDIO_OUTPUT privileged permission
+//    OR the client is the current InputMethodService
+//        AND a RTT call is active AND the source is VOICE_RECOGNITION
 //    OR Any client
 //        AND The assistant is not on TOP
 //        AND is on TOP or latest started
@@ -625,6 +627,12 @@ void AudioPolicyService::updateUidStates_l()
             //         OR client has CAPTURE_AUDIO_OUTPUT privileged permission
             if (onlyHotwordActive
                     && canCaptureIfInCallOrCommunication(current)) {
+                allowCapture = true;
+            }
+        } else if (mUidPolicy->isCurrentImeUid(current->uid)) {
+            // For current InputMethodService allow capture if:
+            //     A RTT call is active AND the source is VOICE_RECOGNITION
+            if (rttCallActive && source == AUDIO_SOURCE_VOICE_RECOGNITION) {
                 allowCapture = true;
             }
         }
@@ -945,7 +953,7 @@ bool AudioPolicyService::UidPolicy::isUidActive(uid_t uid) {
         }
     }
     ActivityManager am;
-    bool active = am.isUidActive(uid, String16("audioserver"));
+    bool active = am.isUidActiveOrForeground(uid, String16("audioserver"));
     {
         Mutex::Autolock _l(mLock);
         mCachedUids.insert(std::pair<uid_t,
@@ -990,7 +998,7 @@ int AudioPolicyService::UidPolicy::getUidState(uid_t uid) {
         }
     }
     ActivityManager am;
-    bool active = am.isUidActive(uid, String16("audioserver"));
+    bool active = am.isUidActiveOrForeground(uid, String16("audioserver"));
     int state = ActivityManager::PROCESS_STATE_UNKNOWN;
     if (active) {
         state = am.getUidProcessState(uid, String16("audioserver"));
@@ -1901,7 +1909,7 @@ void AudioPolicyService::setEffectSuspended(int effectId,
 
 void AudioPolicyService::onNewAudioModulesAvailable()
 {
-    mAudioCommandThread->audioModulesUpdateCommand();
+    mOutputCommandThread->audioModulesUpdateCommand();
 }
 
 
