@@ -650,6 +650,15 @@ MediaProfiles::getInstance()
                             strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",
                                     PROPERTY_VALUE_MAX);
                         }
+                    } else if (!strcmp(platform, "bengal")) {
+                        property_get("vendor.media.target.version", value, "0");
+                        if (atoi(value) == 2) {
+                            strlcpy(value, "/vendor/etc/media_profiles_scuba.xml",
+                                    PROPERTY_VALUE_MAX);
+                        } else {
+                            strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",
+                                    PROPERTY_VALUE_MAX);
+                        }
                     }
                 }
             sInstance = createInstanceFromXmlFile(value);
