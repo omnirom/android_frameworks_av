@@ -17,6 +17,7 @@
 #define LOG_TAG "audioserver"
 //#define LOG_NDEBUG 0
 
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
@@ -37,64 +38,22 @@
 #include "utility/AAudioUtilities.h"
 #include "MediaLogService.h"
 
-#ifdef VRAUDIOSERVICE_ENABLE
-namespace android {
-
-class IVRAudioWorld;
-class IVRAudioWorldClient;
-class VRAudioServiceImpl;
-class VRAudioWorld;
-
-class IVRAudioService: public IInterface
-{
-public:
-    DECLARE_META_INTERFACE(VRAudioService)
-    virtual sp<IVRAudioWorld>
-        createVRAudioWorld(const sp<IVRAudioWorldClient> &client,
-                           int32_t renderMode) = 0;
-};
-
-class BnVRAudioService: public BnInterface<IVRAudioService>
-{
-public:
-    virtual status_t onTransact(uint32_t code,
-                                const Parcel& data,
-                                Parcel* reply,
-                                uint32_t flags = 0);
-};
-
-class VRAudioServiceNative :
-    public BinderService<VRAudioServiceNative>,
-    public BnVRAudioService
-{
-public:
-    static const char* getServiceName() ANDROID_API { return "vendor.audio.vrservice"; }
-    virtual sp<IVRAudioWorld>
-            createVRAudioWorld(const sp<IVRAudioWorldClient> &client,
-                               int32_t renderMode);
-    status_t destroyVRAudioWorld(int16_t id);
-    sp<IMemory> allocGlobalState(size_t allocSize);
-    virtual     status_t    dump(int fd, const Vector<String16>& args);
-
-private:
-    VRAudioServiceNative();
-    virtual ~VRAudioServiceNative();
-
-    VRAudioServiceImpl *mVRAudioServiceImpl;
-    friend class BinderService<VRAudioServiceNative>;
-    KeyedVector<int16_t, sp<VRAudioWorld>> mWorlds;
-    int16_t mNextWorldId;
-    Mutex mLock;
-    sp<MemoryDealer> mDealer;
-
-    void onVRAudioWorldClientDied(uint32_t id);
-    struct VRAudioWorldClientDeathListener;
-    KeyedVector<uint32_t, sp<VRAudioWorldClientDeathListener>> mDeathListeners;
-};
-} // namespace android
-#endif
-
 using namespace android;
+
+constexpr const char kLibVRAudioPath [] = "libvraudio.so";
+
+void instantiateVRAudioServer() {
+    void *vrLibHandle = dlopen(kLibVRAudioPath, RTLD_NOW | RTLD_NODELETE);
+    if (vrLibHandle == nullptr)
+        ALOGI("Failed to load library: %s (%s)", kLibVRAudioPath, dlerror());
+    else {
+        auto instantiate = reinterpret_cast<void (*)()>(dlsym(vrLibHandle, "instantiate"));
+        if (instantiate == nullptr)
+            ALOGW("Failed to find symbol: instantiate (%s)", dlerror());
+        else
+            instantiate();
+    }
+}
 
 int main(int argc __unused, char **argv)
 {
@@ -194,9 +153,7 @@ int main(int argc __unused, char **argv)
         ALOGI("ServiceManager: %p", sm.get());
         AudioFlinger::instantiate();
         AudioPolicyService::instantiate();
-#ifdef VRAUDIOSERVICE_ENABLE
-        VRAudioServiceNative::instantiate();
-#endif
+        instantiateVRAudioServer();
 
         // AAudioService should only be used in OC-MR1 and later.
         // And only enable the AAudioService if the system MMAP policy explicitly allows it.
