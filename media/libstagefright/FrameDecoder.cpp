@@ -519,6 +519,7 @@ sp<AMessage> VideoFrameDecoder::onGetFormatAndSeekOptions(
         videoFormat->setInt32("android._num-input-buffers", 1);
         videoFormat->setInt32("android._num-output-buffers", 1);
         videoFormat->setInt32("thumbnail-mode", 1);
+        videoFormat->setInt32("vendor.qti-ext-dec-thumbnail-mode", 1);
     }
 
     if (isHDR(videoFormat)) {
@@ -823,6 +824,7 @@ sp<AMessage> ImageDecoder::onGetFormatAndSeekOptions(
         videoFormat->setInt32("android._num-input-buffers", 1);
         videoFormat->setInt32("android._num-output-buffers", 1);
         videoFormat->setInt32("thumbnail-mode", 1);
+        videoFormat->setInt32("vendor.qti-ext-dec-thumbnail-mode", 1);
     }
     return videoFormat;
 }
