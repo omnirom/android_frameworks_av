@@ -504,11 +504,7 @@ sp<AMessage> VideoFrameDecoder::onGetFormatAndSeekOptions(
     }
 
     // TODO: Use Flexible color instead
-    if (dstFormat() == OMX_COLOR_Format16bitRGB565) {
-        videoFormat->setInt32("color-format", OMX_COLOR_Format16bitRGB565);
-    } else {
-        videoFormat->setInt32("color-format", OMX_COLOR_FormatYUV420Planar);
-    }
+    videoFormat->setInt32("color-format", OMX_COLOR_FormatYUV420Planar);
 
     // For the thumbnail extraction case, try to allocate single buffer in both
     // input and output ports, if seeking to a sync frame. NOTE: This request may
@@ -634,22 +630,6 @@ status_t VideoFrameDecoder::onOutputReceived(
 
     if (mCaptureLayer != nullptr) {
         return captureSurface();
-    }
-
-    int cropWidth = crop_right - crop_left + 1;
-    int cropHeight = crop_bottom - crop_top + 1;
-    uint8_t *dst = mFrame->getFlattenedData();
-    uint8_t *src = videoFrameBuffer->data();
-
-    if (srcFormat == OMX_COLOR_Format16bitRGB565 &&
-        dstFormat() == OMX_COLOR_Format16bitRGB565) {
-        for (int h = 0; h < cropHeight; h++) {
-            memcpy(dst, src, cropWidth * 2);
-
-            dst = dst + cropWidth * 2;
-            src = src + stride * 2;
-        }
-        return OK;
     }
 
     ColorConverter converter((OMX_COLOR_FORMATTYPE)srcFormat, dstFormat());
