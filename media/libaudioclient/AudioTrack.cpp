@@ -308,6 +308,10 @@ AudioTrack::~AudioTrack()
 
     mediametrics::LogItem(mMetricsId)
         .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_DTOR)
+        .set(AMEDIAMETRICS_PROP_CALLERNAME,
+                mCallerName.empty()
+                ? AMEDIAMETRICS_PROP_VALUE_UNKNOWN
+                : mCallerName.c_str())
         .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
         .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)mStatus)
         .record();
@@ -841,7 +845,9 @@ void AudioTrack::stop()
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_STOP)
             .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
-            .record(); });
+            .record();
+        logBufferSizeUnderruns();
+    });
 
     ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
 
@@ -1178,6 +1184,7 @@ ssize_t AudioTrack::getBufferSizeInFrames()
     if (mOutput == AUDIO_IO_HANDLE_NONE || mProxy.get() == 0) {
         return NO_INIT;
     }
+
     return (ssize_t) mProxy->getBufferSizeInFrames();
 }
 
@@ -1199,6 +1206,16 @@ status_t AudioTrack::getBufferDurationInUs(int64_t *duration)
     return NO_ERROR;
 }
 
+void AudioTrack::logBufferSizeUnderruns() {
+    LOG_ALWAYS_FATAL_IF(mMetricsId.size() == 0, "mMetricsId is empty!");
+    ALOGD("%s(), mMetricsId = %s", __func__, mMetricsId.c_str());
+    // FIXME THis hangs! Why?
+//    android::mediametrics::LogItem(mMetricsId)
+//            .set(AMEDIAMETRICS_PROP_BUFFERSIZEFRAMES, (int32_t) getBufferSizeInFrames())
+//            .set(AMEDIAMETRICS_PROP_UNDERRUN, (int32_t) getUnderrunCount())
+//            .record();
+}
+
 ssize_t AudioTrack::setBufferSizeInFrames(size_t bufferSizeInFrames)
 {
     AutoMutex lock(mLock);
@@ -1209,7 +1226,13 @@ ssize_t AudioTrack::setBufferSizeInFrames(size_t bufferSizeInFrames)
     if (!audio_is_linear_pcm(mFormat)) {
         return INVALID_OPERATION;
     }
-    return (ssize_t) mProxy->setBufferSizeInFrames((uint32_t) bufferSizeInFrames);
+
+    ssize_t originalBufferSize = mProxy->getBufferSizeInFrames();
+    ssize_t finalBufferSize  = mProxy->setBufferSizeInFrames((uint32_t) bufferSizeInFrames);
+    if (originalBufferSize != finalBufferSize) {
+        logBufferSizeUnderruns();
+    }
+    return finalBufferSize;
 }
 
 status_t AudioTrack::setLoop(uint32_t loopStart, uint32_t loopEnd, int loopCount)
