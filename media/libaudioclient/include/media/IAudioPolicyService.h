@@ -31,6 +31,11 @@
 #include <vector>
 
 namespace android {
+namespace media {
+// Must be pre-declared, or else there isn't a good way to generate a header
+// library.
+class ICaptureStateListener;
+}
 
 // ----------------------------------------------------------------------------
 
@@ -65,7 +70,6 @@ public:
                                       audio_stream_type_t *stream,
                                       pid_t pid,
                                       uid_t uid,
-                                      const String16& opPackageName,
                                       const audio_config_t *config,
                                       audio_output_flags_t flags,
                                       audio_port_handle_t *selectedDeviceId,
@@ -222,6 +226,7 @@ public:
 
     virtual status_t setAssistantUid(uid_t uid) = 0;
     virtual status_t setA11yServicesUids(const std::vector<uid_t>& uids) = 0;
+    virtual status_t setCurrentImeUid(uid_t uid) = 0;
 
     virtual bool     isHapticPlaybackSupported() = 0;
     virtual status_t listAudioProductStrategies(AudioProductStrategyVector &strategies) = 0;
@@ -243,6 +248,12 @@ public:
 
     virtual status_t getPreferredDeviceForStrategy(product_strategy_t strategy,
                                                    AudioDeviceTypeAddr &device) = 0;
+
+    // The return code here is only intended to represent transport errors. The
+    // actual server implementation should always return NO_ERROR.
+    virtual status_t registerSoundTriggerCaptureStateListener(
+        const sp<media::ICaptureStateListener>& listener,
+        bool* result) = 0;
 };
 
 

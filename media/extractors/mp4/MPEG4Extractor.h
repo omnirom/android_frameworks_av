@@ -88,9 +88,9 @@ private:
          */
         int64_t elst_media_time;
         uint64_t elst_segment_duration;
-        // Shift start offset only when media_time > 0.
+        // Shift start offset (move to earlier time) when media_time > 0.
         uint64_t elst_shift_start_ticks;
-        // Initial start offset, empty edit list entry.
+        // Initial start offset (move to later time), from empty edit list entry.
         uint64_t elst_initial_empty_edit_ticks;
         bool subsample_encryption;
 
@@ -161,7 +161,7 @@ private:
     status_t parseITunesMetaData(off64_t offset, size_t size);
     status_t parseColorInfo(off64_t offset, size_t size);
     status_t parse3GPPMetaData(off64_t offset, size_t size, int depth);
-    void parseID3v2MetaData(off64_t offset);
+    void parseID3v2MetaData(off64_t offset, uint64_t size);
     status_t parseQTMetaKey(off64_t data_offset, size_t data_size);
     status_t parseQTMetaVal(int32_t keyId, off64_t data_offset, size_t data_size);
 

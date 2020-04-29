@@ -220,7 +220,6 @@ status_t AudioPolicyService::getOutputForAttr(audio_attributes_t *attr,
                                               audio_stream_type_t *stream,
                                               pid_t pid,
                                               uid_t uid,
-                                              const String16& opPackageName,
                                               const audio_config_t *config,
                                               audio_output_flags_t flags,
                                               audio_port_handle_t *selectedDeviceId,
@@ -267,8 +266,7 @@ status_t AudioPolicyService::getOutputForAttr(audio_attributes_t *attr,
         case AudioPolicyInterface::API_OUTPUT_LEGACY:
             break;
         case AudioPolicyInterface::API_OUTPUT_TELEPHONY_TX:
-          if (!modifyPhoneStateAllowed(pid, uid) &&
-              !accessCallAudioAllowed(opPackageName, pid, uid)) {
+            if (!modifyPhoneStateAllowed(pid, uid)) {
                 ALOGE("%s() permission denied: modify phone state not allowed for uid %d",
                     __func__, uid);
                 result = PERMISSION_DENIED;
@@ -474,19 +472,12 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
     }
 
     bool canCaptureOutput = captureAudioOutputAllowed(pid, uid);
-    bool canCaptureTelephonyOutput = canCaptureOutput
-        || accessCallAudioAllowed(opPackageName, pid, uid);
-
-    if ((attr->source == AUDIO_SOURCE_ECHO_REFERENCE ||
-         attr->source == AUDIO_SOURCE_FM_TUNER) &&
+    if ((inputSource == AUDIO_SOURCE_VOICE_UPLINK ||
+        inputSource == AUDIO_SOURCE_VOICE_DOWNLINK ||
+        inputSource == AUDIO_SOURCE_VOICE_CALL ||
+        inputSource == AUDIO_SOURCE_ECHO_REFERENCE||
+        inputSource == AUDIO_SOURCE_FM_TUNER) &&
         !canCaptureOutput) {
-        return PERMISSION_DENIED;
-    }
-
-    if ((attr->source == AUDIO_SOURCE_VOICE_UPLINK ||
-        attr->source == AUDIO_SOURCE_VOICE_DOWNLINK ||
-        attr->source == AUDIO_SOURCE_VOICE_CALL) &&
-        !canCaptureTelephonyOutput) {
         return PERMISSION_DENIED;
     }
 
@@ -521,18 +512,6 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
                 break;
             case AudioPolicyInterface::API_INPUT_TELEPHONY_RX:
                 // FIXME: use the same permission as for remote submix for now.
-                // Do not deny permission when SUBMIX_IN is unavailable for input type
-                // API_INPUT_MIX_CAPTURE as SUBMIX_IN does not 'capture' audio
-                if (!canCaptureTelephonyOutput) {
-                    if (property_get_bool("vendor.audio.enable.mirrorlink", false) &&
-                        getDeviceConnectionState(AUDIO_DEVICE_IN_REMOTE_SUBMIX, "") !=
-                                                 AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE) {
-                        break;
-                    }
-                    ALOGE("getInputForAttr() permission denied: call capture not allowed");
-                    status = PERMISSION_DENIED;
-                }
-                break;
             case AudioPolicyInterface::API_INPUT_MIX_CAPTURE:
                 if (!canCaptureOutput) {
                     if (property_get_bool("vendor.audio.enable.mirrorlink", false) &&
@@ -565,13 +544,9 @@ status_t AudioPolicyService::getInputForAttr(const audio_attributes_t *attr,
             return status;
         }
 
-        bool allowAudioCapture = canCaptureOutput ||
-            (inputType == AudioPolicyInterface::API_INPUT_TELEPHONY_RX &&
-             canCaptureTelephonyOutput);
-
         sp<AudioRecordClient> client = new AudioRecordClient(*attr, *input, uid, pid, session, *portId,
                                                              *selectedDeviceId, opPackageName,
-                                                             allowAudioCapture, canCaptureHotword);
+                                                             canCaptureOutput, canCaptureHotword);
         mAudioRecordClients.add(*portId, client);
     }
 
@@ -1460,6 +1435,13 @@ status_t AudioPolicyService::setA11yServicesUids(const std::vector<uid_t>& uids)
     return NO_ERROR;
 }
 
+status_t AudioPolicyService::setCurrentImeUid(uid_t uid)
+{
+    Mutex::Autolock _l(mLock);
+    mUidPolicy->setCurrentImeUid(uid);
+    return NO_ERROR;
+}
+
 bool AudioPolicyService::isHapticPlaybackSupported()
 {
     if (mAudioPolicyManager == NULL) {
@@ -1554,6 +1536,14 @@ status_t AudioPolicyService::getPreferredDeviceForStrategy(product_strategy_t st
     }
     Mutex::Autolock _l(mLock);
     return mAudioPolicyManager->getPreferredDeviceForStrategy(strategy, device);
+}
+
+status_t AudioPolicyService::registerSoundTriggerCaptureStateListener(
+    const sp<media::ICaptureStateListener>& listener,
+    bool* result)
+{
+    *result = mCaptureStateNotifier.RegisterListener(listener);
+    return NO_ERROR;
 }
 
 } // namespace android

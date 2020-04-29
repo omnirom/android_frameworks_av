@@ -67,10 +67,10 @@
 #include <powermanager/PowerManager.h>
 
 #include <media/IMediaLogService.h>
-#include <media/MemoryLeakTrackUtil.h>
 #include <media/nbaio/Pipe.h>
 #include <media/nbaio/PipeReader.h>
 #include <mediautils/BatteryNotifier.h>
+#include <mediautils/MemoryLeakTrackUtil.h>
 #include <mediautils/ServiceUtilities.h>
 #include <mediautils/TimeCheck.h>
 #include <private/android_filesystem_config.h>
@@ -343,7 +343,7 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
         ret = AudioSystem::getOutputForAttr(&localAttr, &io,
                                             actualSessionId,
                                             &streamType, client.clientPid, client.clientUid,
-                                            client.packageName, &fullConfig,
+                                            &fullConfig,
                                             (audio_output_flags_t)(AUDIO_OUTPUT_FLAG_MMAP_NOIRQ |
                                                     AUDIO_OUTPUT_FLAG_DIRECT),
                                             deviceId, &portId, &secondaryOutputs);
@@ -783,9 +783,8 @@ sp<IAudioTrack> AudioFlinger::createTrack(const CreateTrackInput& input,
     output.outputId = AUDIO_IO_HANDLE_NONE;
     output.selectedDeviceId = input.selectedDeviceId;
     lStatus = AudioSystem::getOutputForAttr(&localAttr, &output.outputId, sessionId, &streamType,
-                                            clientPid, clientUid, input.opPackageName,
-                                            &input.config, input.flags, &output.selectedDeviceId,
-                                            &portId, &secondaryOutputs);
+                                            clientPid, clientUid, &input.config, input.flags,
+                                            &output.selectedDeviceId, &portId, &secondaryOutputs);
 
     if (lStatus != NO_ERROR || output.outputId == AUDIO_IO_HANDLE_NONE) {
         ALOGE("createTrack() getOutputForAttr() return error %d or invalid output handle", lStatus);
@@ -3375,6 +3374,7 @@ sp<IEffect> AudioFlinger::createEffect(
         const AudioDeviceTypeAddr& device,
         const String16& opPackageName,
         pid_t pid,
+        bool probe,
         status_t *status,
         int *id,
         int *enabled)
@@ -3490,10 +3490,10 @@ sp<IEffect> AudioFlinger::createEffect(
 
         if (sessionId == AUDIO_SESSION_DEVICE) {
             sp<Client> client = registerPid(pid);
-            ALOGV("%s device type %d address %s", __func__, device.mType, device.getAddress());
+            ALOGV("%s device type %#x address %s", __func__, device.mType, device.getAddress());
             handle = mDeviceEffectManager.createEffect_l(
                     &desc, device, client, effectClient, mPatchPanel.patches_l(),
-                    enabled, &lStatus);
+                    enabled, &lStatus, probe);
             if (lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
                 // remove local strong reference to Client with mClientLock held
                 Mutex::Autolock _cl(mClientLock);
@@ -3588,7 +3588,7 @@ sp<IEffect> AudioFlinger::createEffect(
         // create effect on selected output thread
         bool pinned = !audio_is_global_session(sessionId) && isSessionAcquired_l(sessionId);
         handle = thread->createEffect_l(client, effectClient, priority, sessionId,
-                &desc, enabled, &lStatus, pinned);
+                &desc, enabled, &lStatus, pinned, probe);
         if (lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
             // remove local strong reference to Client with mClientLock held
             Mutex::Autolock _cl(mClientLock);
@@ -3600,7 +3600,7 @@ sp<IEffect> AudioFlinger::createEffect(
     }
 
 Register:
-    if (lStatus == NO_ERROR || lStatus == ALREADY_EXISTS) {
+    if (!probe && (lStatus == NO_ERROR || lStatus == ALREADY_EXISTS)) {
         // Check CPU and memory usage
         sp<EffectBase> effect = handle->effect().promote();
         if (effect != nullptr) {

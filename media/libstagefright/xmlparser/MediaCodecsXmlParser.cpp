@@ -22,6 +22,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/macros.h>
+#include <android-base/properties.h>
 #include <utils/Log.h>
 
 #include <media/stagefright/MediaErrors.h>
@@ -39,8 +40,6 @@
 #include <cutils/properties.h>
 
 namespace android {
-
-using MCXP = MediaCodecsXmlParser;
 
 namespace {
 
@@ -154,8 +153,8 @@ std::string getVendorXmlPath(const std::string &path) {
     return result;
 }
 
-MCXP::StringSet parseCommaSeparatedStringSet(const char *s) {
-    MCXP::StringSet result;
+MediaCodecsXmlParser::StringSet parseCommaSeparatedStringSet(const char *s) {
+    MediaCodecsXmlParser::StringSet result;
     for (const char *ptr = s ? : ""; *ptr; ) {
         const char *end = strchrnul(ptr, ',');
         if (ptr != end) { // skip empty values
@@ -171,6 +170,23 @@ MCXP::StringSet parseCommaSeparatedStringSet(const char *s) {
                 (size_t)::XML_GetCurrentLineNumber(mParser.get()), mPath.c_str());
 
 }  // unnamed namespace
+
+std::vector<std::string> MediaCodecsXmlParser::getDefaultXmlNames() {
+    static constexpr char const* prefixes[] = {
+            "media_codecs",
+            "media_codecs_performance"
+        };
+    static std::vector<std::string> variants = {
+            android::base::GetProperty("ro.media.xml_variant.codecs", ""),
+            android::base::GetProperty("ro.media.xml_variant.codecs_performance", "")
+        };
+    static std::vector<std::string> names = {
+            prefixes[0] + variants[0] + ".xml",
+            prefixes[1] + variants[1] + ".xml"
+        };
+    return names;
+}
+
 
 struct MediaCodecsXmlParser::Impl {
     // status + error message

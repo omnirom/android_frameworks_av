@@ -156,6 +156,9 @@ static const nsecs_t kOffloadStandbyDelayNs = seconds(3);
 // Direct output thread minimum sleep time in idle or active(underrun) state
 static const nsecs_t kDirectMinSleepTimeUs = 10000;
 
+static const effect_uuid_t IID_VISUALIZER = {0x1d0a1a53, 0x7d5d, 0x48f2, 0x8e71, {0x27,
+                                             0xfb, 0xd1, 0x0d, 0x84, 0x2c}};
+
 // The universal constant for ubiquitous 20ms value. The value of 20ms seems to provide a good
 // balance between power consumption and latency, and allows threads to be scheduled reliably
 // by the CFS scheduler.
@@ -1362,7 +1365,8 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
         effect_descriptor_t *desc,
         int *enabled,
         status_t *status,
-        bool pinned)
+        bool pinned,
+        bool probe)
 {
     sp<EffectModule> effect;
     sp<EffectHandle> handle;
@@ -1384,7 +1388,7 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
         Mutex::Autolock _l(mLock);
 
         lStatus = checkEffectCompatibility_l(desc, sessionId);
-        if (lStatus != NO_ERROR) {
+        if (probe || lStatus != NO_ERROR) {
             goto Exit;
         }
 
@@ -1430,7 +1434,7 @@ sp<AudioFlinger::EffectHandle> AudioFlinger::ThreadBase::createEffect_l(
     }
 
 Exit:
-    if (lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
+    if (!probe && lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
         Mutex::Autolock _l(mLock);
         if (effectCreated) {
             chain->removeEffect_l(effect);
@@ -1475,12 +1479,12 @@ void AudioFlinger::ThreadBase::disconnectEffectHandle(EffectHandle *handle,
 }
 
 void AudioFlinger::ThreadBase::onEffectEnable(const sp<EffectModule>& effect) {
-    if (mType == OFFLOAD || mType == MMAP) {
+    if (mType == OFFLOAD || mType == MMAP || mType == DIRECT) {
         Mutex::Autolock _l(mLock);
         broadcast_l();
     }
     if (!effect->isOffloadable()) {
-        if (mType == ThreadBase::OFFLOAD) {
+        if (mType == ThreadBase::OFFLOAD || mType == ThreadBase::DIRECT) {
             PlaybackThread *t = (PlaybackThread *)this;
             t->invalidateTracks(AUDIO_STREAM_MUSIC);
         }
@@ -1488,10 +1492,16 @@ void AudioFlinger::ThreadBase::onEffectEnable(const sp<EffectModule>& effect) {
             mAudioFlinger->onNonOffloadableGlobalEffectEnable();
         }
     }
+    if ((mType== OFFLOAD) && (AudioSystem::getDeviceConnectionState(AUDIO_DEVICE_OUT_PROXY, "")
+        == AUDIO_POLICY_DEVICE_STATE_AVAILABLE) && (memcmp (&effect->mDescriptor.uuid,
+        &IID_VISUALIZER, sizeof (effect_uuid_t)) == 0)) {
+        PlaybackThread *t = (PlaybackThread *)this;
+        t->invalidateTracks(AUDIO_STREAM_MUSIC);
+    }
 }
 
 void AudioFlinger::ThreadBase::onEffectDisable() {
-    if (mType == OFFLOAD || mType == MMAP) {
+    if (mType == OFFLOAD || mType == MMAP || mType == DIRECT) {
         Mutex::Autolock _l(mLock);
         broadcast_l();
     }
@@ -2009,6 +2019,7 @@ void AudioFlinger::PlaybackThread::dumpTracks_l(int fd, const Vector<String16>& 
 
 void AudioFlinger::PlaybackThread::dumpInternals_l(int fd, const Vector<String16>& args __unused)
 {
+    dprintf(fd, "  Master volume: %f\n", mMasterVolume);
     dprintf(fd, "  Master mute: %s\n", mMasterMute ? "on" : "off");
     if (mHapticChannelMask != AUDIO_CHANNEL_NONE) {
         dprintf(fd, "  Haptic channel mask: %#x (%s)\n", mHapticChannelMask,
@@ -8739,10 +8750,10 @@ status_t AudioFlinger::MmapThreadHandle::getMmapPosition(struct audio_mmap_posit
 }
 
 status_t AudioFlinger::MmapThreadHandle::start(const AudioClient& client,
-        audio_port_handle_t *handle)
+        const audio_attributes_t *attr, audio_port_handle_t *handle)
 
 {
-    return mThread->start(client, handle);
+    return mThread->start(client, attr, handle);
 }
 
 status_t AudioFlinger::MmapThreadHandle::stop(audio_port_handle_t handle)
@@ -8847,6 +8858,7 @@ status_t AudioFlinger::MmapThread::exitStandby()
 }
 
 status_t AudioFlinger::MmapThread::start(const AudioClient& client,
+                                         const audio_attributes_t *attr,
                                          audio_port_handle_t *handle)
 {
     ALOGV("%s clientUid %d mStandby %d mPortId %d *handle %d", __FUNCTION__,
@@ -8880,7 +8892,6 @@ status_t AudioFlinger::MmapThread::start(const AudioClient& client,
                                             &stream,
                                             client.clientPid,
                                             client.clientUid,
-                                            client.packageName,
                                             &config,
                                             flags,
                                             &deviceId,
@@ -8938,9 +8949,10 @@ status_t AudioFlinger::MmapThread::start(const AudioClient& client,
     }
 
     // Given that MmapThread::mAttr is mutable, should a MmapTrack have attributes ?
-    sp<MmapTrack> track = new MmapTrack(this, mAttr, mSampleRate, mFormat, mChannelMask, mSessionId,
-                                        isOutput(), client.clientUid, client.clientPid,
-                                        IPCThreadState::self()->getCallingPid(), portId);
+    sp<MmapTrack> track = new MmapTrack(this, attr == nullptr ? mAttr : *attr, mSampleRate, mFormat,
+                                        mChannelMask, mSessionId, isOutput(), client.clientUid,
+                                        client.clientPid, IPCThreadState::self()->getCallingPid(),
+                                        portId);
 
     if (isOutput()) {
         // force volume update when a new track is added

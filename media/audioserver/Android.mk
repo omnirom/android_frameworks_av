@@ -39,7 +39,7 @@ LOCAL_C_INCLUDES := \
 	frameworks/av/media/libaaudio/include \
 	frameworks/av/media/libaaudio/src \
 	frameworks/av/media/libaaudio/src/binding \
-	frameworks/av/media/libmedia \
+	frameworks/av/media/libmedia/include \
 	external/sonic \
 
 LOCAL_MODULE := audioserver
@@ -47,10 +47,5 @@ LOCAL_MODULE := audioserver
 LOCAL_INIT_RC := audioserver.rc
 
 LOCAL_CFLAGS := -Werror -Wall
-
-ifeq ($(strip $(AUDIO_FEATURE_ENABLED_3D_AUDIO)), true)
-    LOCAL_CFLAGS += -DVRAUDIOSERVICE_ENABLE
-    LOCAL_SHARED_LIBRARIES += libvraudio
-endif
 
 include $(BUILD_EXECUTABLE)

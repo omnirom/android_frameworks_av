@@ -136,12 +136,14 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t deviceT
     sp<DeviceDescriptor> device =
             mHwModules.getDeviceDescriptor(deviceType, device_address, device_name, encodedFormat,
                                            state == AUDIO_POLICY_DEVICE_STATE_AVAILABLE);
-    if (device == 0) {
-        return INVALID_OPERATION;
-    }
+    return device ? setDeviceConnectionStateInt(device, state) : INVALID_OPERATION;
+}
 
+status_t AudioPolicyManager::setDeviceConnectionStateInt(const sp<DeviceDescriptor> &device,
+                                                         audio_policy_dev_state_t state)
+{
     // handle output devices
-    if (audio_is_output_device(deviceType)) {
+    if (audio_is_output_device(device->type())) {
         SortedVector <audio_io_handle_t> outputs;
 
         ssize_t index = mAvailableOutputDevices.indexOf(device);
@@ -158,7 +160,7 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t deviceT
                 return INVALID_OPERATION;
             }
             ALOGV("%s() connecting device %s format %x",
-                    __func__, device->toString().c_str(), encodedFormat);
+                    __func__, device->toString().c_str(), device->getEncodedFormat());
 
             // register new device as available
             if (mAvailableOutputDevices.add(device) < 0) {
@@ -220,16 +222,13 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t deviceT
         // output device used by a dynamic policy of type recorder as no
         // playback use case is affected.
         bool doCheckForDeviceAndOutputChanges = true;
-        if (device->type() == AUDIO_DEVICE_OUT_REMOTE_SUBMIX
-                && strncmp(device_address, "0", AUDIO_DEVICE_MAX_ADDRESS_LEN) != 0) {
+        if (device->type() == AUDIO_DEVICE_OUT_REMOTE_SUBMIX && device->address() != "0") {
             for (audio_io_handle_t output : outputs) {
                 sp<SwAudioOutputDescriptor> desc = mOutputs.valueFor(output);
                 sp<AudioPolicyMix> policyMix = desc->mPolicyMix.promote();
                 if (policyMix != nullptr
                         && policyMix->mMixType == MIX_TYPE_RECORDERS
-                        && strncmp(device_address,
-                                   policyMix->mDeviceAddress.string(),
-                                   AUDIO_DEVICE_MAX_ADDRESS_LEN) == 0) {
+                        && device->address() == policyMix->mDeviceAddress.string()) {
                     doCheckForDeviceAndOutputChanges = false;
                     break;
                 }
@@ -275,7 +274,7 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t deviceT
                 // a valid device selection on those outputs.
                 bool force = (msdOutDevices.isEmpty() || msdOutDevices != desc->devices())
                         && !desc->isDuplicated()
-                        && (!device_distinguishes_on_address(deviceType)
+                        && (!device_distinguishes_on_address(device->type())
                                 // always force when disconnecting (a non-duplicated device)
                                 || (state == AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE));
                 setOutputDevices(desc, newDevices, force, 0);
@@ -291,7 +290,7 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t deviceT
     }  // end if is output device
 
     // handle input devices
-    if (audio_is_input_device(deviceType)) {
+    if (audio_is_input_device(device->type())) {
         ssize_t index = mAvailableInputDevices.indexOf(device);
         switch (state)
         {
@@ -2423,9 +2422,7 @@ void AudioPolicyManager::checkCloseInputs() {
     for (size_t i = 0; i < mInputs.size(); i++) {
         const sp<AudioInputDescriptor> input = mInputs.valueAt(i);
         if (input->clientsList().size() == 0
-                || !mAvailableInputDevices.containsAtLeastOne(input->supportedDevices())
-                || (input->getPolicyAudioPort()->getFlags()
-                        & AUDIO_INPUT_FLAG_MMAP_NOIRQ) != 0) {
+                || !mAvailableInputDevices.containsAtLeastOne(input->supportedDevices())) {
             inputsToClose.push_back(mInputs.keyAt(i));
         } else {
             bool close = false;
@@ -2474,6 +2471,10 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
                                                   audio_devices_t device)
 {
     auto attributes = mEngine->getAttributesForStreamType(stream);
+    if (attributes == AUDIO_ATTRIBUTES_INITIALIZER) {
+        ALOGW("%s: no group for stream %s, bailing out", __func__, toString(stream).c_str());
+        return NO_ERROR;
+    }
     ALOGV("%s: stream %s attributes=%s", __func__,
           toString(stream).c_str(), toString(attributes).c_str());
     return setVolumeIndexForAttributes(attributes, index, device);
@@ -4469,7 +4470,7 @@ status_t AudioPolicyManager::initialize() {
 
     // after parsing the config, mOutputDevicesAll and mInputDevicesAll contain all known devices;
     // open all output streams needed to access attached devices
-    onNewAudioModulesAvailable();
+    onNewAudioModulesAvailableInt(nullptr /*newDevices*/);
 
     // make sure default device is reachable
     if (mDefaultOutputDevice == 0 || !mAvailableOutputDevices.contains(mDefaultOutputDevice)) {
@@ -4525,6 +4526,16 @@ status_t AudioPolicyManager::initCheck()
 // ---
 
 void AudioPolicyManager::onNewAudioModulesAvailable()
+{
+    DeviceVector newDevices;
+    onNewAudioModulesAvailableInt(&newDevices);
+    if (!newDevices.empty()) {
+        nextAudioPortGeneration();
+        mpClientInterface->onAudioPortListUpdate();
+    }
+}
+
+void AudioPolicyManager::onNewAudioModulesAvailableInt(DeviceVector *newDevices)
 {
     for (const auto& hwModule : mHwModulesAll) {
         if (std::find(mHwModules.begin(), mHwModules.end(), hwModule) != mHwModules.end()) {
@@ -4589,6 +4600,7 @@ void AudioPolicyManager::onNewAudioModulesAvailable()
                 if (!device->isAttached()) {
                     device->attach(hwModule);
                     mAvailableOutputDevices.add(device);
+                    if (newDevices) newDevices->add(device);
                     setEngineDeviceConnectionState(device, AUDIO_POLICY_DEVICE_STATE_AVAILABLE);
                 }
             }
@@ -4644,6 +4656,7 @@ void AudioPolicyManager::onNewAudioModulesAvailable()
                     device->attach(hwModule);
                     device->importAudioPortAndPickAudioProfile(inProfile, true);
                     mAvailableInputDevices.add(device);
+                    if (newDevices) newDevices->add(device);
                     setEngineDeviceConnectionState(device, AUDIO_POLICY_DEVICE_STATE_AVAILABLE);
                 }
             }
@@ -5751,7 +5764,10 @@ uint32_t AudioPolicyManager::setOutputDevices(const sp<SwAudioOutputDescriptor>&
             patchBuilder.addSink(filteredDevice);
         }
 
-        installPatch(__func__, patchHandle, outputDesc.get(), patchBuilder.patch(), delayMs);
+        // Add half reported latency to delayMs when muteWaitMs is null in order
+        // to avoid disordered sequence of muting volume and changing devices.
+        installPatch(__func__, patchHandle, outputDesc.get(), patchBuilder.patch(),
+                muteWaitMs == 0 ? (delayMs + (outputDesc->latency() / 2)) : delayMs);
     }
 
     // update stream volumes according to new device

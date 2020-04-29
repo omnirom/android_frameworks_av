@@ -140,12 +140,20 @@ ACameraMetadata::filterDurations(uint32_t tag) {
     const int STREAM_WIDTH_OFFSET = 1;
     const int STREAM_HEIGHT_OFFSET = 2;
     const int STREAM_DURATION_OFFSET = 3;
+
     camera_metadata_entry entry = mData->find(tag);
-    if (entry.count == 0 || entry.count % 4 || entry.type != TYPE_INT64) {
+
+    if (entry.count == 0) {
+        // Duration keys can be missing when corresponding capture feature is not supported
+        return;
+    }
+
+    if (entry.count % 4 || entry.type != TYPE_INT64) {
         ALOGE("%s: malformed duration key %d! count %zu, type %d",
                 __FUNCTION__, tag, entry.count, entry.type);
         return;
     }
+
     Vector<int64_t> filteredDurations;
     filteredDurations.setCapacity(entry.count * 2);
 
@@ -506,7 +514,7 @@ ACameraMetadata::isCaptureRequestTag(const uint32_t tag) {
         case ACAMERA_CONTROL_VIDEO_STABILIZATION_MODE:
         case ACAMERA_CONTROL_POST_RAW_SENSITIVITY_BOOST:
         case ACAMERA_CONTROL_ENABLE_ZSL:
-        case ACAMERA_CONTROL_BOKEH_MODE:
+        case ACAMERA_CONTROL_EXTENDED_SCENE_MODE:
         case ACAMERA_CONTROL_ZOOM_RATIO:
         case ACAMERA_EDGE_MODE:
         case ACAMERA_FLASH_MODE:
@@ -525,7 +533,6 @@ ACameraMetadata::isCaptureRequestTag(const uint32_t tag) {
         case ACAMERA_LENS_OPTICAL_STABILIZATION_MODE:
         case ACAMERA_NOISE_REDUCTION_MODE:
         case ACAMERA_SCALER_CROP_REGION:
-        case ACAMERA_SCALER_ROTATE_AND_CROP:
         case ACAMERA_SENSOR_EXPOSURE_TIME:
         case ACAMERA_SENSOR_FRAME_DURATION:
         case ACAMERA_SENSOR_SENSITIVITY:

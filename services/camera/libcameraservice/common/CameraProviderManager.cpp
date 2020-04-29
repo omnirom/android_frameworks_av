@@ -841,13 +841,6 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::addDynamicDepthTags()
         itDuration++; itSize++;
     }
 
-    c.update(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_STREAM_CONFIGURATIONS,
-            dynamicDepthEntries.data(), dynamicDepthEntries.size());
-    c.update(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_MIN_FRAME_DURATIONS,
-            dynamicDepthMinDurationEntries.data(), dynamicDepthMinDurationEntries.size());
-    c.update(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_STALL_DURATIONS,
-            dynamicDepthStallDurationEntries.data(), dynamicDepthStallDurationEntries.size());
-
     std::vector<int32_t> supportedChTags;
     supportedChTags.reserve(chTags.count + 3);
     supportedChTags.insert(supportedChTags.end(), chTags.data.i32,
@@ -855,6 +848,12 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::addDynamicDepthTags()
     supportedChTags.push_back(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_STREAM_CONFIGURATIONS);
     supportedChTags.push_back(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_MIN_FRAME_DURATIONS);
     supportedChTags.push_back(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_STALL_DURATIONS);
+    c.update(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_STREAM_CONFIGURATIONS,
+            dynamicDepthEntries.data(), dynamicDepthEntries.size());
+    c.update(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_MIN_FRAME_DURATIONS,
+            dynamicDepthMinDurationEntries.data(), dynamicDepthMinDurationEntries.size());
+    c.update(ANDROID_DEPTH_AVAILABLE_DYNAMIC_DEPTH_STALL_DURATIONS,
+            dynamicDepthStallDurationEntries.data(), dynamicDepthStallDurationEntries.size());
     c.update(ANDROID_REQUEST_AVAILABLE_CHARACTERISTICS_KEYS, supportedChTags.data(),
             supportedChTags.size());
 
@@ -1362,7 +1361,7 @@ status_t CameraProviderManager::ProviderInfo::initialize(
 
     // Get list of concurrent streaming camera device combinations
     if (mMinorVersion >= 6) {
-        res = getConcurrentStreamingCameraIdsInternalLocked(interface2_6);
+        res = getConcurrentCameraIdsInternalLocked(interface2_6);
         if (res != OK) {
             return res;
         }
@@ -1616,7 +1615,7 @@ status_t CameraProviderManager::ProviderInfo::dump(int fd, const Vector<String16
     return OK;
 }
 
-status_t CameraProviderManager::ProviderInfo::getConcurrentStreamingCameraIdsInternalLocked(
+status_t CameraProviderManager::ProviderInfo::getConcurrentCameraIdsInternalLocked(
         sp<provider::V2_6::ICameraProvider> &interface2_6) {
     if (interface2_6 == nullptr) {
         ALOGE("%s: null interface provided", __FUNCTION__);
@@ -1669,7 +1668,7 @@ status_t CameraProviderManager::ProviderInfo::reCacheConcurrentStreamingCameraId
     if (castResult.isOk()) {
         sp<provider::V2_6::ICameraProvider> interface2_6 = castResult;
         if (interface2_6 != nullptr) {
-            return getConcurrentStreamingCameraIdsInternalLocked(interface2_6);
+            return getConcurrentCameraIdsInternalLocked(interface2_6);
         } else {
             // This should not happen since mMinorVersion >= 6
             ALOGE("%s: mMinorVersion was >= 6, but interface2_6 was nullptr", __FUNCTION__);
@@ -2809,7 +2808,7 @@ status_t HidlVendorTagDescriptor::createDescriptorFromHidl(
 
 // Expects to have mInterfaceMutex locked
 std::vector<std::unordered_set<std::string>>
-CameraProviderManager::getConcurrentStreamingCameraIds() const {
+CameraProviderManager::getConcurrentCameraIds() const {
     std::vector<std::unordered_set<std::string>> deviceIdCombinations;
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     for (auto &provider : mProviders) {

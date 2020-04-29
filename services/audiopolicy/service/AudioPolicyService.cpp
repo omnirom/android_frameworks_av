@@ -57,9 +57,13 @@ static const String16 sManageAudioPolicyPermission("android.permission.MANAGE_AU
 // ----------------------------------------------------------------------------
 
 AudioPolicyService::AudioPolicyService()
-    : BnAudioPolicyService(), mpAudioPolicyDev(NULL), mpAudioPolicy(NULL),
-      mAudioPolicyManager(NULL), mAudioPolicyClient(NULL), mPhoneState(AUDIO_MODE_INVALID)
-{
+    : BnAudioPolicyService(),
+      mpAudioPolicyDev(NULL),
+      mpAudioPolicy(NULL),
+      mAudioPolicyManager(NULL),
+      mAudioPolicyClient(NULL),
+      mPhoneState(AUDIO_MODE_INVALID),
+      mCaptureStateNotifier(false) {
 }
 
 void AudioPolicyService::onFirstRef()
@@ -437,6 +441,8 @@ void AudioPolicyService::updateUidStates_l()
 //            OR all active clients are using HOTWORD source
 //        AND no call is active
 //            OR client has CAPTURE_AUDIO_OUTPUT privileged permission
+//    OR the client is the current InputMethodService
+//        AND a RTT call is active AND the source is VOICE_RECOGNITION
 //    OR Any client
 //        AND The assistant is not on TOP
 //        AND is on TOP or latest started
@@ -543,7 +549,7 @@ void AudioPolicyService::updateUidStates_l()
     //  else
     //    favor the privacy sensitive case
     if (topActive != nullptr && topSensitiveActive != nullptr
-            && !topActive->canCaptureCallOrOutput) {
+            && !topActive->canCaptureOutput) {
         topActive = nullptr;
     }
 
@@ -559,8 +565,8 @@ void AudioPolicyService::updateUidStates_l()
                                  false : current->uid == topSensitiveActive->uid;
 
         auto canCaptureIfInCallOrCommunication = [&](const auto &recordClient) {
-            bool canCaptureCall = recordClient->canCaptureCallOrOutput;
-            bool canCaptureCommunication = recordClient->canCaptureCallOrOutput
+            bool canCaptureCall = recordClient->canCaptureOutput;
+            bool canCaptureCommunication = recordClient->canCaptureOutput
                 || recordClient->uid == mPhoneStateOwnerUid
                 || isServiceUid(mPhoneStateOwnerUid);
             return !(isInCall && !canCaptureCall)
@@ -575,7 +581,7 @@ void AudioPolicyService::updateUidStates_l()
         bool allowCapture = !isAssistantOnTop
                 && (isTopOrLatestActive || isTopOrLatestSensitive)
                 && !(isSensitiveActive
-                    && !(isTopOrLatestSensitive || current->canCaptureCallOrOutput))
+                    && !(isTopOrLatestSensitive || current->canCaptureOutput))
                 && canCaptureIfInCallOrCommunication(current);
 
         if (isVirtualSource(source)) {
@@ -596,7 +602,7 @@ void AudioPolicyService::updateUidStates_l()
             } else {
                 if (((isAssistantOnTop && source == AUDIO_SOURCE_VOICE_RECOGNITION) ||
                         source == AUDIO_SOURCE_HOTWORD)
-                        && !(isSensitiveActive && !current->canCaptureCallOrOutput)
+                        && !(isSensitiveActive && !current->canCaptureOutput)
                         && canCaptureIfInCallOrCommunication(current)) {
                     allowCapture = true;
                 }
@@ -609,7 +615,7 @@ void AudioPolicyService::updateUidStates_l()
             //     OR
             //         Is on TOP AND the source is VOICE_RECOGNITION or HOTWORD
             if (!isAssistantOnTop
-                    && !(isSensitiveActive && !current->canCaptureCallOrOutput)
+                    && !(isSensitiveActive && !current->canCaptureOutput)
                     && canCaptureIfInCallOrCommunication(current)) {
                 allowCapture = true;
             }
@@ -625,6 +631,12 @@ void AudioPolicyService::updateUidStates_l()
             //         OR client has CAPTURE_AUDIO_OUTPUT privileged permission
             if (onlyHotwordActive
                     && canCaptureIfInCallOrCommunication(current)) {
+                allowCapture = true;
+            }
+        } else if (mUidPolicy->isCurrentImeUid(current->uid)) {
+            // For current InputMethodService allow capture if:
+            //     A RTT call is active AND the source is VOICE_RECOGNITION
+            if (rttCallActive && source == AUDIO_SOURCE_VOICE_RECOGNITION) {
                 allowCapture = true;
             }
         }
@@ -945,7 +957,7 @@ bool AudioPolicyService::UidPolicy::isUidActive(uid_t uid) {
         }
     }
     ActivityManager am;
-    bool active = am.isUidActive(uid, String16("audioserver"));
+    bool active = am.isUidActiveOrForeground(uid, String16("audioserver"));
     {
         Mutex::Autolock _l(mLock);
         mCachedUids.insert(std::pair<uid_t,
@@ -990,7 +1002,7 @@ int AudioPolicyService::UidPolicy::getUidState(uid_t uid) {
         }
     }
     ActivityManager am;
-    bool active = am.isUidActive(uid, String16("audioserver"));
+    bool active = am.isUidActiveOrForeground(uid, String16("audioserver"));
     int state = ActivityManager::PROCESS_STATE_UNKNOWN;
     if (active) {
         state = am.getUidProcessState(uid, String16("audioserver"));
@@ -1901,7 +1913,7 @@ void AudioPolicyService::setEffectSuspended(int effectId,
 
 void AudioPolicyService::onNewAudioModulesAvailable()
 {
-    mAudioCommandThread->audioModulesUpdateCommand();
+    mOutputCommandThread->audioModulesUpdateCommand();
 }
 
 

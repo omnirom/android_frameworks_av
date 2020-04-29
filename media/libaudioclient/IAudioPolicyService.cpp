@@ -22,6 +22,7 @@
 #include <math.h>
 #include <sys/types.h>
 
+#include <android/media/ICaptureStateListener.h>
 #include <binder/IPCThreadState.h>
 #include <binder/Parcel.h>
 #include <media/AudioEffect.h>
@@ -31,6 +32,8 @@
 #include <system/audio.h>
 
 namespace android {
+
+using media::ICaptureStateListener;
 
 enum {
     SET_DEVICE_CONNECTION_STATE = IBinder::FIRST_CALL_TRANSACTION,
@@ -114,6 +117,8 @@ enum {
     GET_PREFERRED_DEVICE_FOR_PRODUCT_STRATEGY,
     GET_DEVICES_FOR_ATTRIBUTES,
     AUDIO_MODULES_UPDATED,  // oneway
+    SET_CURRENT_IME_UID,
+    REGISTER_SOUNDTRIGGER_CAPTURE_STATE_LISTENER,
 };
 
 #define MAX_ITEMS_PER_LIST 1024
@@ -215,7 +220,6 @@ public:
                               audio_stream_type_t *stream,
                               pid_t pid,
                               uid_t uid,
-                              const String16& opPackageName,
                               const audio_config_t *config,
                               audio_output_flags_t flags,
                               audio_port_handle_t *selectedDeviceId,
@@ -254,7 +258,6 @@ public:
             }
             data.writeInt32(pid);
             data.writeInt32(uid);
-            data.writeString16(opPackageName);
             data.write(config, sizeof(audio_config_t));
             data.writeInt32(static_cast <uint32_t>(flags));
             data.writeInt32(*selectedDeviceId);
@@ -1147,6 +1150,18 @@ public:
         return static_cast <status_t> (reply.readInt32());
     }
 
+    virtual status_t setCurrentImeUid(uid_t uid)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
+        data.writeInt32(uid);
+        status_t status = remote()->transact(SET_CURRENT_IME_UID, data, &reply);
+        if (status != NO_ERROR) {
+            return status;
+        }
+        return static_cast <status_t> (reply.readInt32());
+    }
+
     virtual bool isHapticPlaybackSupported()
     {
         Parcel data, reply;
@@ -1459,6 +1474,27 @@ public:
         data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
         remote()->transact(AUDIO_MODULES_UPDATED, data, &reply, IBinder::FLAG_ONEWAY);
     }
+
+    status_t registerSoundTriggerCaptureStateListener(
+            const sp<media::ICaptureStateListener>& listener,
+            bool* result) override {
+        Parcel data, reply;
+        status_t status;
+        status =
+            data.writeInterfaceToken(IAudioPolicyService::getInterfaceDescriptor());
+        if (status != NO_ERROR) return status;
+        status = data.writeStrongBinder(IInterface::asBinder(listener));
+        if (status != NO_ERROR) return status;
+        status =
+            remote()->transact(REGISTER_SOUNDTRIGGER_CAPTURE_STATE_LISTENER,
+                               data,
+                               &reply,
+                               0);
+        if (status != NO_ERROR) return status;
+        status = reply.readBool(result);
+        if (status != NO_ERROR) return status;
+        return NO_ERROR;
+    }
 };
 
 IMPLEMENT_META_INTERFACE(AudioPolicyService, "android.media.IAudioPolicyService");
@@ -1531,7 +1567,9 @@ status_t BnAudioPolicyService::onTransact(
         case GET_PREFERRED_DEVICE_FOR_PRODUCT_STRATEGY:
         case GET_DEVICES_FOR_ATTRIBUTES:
         case SET_ALLOWED_CAPTURE_POLICY:
-        case AUDIO_MODULES_UPDATED: {
+        case AUDIO_MODULES_UPDATED:
+        case SET_CURRENT_IME_UID:
+        case REGISTER_SOUNDTRIGGER_CAPTURE_STATE_LISTENER: {
             if (!isServiceUid(IPCThreadState::self()->getCallingUid())) {
                 ALOGW("%s: transaction %d received from PID %d unauthorized UID %d",
                       __func__, code, IPCThreadState::self()->getCallingPid(),
@@ -1656,11 +1694,6 @@ status_t BnAudioPolicyService::onTransact(
             }
             pid_t pid = (pid_t)data.readInt32();
             uid_t uid = (uid_t)data.readInt32();
-            String16 opPackageName;
-            status = data.readString16(&opPackageName);
-            if (status != NO_ERROR) {
-                return status;
-            }
             audio_config_t config;
             memset(&config, 0, sizeof(audio_config_t));
             data.read(&config, sizeof(audio_config_t));
@@ -1672,7 +1705,7 @@ status_t BnAudioPolicyService::onTransact(
             std::vector<audio_io_handle_t> secondaryOutputs;
             status = getOutputForAttr(&attr,
                     &output, session, &stream, pid, uid,
-                    opPackageName, &config,
+                    &config,
                     flags, &selectedDeviceId, &portId, &secondaryOutputs);
             reply->writeInt32(status);
             status = reply->write(&attr, sizeof(audio_attributes_t));
@@ -2684,6 +2717,43 @@ status_t BnAudioPolicyService::onTransact(
         case AUDIO_MODULES_UPDATED: {
             CHECK_INTERFACE(IAudioPolicyService, data, reply);
             onNewAudioModulesAvailable();
+            return NO_ERROR;
+        } break;
+
+        case SET_CURRENT_IME_UID: {
+            CHECK_INTERFACE(IAudioPolicyService, data, reply);
+            int32_t uid;
+            status_t status = data.readInt32(&uid);
+            if (status != NO_ERROR) {
+                return status;
+            }
+            status = setCurrentImeUid(uid);
+            reply->writeInt32(static_cast <int32_t>(status));
+            return NO_ERROR;
+        }
+
+        case REGISTER_SOUNDTRIGGER_CAPTURE_STATE_LISTENER: {
+            CHECK_INTERFACE(IAudioPolicyService, data, reply);
+            sp<IBinder> binder = data.readStrongBinder();
+            if (binder == nullptr) {
+                return BAD_VALUE;
+            }
+            sp<ICaptureStateListener>
+                listener = interface_cast<ICaptureStateListener>(
+                binder);
+            if (listener == nullptr) {
+                return BAD_VALUE;
+            }
+            bool ret;
+            status_t status =
+                registerSoundTriggerCaptureStateListener(listener, &ret);
+            LOG_ALWAYS_FATAL_IF(status != NO_ERROR,
+                                "Server returned unexpected status code: %d",
+                                status);
+            status = reply->writeBool(ret);
+            if (status != NO_ERROR) {
+                return status;
+            }
             return NO_ERROR;
         } break;
 

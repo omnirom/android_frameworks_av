@@ -18,6 +18,8 @@
 //#define LOG_NDEBUG 0
 
 #include <utils/Log.h>
+
+#include <android/media/BnCaptureStateListener.h>
 #include <binder/IServiceManager.h>
 #include <binder/ProcessState.h>
 #include <binder/IPCThreadState.h>
@@ -44,11 +46,16 @@ std::set<audio_error_callback> AudioSystem::gAudioErrorCallbacks;
 dynamic_policy_callback AudioSystem::gDynPolicyCallback = NULL;
 record_config_callback AudioSystem::gRecordConfigCallback = NULL;
 
+// Required to be held while calling into gSoundTriggerCaptureStateListener.
+Mutex gSoundTriggerCaptureStateListenerLock;
+sp<AudioSystem::CaptureStateListener> gSoundTriggerCaptureStateListener = nullptr;
+
 // establish binder interface to AudioFlinger service
 const sp<IAudioFlinger> AudioSystem::get_audio_flinger()
 {
     sp<IAudioFlinger> af;
     sp<AudioFlingerClient> afc;
+    bool reportNoError = false;
     {
         Mutex::Autolock _l(gLock);
         if (gAudioFlinger == 0) {
@@ -64,7 +71,7 @@ const sp<IAudioFlinger> AudioSystem::get_audio_flinger()
             if (gAudioFlingerClient == NULL) {
                 gAudioFlingerClient = new AudioFlingerClient();
             } else {
-                reportError(NO_ERROR);
+                reportNoError = true;
             }
             binder->linkToDeath(gAudioFlingerClient);
             gAudioFlinger = interface_cast<IAudioFlinger>(binder);
@@ -80,6 +87,7 @@ const sp<IAudioFlinger> AudioSystem::get_audio_flinger()
         af->registerClient(afc);
         IPCThreadState::self()->restoreCallingIdentity(token);
     }
+    if (reportNoError) reportError(NO_ERROR);
     return af;
 }
 
@@ -886,7 +894,6 @@ status_t AudioSystem::getOutputForAttr(audio_attributes_t *attr,
                                         audio_stream_type_t *stream,
                                         pid_t pid,
                                         uid_t uid,
-                                        const String16& opPackageName,
                                         const audio_config_t *config,
                                         audio_output_flags_t flags,
                                         audio_port_handle_t *selectedDeviceId,
@@ -896,7 +903,7 @@ status_t AudioSystem::getOutputForAttr(audio_attributes_t *attr,
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
     if (aps == 0) return NO_INIT;
     return aps->getOutputForAttr(attr, output, session, stream, pid, uid,
-                                 opPackageName, config,
+                                 config,
                                  flags, selectedDeviceId, portId, secondaryOutputs);
 }
 
@@ -1480,6 +1487,14 @@ status_t AudioSystem::setA11yServicesUids(const std::vector<uid_t>& uids)
     return aps->setA11yServicesUids(uids);
 }
 
+status_t AudioSystem::setCurrentImeUid(uid_t uid)
+{
+    const sp <IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+
+    return aps->setCurrentImeUid(uid);
+}
+
 bool AudioSystem::isHapticPlaybackSupported()
 {
     const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
@@ -1614,6 +1629,48 @@ status_t AudioSystem::getPreferredDeviceForStrategy(product_strategy_t strategy,
         return PERMISSION_DENIED;
     }
     return aps->getPreferredDeviceForStrategy(strategy, device);
+}
+
+class CaptureStateListenerImpl : public media::BnCaptureStateListener,
+                                 public IBinder::DeathRecipient {
+public:
+    binder::Status setCaptureState(bool active) override {
+        Mutex::Autolock _l(gSoundTriggerCaptureStateListenerLock);
+        gSoundTriggerCaptureStateListener->onStateChanged(active);
+        return binder::Status::ok();
+    }
+
+    void binderDied(const wp<IBinder>&) override {
+        Mutex::Autolock _l(gSoundTriggerCaptureStateListenerLock);
+        gSoundTriggerCaptureStateListener->onServiceDied();
+        gSoundTriggerCaptureStateListener = nullptr;
+    }
+};
+
+status_t AudioSystem::registerSoundTriggerCaptureStateListener(
+    const sp<CaptureStateListener>& listener) {
+    const sp<IAudioPolicyService>& aps =
+            AudioSystem::get_audio_policy_service();
+    if (aps == 0) {
+        return PERMISSION_DENIED;
+    }
+
+    sp<CaptureStateListenerImpl> wrapper = new CaptureStateListenerImpl();
+
+    Mutex::Autolock _l(gSoundTriggerCaptureStateListenerLock);
+
+    bool active;
+    status_t status =
+        aps->registerSoundTriggerCaptureStateListener(wrapper, &active);
+    if (status != NO_ERROR) {
+        listener->onServiceDied();
+        return NO_ERROR;
+    }
+    gSoundTriggerCaptureStateListener = listener;
+    listener->onStateChanged(active);
+    sp<IBinder> binder = IInterface::asBinder(aps);
+    binder->linkToDeath(wrapper);
+    return NO_ERROR;
 }
 
 // ---------------------------------------------------------------------------

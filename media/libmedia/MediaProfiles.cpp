@@ -29,9 +29,55 @@
 #include <OMX_Video.h>
 #include <sys/stat.h>
 
+#include <array>
+#include <string>
+#include <vector>
+
 namespace android {
 
-constexpr char const * const MediaProfiles::xmlFiles[];
+namespace /* unnamed */ {
+
+// Returns a list of possible paths for the media_profiles XML file.
+std::array<char const*, 5> const& getXmlPaths() {
+    static std::array<std::string const, 5> const paths =
+        []() -> decltype(paths) {
+            // Directories for XML file that will be searched (in this order).
+            constexpr std::array<char const*, 4> searchDirs = {
+                "product/etc/",
+                "odm/etc/",
+                "vendor/etc/",
+                "system/etc/",
+            };
+
+            // The file name may contain a variant if the vendor property
+            // ro.vendor.media_profiles_xml_variant is set.
+            char variant[PROPERTY_VALUE_MAX];
+            property_get("ro.media.xml_variant.profiles",
+                         variant,
+                         "_V1_0");
+
+            std::string fileName =
+                std::string("media_profiles") + variant + ".xml";
+
+            return { searchDirs[0] + fileName,
+                     searchDirs[1] + fileName,
+                     searchDirs[2] + fileName,
+                     searchDirs[3] + fileName,
+                     "system/etc/media_profiles_V1_0.xml" // System fallback
+                   };
+        }();
+    static std::array<char const*, 5> const cPaths = {
+            paths[0].data(),
+            paths[1].data(),
+            paths[2].data(),
+            paths[3].data(),
+            paths[4].data()
+        };
+    return cPaths;
+}
+
+} // unnamed namespace
+
 Mutex MediaProfiles::sLock;
 bool MediaProfiles::sIsInitialized = false;
 MediaProfiles *MediaProfiles::sInstance = NULL;
@@ -48,7 +94,7 @@ const MediaProfiles::NameToTagMap MediaProfiles::sAudioEncoderNameMap[] = {
     {"amrwb",  AUDIO_ENCODER_AMR_WB},
     {"aac",    AUDIO_ENCODER_AAC},
     {"heaac",  AUDIO_ENCODER_HE_AAC},
-    {"aaceld", AUDIO_ENCODER_AAC_ELD}, 
+    {"aaceld", AUDIO_ENCODER_AAC_ELD},
     {"opus",   AUDIO_ENCODER_OPUS},
     {"lpcm",  AUDIO_ENCODER_LPCM},
 };
@@ -616,7 +662,7 @@ MediaProfiles::getInstance()
         char value[PROPERTY_VALUE_MAX];
         if (property_get("media.settings.xml", value, NULL) <= 0) {
             const char* xmlFile = nullptr;
-            for (auto const& f : xmlFiles) {
+            for (auto const& f : getXmlPaths()) {
                 if (checkXmlFile(f)) {
                     xmlFile = f;
                     break;
@@ -645,6 +691,15 @@ MediaProfiles::getInstance()
                         property_get("vendor.media.target.version", value, "0");
                         if (atoi(value) == 1) {
                             strlcpy(value, "/vendor/etc/media_profiles_sdm660_v1.xml",
+                                    PROPERTY_VALUE_MAX);
+                        } else {
+                            strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",
+                                    PROPERTY_VALUE_MAX);
+                        }
+                    } else if (!strcmp(platform, "bengal")) {
+                        property_get("vendor.media.target.version", value, "0");
+                        if (atoi(value) == 2) {
+                            strlcpy(value, "/vendor/etc/media_profiles_scuba.xml",
                                     PROPERTY_VALUE_MAX);
                         } else {
                             strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",

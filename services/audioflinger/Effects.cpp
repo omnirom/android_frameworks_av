@@ -29,6 +29,7 @@
 #include <system/audio_effects/effect_visualizer.h>
 #include <audio_utils/channels.h>
 #include <audio_utils/primitives.h>
+#include <media/AudioCommonTypes.h>
 #include <media/AudioContainers.h>
 #include <media/AudioEffect.h>
 #include <media/AudioDeviceTypeAddr.h>
@@ -212,8 +213,8 @@ status_t AudioFlinger::EffectBase::updatePolicyState()
     bool registered = false;
     bool doEnable = false;
     bool enabled = false;
-    audio_io_handle_t io;
-    uint32_t strategy;
+    audio_io_handle_t io = AUDIO_IO_HANDLE_NONE;
+    uint32_t strategy = PRODUCT_STRATEGY_NONE;
 
     {
         Mutex::Autolock _l(mLock);
@@ -542,7 +543,7 @@ AudioFlinger::EffectModule::EffectModule(const sp<AudioFlinger::EffectCallbackIn
         goto Error;
     }
 
-    setOffloaded(callback->isOffload(), callback->io());
+    setOffloaded(callback->isOffloadOrDirect(), callback->io());
     ALOGV("Constructor success name %s, Interface %p", mDescriptor.name, mEffectInterface.get());
 
     return;
@@ -2037,7 +2038,7 @@ void AudioFlinger::EffectChain::process_l()
     // never process effects when:
     // - on an OFFLOAD thread
     // - no more tracks are on the session and the effect tail has been rendered
-    bool doProcess = !mEffectCallback->isOffloadOrMmap();
+    bool doProcess = !mEffectCallback->isOffloadOrMmap() && !mEffectCallback->isOffloadOrDirect();
     if (!audio_is_global_session(mSessionId)) {
         bool tracksOnSession = (trackCnt() != 0);
 
@@ -3047,7 +3048,7 @@ status_t AudioFlinger::DeviceEffectProxy::checkPort(const PatchPanel::Patch& pat
         int enabled;
         *handle = thread->createEffect_l(nullptr, nullptr, 0, AUDIO_SESSION_DEVICE,
                                          const_cast<effect_descriptor_t *>(&mDescriptor),
-                                         &enabled, &status, false);
+                                         &enabled, &status, false, false /*probe*/);
         ALOGV("%s thread->createEffect_l status %d", __func__, status);
     } else {
         status = BAD_VALUE;

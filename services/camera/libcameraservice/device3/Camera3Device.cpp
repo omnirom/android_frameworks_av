@@ -1719,6 +1719,13 @@ status_t Camera3Device::createDefaultRequest(int templateId,
             return res;
         }
 
+        // Fill in JPEG_QUALITY if not available
+        if (!mRequestTemplateCache[templateId].exists(ANDROID_JPEG_QUALITY)) {
+            static const uint8_t kDefaultJpegQuality = 95;
+            mRequestTemplateCache[templateId].update(ANDROID_JPEG_QUALITY,
+                    &kDefaultJpegQuality, 1);
+        }
+
         *request = mRequestTemplateCache[templateId];
         mLastTemplateId = templateId;
     }
@@ -4770,6 +4777,11 @@ void Camera3Device::RequestThread::signalPipelineDrain(const std::vector<int>& s
     mStreamIdsToBeDrained = streamIds;
 }
 
+void Camera3Device::RequestThread::clearPreviousRequest() {
+    Mutex::Autolock l(mRequestLock);
+    mPrevRequest.clear();
+}
+
 status_t Camera3Device::RequestThread::switchToOffline(
         const std::vector<int32_t>& streamsToKeep,
         /*out*/hardware::camera::device::V3_6::CameraOfflineSessionInfo* offlineSessionInfo,
@@ -5929,6 +5941,7 @@ status_t Camera3Device::switchToOffline(
     internalUpdateStatusLocked(STATUS_UNCONFIGURED);
     mOperatingMode = NO_MODE;
     mIsConstrainedHighSpeedConfiguration = false;
+    mRequestThread->clearPreviousRequest();
 
     return OK;
     // TO be done by CameraDeviceClient/Camera3OfflineSession

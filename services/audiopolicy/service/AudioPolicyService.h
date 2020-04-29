@@ -34,6 +34,7 @@
 #include <media/AudioPolicy.h>
 #include <mediautils/ServiceUtilities.h>
 #include "AudioPolicyEffects.h"
+#include "CaptureStateNotifier.h"
 #include <AudioPolicyInterface.h>
 #include <android/hardware/BnSensorPrivacyListener.h>
 
@@ -83,7 +84,6 @@ public:
                               audio_stream_type_t *stream,
                               pid_t pid,
                               uid_t uid,
-                              const String16& opPackageName,
                               const audio_config_t *config,
                               audio_output_flags_t flags,
                               audio_port_handle_t *selectedDeviceId,
@@ -262,6 +262,7 @@ public:
 
     virtual status_t setAssistantUid(uid_t uid);
     virtual status_t setA11yServicesUids(const std::vector<uid_t>& uids);
+    virtual status_t setCurrentImeUid(uid_t uid);
 
     virtual bool     isHapticPlaybackSupported();
 
@@ -274,6 +275,10 @@ public:
 
     virtual status_t getVolumeGroupFromAudioAttributes(const AudioAttributes &aa,
                                                        volume_group_t &volumeGroup);
+
+    status_t registerSoundTriggerCaptureStateListener(
+        const sp<media::ICaptureStateListener>& listener,
+        bool* result) override;
 
     virtual status_t setRttEnabled(bool enabled);
 
@@ -373,7 +378,7 @@ private:
     public:
         explicit UidPolicy(wp<AudioPolicyService> service)
                 : mService(service), mObserverRegistered(false),
-                  mAssistantUid(0), mRttEnabled(false) {}
+                  mAssistantUid(0), mCurrentImeUid(0), mRttEnabled(false) {}
 
         void registerSelf();
         void unregisterSelf();
@@ -388,6 +393,8 @@ private:
         void setA11yUids(const std::vector<uid_t>& uids) { mA11yUids.clear(); mA11yUids = uids; }
         bool isA11yUid(uid_t uid);
         bool isA11yOnTop();
+        void setCurrentImeUid(uid_t uid) { mCurrentImeUid = uid; }
+        bool isCurrentImeUid(uid_t uid) { return uid == mCurrentImeUid; }
         void setRttEnabled(bool enabled) { mRttEnabled = enabled; }
         bool isRttEnabled() { return mRttEnabled; }
 
@@ -419,6 +426,7 @@ private:
         std::unordered_map<uid_t, std::pair<bool, int>> mCachedUids;
         uid_t mAssistantUid;
         std::vector<uid_t> mA11yUids;
+        uid_t mCurrentImeUid;
         bool mRttEnabled;
     };
 
@@ -820,16 +828,15 @@ private:
                           const audio_io_handle_t io, uid_t uid, pid_t pid,
                           const audio_session_t session, audio_port_handle_t portId,
                           const audio_port_handle_t deviceId, const String16& opPackageName,
-                          bool canCaptureCallOrOutput, bool canCaptureHotword) :
+                          bool canCaptureOutput, bool canCaptureHotword) :
                     AudioClient(attributes, io, uid, pid, session, portId, deviceId),
                     opPackageName(opPackageName), startTimeNs(0),
-                    canCaptureCallOrOutput(canCaptureCallOrOutput),
-                    canCaptureHotword(canCaptureHotword) {}
+                    canCaptureOutput(canCaptureOutput), canCaptureHotword(canCaptureHotword) {}
                 ~AudioRecordClient() override = default;
 
         const String16 opPackageName;        // client package name
         nsecs_t startTimeNs;
-        const bool canCaptureCallOrOutput;
+        const bool canCaptureOutput;
         const bool canCaptureHotword;
     };
 
@@ -903,6 +910,8 @@ private:
     DefaultKeyedVector< audio_port_handle_t, sp<AudioPlaybackClient> >   mAudioPlaybackClients;
 
     MediaPackageManager mPackageManager; // To check allowPlaybackCapture
+
+    CaptureStateNotifier mCaptureStateNotifier;
 };
 
 } // namespace android

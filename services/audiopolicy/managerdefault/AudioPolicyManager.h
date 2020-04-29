@@ -787,6 +787,9 @@ protected:
         std::unordered_set<audio_format_t> mManualSurroundFormats;
 
         std::unordered_map<uid_t, audio_flags_mask_t> mAllowedCapturePolicies;
+private:
+        void onNewAudioModulesAvailableInt(DeviceVector *newDevices);
+
 protected:
         // Add or remove AC3 DTS encodings based on user preferences.
         void modifySurroundFormats(const sp<DeviceDescriptor>& devDesc, FormatVector *formatsPtr);
@@ -878,6 +881,8 @@ protected:
                                              const char *device_address,
                                              const char *device_name,
                                              audio_format_t encodedFormat);
+        status_t setDeviceConnectionStateInt(const sp<DeviceDescriptor> &device,
+                                             audio_policy_dev_state_t state);
 
         void setEngineDeviceConnectionState(const sp<DeviceDescriptor> device,
                                       audio_policy_dev_state_t state);
