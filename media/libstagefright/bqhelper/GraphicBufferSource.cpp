@@ -1383,6 +1383,9 @@ status_t GraphicBufferSource::setTimeLapseConfig(double fps, double captureFps) 
     if (captureFps > fps) {
         mSnapTimestamps = 1 == base::GetIntProperty(
                 "debug.stagefright.snap_timestamps", int64_t(0));
+    } else if (fps > 2 * captureFps) {
+        // Timelapse mode
+        mSnapTimestamps = true;
     } else {
         mSnapTimestamps = false;
     }
