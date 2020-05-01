@@ -636,13 +636,13 @@ status_t MPEG4Writer::addSource(const sp<MediaSource> &source) {
     const char *mime = NULL;
     sp<MetaData> meta = source->getFormat();
     meta->findCString(kKeyMIMEType, &mime);
-    bool isAudio = !strncasecmp(mime, "audio/", 6);
 
     if (Track::getFourCCForMime(mime) == NULL) {
         ALOGE("Unsupported mime '%s'", mime);
         return ERROR_UNSUPPORTED;
     }
 
+    bool isAudio = !strncasecmp(mime, "audio/", 6);
     if (isAudio && !AVUtils::get()->isAudioMuxFormatSupported(mime)) {
         ALOGE("Muxing is not supported for %s", mime);
         return ERROR_UNSUPPORTED;
