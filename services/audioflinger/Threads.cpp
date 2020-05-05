@@ -3071,6 +3071,10 @@ void AudioFlinger::PlaybackThread::checkSilentMode_l()
 {
     if (!mMasterMute) {
         char value[PROPERTY_VALUE_MAX];
+        if (mOutDeviceTypeAddrs.empty()) {
+            ALOGD("ro.audio.silent is ignored since no output device is set");
+            return;
+        }
         if (isSingleDeviceType(outDeviceTypes(), AUDIO_DEVICE_OUT_REMOTE_SUBMIX)) {
             ALOGD("ro.audio.silent will be ignored for threads on AUDIO_DEVICE_OUT_REMOTE_SUBMIX");
             return;
@@ -4259,6 +4263,7 @@ status_t AudioFlinger::PlaybackThread::createAudioPatch_l(const struct audio_pat
                          (mPatch.sinks[0].id != sinkPortId);
     mPatch = *patch;
     mOutDeviceTypeAddrs = deviceTypeAddrs;
+    checkSilentMode_l();
 
     if (mOutput->audioHwDev->supportsAudioPatches()) {
         sp<DeviceHalInterface> hwDevice = mOutput->audioHwDev->hwDevice();
@@ -9270,6 +9275,7 @@ status_t AudioFlinger::MmapThread::createAudioPatch_l(const struct audio_patch *
         if (isOutput()) {
             sendIoConfigEvent_l(AUDIO_OUTPUT_CONFIG_CHANGED);
             mOutDeviceTypeAddrs = sinkDeviceTypeAddrs;
+            checkSilentMode_l();
         } else {
             sendIoConfigEvent_l(AUDIO_INPUT_CONFIG_CHANGED);
             mInDeviceTypeAddr = sourceDeviceTypeAddr;
