@@ -1223,9 +1223,12 @@ status_t AudioFlinger::EffectModule::setVolume(uint32_t *left, uint32_t *right, 
 void AudioFlinger::EffectChain::setVolumeForOutput_l(uint32_t left, uint32_t right)
 {
     sp<ThreadBase> thread = mThread.promote();
+    // for offload or direct thread, if the effect chain has non-offloadable
+    // effect and any effect module within the chain has volume control, then
+    // volume control is delegated to effect, otherwise, set volume to hal.
     if (thread != 0 &&
         (thread->type() == ThreadBase::OFFLOAD || thread->type() == ThreadBase::DIRECT) &&
-        !isNonOffloadableEnabled_l()) {
+        !(isNonOffloadableEnabled_l() && hasVolumeControlEnabled_l())) {
         PlaybackThread *t = (PlaybackThread *)thread.get();
         float vol_l = (float)left / (1 << 24);
         float vol_r = (float)right / (1 << 24);
@@ -2329,6 +2332,13 @@ void AudioFlinger::EffectChain::setAudioSource_l(audio_source_t source)
     for (size_t i = 0; i < size; i++) {
         mEffects[i]->setAudioSource(source);
     }
+}
+
+bool AudioFlinger::EffectChain::hasVolumeControlEnabled_l() const {
+    for (const auto &effect : mEffects) {
+        if (effect->isVolumeControlEnabled()) return true;
+    }
+    return false;
 }
 
 // setVolume_l() must be called with ThreadBase::mLock or EffectChain::mLock held
