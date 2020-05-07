@@ -156,13 +156,17 @@ void setNativeWindowHdrMetadata(ANativeWindow *nativeWindow, HDRStaticInfo *info
     int err = native_window_set_buffers_smpte2086_metadata(nativeWindow, &smpte2086_meta);
     ALOGW_IF(err != 0, "failed to set smpte2086 metadata on surface (%d)", err);
 
-    struct android_cta861_3_metadata cta861_meta = {
-            .maxContentLightLevel = (float) info->sType1.mMaxContentLightLevel,
-            .maxFrameAverageLightLevel = (float) info->sType1.mMaxFrameAverageLightLevel
-    };
+    // Do not use content light level fields, if they are 0.
+    // This indicates that the bitstream may not contain these values
+    if(info->sType1.mMaxContentLightLevel > 0 && info->sType1.mMaxFrameAverageLightLevel > 0) {
+        struct android_cta861_3_metadata cta861_meta = {
+                .maxContentLightLevel = (float) info->sType1.mMaxContentLightLevel,
+                .maxFrameAverageLightLevel = (float) info->sType1.mMaxFrameAverageLightLevel
+        };
 
-    err = native_window_set_buffers_cta861_3_metadata(nativeWindow, &cta861_meta);
-    ALOGW_IF(err != 0, "failed to set cta861_3 metadata on surface (%d)", err);
+        err = native_window_set_buffers_cta861_3_metadata(nativeWindow, &cta861_meta);
+        ALOGW_IF(err != 0, "failed to set cta861_3 metadata on surface (%d)", err);
+    }
 }
 
 status_t pushBlankBuffersToNativeWindow(ANativeWindow *nativeWindow /* nonnull */) {
