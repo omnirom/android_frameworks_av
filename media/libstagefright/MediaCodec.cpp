@@ -2660,6 +2660,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     }
 
                     mResourceManagerProxy->removeClient();
+                    mReleaseSurface.reset();
 
                     if (mReplyID != nullptr) {
                         (new AMessage)->postReply(mReplyID);
