@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-// This file is used in both client and server processes.
-// This is needed to make sense of the logs more easily.
-#define LOG_TAG (mInService ? "AudioStreamInternal_Service" : "AudioStreamInternal_Client")
+#define LOG_TAG "AudioStreamInternal"
 //#define LOG_NDEBUG 0
 #include <utils/Log.h>
 
@@ -28,6 +26,8 @@
 
 #include <aaudio/AAudio.h>
 #include <cutils/properties.h>
+
+#include <media/MediaMetricsItem.h>
 #include <utils/String16.h>
 #include <utils/Trace.h>
 
@@ -36,11 +36,19 @@
 #include "binding/AAudioStreamConfiguration.h"
 #include "binding/IAAudioService.h"
 #include "binding/AAudioServiceMessage.h"
+#include "core/AudioGlobal.h"
 #include "core/AudioStreamBuilder.h"
 #include "fifo/FifoBuffer.h"
 #include "utility/AudioClock.h"
 
 #include "AudioStreamInternal.h"
+
+// We do this after the #includes because if a header uses ALOG.
+// it would fail on the reference to mInService.
+#undef LOG_TAG
+// This file is used in both client and server processes.
+// This is needed to make sense of the logs more easily.
+#define LOG_TAG (mInService ? "AudioStreamInternal_Service" : "AudioStreamInternal_Client")
 
 using android::String16;
 using android::Mutex;
@@ -58,7 +66,6 @@ using namespace aaudio;
 AudioStreamInternal::AudioStreamInternal(AAudioServiceInterface  &serviceInterface, bool inService)
         : AudioStream()
         , mClockModel()
-        , mAudioEndpoint()
         , mServiceStreamHandle(AAUDIO_HANDLE_INVALID)
         , mInService(inService)
         , mServiceInterface(serviceInterface)
@@ -74,7 +81,6 @@ AudioStreamInternal::~AudioStreamInternal() {
 aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
 
     aaudio_result_t result = AAUDIO_OK;
-    int32_t capacity;
     int32_t framesPerBurst;
     int32_t framesPerHardwareBurst;
     AAudioStreamRequest request;
@@ -139,6 +145,11 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
         return mServiceStreamHandle;
     }
 
+    // This must match the key generated in oboeservice/AAudioServiceStreamBase.cpp
+    // so the client can have permission to log.
+    mMetricsId = std::string(AMEDIAMETRICS_KEY_PREFIX_AUDIO_STREAM)
+            + std::to_string(mServiceStreamHandle);
+
     result = configurationOutput.validate();
     if (result != AAUDIO_OK) {
         goto error;
@@ -173,7 +184,8 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     }
 
     // Configure endpoint based on descriptor.
-    result = mAudioEndpoint.configure(&mEndpointDescriptor, getDirection());
+    mAudioEndpoint = std::make_unique<AudioEndpoint>();
+    result = mAudioEndpoint->configure(&mEndpointDescriptor, getDirection());
     if (result != AAUDIO_OK) {
         goto error;
     }
@@ -201,9 +213,10 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     }
     mFramesPerBurst = framesPerBurst; // only save good value
 
-    capacity = mEndpointDescriptor.dataQueueDescriptor.capacityInFrames;
-    if (capacity < mFramesPerBurst || capacity > MAX_BUFFER_CAPACITY_IN_FRAMES) {
-        ALOGE("%s - bufferCapacity out of range = %d", __func__, capacity);
+    mBufferCapacityInFrames = mEndpointDescriptor.dataQueueDescriptor.capacityInFrames;
+    if (mBufferCapacityInFrames < mFramesPerBurst
+            || mBufferCapacityInFrames > MAX_BUFFER_CAPACITY_IN_FRAMES) {
+        ALOGE("%s - bufferCapacity out of range = %d", __func__, mBufferCapacityInFrames);
         result = AAUDIO_ERROR_OUT_OF_RANGE;
         goto error;
     }
@@ -230,7 +243,7 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
         }
 
         const int32_t callbackBufferSize = mCallbackFrames * getBytesPerFrame();
-        mCallbackBuffer = new uint8_t[callbackBufferSize];
+        mCallbackBuffer = std::make_unique<uint8_t[]>(callbackBufferSize);
     }
 
     // For debugging and analyzing the distribution of MMAP timestamps.
@@ -239,7 +252,7 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     // You can use this offset to reduce glitching.
     // You can also use this offset to force glitching. By iterating over multiple
     // values you can reveal the distribution of the hardware timing jitter.
-    if (mAudioEndpoint.isFreeRunning()) { // MMAP?
+    if (mAudioEndpoint->isFreeRunning()) { // MMAP?
         int32_t offsetMicros = (getDirection() == AAUDIO_DIRECTION_OUTPUT)
                 ? AAudioProperty_getOutputMMapOffsetMicros()
                 : AAudioProperty_getInputMMapOffsetMicros();
@@ -251,7 +264,7 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
         mTimeOffsetNanos = offsetMicros * AAUDIO_NANOS_PER_MICROSECOND;
     }
 
-    setBufferSize(capacity / 2); // Default buffer size to match Q
+    setBufferSize(mBufferCapacityInFrames / 2); // Default buffer size to match Q
 
     setState(AAUDIO_STREAM_STATE_OPEN);
 
@@ -274,13 +287,20 @@ aaudio_result_t AudioStreamInternal::release_l() {
         if (isActive() || currentState == AAUDIO_STREAM_STATE_DISCONNECTED) {
             requestStop();
         }
+
+        logBufferState();
+
         setState(AAUDIO_STREAM_STATE_CLOSING);
         aaudio_handle_t serviceStreamHandle = mServiceStreamHandle;
         mServiceStreamHandle = AAUDIO_HANDLE_INVALID;
 
         mServiceInterface.closeStream(serviceStreamHandle);
-        delete[] mCallbackBuffer;
-        mCallbackBuffer = nullptr;
+        mCallbackBuffer.reset();
+
+        // Update local frame counters so we can query them after releasing the endpoint.
+        getFramesRead();
+        getFramesWritten();
+        mAudioEndpoint.reset();
         result = mEndPointParcelable.close();
         aaudio_result_t result2 = AudioStream::release_l();
         return (result != AAUDIO_OK) ? result : result2;
@@ -539,7 +559,7 @@ aaudio_result_t AudioStreamInternal::onEventFromServer(AAudioServiceMessage *mes
         case AAUDIO_SERVICE_EVENT_DISCONNECTED:
             // Prevent hardware from looping on old data and making buzzing sounds.
             if (getDirection() == AAUDIO_DIRECTION_OUTPUT) {
-                mAudioEndpoint.eraseDataMemory();
+                mAudioEndpoint->eraseDataMemory();
             }
             result = AAUDIO_ERROR_DISCONNECTED;
             setState(AAUDIO_STREAM_STATE_DISCONNECTED);
@@ -565,7 +585,10 @@ aaudio_result_t AudioStreamInternal::drainTimestampsFromService() {
 
     while (result == AAUDIO_OK) {
         AAudioServiceMessage message;
-        if (mAudioEndpoint.readUpCommand(&message) != 1) {
+        if (!mAudioEndpoint) {
+            break;
+        }
+        if (mAudioEndpoint->readUpCommand(&message) != 1) {
             break; // no command this time, no problem
         }
         switch (message.what) {
@@ -593,7 +616,10 @@ aaudio_result_t AudioStreamInternal::processCommands() {
 
     while (result == AAUDIO_OK) {
         AAudioServiceMessage message;
-        if (mAudioEndpoint.readUpCommand(&message) != 1) {
+        if (!mAudioEndpoint) {
+            break;
+        }
+        if (mAudioEndpoint->readUpCommand(&message) != 1) {
             break; // no command this time, no problem
         }
         switch (message.what) {
@@ -626,7 +652,7 @@ aaudio_result_t AudioStreamInternal::processData(void *buffer, int32_t numFrames
     const char * fifoName = "aaRdy";
     ATRACE_BEGIN(traceName);
     if (ATRACE_ENABLED()) {
-        int32_t fullFrames = mAudioEndpoint.getFullFramesAvailable();
+        int32_t fullFrames = mAudioEndpoint->getFullFramesAvailable();
         ATRACE_INT(fifoName, fullFrames);
     }
 
@@ -655,7 +681,7 @@ aaudio_result_t AudioStreamInternal::processData(void *buffer, int32_t numFrames
         if (timeoutNanoseconds == 0) {
             break; // don't block
         } else if (wakeTimeNanos != 0) {
-            if (!mAudioEndpoint.isFreeRunning()) {
+            if (!mAudioEndpoint->isFreeRunning()) {
                 // If there is software on the other end of the FIFO then it may get delayed.
                 // So wake up just a little after we expect it to be ready.
                 wakeTimeNanos += mWakeupDelayNanos;
@@ -680,12 +706,12 @@ aaudio_result_t AudioStreamInternal::processData(void *buffer, int32_t numFrames
                 ALOGW("processData(): past deadline by %d micros",
                       (int)((wakeTimeNanos - deadlineNanos) / AAUDIO_NANOS_PER_MICROSECOND));
                 mClockModel.dump();
-                mAudioEndpoint.dump();
+                mAudioEndpoint->dump();
                 break;
             }
 
             if (ATRACE_ENABLED()) {
-                int32_t fullFrames = mAudioEndpoint.getFullFramesAvailable();
+                int32_t fullFrames = mAudioEndpoint->getFullFramesAvailable();
                 ATRACE_INT(fifoName, fullFrames);
                 int64_t sleepForNanos = wakeTimeNanos - currentTimeNanos;
                 ATRACE_INT("aaSlpNs", (int32_t)sleepForNanos);
@@ -697,7 +723,7 @@ aaudio_result_t AudioStreamInternal::processData(void *buffer, int32_t numFrames
     }
 
     if (ATRACE_ENABLED()) {
-        int32_t fullFrames = mAudioEndpoint.getFullFramesAvailable();
+        int32_t fullFrames = mAudioEndpoint->getFullFramesAvailable();
         ATRACE_INT(fifoName, fullFrames);
     }
 
@@ -714,12 +740,8 @@ void AudioStreamInternal::processTimestamp(uint64_t position, int64_t time) {
 aaudio_result_t AudioStreamInternal::setBufferSize(int32_t requestedFrames) {
     int32_t adjustedFrames = requestedFrames;
     const int32_t maximumSize = getBufferCapacity() - mFramesPerBurst;
-    // The buffer size can be set to zero.
-    // This means that the callback may be called when the internal buffer becomes empty.
-    // This will be fine on some devices in ideal circumstances and will result in the
-    // lowest possible latency.
-    // If there are glitches then they should be detected as XRuns and the size can be increased.
-    static const int32_t minimumSize = 0;
+    // Minimum size should be a multiple number of bursts.
+    const int32_t minimumSize = 1 * mFramesPerBurst;
 
     // Clip to minimum size so that rounding up will work better.
     adjustedFrames = std::max(minimumSize, adjustedFrames);
@@ -731,13 +753,19 @@ aaudio_result_t AudioStreamInternal::setBufferSize(int32_t requestedFrames) {
         // Round to the next highest burst size.
         int32_t numBursts = (adjustedFrames + mFramesPerBurst - 1) / mFramesPerBurst;
         adjustedFrames = numBursts * mFramesPerBurst;
+        // Clip just in case maximumSize is not a multiple of mFramesPerBurst.
+        adjustedFrames = std::min(maximumSize, adjustedFrames);
     }
 
-    // Clip against the actual size from the endpoint.
-    int32_t actualFrames = 0;
-    mAudioEndpoint.setBufferSizeInFrames(maximumSize, &actualFrames);
-    // actualFrames should be <= maximumSize
-    adjustedFrames = std::min(actualFrames, adjustedFrames);
+    if (mAudioEndpoint) {
+        // Clip against the actual size from the endpoint.
+        int32_t actualFrames = 0;
+        // Set to maximum size so we can write extra data when ready in order to reduce glitches.
+        // The amount we keep in the buffer is controlled by mBufferSizeInFrames.
+        mAudioEndpoint->setBufferSizeInFrames(maximumSize, &actualFrames);
+        // actualFrames should be <= actual maximum size of endpoint
+        adjustedFrames = std::min(actualFrames, adjustedFrames);
+    }
 
     mBufferSizeInFrames = adjustedFrames;
     ALOGV("%s(%d) returns %d", __func__, requestedFrames, adjustedFrames);
@@ -749,7 +777,7 @@ int32_t AudioStreamInternal::getBufferSize() const {
 }
 
 int32_t AudioStreamInternal::getBufferCapacity() const {
-    return mAudioEndpoint.getBufferCapacityInFrames();
+    return mBufferCapacityInFrames;
 }
 
 int32_t AudioStreamInternal::getFramesPerBurst() const {
@@ -762,5 +790,5 @@ aaudio_result_t AudioStreamInternal::joinThread(void** returnArg) {
 }
 
 bool AudioStreamInternal::isClockModelInControl() const {
-    return isActive() && mAudioEndpoint.isFreeRunning() && mClockModel.isRunning();
+    return isActive() && mAudioEndpoint->isFreeRunning() && mClockModel.isRunning();
 }

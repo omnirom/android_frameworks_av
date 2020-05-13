@@ -155,7 +155,8 @@ protected:
 
     IsochronousClockModel    mClockModel;      // timing model for chasing the HAL
 
-    AudioEndpoint            mAudioEndpoint;   // source for reads or sink for writes
+    std::unique_ptr<AudioEndpoint> mAudioEndpoint;   // source for reads or sink for writes
+
     aaudio_handle_t          mServiceStreamHandle; // opaque handle returned from service
 
     int32_t                  mFramesPerBurst = MIN_FRAMES_PER_BURST; // frames per HAL transfer
@@ -164,7 +165,7 @@ protected:
     // Offset from underlying frame position.
     int64_t                  mFramesOffsetFromService = 0; // offset for timestamps
 
-    uint8_t                 *mCallbackBuffer = nullptr;
+    std::unique_ptr<uint8_t[]> mCallbackBuffer;
     int32_t                  mCallbackFrames = 0;
 
     // The service uses this for SHARED mode.
@@ -177,6 +178,9 @@ protected:
     AtomicRequestor          mNeedCatchUp;   // Ask read() or write() to sync on first timestamp.
 
     float                    mStreamVolume = 1.0f;
+
+    int64_t                  mLastFramesWritten = 0;
+    int64_t                  mLastFramesRead = 0;
 
 private:
     /*
@@ -207,6 +211,8 @@ private:
     int32_t                  mDeviceChannelCount = 0;
 
     int32_t                  mBufferSizeInFrames = 0; // local threshold to control latency
+    int32_t                  mBufferCapacityInFrames = 0;
+
 
 };
 

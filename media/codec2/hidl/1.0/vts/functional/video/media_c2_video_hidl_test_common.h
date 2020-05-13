@@ -22,12 +22,12 @@
 #define ENC_DEFAULT_FRAME_WIDTH 352
 #define ENC_DEFAULT_FRAME_HEIGHT 288
 #define MAX_ITERATIONS 128
+#define FLAG_NON_DISPLAY_FRAME (1 << 4)
 
 #define ALIGN(_sz, _align) ((_sz + (_align - 1)) & ~(_align - 1))
 
 /*
  * Common video utils
  */
-
 
 #endif  // MEDIA_C2_VIDEO_HIDL_TEST_COMMON_H

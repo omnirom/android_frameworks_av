@@ -20,6 +20,9 @@
 
 #include <atomic>
 #include <stdint.h>
+
+#include <media/MediaMetricsItem.h>
+
 #include <aaudio/AAudio.h>
 
 #include "AudioStreamBuilder.h"
@@ -28,7 +31,6 @@
 #include "AudioGlobal.h"
 
 namespace aaudio {
-
 
 // Sequential number assigned to streams solely for debugging purposes.
 static aaudio_stream_id_t AAudio_getNextStreamId() {
@@ -103,12 +105,59 @@ aaudio_result_t AudioStream::open(const AudioStreamBuilder& builder)
     return AAUDIO_OK;
 }
 
+void AudioStream::logOpen() {
+    if (mMetricsId.size() > 0) {
+        android::mediametrics::LogItem(mMetricsId)
+                .set(AMEDIAMETRICS_PROP_PERFORMANCEMODE,
+                     AudioGlobal_convertPerformanceModeToText(getPerformanceMode()))
+                .set(AMEDIAMETRICS_PROP_SHARINGMODE,
+                     AudioGlobal_convertSharingModeToText(getSharingMode()))
+                .record();
+    }
+}
+
+void AudioStream::logBufferState() {
+    if (mMetricsId.size() > 0) {
+        android::mediametrics::LogItem(mMetricsId)
+                .set(AMEDIAMETRICS_PROP_BUFFERSIZEFRAMES, (int32_t) getBufferSize())
+                .set(AMEDIAMETRICS_PROP_UNDERRUN, (int32_t) getXRunCount())
+                .record();
+    }
+}
+
 aaudio_result_t AudioStream::systemStart() {
     std::lock_guard<std::mutex> lock(mStreamLock);
 
     if (collidesWithCallback()) {
         ALOGE("%s cannot be called from a callback!", __func__);
         return AAUDIO_ERROR_INVALID_STATE;
+    }
+
+    switch (getState()) {
+        // Is this a good time to start?
+        case AAUDIO_STREAM_STATE_OPEN:
+        case AAUDIO_STREAM_STATE_PAUSING:
+        case AAUDIO_STREAM_STATE_PAUSED:
+        case AAUDIO_STREAM_STATE_STOPPING:
+        case AAUDIO_STREAM_STATE_STOPPED:
+        case AAUDIO_STREAM_STATE_FLUSHED:
+            break; // Proceed with starting.
+
+        // Already started?
+        case AAUDIO_STREAM_STATE_STARTING:
+        case AAUDIO_STREAM_STATE_STARTED:
+            ALOGW("%s() stream was already started, state = %s", __func__,
+                  AudioGlobal_convertStreamStateToText(getState()));
+            return AAUDIO_ERROR_INVALID_STATE;
+
+        // Don't start when the stream is dead!
+        case AAUDIO_STREAM_STATE_DISCONNECTED:
+        case AAUDIO_STREAM_STATE_CLOSING:
+        case AAUDIO_STREAM_STATE_CLOSED:
+        default:
+            ALOGW("%s() stream is dead, state = %s", __func__,
+                  AudioGlobal_convertStreamStateToText(getState()));
+            return AAUDIO_ERROR_INVALID_STATE;
     }
 
     aaudio_result_t result = requestStart();
@@ -156,8 +205,8 @@ aaudio_result_t AudioStream::systemPause() {
         case AAUDIO_STREAM_STATE_CLOSING:
         case AAUDIO_STREAM_STATE_CLOSED:
         default:
-            ALOGW("safePause() stream not running, state = %s",
-                  AudioGlobal_convertStreamStateToText(getState()));
+            ALOGW("%s() stream not running, state = %s",
+                  __func__, AudioGlobal_convertStreamStateToText(getState()));
             return AAUDIO_ERROR_INVALID_STATE;
     }
 
@@ -264,9 +313,21 @@ aaudio_result_t AudioStream::safeRelease() {
 
 void AudioStream::setState(aaudio_stream_state_t state) {
     ALOGD("%s(s#%d) from %d to %d", __func__, getId(), mState, state);
+    // Track transition to DISCONNECTED state.
+    if (state == AAUDIO_STREAM_STATE_DISCONNECTED && mState != state) {
+        android::mediametrics::LogItem(mMetricsId)
+                .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_DISCONNECT)
+                .set(AMEDIAMETRICS_PROP_STATE, AudioGlobal_convertStreamStateToText(getState()))
+                .record();
+    }
     // CLOSED is a final state
     if (mState == AAUDIO_STREAM_STATE_CLOSED) {
         ALOGE("%s(%d) tried to set to %d but already CLOSED", __func__, getId(), state);
+
+    // Once CLOSING, we can only move to CLOSED state.
+    } else if (mState == AAUDIO_STREAM_STATE_CLOSING
+               && state != AAUDIO_STREAM_STATE_CLOSED) {
+        ALOGE("%s(%d) tried to set to %d but already CLOSING", __func__, getId(), state);
 
     // Once DISCONNECTED, we can only move to CLOSING or CLOSED state.
     } else if (mState == AAUDIO_STREAM_STATE_DISCONNECTED

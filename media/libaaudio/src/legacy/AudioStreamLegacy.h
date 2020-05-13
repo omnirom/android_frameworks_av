@@ -128,6 +128,10 @@ protected:
         return mFramesRead.increment(frames);
     }
 
+    // This is used for exact matching by MediaMetrics. So do not change it.
+    // MediaMetricsConstants.h: AMEDIAMETRICS_PROP_CALLERNAME_VALUE_AAUDIO
+    static constexpr char     kCallerName[] = "aaudio";
+
     MonotonicCounter           mFramesWritten;
     MonotonicCounter           mFramesRead;
     MonotonicCounter           mTimestampPosition;
@@ -139,6 +143,7 @@ protected:
     const android::sp<StreamDeviceCallback>   mDeviceCallback;
 
     AtomicRequestor            mRequestDisconnect;
+
 };
 
 } /* namespace aaudio */

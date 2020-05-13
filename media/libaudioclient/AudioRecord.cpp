@@ -171,6 +171,10 @@ AudioRecord::~AudioRecord()
 
     mediametrics::LogItem(mMetricsId)
         .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_DTOR)
+        .set(AMEDIAMETRICS_PROP_CALLERNAME,
+                mCallerName.empty()
+                ? AMEDIAMETRICS_PROP_CALLERNAME_VALUE_UNKNOWN
+                : mCallerName.c_str())
         .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)mStatus)
         .record();
 
@@ -401,8 +405,12 @@ status_t AudioRecord::start(AudioSystem::sync_event_t event, audio_session_t tri
     AutoMutex lock(mLock);
 
     status_t status = NO_ERROR;
-    mediametrics::Defer([&] {
+    mediametrics::Defer defer([&] {
         mediametrics::LogItem(mMetricsId)
+            .set(AMEDIAMETRICS_PROP_CALLERNAME,
+                    mCallerName.empty()
+                    ? AMEDIAMETRICS_PROP_CALLERNAME_VALUE_UNKNOWN
+                    : mCallerName.c_str())
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_START)
             .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mActive))
@@ -418,6 +426,9 @@ status_t AudioRecord::start(AudioSystem::sync_event_t event, audio_session_t tri
     mFramesReadServerOffset -= mFramesRead + framesFlushed;
     mFramesRead = 0;
     mProxy->clearTimestamp();  // timestamp is invalid until next server push
+    mPreviousTimestamp.clear();
+    mTimestampRetrogradePositionReported = false;
+    mTimestampRetrogradeTimeReported = false;
 
     // reset current position as seen by client to 0
     mProxy->setEpoch(mProxy->getEpoch() - mProxy->getPosition());
@@ -474,7 +485,7 @@ void AudioRecord::stop()
 {
     const int64_t beginNs = systemTime();
     AutoMutex lock(mLock);
-    mediametrics::Defer([&] {
+    mediametrics::Defer defer([&] {
         mediametrics::LogItem(mMetricsId)
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_STOP)
             .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
@@ -606,6 +617,39 @@ status_t AudioRecord::getTimestamp(ExtendedTimestamp *timestamp)
             if (timestamp->mTimeNs[i] >= 0) {
                 timestamp->mPosition[i] += mFramesReadServerOffset;
             }
+        }
+
+        bool timestampRetrogradeTimeReported = false;
+        bool timestampRetrogradePositionReported = false;
+        for (int i = 0; i < ExtendedTimestamp::LOCATION_MAX; ++i) {
+            if (timestamp->mTimeNs[i] >= 0 && mPreviousTimestamp.mTimeNs[i] >= 0) {
+                if (timestamp->mTimeNs[i] < mPreviousTimestamp.mTimeNs[i]) {
+                    if (!mTimestampRetrogradeTimeReported) {
+                        ALOGD("%s: retrograde time adjusting [%d] current:%lld to previous:%lld",
+                                __func__, i, (long long)timestamp->mTimeNs[i],
+                                (long long)mPreviousTimestamp.mTimeNs[i]);
+                        timestampRetrogradeTimeReported = true;
+                    }
+                    timestamp->mTimeNs[i] = mPreviousTimestamp.mTimeNs[i];
+                }
+                if (timestamp->mPosition[i] < mPreviousTimestamp.mPosition[i]) {
+                    if (!mTimestampRetrogradePositionReported) {
+                        ALOGD("%s: retrograde position"
+                                " adjusting [%d] current:%lld to previous:%lld",
+                                __func__, i, (long long)timestamp->mPosition[i],
+                                (long long)mPreviousTimestamp.mPosition[i]);
+                        timestampRetrogradePositionReported = true;
+                    }
+                    timestamp->mPosition[i] = mPreviousTimestamp.mPosition[i];
+                }
+            }
+        }
+        mPreviousTimestamp = *timestamp;
+        if (timestampRetrogradeTimeReported) {
+            mTimestampRetrogradeTimeReported = true;
+        }
+        if (timestampRetrogradePositionReported) {
+            mTimestampRetrogradePositionReported = true;
         }
     }
     return status;
@@ -1347,7 +1391,7 @@ status_t AudioRecord::restoreRecord_l(const char *from)
 {
     status_t result = NO_ERROR;  // logged: make sure to set this before returning.
     const int64_t beginNs = systemTime();
-    mediametrics::Defer([&] {
+    mediametrics::Defer defer([&] {
         mediametrics::LogItem(mMetricsId)
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_RESTORE)
             .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))

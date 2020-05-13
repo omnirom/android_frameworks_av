@@ -1035,14 +1035,6 @@ void CCodec::configure(const sp<AMessage> &msg) {
                 if (config->mDomain & Config::IS_ENCODER) {
                     config->mInputFormat->setInt32(KEY_COLOR_FORMAT, format);
                 } else {
-                    int32_t thumbnailMode = 0;
-                    if (msg->findInt32("thumbnail-mode", &thumbnailMode) && thumbnailMode) {
-                        if (comp->getName().find("c2.android") != std::string::npos) {
-                            ALOGI("Andoird C2 decoder, fallback to YUV420P color format for thumbnail");
-                            format = COLOR_FormatYUV420Planar;
-                        }
-                        // TODO: fallback to YUV420P as well if QC C2 decoders doesn't support RGB565
-                    }
                     config->mOutputFormat->setInt32(KEY_COLOR_FORMAT, format);
                 }
             }
@@ -1414,6 +1406,9 @@ void CCodec::stop() {
         // TODO: convert err into status_t
         mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
     }
+    // Assure buffers are not owned when stop() was called without flush().
+    std::list<std::unique_ptr<C2Work>> flushedWork;
+    mChannel->flush(flushedWork);
 
     {
         Mutexed<std::unique_ptr<Config>>::Locked configLocked(mConfig);
@@ -1956,6 +1951,13 @@ PersistentSurface *CCodec::CreateInputSurface() {
             inputSurface->getHalInterface()));
 }
 
+static void MaybeLogUnrecognizedName(const char *func, const std::string &name) {
+    thread_local std::set<std::string> sLogged{};
+    if (sLogged.insert(name).second) {
+        ALOGW("%s: Unrecognized interface name: %s", func, name.c_str());
+    }
+}
+
 static status_t GetCommonAllocatorIds(
         const std::vector<std::string> &names,
         C2Allocator::type_t type,
@@ -1969,26 +1971,33 @@ static status_t GetCommonAllocatorIds(
     if (names.empty()) {
         return OK;
     }
-    std::shared_ptr<Codec2Client::Interface> intf{
-        Codec2Client::CreateInterfaceByName(names[0].c_str())};
-    std::vector<std::unique_ptr<C2Param>> params;
-    c2_status_t err = intf->query(
-            {}, {C2PortAllocatorsTuning::input::PARAM_TYPE}, C2_MAY_BLOCK, &params);
-    if (err == C2_OK && params.size() == 1u) {
-        C2PortAllocatorsTuning::input *allocators =
-            C2PortAllocatorsTuning::input::From(params[0].get());
-        if (allocators && allocators->flexCount() > 0) {
-            ids->insert(allocators->m.values, allocators->m.values + allocators->flexCount());
+    bool firstIteration = true;
+    for (const std::string &name : names) {
+        std::shared_ptr<Codec2Client::Interface> intf{
+            Codec2Client::CreateInterfaceByName(name.c_str())};
+        if (!intf) {
+            MaybeLogUnrecognizedName(__FUNCTION__, name);
+            continue;
         }
-    }
-    if (ids->empty()) {
-        // The component does not advertise allocators. Use default.
-        ids->insert(defaultAllocatorId);
-    }
-    for (size_t i = 1; i < names.size(); ++i) {
-        intf = Codec2Client::CreateInterfaceByName(names[i].c_str());
-        err = intf->query(
+        std::vector<std::unique_ptr<C2Param>> params;
+        c2_status_t err = intf->query(
                 {}, {C2PortAllocatorsTuning::input::PARAM_TYPE}, C2_MAY_BLOCK, &params);
+        if (firstIteration) {
+            firstIteration = false;
+            if (err == C2_OK && params.size() == 1u) {
+                C2PortAllocatorsTuning::input *allocators =
+                    C2PortAllocatorsTuning::input::From(params[0].get());
+                if (allocators && allocators->flexCount() > 0) {
+                    ids->insert(allocators->m.values,
+                                allocators->m.values + allocators->flexCount());
+                }
+            }
+            if (ids->empty()) {
+                // The component does not advertise allocators. Use default.
+                ids->insert(defaultAllocatorId);
+            }
+            continue;
+        }
         bool filtered = false;
         if (err == C2_OK && params.size() == 1u) {
             C2PortAllocatorsTuning::input *allocators =
@@ -2041,6 +2050,10 @@ static status_t CalculateMinMaxUsage(
     for (const std::string &name : names) {
         std::shared_ptr<Codec2Client::Interface> intf{
             Codec2Client::CreateInterfaceByName(name.c_str())};
+        if (!intf) {
+            MaybeLogUnrecognizedName(__FUNCTION__, name);
+            continue;
+        }
         std::vector<C2FieldSupportedValuesQuery> fields;
         fields.push_back(C2FieldSupportedValuesQuery::Possible(
                 C2ParamField{&sUsage, &sUsage.value}));
