@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 - 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013 - 2018, 2020, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -123,6 +123,7 @@ struct AVUtils {
     virtual sp<MediaCodec> createCustomComponentByName(const sp<ALooper> &looper,
                 const char* mime, bool encoder, const sp<AMessage> &format);
     virtual bool isEnhancedExtension(const char *extension);
+    virtual bool isAudioSourceAggregate(audio_source_t inputSource, uint32_t channelCount);
 
     virtual bool hasAudioSampleBits(const sp<MetaData> &);
     virtual bool hasAudioSampleBits(const sp<AMessage> &);
