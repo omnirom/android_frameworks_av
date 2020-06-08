@@ -1277,7 +1277,6 @@ private:
     std::string mMetricsId;  // GUARDED_BY(mLock), could change in createTrack_l().
     std::string mCallerName; // for example "aaudio"
 
-    void logBufferSizeUnderruns();
     bool                    mTrackOffloaded;
 
 private:
