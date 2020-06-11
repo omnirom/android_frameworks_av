@@ -1496,9 +1496,9 @@ status_t MediaCodec::release() {
     return PostAndAwaitResponse(msg, &response);
 }
 
-status_t MediaCodec::releaseAsync() {
+status_t MediaCodec::releaseAsync(const sp<AMessage> &notify) {
     sp<AMessage> msg = new AMessage(kWhatRelease, this);
-    msg->setInt32("async", 1);
+    msg->setMessage("async", notify);
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
@@ -2714,6 +2714,11 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     if (mReplyID != nullptr) {
                         (new AMessage)->postReply(mReplyID);
                     }
+                    if (mAsyncReleaseCompleteNotification != nullptr) {
+                        flushMediametrics();
+                        mAsyncReleaseCompleteNotification->post();
+                        mAsyncReleaseCompleteNotification.clear();
+                    }
                     break;
                 }
 
@@ -3101,8 +3106,8 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                 break;
             }
 
-            int32_t async = 0;
-            if (msg->findInt32("async", &async) && async) {
+            sp<AMessage> asyncNotify;
+            if (msg->findMessage("async", &asyncNotify) && asyncNotify != nullptr) {
                 if (mSurface != NULL) {
                     if (!mReleaseSurface) {
                         mReleaseSurface.reset(new ReleaseSurface);
@@ -3134,10 +3139,11 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                 pushBlankBuffersToNativeWindow(mSurface.get());
             }
 
-            if (async) {
+            if (asyncNotify != nullptr) {
                 mResourceManagerProxy->markClientForPendingRemoval();
                 (new AMessage)->postReply(mReplyID);
                 mReplyID = 0;
+                mAsyncReleaseCompleteNotification = asyncNotify;
             }
 
             break;
