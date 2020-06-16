@@ -1897,11 +1897,13 @@ typedef enum acamera_metadata_tag {
      * <p>By using this control, the application gains a simpler way to control zoom, which can
      * be a combination of optical and digital zoom. For example, a multi-camera system may
      * contain more than one lens with different focal lengths, and the user can use optical
-     * zoom by switching between lenses. Using zoomRatio has benefits in the scenarios below:
-     * <em> Zooming in from a wide-angle lens to a telephoto lens: A floating-point ratio provides
-     *   better precision compared to an integer value of ACAMERA_SCALER_CROP_REGION.
-     * </em> Zooming out from a wide lens to an ultrawide lens: zoomRatio supports zoom-out whereas
-     *   ACAMERA_SCALER_CROP_REGION doesn't.</p>
+     * zoom by switching between lenses. Using zoomRatio has benefits in the scenarios below:</p>
+     * <ul>
+     * <li>Zooming in from a wide-angle lens to a telephoto lens: A floating-point ratio provides
+     *   better precision compared to an integer value of ACAMERA_SCALER_CROP_REGION.</li>
+     * <li>Zooming out from a wide lens to an ultrawide lens: zoomRatio supports zoom-out whereas
+     *   ACAMERA_SCALER_CROP_REGION doesn't.</li>
+     * </ul>
      * <p>To illustrate, here are several scenarios of different zoom ratios, crop regions,
      * and output streams, for a hypothetical camera device with an active array of size
      * <code>(2000,1500)</code>.</p>
@@ -4381,8 +4383,8 @@ typedef enum acamera_metadata_tag {
     ACAMERA_SENSOR_AVAILABLE_TEST_PATTERN_MODES =               // int32[n]
             ACAMERA_SENSOR_START + 25,
     /**
-     * <p>Duration between the start of first row exposure
-     * and the start of last row exposure.</p>
+     * <p>Duration between the start of exposure for the first row of the image sensor,
+     * and the start of exposure for one past the last row of the image sensor.</p>
      *
      * <p>Type: int64</p>
      *
@@ -4391,12 +4393,22 @@ typedef enum acamera_metadata_tag {
      *   <li>ACameraMetadata from ACameraCaptureSession_captureCallback_result callbacks</li>
      * </ul></p>
      *
-     * <p>This is the exposure time skew between the first and last
-     * row exposure start times. The first row and the last row are
-     * the first and last rows inside of the
+     * <p>This is the exposure time skew between the first and <code>(last+1)</code> row exposure start times. The
+     * first row and the last row are the first and last rows inside of the
      * ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE.</p>
-     * <p>For typical camera sensors that use rolling shutters, this is also equivalent
-     * to the frame readout time.</p>
+     * <p>For typical camera sensors that use rolling shutters, this is also equivalent to the frame
+     * readout time.</p>
+     * <p>If the image sensor is operating in a binned or cropped mode due to the current output
+     * target resolutions, it's possible this skew is reported to be larger than the exposure
+     * time, for example, since it is based on the full array even if a partial array is read
+     * out. Be sure to scale the number to cover the section of the sensor actually being used
+     * for the outputs you care about. So if your output covers N rows of the active array of
+     * height H, scale this value by N/H to get the total skew for that viewport.</p>
+     * <p><em>Note:</em> Prior to Android 11, this field was described as measuring duration from
+     * first to last row of the image sensor, which is not equal to the frame readout time for a
+     * rolling shutter sensor. Implementations generally reported the latter value, so to resolve
+     * the inconsistency, the description has been updated to range from (first, last+1) row
+     * exposure start, instead.</p>
      *
      * @see ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE
      */

@@ -412,7 +412,7 @@ status_t AudioRecord::start(AudioSystem::sync_event_t event, audio_session_t tri
                     ? AMEDIAMETRICS_PROP_CALLERNAME_VALUE_UNKNOWN
                     : mCallerName.c_str())
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_START)
-            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mActive))
             .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)status)
             .record(); });
@@ -488,7 +488,7 @@ void AudioRecord::stop()
     mediametrics::Defer defer([&] {
         mediametrics::LogItem(mMetricsId)
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_STOP)
-            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mActive))
             .record(); });
 
@@ -749,6 +749,8 @@ status_t AudioRecord::createRecord_l(const Modulo<uint32_t> &epoch, const String
     void *iMemPointer;
     audio_track_cblk_t* cblk;
     status_t status;
+    std::string flagsAsString;
+    std::string originalFlagsAsString;
 
     if (audioFlinger == 0) {
         ALOGE("%s(%d): Could not get audioflinger", __func__, mPortId);
@@ -778,7 +780,7 @@ status_t AudioRecord::createRecord_l(const Modulo<uint32_t> &epoch, const String
             // use case 3: obtain/release mode
             (mTransfer == TRANSFER_OBTAIN);
         if (!useCaseAllowed) {
-            ALOGW("%s(%d): AUDIO_INPUT_FLAG_FAST denied, incompatible transfer = %s",
+            ALOGD("%s(%d): AUDIO_INPUT_FLAG_FAST denied, incompatible transfer = %s",
                   __func__, mPortId,
                   convertTransferToText(mTransfer));
             mFlags = (audio_input_flags_t) (mFlags & ~(AUDIO_INPUT_FLAG_FAST |
@@ -927,13 +929,15 @@ status_t AudioRecord::createRecord_l(const Modulo<uint32_t> &epoch, const String
     mDeathNotifier = new DeathNotifier(this);
     IInterface::asBinder(mAudioRecord)->linkToDeath(mDeathNotifier, this);
 
+    InputFlagConverter::toString(mFlags, flagsAsString);
+    InputFlagConverter::toString(mOrigFlags, originalFlagsAsString);
     mMetricsId = std::string(AMEDIAMETRICS_KEY_PREFIX_AUDIO_RECORD) + std::to_string(mPortId);
     mediametrics::LogItem(mMetricsId)
         .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_CREATE)
-        .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+        .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
         // the following are immutable (at least until restore)
-        .set(AMEDIAMETRICS_PROP_FLAGS, (int32_t)mFlags)
-        .set(AMEDIAMETRICS_PROP_ORIGINALFLAGS, (int32_t)mOrigFlags)
+        .set(AMEDIAMETRICS_PROP_FLAGS, flagsAsString.c_str())
+        .set(AMEDIAMETRICS_PROP_ORIGINALFLAGS, originalFlagsAsString.c_str())
         .set(AMEDIAMETRICS_PROP_SESSIONID, (int32_t)mSessionId)
         .set(AMEDIAMETRICS_PROP_TRACKID, mPortId)
         .set(AMEDIAMETRICS_PROP_SOURCE, toString(mAttributes.source).c_str())
@@ -1394,7 +1398,7 @@ status_t AudioRecord::restoreRecord_l(const char *from)
     mediametrics::Defer defer([&] {
         mediametrics::LogItem(mMetricsId)
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_RESTORE)
-            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mActive))
             .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)result)
             .set(AMEDIAMETRICS_PROP_WHERE, from)

@@ -231,6 +231,9 @@ class Camera3Device :
     status_t setRotateAndCropAutoBehavior(
             camera_metadata_enum_android_scaler_rotate_and_crop_t rotateAndCropValue);
 
+    // Get the status trackeer for the camera device
+    wp<camera3::StatusTracker> getStatusTracker() { return mStatusTracker; }
+
     /**
      * Helper functions to map between framework and HIDL values
      */
@@ -635,17 +638,10 @@ class Camera3Device :
                                             const SurfaceMap &surfaceMap);
 
     /**
-     * Pause state updates to the client application.  Needed to mask out idle/active
-     * transitions during internal reconfigure
-     */
-    void pauseStateNotify(bool enable);
-
-    /**
      * Internally re-configure camera device using new session parameters.
-     * This will get triggered by the request thread. Be sure to call
-     * pauseStateNotify(true) before going idle in the requesting location.
+     * This will get triggered by the request thread.
      */
-    bool reconfigureCamera(const CameraMetadata& sessionParams);
+    bool reconfigureCamera(const CameraMetadata& sessionParams, int clientStatusId);
 
     /**
      * Return true in case of any output or input abandoned streams,

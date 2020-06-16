@@ -15,6 +15,7 @@
  */
 
 //#define LOG_NDEBUG 0
+#include "hidl/HidlSupport.h"
 #define LOG_TAG "MediaCodec"
 #include <utils/Log.h>
 
@@ -37,6 +38,7 @@
 #include <cutils/properties.h>
 #include <gui/BufferQueue.h>
 #include <gui/Surface.h>
+#include <hidlmemory/FrameworkUtils.h>
 #include <mediadrm/ICrypto.h>
 #include <media/IOMX.h>
 #include <media/MediaCodecBuffer.h>
@@ -55,6 +57,7 @@
 #include <media/stagefright/BufferProducerWrapper.h>
 #include <media/stagefright/CCodec.h>
 #include <media/stagefright/MediaCodec.h>
+#include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/MediaCodecList.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
@@ -94,9 +97,12 @@ static const char *kCodecRotation = "android.media.mediacodec.rotation-degrees";
 static const char *kCodecCrypto = "android.media.mediacodec.crypto";   /* 0,1 */
 static const char *kCodecProfile = "android.media.mediacodec.profile";  /* 0..n */
 static const char *kCodecLevel = "android.media.mediacodec.level";  /* 0..n */
+static const char *kCodecBitrateMode = "android.media.mediacodec.bitrate_mode";  /* CQ/VBR/CBR */
+static const char *kCodecBitrate = "android.media.mediacodec.bitrate";  /* 0..n */
 static const char *kCodecMaxWidth = "android.media.mediacodec.maxwidth";  /* 0..n */
 static const char *kCodecMaxHeight = "android.media.mediacodec.maxheight";  /* 0..n */
 static const char *kCodecError = "android.media.mediacodec.errcode";
+static const char *kCodecLifetimeMs = "android.media.mediacodec.lifetimeMs";   /* 0..n ms*/
 static const char *kCodecErrorState = "android.media.mediacodec.errstate";
 static const char *kCodecLatencyMax = "android.media.mediacodec.latency.max";   /* in us */
 static const char *kCodecLatencyMin = "android.media.mediacodec.latency.min";   /* in us */
@@ -618,7 +624,6 @@ MediaCodec::MediaCodec(const sp<ALooper> &looper, pid_t pid, uid_t uid)
       mFlags(0),
       mStickyError(OK),
       mSoftRenderer(NULL),
-      mMetricsHandle(0),
       mIsVideo(false),
       mVideoWidth(0),
       mVideoHeight(0),
@@ -678,6 +683,8 @@ void MediaCodec::initMediametrics() {
         mIndexOfFirstFrameWhenLowLatencyOn = -1;
         mInputBufferCounter = 0;
     }
+
+    mLifetimeStartNs = systemTime(SYSTEM_TIME_MONOTONIC);
 }
 
 void MediaCodec::updateMediametrics() {
@@ -685,7 +692,6 @@ void MediaCodec::updateMediametrics() {
     if (mMetricsHandle == 0) {
         return;
     }
-
 
     if (mLatencyHist.getCount() != 0 ) {
         mediametrics_setInt64(mMetricsHandle, kCodecLatencyMax, mLatencyHist.getMax());
@@ -701,6 +707,11 @@ void MediaCodec::updateMediametrics() {
     }
     if (mLatencyUnknown > 0) {
         mediametrics_setInt64(mMetricsHandle, kCodecLatencyUnknown, mLatencyUnknown);
+    }
+    if (mLifetimeStartNs > 0) {
+        nsecs_t lifetime = systemTime(SYSTEM_TIME_MONOTONIC) - mLifetimeStartNs;
+        lifetime = lifetime / (1000 * 1000);    // emitted in ms, truncated not rounded
+        mediametrics_setInt64(mMetricsHandle, kCodecLifetimeMs, lifetime);
     }
 
     {
@@ -738,7 +749,6 @@ void MediaCodec::updateEphemeralMediametrics(mediametrics_handle_t item) {
             }
         }
     }
-
 
     // spit the data (if any) into the supplied analytics record
     if (recentHist.getCount()!= 0 ) {
@@ -1486,9 +1496,9 @@ status_t MediaCodec::release() {
     return PostAndAwaitResponse(msg, &response);
 }
 
-status_t MediaCodec::releaseAsync() {
+status_t MediaCodec::releaseAsync(const sp<AMessage> &notify) {
     sp<AMessage> msg = new AMessage(kWhatRelease, this);
-    msg->setInt32("async", 1);
+    msg->setMessage("async", notify);
     sp<AMessage> response;
     return PostAndAwaitResponse(msg, &response);
 }
@@ -2326,6 +2336,8 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                         // meaningful and confusing for an encoder in a transcoder scenario
                         mInputFormat->setInt32("allow-frame-drop", mAllowFrameDroppingBySurface);
                     }
+                    sp<AMessage> interestingFormat =
+                            (mFlags & kFlagIsEncoder) ? mOutputFormat : mInputFormat;
                     ALOGV("[%s] configured as input format: %s, output format: %s",
                             mComponentName.c_str(),
                             mInputFormat->debugString(4).c_str(),
@@ -2339,6 +2351,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     (new AMessage)->postReply(mReplyID);
 
                     // augment our media metrics info, now that we know more things
+                    // such as what the codec extracted from any CSD passed in.
                     if (mMetricsHandle != 0) {
                         sp<AMessage> format;
                         if (mConfigureMsg != NULL &&
@@ -2350,6 +2363,30 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                                                             mime.c_str());
                                 }
                             }
+                        // perhaps video only?
+                        int32_t profile = 0;
+                        if (interestingFormat->findInt32("profile", &profile)) {
+                            mediametrics_setInt32(mMetricsHandle, kCodecProfile, profile);
+                        }
+                        int32_t level = 0;
+                        if (interestingFormat->findInt32("level", &level)) {
+                            mediametrics_setInt32(mMetricsHandle, kCodecLevel, level);
+                        }
+                        // bitrate and bitrate mode, encoder only
+                        if (mFlags & kFlagIsEncoder) {
+                            // encoder specific values
+                            int32_t bitrate_mode = -1;
+                            if (mOutputFormat->findInt32(KEY_BITRATE_MODE, &bitrate_mode)) {
+                                    mediametrics_setCString(mMetricsHandle, kCodecBitrateMode,
+                                          asString_BitrateMode(bitrate_mode));
+                            }
+                            int32_t bitrate = -1;
+                            if (mOutputFormat->findInt32(KEY_BIT_RATE, &bitrate)) {
+                                    mediametrics_setInt32(mMetricsHandle, kCodecBitrate, bitrate);
+                            }
+                        } else {
+                            // decoder specific values
+                        }
                     }
                     break;
                 }
@@ -2474,6 +2511,18 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                             setStickyError(err);
                             postActivityNotificationIfPossible();
 
+                            cancelPendingDequeueOperations();
+                        }
+                        break;
+                    }
+                    if (!mLeftover.empty()) {
+                        ssize_t index = dequeuePortBuffer(kPortIndexInput);
+                        CHECK_GE(index, 0);
+
+                        status_t err = handleLeftover(index);
+                        if (err != OK) {
+                            setStickyError(err);
+                            postActivityNotificationIfPossible();
                             cancelPendingDequeueOperations();
                         }
                         break;
@@ -2660,9 +2709,15 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     }
 
                     mResourceManagerProxy->removeClient();
+                    mReleaseSurface.reset();
 
                     if (mReplyID != nullptr) {
                         (new AMessage)->postReply(mReplyID);
+                    }
+                    if (mAsyncReleaseCompleteNotification != nullptr) {
+                        flushMediametrics();
+                        mAsyncReleaseCompleteNotification->post();
+                        mAsyncReleaseCompleteNotification.clear();
                     }
                     break;
                 }
@@ -3051,22 +3106,23 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                 break;
             }
 
-            int32_t async = 0;
-            if (msg->findInt32("async", &async) && async) {
-                if ((mState ==  CONFIGURED || mState == STARTED || mState == FLUSHED)
-                       && mSurface != NULL) {
+            sp<AMessage> asyncNotify;
+            if (msg->findMessage("async", &asyncNotify) && asyncNotify != nullptr) {
+                if (mSurface != NULL) {
                     if (!mReleaseSurface) {
                         mReleaseSurface.reset(new ReleaseSurface);
                     }
-                    status_t err = connectToSurface(mReleaseSurface->getSurface());
-                    ALOGW_IF(err != OK, "error connecting to release surface: err = %d", err);
-                    if (err == OK && !(mFlags & kFlagUsesSoftwareRenderer)) {
-                        err = mCodec->setSurface(mReleaseSurface->getSurface());
-                        ALOGW_IF(err != OK, "error setting release surface: err = %d", err);
-                    }
-                    if (err == OK) {
-                        (void)disconnectFromSurface();
-                        mSurface = mReleaseSurface->getSurface();
+                    if (mSurface != mReleaseSurface->getSurface()) {
+                        status_t err = connectToSurface(mReleaseSurface->getSurface());
+                        ALOGW_IF(err != OK, "error connecting to release surface: err = %d", err);
+                        if (err == OK && !(mFlags & kFlagUsesSoftwareRenderer)) {
+                            err = mCodec->setSurface(mReleaseSurface->getSurface());
+                            ALOGW_IF(err != OK, "error setting release surface: err = %d", err);
+                        }
+                        if (err == OK) {
+                            (void)disconnectFromSurface();
+                            mSurface = mReleaseSurface->getSurface();
+                        }
                     }
                 }
             }
@@ -3083,10 +3139,11 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                 pushBlankBuffersToNativeWindow(mSurface.get());
             }
 
-            if (async) {
+            if (asyncNotify != nullptr) {
                 mResourceManagerProxy->markClientForPendingRemoval();
                 (new AMessage)->postReply(mReplyID);
                 mReplyID = 0;
+                mAsyncReleaseCompleteNotification = asyncNotify;
             }
 
             break;
@@ -3166,7 +3223,15 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                 break;
             }
 
-            status_t err = onQueueInputBuffer(msg);
+            status_t err = UNKNOWN_ERROR;
+            if (!mLeftover.empty()) {
+                mLeftover.push_back(msg);
+                size_t index;
+                msg->findSize("index", &index);
+                err = handleLeftover(index);
+            } else {
+                err = onQueueInputBuffer(msg);
+            }
 
             PostReplyWithError(replyID, err);
             break;
@@ -3450,19 +3515,42 @@ status_t MediaCodec::queueCSDInputBuffer(size_t bufferIndex) {
     sp<ABuffer> csd = *mCSD.begin();
     mCSD.erase(mCSD.begin());
     std::shared_ptr<C2Buffer> c2Buffer;
+    sp<hardware::HidlMemory> memory;
+    size_t offset = 0;
 
-    if ((mFlags & kFlagUseBlockModel) && mOwnerName.startsWith("codec2::")) {
-        std::shared_ptr<C2LinearBlock> block =
-            FetchLinearBlock(csd->size(), {std::string{mComponentName.c_str()}});
-        C2WriteView view{block->map().get()};
-        if (view.error() != C2_OK) {
-            return -EINVAL;
+    if (mFlags & kFlagUseBlockModel) {
+        if (hasCryptoOrDescrambler()) {
+            constexpr size_t kInitialDealerCapacity = 1048576;  // 1MB
+            thread_local sp<MemoryDealer> sDealer = new MemoryDealer(
+                    kInitialDealerCapacity, "CSD(1MB)");
+            sp<IMemory> mem = sDealer->allocate(csd->size());
+            if (mem == nullptr) {
+                size_t newDealerCapacity = sDealer->getMemoryHeap()->getSize() * 2;
+                while (csd->size() * 2 > newDealerCapacity) {
+                    newDealerCapacity *= 2;
+                }
+                sDealer = new MemoryDealer(
+                        newDealerCapacity,
+                        AStringPrintf("CSD(%dMB)", newDealerCapacity / 1048576).c_str());
+                mem = sDealer->allocate(csd->size());
+            }
+            memcpy(mem->unsecurePointer(), csd->data(), csd->size());
+            ssize_t heapOffset;
+            memory = hardware::fromHeap(mem->getMemory(&heapOffset, nullptr));
+            offset += heapOffset;
+        } else {
+            std::shared_ptr<C2LinearBlock> block =
+                FetchLinearBlock(csd->size(), {std::string{mComponentName.c_str()}});
+            C2WriteView view{block->map().get()};
+            if (view.error() != C2_OK) {
+                return -EINVAL;
+            }
+            if (csd->size() > view.capacity()) {
+                return -EINVAL;
+            }
+            memcpy(view.base(), csd->data(), csd->size());
+            c2Buffer = C2Buffer::CreateLinearBuffer(block->share(0, csd->size(), C2Fence{}));
         }
-        if (csd->size() > view.capacity()) {
-            return -EINVAL;
-        }
-        memcpy(view.base(), csd->data(), csd->size());
-        c2Buffer = C2Buffer::CreateLinearBuffer(block->share(0, csd->size(), C2Fence{}));
     } else {
         const BufferInfo &info = mPortBuffers[kPortIndexInput][bufferIndex];
         const sp<MediaCodecBuffer> &codecInputData = info.mData;
@@ -3491,6 +3579,11 @@ status_t MediaCodec::queueCSDInputBuffer(size_t bufferIndex) {
         sp<WrapperObject<std::shared_ptr<C2Buffer>>> obj{
             new WrapperObject<std::shared_ptr<C2Buffer>>{c2Buffer}};
         msg->setObject("c2buffer", obj);
+        msg->setMessage("tunings", new AMessage);
+    } else if (memory) {
+        sp<WrapperObject<sp<hardware::HidlMemory>>> obj{
+            new WrapperObject<sp<hardware::HidlMemory>>{memory}};
+        msg->setObject("memory", obj);
         msg->setMessage("tunings", new AMessage);
     }
 
@@ -3551,6 +3644,9 @@ void MediaCodec::returnBuffersToCodecOnPort(int32_t portIndex, bool isReclaim) {
     CHECK(portIndex == kPortIndexInput || portIndex == kPortIndexOutput);
     Mutex::Autolock al(mBufferLock);
 
+    if (portIndex == kPortIndexInput) {
+        mLeftover.clear();
+    }
     for (size_t i = 0; i < mPortBuffers[portIndex].size(); ++i) {
         BufferInfo *info = &mPortBuffers[portIndex][i];
 
@@ -3609,6 +3705,7 @@ status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
     } else if (msg->findObject("memory", &obj)) {
         CHECK(obj);
         memory = static_cast<WrapperObject<sp<hardware::HidlMemory>> *>(obj.get())->value;
+        CHECK(msg->findSize("offset", &offset));
     } else {
         CHECK(msg->findSize("offset", &offset));
     }
@@ -3680,7 +3777,26 @@ status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
             err = mBufferChannel->attachEncryptedBuffer(
                     memory, (mFlags & kFlagIsSecure), key, iv, mode, pattern,
                     offset, subSamples, numSubSamples, buffer);
+        } else {
+            err = UNKNOWN_ERROR;
         }
+
+        if (err == OK && !buffer->asC2Buffer()
+                && c2Buffer && c2Buffer->data().type() == C2BufferData::LINEAR) {
+            C2ConstLinearBlock block{c2Buffer->data().linearBlocks().front()};
+            if (block.size() > buffer->size()) {
+                C2ConstLinearBlock leftover = block.subBlock(
+                        block.offset() + buffer->size(), block.size() - buffer->size());
+                sp<WrapperObject<std::shared_ptr<C2Buffer>>> obj{
+                    new WrapperObject<std::shared_ptr<C2Buffer>>{
+                        C2Buffer::CreateLinearBuffer(leftover)}};
+                msg->setObject("c2buffer", obj);
+                mLeftover.push_front(msg);
+                // Not sending EOS if we have leftovers
+                flags &= ~BUFFER_FLAG_EOS;
+            }
+        }
+
         offset = buffer->offset();
         size = buffer->size();
         if (err != OK) {
@@ -3712,7 +3828,7 @@ status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
     }
 
     status_t err = OK;
-    if (hasCryptoOrDescrambler()) {
+    if (hasCryptoOrDescrambler() && !c2Buffer && !memory) {
         AString *errorDetailMsg;
         CHECK(msg->findPointer("errorDetailMsg", (void **)&errorDetailMsg));
 
@@ -3748,6 +3864,16 @@ status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
     }
 
     return err;
+}
+
+status_t MediaCodec::handleLeftover(size_t index) {
+    if (mLeftover.empty()) {
+        return OK;
+    }
+    sp<AMessage> msg = mLeftover.front();
+    mLeftover.pop_front();
+    msg->setSize("index", index);
+    return onQueueInputBuffer(msg);
 }
 
 //static

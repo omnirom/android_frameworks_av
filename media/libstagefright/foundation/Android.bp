@@ -3,6 +3,7 @@ cc_library_headers {
     export_include_dirs: ["include"],
     vendor_available: true,
     host_supported: true,
+    min_sdk_version: "29",
 }
 
 cc_defaults {
@@ -94,6 +95,7 @@ cc_library {
         enabled: true,
     },
     defaults: ["libstagefright_foundation_defaults"],
+    min_sdk_version: "29",
     target: {
         vendor: {
             cflags: ["-D__ANDROID_VNDK__"],
@@ -115,6 +117,7 @@ cc_library {
         extends: "libstagefright_foundation",
     },
     defaults: ["libstagefright_foundation_defaults"],
+    min_sdk_version: "29",
     cflags: [
         "-Wno-multichar",
         "-Werror",
@@ -126,6 +129,7 @@ cc_library {
 cc_library_static {
     name: "libstagefright_foundation_without_imemory",
     defaults: ["libstagefright_foundation_defaults"],
+    min_sdk_version: "29",
 
     cflags: [
         "-Wno-multichar",

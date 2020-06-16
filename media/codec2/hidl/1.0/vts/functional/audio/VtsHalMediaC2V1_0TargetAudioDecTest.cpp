@@ -22,7 +22,6 @@
 #include <hidl/GtestPrinter.h>
 #include <stdio.h>
 #include <algorithm>
-#include <fstream>
 
 #include <C2AllocatorIon.h>
 #include <C2Buffer.h>
@@ -35,14 +34,10 @@ using android::C2AllocatorIon;
 
 #include "media_c2_hidl_test_common.h"
 
-struct FrameInfo {
-    int bytesCount;
-    uint32_t flags;
-    int64_t timestamp;
-};
-
 static std::vector<std::tuple<std::string, std::string, std::string, std::string>>
         kDecodeTestParameters;
+
+static std::vector<std::tuple<std::string, std::string, std::string>> kCsdFlushTestParameters;
 
 // Resource directory
 static std::string sResourceDir = "";
@@ -105,6 +100,7 @@ class Codec2AudioDecHidlTestBase : public ::testing::Test {
         mEos = false;
         mFramesReceived = 0;
         mTimestampUs = 0u;
+        mWorkResult = C2_OK;
         mTimestampDevTest = false;
         if (mCompName == unknown_comp) mDisableTest = true;
         if (mDisableTest) std::cout << "[   WARN   ] Test Disabled \n";
@@ -121,6 +117,8 @@ class Codec2AudioDecHidlTestBase : public ::testing::Test {
     // Get the test parameters from GetParam call.
     virtual void getParams() {}
 
+    virtual void validateTimestampList(int32_t* bitStreamInfo);
+
     struct outputMetaData {
         uint64_t timestampUs;
         uint32_t rangeLength;
@@ -131,6 +129,7 @@ class Codec2AudioDecHidlTestBase : public ::testing::Test {
             if (!work->worklets.empty()) {
                 // For decoder components current timestamp always exceeds
                 // previous timestamp
+                mWorkResult |= work->result;
                 bool codecConfig = ((work->worklets.front()->output.flags &
                                      C2FrameData::FLAG_CODEC_CONFIG) != 0);
                 if (!codecConfig && !work->worklets.front()->output.buffers.empty()) {
@@ -182,6 +181,8 @@ class Codec2AudioDecHidlTestBase : public ::testing::Test {
     bool mDisableTest;
     bool mTimestampDevTest;
     standardComp mCompName;
+
+    int32_t mWorkResult;
     uint64_t mTimestampUs;
     uint32_t mFramesReceived;
     std::list<uint64_t> mFlushedIndices;
@@ -457,6 +458,31 @@ void decodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& comp
     }
 }
 
+void Codec2AudioDecHidlTestBase::validateTimestampList(int32_t* bitStreamInfo) {
+    uint32_t samplesReceived = 0;
+    // Update SampleRate and ChannelCount
+    ASSERT_NO_FATAL_FAILURE(getInputChannelInfo(mComponent, mCompName, bitStreamInfo));
+    int32_t nSampleRate = bitStreamInfo[0];
+    int32_t nChannels = bitStreamInfo[1];
+    std::list<uint64_t>::iterator itIn = mTimestampUslist.begin();
+    auto itOut = oBufferMetaData.begin();
+    EXPECT_EQ(*itIn, itOut->timestampUs);
+    uint64_t expectedTimeStamp = *itIn;
+    while (itOut != oBufferMetaData.end()) {
+        EXPECT_EQ(expectedTimeStamp, itOut->timestampUs);
+        if (expectedTimeStamp != itOut->timestampUs) break;
+        // buffer samples = ((total bytes) / (ac * (bits per sample / 8))
+        samplesReceived += ((itOut->rangeLength) / (nChannels * 2));
+        expectedTimeStamp = samplesReceived * 1000000ll / nSampleRate;
+        itOut++;
+    }
+    itIn = mTimestampUslist.end();
+    --itIn;
+    EXPECT_GT(expectedTimeStamp, *itIn);
+    oBufferMetaData.clear();
+    mTimestampUslist.clear();
+}
+
 TEST_P(Codec2AudioDecHidlTest, validateCompName) {
     if (mDisableTest) GTEST_SKIP() << "Test is disabled";
     ALOGV("Checks if the given component is a valid audio component");
@@ -493,7 +519,7 @@ TEST_P(Codec2AudioDecDecodeTest, DecodeTest) {
     bool signalEOS = !std::get<3>(GetParam()).compare("true");
     mTimestampDevTest = true;
     char mURL[512], info[512];
-    std::ifstream eleStream, eleInfo;
+    android::Vector<FrameInfo> Info;
 
     strcpy(mURL, sResourceDir.c_str());
     strcpy(info, sResourceDir.c_str());
@@ -503,21 +529,9 @@ TEST_P(Codec2AudioDecDecodeTest, DecodeTest) {
         return;
     }
 
-    eleInfo.open(info);
-    ASSERT_EQ(eleInfo.is_open(), true);
-    android::Vector<FrameInfo> Info;
-    int bytesCount = 0;
-    uint32_t flags = 0;
-    uint32_t timestamp = 0;
-    while (1) {
-        if (!(eleInfo >> bytesCount)) break;
-        eleInfo >> flags;
-        eleInfo >> timestamp;
-        bool codecConfig = ((1 << (flags - 1)) & C2FrameData::FLAG_CODEC_CONFIG) != 0;
-        if (mTimestampDevTest && !codecConfig) mTimestampUslist.push_back(timestamp);
-        Info.push_back({bytesCount, flags, timestamp});
-    }
-    eleInfo.close();
+    int32_t numCsds = populateInfoVector(info, &Info, mTimestampDevTest, &mTimestampUslist);
+    ASSERT_GE(numCsds, 0) << "Error in parsing input info file: " << info;
+
     // Reset total no of frames received
     mFramesReceived = 0;
     mTimestampUs = 0;
@@ -534,6 +548,7 @@ TEST_P(Codec2AudioDecDecodeTest, DecodeTest) {
     }
     ASSERT_EQ(mComponent->start(), C2_OK);
     ALOGV("mURL : %s", mURL);
+    std::ifstream eleStream;
     eleStream.open(mURL, std::ifstream::binary);
     ASSERT_EQ(eleStream.is_open(), true);
     ASSERT_NO_FATAL_FAILURE(decodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
@@ -550,7 +565,7 @@ TEST_P(Codec2AudioDecDecodeTest, DecodeTest) {
     }
     // blocking call to ensures application to Wait till all the inputs are
     // consumed
-    ASSERT_NO_FATAL_FAILURE(waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue));
+    waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue);
     eleStream.close();
     if (mFramesReceived != infoSize) {
         ALOGE("Input buffer count and Output buffer count mismatch");
@@ -558,32 +573,12 @@ TEST_P(Codec2AudioDecDecodeTest, DecodeTest) {
         ASSERT_TRUE(false);
     }
     ASSERT_EQ(mEos, true);
+
     if (mTimestampDevTest) {
-        uint64_t expTs;
-        uint32_t samplesReceived = 0;
-        // Update SampleRate and ChannelCount
-        ASSERT_NO_FATAL_FAILURE(getInputChannelInfo(mComponent, mCompName, bitStreamInfo));
-        int nSampleRate = bitStreamInfo[0];
-        int nChannels = bitStreamInfo[1];
-        std::list<uint64_t>::iterator itIn = mTimestampUslist.begin();
-        auto itOut = oBufferMetaData.begin();
-        EXPECT_EQ(*itIn, itOut->timestampUs);
-        expTs = *itIn;
-        while (itOut != oBufferMetaData.end()) {
-            EXPECT_EQ(expTs, itOut->timestampUs);
-            if (expTs != itOut->timestampUs) break;
-            // buffer samples = ((total bytes) / (ac * (bits per sample / 8))
-            samplesReceived += ((itOut->rangeLength) / (nChannels * 2));
-            expTs = samplesReceived * 1000000ll / nSampleRate;
-            itOut++;
-        }
-        itIn = mTimestampUslist.end();
-        --itIn;
-        EXPECT_GT(expTs, *itIn);
-        oBufferMetaData.clear();
-        mTimestampUslist.clear();
+        validateTimestampList(bitStreamInfo);
     }
     ASSERT_EQ(mComponent->stop(), C2_OK);
+    ASSERT_EQ(mWorkResult, C2_OK);
 }
 
 // thumbnail test
@@ -592,25 +587,15 @@ TEST_P(Codec2AudioDecHidlTest, ThumbnailTest) {
     if (mDisableTest) GTEST_SKIP() << "Test is disabled";
 
     char mURL[512], info[512];
-    std::ifstream eleStream, eleInfo;
+    android::Vector<FrameInfo> Info;
 
     strcpy(mURL, sResourceDir.c_str());
     strcpy(info, sResourceDir.c_str());
     GetURLForComponent(mCompName, mURL, info);
 
-    eleInfo.open(info);
-    ASSERT_EQ(eleInfo.is_open(), true);
-    android::Vector<FrameInfo> Info;
-    int bytesCount = 0;
-    uint32_t flags = 0;
-    uint32_t timestamp = 0;
-    while (1) {
-        if (!(eleInfo >> bytesCount)) break;
-        eleInfo >> flags;
-        eleInfo >> timestamp;
-        Info.push_back({bytesCount, flags, timestamp});
-    }
-    eleInfo.close();
+    int32_t numCsds = populateInfoVector(info, &Info, mTimestampDevTest, &mTimestampUslist);
+    ASSERT_GE(numCsds, 0) << "Error in parsing input info file: " << info;
+
     int32_t bitStreamInfo[2] = {0};
     if (mCompName == raw) {
         bitStreamInfo[0] = 8000;
@@ -628,22 +613,25 @@ TEST_P(Codec2AudioDecHidlTest, ThumbnailTest) {
     // request EOS for thumbnail
     // signal EOS flag with last frame
     size_t i = -1;
+    uint32_t flags;
     do {
         i++;
         flags = 0;
         if (Info[i].flags) flags = 1u << (Info[i].flags - 1);
 
     } while (!(flags & SYNC_FRAME));
+    std::ifstream eleStream;
     eleStream.open(mURL, std::ifstream::binary);
     ASSERT_EQ(eleStream.is_open(), true);
     ASSERT_NO_FATAL_FAILURE(decodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
                                           mFlushedIndices, mLinearPool, eleStream, &Info, 0,
                                           i + 1));
-    ASSERT_NO_FATAL_FAILURE(waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue));
+    waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue);
     eleStream.close();
     EXPECT_GE(mFramesReceived, 1U);
     ASSERT_EQ(mEos, true);
     ASSERT_EQ(mComponent->stop(), C2_OK);
+    ASSERT_EQ(mWorkResult, C2_OK);
 }
 
 TEST_P(Codec2AudioDecHidlTest, EOSTest) {
@@ -684,33 +672,22 @@ TEST_P(Codec2AudioDecHidlTest, EOSTest) {
     ASSERT_EQ(mEos, true);
     ASSERT_EQ(mWorkQueue.size(), (size_t)MAX_INPUT_BUFFERS);
     ASSERT_EQ(mComponent->stop(), C2_OK);
+    ASSERT_EQ(mWorkResult, C2_OK);
 }
 
 TEST_P(Codec2AudioDecHidlTest, FlushTest) {
     description("Tests Flush calls");
     if (mDisableTest) GTEST_SKIP() << "Test is disabled";
-    typedef std::unique_lock<std::mutex> ULock;
     char mURL[512], info[512];
-    std::ifstream eleStream, eleInfo;
+    android::Vector<FrameInfo> Info;
 
     strcpy(mURL, sResourceDir.c_str());
     strcpy(info, sResourceDir.c_str());
     GetURLForComponent(mCompName, mURL, info);
 
-    eleInfo.open(info);
-    ASSERT_EQ(eleInfo.is_open(), true);
-    android::Vector<FrameInfo> Info;
-    int bytesCount = 0;
-    uint32_t flags = 0;
-    uint32_t timestamp = 0;
-    mFlushedIndices.clear();
-    while (1) {
-        if (!(eleInfo >> bytesCount)) break;
-        eleInfo >> flags;
-        eleInfo >> timestamp;
-        Info.push_back({bytesCount, flags, timestamp});
-    }
-    eleInfo.close();
+    int32_t numCsds = populateInfoVector(info, &Info, mTimestampDevTest, &mTimestampUslist);
+    ASSERT_GE(numCsds, 0) << "Error in parsing input info file: " << info;
+
     int32_t bitStreamInfo[2] = {0};
     if (mCompName == raw) {
         bitStreamInfo[0] = 8000;
@@ -723,44 +700,37 @@ TEST_P(Codec2AudioDecHidlTest, FlushTest) {
         return;
     }
     ASSERT_EQ(mComponent->start(), C2_OK);
-    ALOGV("mURL : %s", mURL);
-    eleStream.open(mURL, std::ifstream::binary);
-    ASSERT_EQ(eleStream.is_open(), true);
-    // Decode 128 frames and flush. here 128 is chosen to ensure there is a key
-    // frame after this so that the below section can be covered for all
-    // components
-    uint32_t numFramesFlushed = 128;
-    ASSERT_NO_FATAL_FAILURE(decodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
-                                          mFlushedIndices, mLinearPool, eleStream, &Info, 0,
-                                          numFramesFlushed, false));
     // flush
     std::list<std::unique_ptr<C2Work>> flushedWork;
     c2_status_t err = mComponent->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
     ASSERT_EQ(err, C2_OK);
-    ASSERT_NO_FATAL_FAILURE(waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
-                                                   (size_t)MAX_INPUT_BUFFERS - flushedWork.size()));
-    uint64_t frameIndex;
-    {
-        // Update mFlushedIndices based on the index received from flush()
-        ULock l(mQueueLock);
-        for (std::unique_ptr<C2Work>& work : flushedWork) {
-            ASSERT_NE(work, nullptr);
-            frameIndex = work->input.ordinal.frameIndex.peeku();
-            std::list<uint64_t>::iterator frameIndexIt =
-                    std::find(mFlushedIndices.begin(), mFlushedIndices.end(), frameIndex);
-            if (!mFlushedIndices.empty() && (frameIndexIt != mFlushedIndices.end())) {
-                mFlushedIndices.erase(frameIndexIt);
-                work->input.buffers.clear();
-                work->worklets.clear();
-                mWorkQueue.push_back(std::move(work));
-            }
-        }
-    }
+    ASSERT_NO_FATAL_FAILURE(
+            verifyFlushOutput(flushedWork, mWorkQueue, mFlushedIndices, mQueueLock));
+    ASSERT_EQ(mWorkQueue.size(), MAX_INPUT_BUFFERS);
+
+    ALOGV("mURL : %s", mURL);
+    std::ifstream eleStream;
+    eleStream.open(mURL, std::ifstream::binary);
+    ASSERT_EQ(eleStream.is_open(), true);
+    // Decode 30 frames and flush.
+    uint32_t numFramesFlushed = FLUSH_INTERVAL;
+    ASSERT_NO_FATAL_FAILURE(decodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
+                                          mFlushedIndices, mLinearPool, eleStream, &Info, 0,
+                                          numFramesFlushed, false));
+    // flush
+    err = mComponent->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
+    ASSERT_EQ(err, C2_OK);
+    waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
+                           (size_t)MAX_INPUT_BUFFERS - flushedWork.size());
+    ASSERT_NO_FATAL_FAILURE(
+            verifyFlushOutput(flushedWork, mWorkQueue, mFlushedIndices, mQueueLock));
+    ASSERT_EQ(mWorkQueue.size(), MAX_INPUT_BUFFERS);
+
     // Seek to next key frame and start decoding till the end
     mFlushedIndices.clear();
     int index = numFramesFlushed;
     bool keyFrame = false;
-    flags = 0;
+    uint32_t flags = 0;
     while (index < (int)Info.size()) {
         if (Info[index].flags) flags = 1u << (Info[index].flags - 1);
         if ((flags & SYNC_FRAME) == SYNC_FRAME) {
@@ -779,25 +749,13 @@ TEST_P(Codec2AudioDecHidlTest, FlushTest) {
     eleStream.close();
     err = mComponent->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
     ASSERT_EQ(err, C2_OK);
-    ASSERT_NO_FATAL_FAILURE(waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
-                                                   (size_t)MAX_INPUT_BUFFERS - flushedWork.size()));
-    {
-        // Update mFlushedIndices based on the index received from flush()
-        ULock l(mQueueLock);
-        for (std::unique_ptr<C2Work>& work : flushedWork) {
-            ASSERT_NE(work, nullptr);
-            frameIndex = work->input.ordinal.frameIndex.peeku();
-            std::list<uint64_t>::iterator frameIndexIt =
-                    std::find(mFlushedIndices.begin(), mFlushedIndices.end(), frameIndex);
-            if (!mFlushedIndices.empty() && (frameIndexIt != mFlushedIndices.end())) {
-                mFlushedIndices.erase(frameIndexIt);
-                work->input.buffers.clear();
-                work->worklets.clear();
-                mWorkQueue.push_back(std::move(work));
-            }
-        }
-    }
-    ASSERT_EQ(mFlushedIndices.empty(), true);
+    waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
+                           (size_t)MAX_INPUT_BUFFERS - flushedWork.size());
+    ASSERT_NO_FATAL_FAILURE(
+            verifyFlushOutput(flushedWork, mWorkQueue, mFlushedIndices, mQueueLock));
+    ASSERT_EQ(mWorkQueue.size(), MAX_INPUT_BUFFERS);
+    // TODO: (b/154671521)
+    // Add assert for mWorkResult
     ASSERT_EQ(mComponent->stop(), C2_OK);
 }
 
@@ -862,7 +820,7 @@ TEST_P(Codec2AudioDecHidlTest, DecodeTestEmptyBuffersInserted) {
     // consumed
     if (!mEos) {
         ALOGV("Waiting for input consumption");
-        ASSERT_NO_FATAL_FAILURE(waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue));
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue);
     }
 
     eleStream.close();
@@ -875,12 +833,119 @@ TEST_P(Codec2AudioDecHidlTest, DecodeTestEmptyBuffersInserted) {
     ASSERT_EQ(mComponent->stop(), C2_OK);
 }
 
+class Codec2AudioDecCsdInputTests
+    : public Codec2AudioDecHidlTestBase,
+      public ::testing::WithParamInterface<std::tuple<std::string, std::string, std::string>> {
+    void getParams() {
+        mInstanceName = std::get<0>(GetParam());
+        mComponentName = std::get<1>(GetParam());
+    }
+};
+
+// Test the codecs for the following
+// start - csd - data… - (with/without)flush - data… - flush - data…
+TEST_P(Codec2AudioDecCsdInputTests, CSDFlushTest) {
+    description("Tests codecs for flush at different states");
+    if (mDisableTest) GTEST_SKIP() << "Test is disabled";
+
+    char mURL[512], info[512];
+    android::Vector<FrameInfo> Info;
+
+    strcpy(mURL, sResourceDir.c_str());
+    strcpy(info, sResourceDir.c_str());
+    GetURLForComponent(mCompName, mURL, info);
+    if (!strcmp(mURL, sResourceDir.c_str())) {
+        ALOGV("EMPTY INPUT sResourceDir.c_str() %s mURL  %s ", sResourceDir.c_str(), mURL);
+        return;
+    }
+    ALOGV("mURL : %s", mURL);
+
+    int32_t numCsds = populateInfoVector(info, &Info, mTimestampDevTest, &mTimestampUslist);
+    ASSERT_GE(numCsds, 0) << "Error in parsing input info file";
+
+    int32_t bitStreamInfo[2] = {0};
+    if (mCompName == raw) {
+        bitStreamInfo[0] = 8000;
+        bitStreamInfo[1] = 1;
+    } else {
+        ASSERT_NO_FATAL_FAILURE(getInputChannelInfo(mComponent, mCompName, bitStreamInfo));
+    }
+    if (!setupConfigParam(mComponent, bitStreamInfo)) {
+        std::cout << "[   WARN   ] Test Skipped \n";
+        return;
+    }
+
+    ASSERT_EQ(mComponent->start(), C2_OK);
+    std::ifstream eleStream;
+    eleStream.open(mURL, std::ifstream::binary);
+    ASSERT_EQ(eleStream.is_open(), true);
+
+    bool signalEOS = false;
+    bool flushCsd = !std::get<2>(GetParam()).compare("true");
+    ALOGV("sending %d csd data ", numCsds);
+    int framesToDecode = numCsds;
+    ASSERT_NO_FATAL_FAILURE(decodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
+                                          mFlushedIndices, mLinearPool, eleStream, &Info, 0,
+                                          framesToDecode, false));
+
+    c2_status_t err = C2_OK;
+    std::list<std::unique_ptr<C2Work>> flushedWork;
+    if (numCsds && flushCsd) {
+        // We wait for all the CSD buffers to get consumed.
+        // Once we have received all CSD work back, we call flush
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue);
+
+        err = mComponent->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
+        ASSERT_EQ(err, C2_OK);
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
+                               MAX_INPUT_BUFFERS - flushedWork.size());
+        ASSERT_NO_FATAL_FAILURE(
+                verifyFlushOutput(flushedWork, mWorkQueue, mFlushedIndices, mQueueLock));
+        ASSERT_EQ(mWorkQueue.size(), MAX_INPUT_BUFFERS);
+        oBufferMetaData.clear();
+    }
+
+    int offset = framesToDecode;
+    while (1) {
+        framesToDecode = c2_min(FLUSH_INTERVAL, (int)Info.size() - offset);
+        if (framesToDecode < FLUSH_INTERVAL) signalEOS = true;
+        ASSERT_NO_FATAL_FAILURE(decodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
+                                              mFlushedIndices, mLinearPool, eleStream, &Info,
+                                              offset, framesToDecode, signalEOS));
+        offset += framesToDecode;
+        err = mComponent->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
+        ASSERT_EQ(err, C2_OK);
+        // blocking call to ensures application to Wait till remaining
+        // 'non-flushed' inputs are consumed
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
+                               MAX_INPUT_BUFFERS - flushedWork.size());
+        ASSERT_NO_FATAL_FAILURE(
+                verifyFlushOutput(flushedWork, mWorkQueue, mFlushedIndices, mQueueLock));
+        ASSERT_EQ(mWorkQueue.size(), MAX_INPUT_BUFFERS);
+        if (signalEOS || offset >= (int)Info.size()) {
+            break;
+        }
+    }
+    if (!signalEOS) {
+        ASSERT_NO_FATAL_FAILURE(testInputBuffer(mComponent, mQueueLock, mWorkQueue,
+                                                C2FrameData::FLAG_END_OF_STREAM, false));
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue);
+    }
+    eleStream.close();
+    ASSERT_EQ(mWorkQueue.size(), MAX_INPUT_BUFFERS);
+    ASSERT_EQ(mComponent->stop(), C2_OK);
+}
+
 INSTANTIATE_TEST_SUITE_P(PerInstance, Codec2AudioDecHidlTest, testing::ValuesIn(kTestParameters),
                          android::hardware::PrintInstanceTupleNameToString<>);
 
 // DecodeTest with StreamIndex and EOS / No EOS
 INSTANTIATE_TEST_SUITE_P(StreamIndexAndEOS, Codec2AudioDecDecodeTest,
                          testing::ValuesIn(kDecodeTestParameters),
+                         android::hardware::PrintInstanceTupleNameToString<>);
+
+INSTANTIATE_TEST_SUITE_P(CsdInputs, Codec2AudioDecCsdInputTests,
+                         testing::ValuesIn(kCsdFlushTestParameters),
                          android::hardware::PrintInstanceTupleNameToString<>);
 
 }  // anonymous namespace
@@ -896,6 +961,11 @@ int main(int argc, char** argv) {
                 std::make_tuple(std::get<0>(params), std::get<1>(params), "1", "false"));
         kDecodeTestParameters.push_back(
                 std::make_tuple(std::get<0>(params), std::get<1>(params), "1", "true"));
+
+        kCsdFlushTestParameters.push_back(
+                std::make_tuple(std::get<0>(params), std::get<1>(params), "true"));
+        kCsdFlushTestParameters.push_back(
+                std::make_tuple(std::get<0>(params), std::get<1>(params), "false"));
     }
 
     // Set the resource directory based on command line args.

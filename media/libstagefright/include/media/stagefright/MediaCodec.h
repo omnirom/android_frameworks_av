@@ -141,7 +141,7 @@ struct MediaCodec : public AHandler {
     // object.
     status_t release();
 
-    status_t releaseAsync();
+    status_t releaseAsync(const sp<AMessage> &notify);
 
     status_t flush();
 
@@ -373,7 +373,8 @@ private:
     sp<Surface> mSurface;
     SoftwareRenderer *mSoftRenderer;
 
-    mediametrics_handle_t mMetricsHandle;
+    mediametrics_handle_t mMetricsHandle = 0;
+    nsecs_t mLifetimeStartNs = 0;
     void initMediametrics();
     void updateMediametrics();
     void flushMediametrics();
@@ -384,6 +385,7 @@ private:
     sp<AMessage> mInputFormat;
     sp<AMessage> mCallback;
     sp<AMessage> mOnFrameRenderedNotification;
+    sp<AMessage> mAsyncReleaseCompleteNotification;
 
     sp<ResourceManagerServiceProxy> mResourceManagerProxy;
 
@@ -515,6 +517,9 @@ private:
 
     class ReleaseSurface;
     std::unique_ptr<ReleaseSurface> mReleaseSurface;
+
+    std::list<sp<AMessage>> mLeftover;
+    status_t handleLeftover(size_t index);
 
     sp<BatteryChecker> mBatteryChecker;
 

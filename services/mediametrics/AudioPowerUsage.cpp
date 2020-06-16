@@ -20,6 +20,7 @@
 
 #include "AudioAnalytics.h"
 #include "MediaMetricsService.h"
+#include "StringUtils.h"
 #include <map>
 #include <sstream>
 #include <string>
@@ -117,7 +118,7 @@ bool AudioPowerUsage::deviceFromString(const std::string& device_string, int32_t
 
 int32_t AudioPowerUsage::deviceFromStringPairs(const std::string& device_strings) {
     int32_t deviceMask = 0;
-    const auto devaddrvec = MediaMetricsService::getDeviceAddressPairs(device_strings);
+    const auto devaddrvec = stringutils::getDeviceAddressPairs(device_strings);
     for (const auto &[device, addr] : devaddrvec) {
         int32_t combo_device = 0;
         deviceFromString(device, combo_device);
@@ -141,13 +142,11 @@ void AudioPowerUsage::sendItem(const std::shared_ptr<const mediametrics::Item>& 
     double volume;
     if (!item->getDouble(AUDIO_POWER_USAGE_PROP_VOLUME, &volume)) return;
 
-#ifdef STATSD
     (void)android::util::stats_write(android::util::AUDIO_POWER_USAGE_DATA_REPORTED,
                                          device,
                                          (int32_t)(duration_ns / NANOS_PER_SECOND),
                                          (float)volume,
                                          type);
-#endif
 }
 
 bool AudioPowerUsage::saveAsItem_l(
@@ -162,7 +161,7 @@ bool AudioPowerUsage::saveAsItem_l(
         return true; //ignore unknown device
     }
 
-    for (auto item : mItems) {
+    for (const auto& item : mItems) {
         int32_t item_type = 0, item_device = 0;
         double item_volume = 0.;
         int64_t item_duration_ns = 0;
@@ -261,8 +260,8 @@ void AudioPowerUsage::checkMode(const std::shared_ptr<const mediametrics::Item>&
         const int64_t endCallNs = item->getTimestamp();
         const int64_t durationNs = endCallNs - mDeviceTimeNs;
         if (durationNs > 0) {
-            mDeviceVolume = (mDeviceVolume * (mVolumeTimeNs - mDeviceTimeNs) +
-                    mVoiceVolume * (endCallNs - mVolumeTimeNs)) / durationNs;
+            mDeviceVolume = (mDeviceVolume * double(mVolumeTimeNs - mDeviceTimeNs) +
+                    mVoiceVolume * double(endCallNs - mVolumeTimeNs)) / durationNs;
             saveAsItem_l(mPrimaryDevice, durationNs, VOICE_CALL_TYPE, mDeviceVolume);
         }
     } else if (mode == "AUDIO_MODE_IN_CALL") { // entering call mode
@@ -289,8 +288,8 @@ void AudioPowerUsage::checkVoiceVolume(const std::shared_ptr<const mediametrics:
         const int64_t timeNs = item->getTimestamp();
         const int64_t durationNs = timeNs - mDeviceTimeNs;
         if (durationNs > 0) {
-            mDeviceVolume = (mDeviceVolume * (mVolumeTimeNs - mDeviceTimeNs) +
-                    mVoiceVolume * (timeNs - mVolumeTimeNs)) / durationNs;
+            mDeviceVolume = (mDeviceVolume * double(mVolumeTimeNs - mDeviceTimeNs) +
+                    mVoiceVolume * double(timeNs - mVolumeTimeNs)) / durationNs;
             mVolumeTimeNs = timeNs;
         }
     }
@@ -320,8 +319,8 @@ void AudioPowerUsage::checkCreatePatch(const std::shared_ptr<const mediametrics:
         const int64_t endDeviceNs = item->getTimestamp();
         const int64_t durationNs = endDeviceNs - mDeviceTimeNs;
         if (durationNs > 0) {
-            mDeviceVolume = (mDeviceVolume * (mVolumeTimeNs - mDeviceTimeNs) +
-                    mVoiceVolume * (endDeviceNs - mVolumeTimeNs)) / durationNs;
+            mDeviceVolume = (mDeviceVolume * double(mVolumeTimeNs - mDeviceTimeNs) +
+                    mVoiceVolume * double(endDeviceNs - mVolumeTimeNs)) / durationNs;
             saveAsItem_l(mPrimaryDevice, durationNs, VOICE_CALL_TYPE, mDeviceVolume);
         }
         // reset statistics
@@ -393,4 +392,4 @@ std::pair<std::string, int32_t> AudioPowerUsage::dump(int limit) const {
     return { ss.str(), slot };
 }
 
-} // namespace android
+} // namespace android::mediametrics

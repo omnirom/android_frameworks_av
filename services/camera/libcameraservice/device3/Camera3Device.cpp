@@ -1783,13 +1783,6 @@ void Camera3Device::internalUpdateStatusLocked(Status status) {
     mStatusChanged.broadcast();
 }
 
-void Camera3Device::pauseStateNotify(bool enable) {
-    Mutex::Autolock il(mInterfaceLock);
-    Mutex::Autolock l(mLock);
-
-    mPauseStateNotify = enable;
-}
-
 // Pause to reconfigure
 status_t Camera3Device::internalPauseAndWaitLocked(nsecs_t maxExpectedDuration) {
     if (mRequestThread.get() != nullptr) {
@@ -2365,7 +2358,7 @@ bool Camera3Device::checkAbandonedStreamsLocked() {
     return false;
 }
 
-bool Camera3Device::reconfigureCamera(const CameraMetadata& sessionParams) {
+bool Camera3Device::reconfigureCamera(const CameraMetadata& sessionParams, int clientStatusId) {
     ATRACE_CALL();
     bool ret = false;
 
@@ -2379,7 +2372,16 @@ bool Camera3Device::reconfigureCamera(const CameraMetadata& sessionParams) {
         return true;
     }
 
-    auto rc = internalPauseAndWaitLocked(maxExpectedDuration);
+    status_t rc = NO_ERROR;
+    bool markClientActive = false;
+    if (mStatus == STATUS_ACTIVE) {
+        markClientActive = true;
+        mPauseStateNotify = true;
+        mStatusTracker->markComponentIdle(clientStatusId, Fence::NO_FENCE);
+
+        rc = internalPauseAndWaitLocked(maxExpectedDuration);
+    }
+
     if (rc == NO_ERROR) {
         mNeedConfig = true;
         rc = configureStreamsLocked(mOperatingMode, sessionParams, /*notifyRequestThread*/ false);
@@ -2405,6 +2407,10 @@ bool Camera3Device::reconfigureCamera(const CameraMetadata& sessionParams) {
         }
     } else {
         ALOGE("%s: Failed to pause streaming: %d", __FUNCTION__, rc);
+    }
+
+    if (markClientActive) {
+        mStatusTracker->markComponentActive(clientStatusId);
     }
 
     return ret;
@@ -4289,22 +4295,11 @@ bool Camera3Device::RequestThread::threadLoop() {
         }
 
         if (res == OK) {
-            sp<StatusTracker> statusTracker = mStatusTracker.promote();
-            if (statusTracker != 0) {
-                sp<Camera3Device> parent = mParent.promote();
-                if (parent != nullptr) {
-                    parent->pauseStateNotify(true);
-                }
-
-                statusTracker->markComponentIdle(mStatusId, Fence::NO_FENCE);
-
-                if (parent != nullptr) {
-                    mReconfigured |= parent->reconfigureCamera(mLatestSessionParams);
-                }
-
-                statusTracker->markComponentActive(mStatusId);
-                setPaused(false);
+            sp<Camera3Device> parent = mParent.promote();
+            if (parent != nullptr) {
+                mReconfigured |= parent->reconfigureCamera(mLatestSessionParams, mStatusId);
             }
+            setPaused(false);
 
             if (mNextRequests[0].captureRequest->mInputStream != nullptr) {
                 mNextRequests[0].captureRequest->mInputStream->restoreConfiguredState();

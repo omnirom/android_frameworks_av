@@ -19,6 +19,7 @@
 #include <utils/Log.h>
 #include <mediautils/TimeCheck.h>
 #include <mediautils/EventLog.h>
+#include <cutils/properties.h>
 #include "debuggerd/handler.h"
 
 namespace android {
@@ -65,9 +66,16 @@ sp<TimeCheck::TimeCheckThread> TimeCheck::getTimeCheckThread()
     return sTimeCheckThread;
 }
 
-TimeCheck::TimeCheck(const char *tag, uint32_t timeoutMs)
-    : mEndTimeNs(getTimeCheckThread()->startMonitoring(tag, timeoutMs))
+static uint32_t timeOutMs = (uint32_t)property_get_int32("vendor.audio.hal.boot.timeout.ms", TimeCheck::kDefaultTimeOutMs);
+
+TimeCheck::TimeCheck(const char *tag, bool systemReady)
 {
+    if (systemReady) {
+        timeOutMs = kDefaultTimeOutMs;
+        ALOGI("System is ready use default timeout: %d msec", timeOutMs);
+    }
+    ALOGI("command is %s and timeout: %d", tag, timeOutMs);
+    mEndTimeNs = getTimeCheckThread()->startMonitoring(tag, timeOutMs);
 }
 
 TimeCheck::~TimeCheck() {

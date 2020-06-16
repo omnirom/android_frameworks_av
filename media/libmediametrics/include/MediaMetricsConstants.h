@@ -37,6 +37,9 @@
 // They must be appended with another value to make a key.
 #define AMEDIAMETRICS_KEY_PREFIX_AUDIO "audio."
 
+// Device related key prefix.
+#define AMEDIAMETRICS_KEY_PREFIX_AUDIO_DEVICE  AMEDIAMETRICS_KEY_PREFIX_AUDIO "device."
+
 // The AudioMmap key appends the "trackId" to the prefix.
 // This is the AudioFlinger equivalent of the AAudio Stream.
 // TODO: unify with AMEDIAMETRICS_KEY_PREFIX_AUDIO_STREAM
@@ -113,6 +116,7 @@
 #define AMEDIAMETRICS_PROP_DURATIONNS     "durationNs"     // int64 duration time span
 #define AMEDIAMETRICS_PROP_ENCODING       "encoding"       // string value of format
 #define AMEDIAMETRICS_PROP_EVENT          "event#"         // string value (often func name)
+#define AMEDIAMETRICS_PROP_EXECUTIONTIMENS "executionTimeNs"  // time to execute the event
 
 // TODO: fix inconsistency in flags: AudioRecord / AudioTrack int32,  AudioThread string
 #define AMEDIAMETRICS_PROP_FLAGS          "flags"
@@ -171,10 +175,12 @@
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_OPEN       "open"
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_PAUSE      "pause"  // AudioTrack
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_READPARAMETERS "readParameters" // Thread
+#define AMEDIAMETRICS_PROP_EVENT_VALUE_RELEASE    "release"
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_RESTORE    "restore"
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_SETMODE    "setMode" // AudioFlinger
+#define AMEDIAMETRICS_PROP_EVENT_VALUE_SETBUFFERSIZE    "setBufferSize" // AudioTrack
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_SETPLAYBACKPARAM "setPlaybackParam" // AudioTrack
-#define AMEDIAMETRICS_PROP_EVENT_VALUE_SETVOICEVOLUME "setVoiceVolume" // AudioFlinger
+#define AMEDIAMETRICS_PROP_EVENT_VALUE_SETVOICEVOLUME   "setVoiceVolume" // AudioFlinger
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_SETVOLUME  "setVolume"  // AudioTrack
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_START      "start"  // AudioTrack, AudioRecord
 #define AMEDIAMETRICS_PROP_EVENT_VALUE_STOP       "stop"   // AudioTrack, AudioRecord

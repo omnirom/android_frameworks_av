@@ -32,7 +32,8 @@
 
 namespace android {
 
-using namespace mediametrics;
+using mediametrics::Item;
+using mediametrics::startsWith;
 
 // individual records kept in memory: age or count
 // age: <= 28 hours (1 1/6 days)
@@ -63,7 +64,7 @@ nsecs_t MediaMetricsService::roundTime(nsecs_t timeNs)
 bool MediaMetricsService::useUidForPackage(
         const std::string& package, const std::string& installer)
 {
-    if (strchr(package.c_str(), '.') == NULL) {
+    if (strchr(package.c_str(), '.') == nullptr) {
         return false;  // not of form 'com.whatever...'; assume internal and ok
     } else if (strncmp(package.c_str(), "android.", 8) == 0) {
         return false;  // android.* packages are assumed fine
@@ -91,58 +92,6 @@ MediaMetricsService::getSanitizedPackageNameAndVersionCode(uid_t uid) {
         return { std::to_string(uid), /* versionCode */ 0 };
     } else {
         return { info.package, info.versionCode };
-    }
-}
-
-/* static */
-std::string MediaMetricsService::tokenizer(std::string::const_iterator& it,
-        const std::string::const_iterator& end, const char *reserved) {
-    // consume leading white space
-    for (; it != end && std::isspace(*it); ++it);
-    if (it == end) return {};
-
-    auto start = it;
-    // parse until we hit a reserved keyword or space
-    if (strchr(reserved, *it)) return {start, ++it};
-    for (;;) {
-        ++it;
-        if (it == end || std::isspace(*it) || strchr(reserved, *it)) return {start, it};
-    }
-}
-
-/* static */
-std::vector<std::pair<std::string, std::string>>
-MediaMetricsService::getDeviceAddressPairs(const std::string& devices) {
-    std::vector<std::pair<std::string, std::string>> result;
-
-    // Currently, the device format is EXACTLY
-    // (device1, addr1)|(device2, addr2)|...
-
-    static constexpr char delim[] = "()|,";
-    for (auto it = devices.begin(); ; ) {
-        auto token = tokenizer(it, devices.end(), delim);
-        if (token != "(") return result;
-
-        auto device = tokenizer(it, devices.end(), delim);
-        if (device.empty() || !std::isalnum(device[0])) return result;
-
-        token = tokenizer(it, devices.end(), delim);
-        if (token != ",") return result;
-
-        // special handling here for empty addresses
-        auto address = tokenizer(it, devices.end(), delim);
-        if (address.empty() || !std::isalnum(device[0])) return result;
-        if (address == ")") {  // no address, just the ")"
-            address.clear();
-        } else {
-            token = tokenizer(it, devices.end(), delim);
-            if (token != ")") return result;
-        }
-
-        result.emplace_back(std::move(device), std::move(address));
-
-        token = tokenizer(it, devices.end(), delim);
-        if (token != "|") return result;  // this includes end of string detection
     }
 }
 
@@ -203,9 +152,9 @@ status_t MediaMetricsService::submitInternal(mediametrics::Item *item, bool rele
 
     // Overwrite package name and version if the caller was untrusted or empty
     if (!isTrusted || item->getPkgName().empty()) {
-        const uid_t uid = item->getUid();
+        const uid_t uidItem = item->getUid();
         const auto [ pkgName, version ] =
-                MediaMetricsService::getSanitizedPackageNameAndVersionCode(uid);
+                MediaMetricsService::getSanitizedPackageNameAndVersionCode(uidItem);
         item->setPkgName(pkgName);
         item->setPkgVersionCode(version);
     }
@@ -320,7 +269,7 @@ status_t MediaMetricsService::dump(int fd, const Vector<String16>& args)
                 String8 value(args[i]);
                 char *endp;
                 const char *p = value.string();
-                long long sec = strtoll(p, &endp, 10);
+                const auto sec = (int64_t)strtoll(p, &endp, 10);
                 if (endp == p || *endp != '\0' || sec == 0) {
                     sinceNs = 0;
                 } else if (sec < 0) {

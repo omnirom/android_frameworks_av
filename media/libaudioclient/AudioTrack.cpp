@@ -702,9 +702,17 @@ exit:
 
 status_t AudioTrack::start()
 {
-    const int64_t beginNs = systemTime();
     AutoMutex lock(mLock);
 
+    if (mState == STATE_ACTIVE) {
+        return INVALID_OPERATION;
+    }
+
+    ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
+
+    // Defer logging here due to OpenSL ES repeated start calls.
+    // TODO(b/154868033) after fix, restore this logging back to the beginning of start().
+    const int64_t beginNs = systemTime();
     status_t status = NO_ERROR; // logged: make sure to set this before returning.
     mediametrics::Defer defer([&] {
         mediametrics::LogItem(mMetricsId)
@@ -713,17 +721,11 @@ status_t AudioTrack::start()
                     ? AMEDIAMETRICS_PROP_CALLERNAME_VALUE_UNKNOWN
                     : mCallerName.c_str())
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_START)
-            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
             .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)status)
             .record(); });
 
-    ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
-
-    if (mState == STATE_ACTIVE) {
-        status = INVALID_OPERATION;
-        return status;
-    }
 
     mInUnderrun = true;
     mPauseTimeRealUs = 0;
@@ -847,10 +849,11 @@ void AudioTrack::stop()
     mediametrics::Defer defer([&]() {
         mediametrics::LogItem(mMetricsId)
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_STOP)
-            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
+            .set(AMEDIAMETRICS_PROP_BUFFERSIZEFRAMES, (int32_t)mProxy->getBufferSizeInFrames())
+            .set(AMEDIAMETRICS_PROP_UNDERRUN, (int32_t) getUnderrunCount_l())
             .record();
-        logBufferSizeUnderruns();
     });
 
     ALOGV("%s(%d): prior state:%s", __func__, mPortId, stateToString(mState));
@@ -909,7 +912,7 @@ void AudioTrack::flush()
     mediametrics::Defer defer([&]() {
         mediametrics::LogItem(mMetricsId)
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_FLUSH)
-            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
             .record(); });
 
@@ -950,7 +953,7 @@ void AudioTrack::pause()
     mediametrics::Defer defer([&]() {
         mediametrics::LogItem(mMetricsId)
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_PAUSE)
-            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
             .record(); });
 
@@ -1210,16 +1213,6 @@ status_t AudioTrack::getBufferDurationInUs(int64_t *duration)
     return NO_ERROR;
 }
 
-void AudioTrack::logBufferSizeUnderruns() {
-    LOG_ALWAYS_FATAL_IF(mMetricsId.size() == 0, "mMetricsId is empty!");
-    ALOGD("%s(), mMetricsId = %s", __func__, mMetricsId.c_str());
-    // FIXME THis hangs! Why?
-//    android::mediametrics::LogItem(mMetricsId)
-//            .set(AMEDIAMETRICS_PROP_BUFFERSIZEFRAMES, (int32_t) getBufferSizeInFrames())
-//            .set(AMEDIAMETRICS_PROP_UNDERRUN, (int32_t) getUnderrunCount())
-//            .record();
-}
-
 ssize_t AudioTrack::setBufferSizeInFrames(size_t bufferSizeInFrames)
 {
     AutoMutex lock(mLock);
@@ -1234,7 +1227,11 @@ ssize_t AudioTrack::setBufferSizeInFrames(size_t bufferSizeInFrames)
     ssize_t originalBufferSize = mProxy->getBufferSizeInFrames();
     ssize_t finalBufferSize  = mProxy->setBufferSizeInFrames((uint32_t) bufferSizeInFrames);
     if (originalBufferSize != finalBufferSize) {
-        logBufferSizeUnderruns();
+        android::mediametrics::LogItem(mMetricsId)
+                .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_SETBUFFERSIZE)
+                .set(AMEDIAMETRICS_PROP_BUFFERSIZEFRAMES, (int32_t)mProxy->getBufferSizeInFrames())
+                .set(AMEDIAMETRICS_PROP_UNDERRUN, (int32_t)getUnderrunCount_l())
+                .record();
     }
     return finalBufferSize;
 }
@@ -1714,7 +1711,7 @@ status_t AudioTrack::createTrack_l()
                 mAwaitBoost = true;
             }
         } else {
-            ALOGW("%s(%d): AUDIO_OUTPUT_FLAG_FAST denied by server; frameCount %zu -> %zu",
+            ALOGD("%s(%d): AUDIO_OUTPUT_FLAG_FAST denied by server; frameCount %zu -> %zu",
                   __func__, mPortId, mReqFrameCount, mFrameCount);
         }
     }
@@ -1797,15 +1794,19 @@ status_t AudioTrack::createTrack_l()
     // The creation of the audio track by AudioFlinger (in the code above)
     // is the first log of the AudioTrack and must be present before
     // any AudioTrack client logs will be accepted.
+
+    std::string flagsAsString;
+    OutputFlagConverter::toString(mFlags, flagsAsString);
+    std::string originalFlagsAsString;
+    OutputFlagConverter::toString(mOrigFlags, originalFlagsAsString);
     mMetricsId = std::string(AMEDIAMETRICS_KEY_PREFIX_AUDIO_TRACK) + std::to_string(mPortId);
     mediametrics::LogItem(mMetricsId)
         .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_CREATE)
         // the following are immutable
-        .set(AMEDIAMETRICS_PROP_FLAGS, (int32_t)mFlags)
-        .set(AMEDIAMETRICS_PROP_ORIGINALFLAGS, (int32_t)mOrigFlags)
+        .set(AMEDIAMETRICS_PROP_FLAGS, flagsAsString.c_str())
+        .set(AMEDIAMETRICS_PROP_ORIGINALFLAGS, originalFlagsAsString.c_str())
         .set(AMEDIAMETRICS_PROP_SESSIONID, (int32_t)mSessionId)
         .set(AMEDIAMETRICS_PROP_TRACKID, mPortId) // dup from key
-        .set(AMEDIAMETRICS_PROP_STREAMTYPE, toString(mStreamType).c_str())
         .set(AMEDIAMETRICS_PROP_CONTENTTYPE, toString(mAttributes.content_type).c_str())
         .set(AMEDIAMETRICS_PROP_USAGE, toString(mAttributes.usage).c_str())
         .set(AMEDIAMETRICS_PROP_THREADID, (int32_t)output.outputId)
@@ -2522,7 +2523,7 @@ status_t AudioTrack::restoreTrack_l(const char *from)
     mediametrics::Defer defer([&] {
         mediametrics::LogItem(mMetricsId)
             .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_RESTORE)
-            .set(AMEDIAMETRICS_PROP_DURATIONNS, (int64_t)(systemTime() - beginNs))
+            .set(AMEDIAMETRICS_PROP_EXECUTIONTIMENS, (int64_t)(systemTime() - beginNs))
             .set(AMEDIAMETRICS_PROP_STATE, stateToString(mState))
             .set(AMEDIAMETRICS_PROP_STATUS, (int32_t)result)
             .set(AMEDIAMETRICS_PROP_WHERE, from)
