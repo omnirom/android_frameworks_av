@@ -29,7 +29,11 @@ namespace android {
 
 class TimeCheck {
 public:
-            TimeCheck(const char *tag, bool systemReady = false);
+
+    // The default timeout is chosen to be less than system server watchdog timeout
+    static constexpr uint32_t kDefaultTimeOutMs = 5000;
+
+            TimeCheck(const char *tag, uint32_t timeoutMs = kDefaultTimeOutMs);
             ~TimeCheck();
     static  void setAudioHalPids(const std::vector<pid_t>& pids);
     static  std::vector<pid_t> getAudioHalPids();
@@ -63,7 +67,7 @@ private:
     static sp<TimeCheckThread> getTimeCheckThread();
     static void accessAudioHalPids(std::vector<pid_t>* pids, bool update);
 
-    nsecs_t mEndTimeNs;
+    const           nsecs_t mEndTimeNs;
 };
 
 }; // namespace android

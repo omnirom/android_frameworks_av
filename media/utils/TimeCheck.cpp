@@ -20,10 +20,6 @@
 #include <mediautils/TimeCheck.h>
 #include <mediautils/EventLog.h>
 #include "debuggerd/handler.h"
-#include <cutils/properties.h>
-
-#define DEFAULT_TIMEOUT_MS              5000
-#define SYSTEM_READY_TIMEOUT_MS         20000
 
 namespace android {
 
@@ -69,17 +65,9 @@ sp<TimeCheck::TimeCheckThread> TimeCheck::getTimeCheckThread()
     return sTimeCheckThread;
 }
 
-
-static uint32_t timeOutMs = (uint32_t)property_get_int32("audio.timeout.duration.msecs", SYSTEM_READY_TIMEOUT_MS);
-
-TimeCheck::TimeCheck(const char *tag, bool systemReady)
+TimeCheck::TimeCheck(const char *tag, uint32_t timeoutMs)
+    : mEndTimeNs(getTimeCheckThread()->startMonitoring(tag, timeoutMs))
 {
-    if (systemReady) {
-        timeOutMs = DEFAULT_TIMEOUT_MS;
-        ALOGI("System is ready use default timeout: %d msec", timeOutMs);
-    }
-    ALOGI("command is %s and timeout: %d", tag, timeOutMs);
-    mEndTimeNs = getTimeCheckThread()->startMonitoring(tag, timeOutMs);
 }
 
 TimeCheck::~TimeCheck() {
