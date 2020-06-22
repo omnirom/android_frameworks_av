@@ -74,7 +74,6 @@ TimeCheck::TimeCheck(const char *tag, bool systemReady)
         timeOutMs = kDefaultTimeOutMs;
         ALOGI("System is ready use default timeout: %d msec", timeOutMs);
     }
-    ALOGI("command is %s and timeout: %d", tag, timeOutMs);
     mEndTimeNs = getTimeCheckThread()->startMonitoring(tag, timeOutMs);
 }
 
