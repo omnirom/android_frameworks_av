@@ -518,11 +518,13 @@ sp<AMessage> VideoFrameDecoder::onGetFormatAndSeekOptions(
         videoFormat->setInt32("vendor.qti-ext-dec-thumbnail-mode.value", 1);
     }
 
-    if (isHDR(videoFormat)) {
+    // force surface-mode for all thumbnails
+    if (true /*isHDR(videoFormat)*/) {
         *window = initSurface();
         if (*window == NULL) {
             ALOGE("Failed to init surface control for HDR, fallback to non-hdr");
         } else {
+            ALOGI("using surface mode");
             videoFormat->setInt32("color-format", OMX_COLOR_FormatAndroidOpaque);
         }
     }
@@ -589,16 +591,16 @@ status_t VideoFrameDecoder::onOutputReceived(
     int32_t width, height, stride, srcFormat, slice_height;
     if (!outputFormat->findInt32("width", &width) ||
             !outputFormat->findInt32("height", &height) ||
-            !outputFormat->findInt32("color-format", &srcFormat) ||
-            !outputFormat->findInt32("slice-height", &slice_height)) {
+            !outputFormat->findInt32("color-format", &srcFormat)) {
         ALOGE("format missing dimension or color: %s",
                 outputFormat->debugString().c_str());
         return ERROR_MALFORMED;
     }
 
-    if (!outputFormat->findInt32("stride", &stride)) {
+    if (!outputFormat->findInt32("stride", &stride) ||
+            !outputFormat->findInt32("slice-height", &slice_height)) {
         if (mCaptureLayer == NULL) {
-            ALOGE("format must have stride for byte buffer mode: %s",
+            ALOGE("format must have stride and slice-height for byte buffer mode: %s",
                     outputFormat->debugString().c_str());
             return ERROR_MALFORMED;
         }
