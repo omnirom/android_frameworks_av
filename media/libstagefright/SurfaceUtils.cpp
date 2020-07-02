@@ -132,33 +132,39 @@ status_t setNativeWindowSizeFormatAndUsage(
 }
 
 void setNativeWindowHdrMetadata(ANativeWindow *nativeWindow, HDRStaticInfo *info) {
-    struct android_smpte2086_metadata smpte2086_meta = {
-            .displayPrimaryRed = {
-                    info->sType1.mR.x * 0.00002f,
-                    info->sType1.mR.y * 0.00002f
-            },
-            .displayPrimaryGreen = {
-                    info->sType1.mG.x * 0.00002f,
-                    info->sType1.mG.y * 0.00002f
-            },
-            .displayPrimaryBlue = {
-                    info->sType1.mB.x * 0.00002f,
-                    info->sType1.mB.y * 0.00002f
-            },
-            .whitePoint = {
-                    info->sType1.mW.x * 0.00002f,
-                    info->sType1.mW.y * 0.00002f
-            },
-            .maxLuminance = (float) info->sType1.mMaxDisplayLuminance,
-            .minLuminance = info->sType1.mMinDisplayLuminance * 0.0001f
-    };
+    int err = 0;
 
-    int err = native_window_set_buffers_smpte2086_metadata(nativeWindow, &smpte2086_meta);
-    ALOGW_IF(err != 0, "failed to set smpte2086 metadata on surface (%d)", err);
+    // Do not use display luminance fields, if they are 0.
+    // This indicates that the bitstream may not contain these values
+    if (info->sType1.mMaxDisplayLuminance > 0 && info->sType1.mMinDisplayLuminance > 0) {
+        struct android_smpte2086_metadata smpte2086_meta = {
+                .displayPrimaryRed = {
+                        info->sType1.mR.x * 0.00002f,
+                        info->sType1.mR.y * 0.00002f
+                },
+                .displayPrimaryGreen = {
+                        info->sType1.mG.x * 0.00002f,
+                        info->sType1.mG.y * 0.00002f
+                },
+                .displayPrimaryBlue = {
+                        info->sType1.mB.x * 0.00002f,
+                        info->sType1.mB.y * 0.00002f
+                },
+                .whitePoint = {
+                        info->sType1.mW.x * 0.00002f,
+                        info->sType1.mW.y * 0.00002f
+                },
+                .maxLuminance = (float) info->sType1.mMaxDisplayLuminance,
+                .minLuminance = info->sType1.mMinDisplayLuminance * 0.0001f
+        };
+
+        err = native_window_set_buffers_smpte2086_metadata(nativeWindow, &smpte2086_meta);
+        ALOGW_IF(err != 0, "failed to set smpte2086 metadata on surface (%d)", err);
+    }
 
     // Do not use content light level fields, if they are 0.
     // This indicates that the bitstream may not contain these values
-    if(info->sType1.mMaxContentLightLevel > 0 && info->sType1.mMaxFrameAverageLightLevel > 0) {
+    if (info->sType1.mMaxContentLightLevel > 0 && info->sType1.mMaxFrameAverageLightLevel > 0) {
         struct android_cta861_3_metadata cta861_meta = {
                 .maxContentLightLevel = (float) info->sType1.mMaxContentLightLevel,
                 .maxFrameAverageLightLevel = (float) info->sType1.mMaxFrameAverageLightLevel
