@@ -32,8 +32,7 @@ public:
 
     // The default timeout is chosen to be less than system server watchdog timeout
     static constexpr uint32_t kDefaultTimeOutMs = 5000;
-
-            TimeCheck(const char *tag, uint32_t timeoutMs = kDefaultTimeOutMs);
+            TimeCheck(const char *tag, bool systemReady = false);
             ~TimeCheck();
 
 private:
@@ -64,7 +63,7 @@ private:
 
     static sp<TimeCheckThread> getTimeCheckThread();
 
-    const           nsecs_t mEndTimeNs;
+    nsecs_t mEndTimeNs;
 };
 
 }; // namespace android
