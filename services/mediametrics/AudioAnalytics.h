@@ -17,6 +17,7 @@
 #pragma once
 
 #include <android-base/thread_annotations.h>
+#include <audio_utils/SimpleLog.h>
 #include "AnalyticsActions.h"
 #include "AnalyticsState.h"
 #include "AudioPowerUsage.h"
@@ -116,11 +117,13 @@ private:
 
     // AnalyticsState is individually locked, and we use SharedPtrWrap
     // to allow safe access even if the shared pointer changes underneath.
-
+    // These wrap pointers always point to a valid state object.
     SharedPtrWrap<AnalyticsState> mAnalyticsState;
     SharedPtrWrap<AnalyticsState> mPreviousAnalyticsState;
 
     TimedAction mTimedAction; // locked internally
+
+    SimpleLog mStatsdLog{16 /* log lines */}; // locked internally
 
     // DeviceUse is a nested class which handles audio device usage accounting.
     // We define this class at the end to ensure prior variables all properly constructed.
@@ -173,6 +176,7 @@ private:
         AudioAnalytics &mAudioAnalytics;
 
         mutable std::mutex mLock;
+        std::string mA2dpDeviceName;
         int64_t mA2dpConnectionRequestNs GUARDED_BY(mLock) = 0;  // Time for BT service request.
         int64_t mA2dpConnectionServiceNs GUARDED_BY(mLock) = 0;  // Time audio service agrees.
 

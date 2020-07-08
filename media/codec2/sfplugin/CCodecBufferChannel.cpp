@@ -618,13 +618,14 @@ void CCodecBufferChannel::feedInputBufferIfAvailable() {
 }
 
 void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
-    if (mInputMetEos ||
-           mOutput.lock()->buffers->hasPending() ||
-           mPipelineWatcher.lock()->pipelineFull()) {
+    if (mInputMetEos || mPipelineWatcher.lock()->pipelineFull()) {
         return;
-    } else {
+    }
+    {
         Mutexed<Output>::Locked output(mOutput);
-        if (!output->buffers || output->buffers->numClientBuffers() >= output->numSlots) {
+        if (!output->buffers ||
+                output->buffers->hasPending() ||
+                output->buffers->numClientBuffers() >= output->numSlots) {
             return;
         }
     }
@@ -731,6 +732,9 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     std::shared_ptr<const C2StreamHdr10PlusInfo::output> hdr10PlusInfo =
         std::static_pointer_cast<const C2StreamHdr10PlusInfo::output>(
                 c2Buffer->getInfo(C2StreamHdr10PlusInfo::output::PARAM_TYPE));
+    if (hdr10PlusInfo && hdr10PlusInfo->flexCount() == 0) {
+        hdr10PlusInfo.reset();
+    }
 
     {
         Mutexed<OutputSurface>::Locked output(mOutputSurface);
@@ -782,7 +786,7 @@ status_t CCodecBufferChannel::renderOutputBuffer(
                     .maxLuminance = hdrStaticInfo->mastering.maxLuminance,
                     .minLuminance = hdrStaticInfo->mastering.minLuminance,
                 };
-                hdr.validTypes = HdrMetadata::SMPTE2086;
+                hdr.validTypes |= HdrMetadata::SMPTE2086;
                 hdr.smpte2086 = smpte2086_meta;
             }
             // If the content light level fields are 0, do not use them, it
@@ -916,6 +920,12 @@ status_t CCodecBufferChannel::start(
 
     if (inputFormat != nullptr) {
         bool graphic = (iStreamFormat.value == C2BufferData::GRAPHIC);
+        C2Config::api_feature_t apiFeatures = C2Config::api_feature_t(
+                API_REFLECTION |
+                API_VALUES |
+                API_CURRENT_VALUES |
+                API_DEPENDENCY |
+                API_SAME_INPUT_BUFFER);
         std::shared_ptr<C2BlockPool> pool;
         {
             Mutexed<BlockPools>::Locked pools(mBlockPools);
@@ -927,14 +937,15 @@ status_t CCodecBufferChannel::start(
             // query C2PortAllocatorsTuning::input from component. If an allocator ID is obtained
             // from component, create the input block pool with given ID. Otherwise, use default IDs.
             std::vector<std::unique_ptr<C2Param>> params;
-            err = mComponent->query({ },
+            C2ApiFeaturesSetting featuresSetting{apiFeatures};
+            err = mComponent->query({ &featuresSetting },
                                     { C2PortAllocatorsTuning::input::PARAM_TYPE },
                                     C2_DONT_BLOCK,
                                     &params);
             if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
                 ALOGD("[%s] Query input allocators returned %zu params => %s (%u)",
                         mName, params.size(), asString(err), err);
-            } else if (err == C2_OK && params.size() == 1) {
+            } else if (params.size() == 1) {
                 C2PortAllocatorsTuning::input *inputAllocators =
                     C2PortAllocatorsTuning::input::From(params[0].get());
                 if (inputAllocators && inputAllocators->flexCount() > 0) {
@@ -948,6 +959,9 @@ status_t CCodecBufferChannel::start(
                                 mName, inputAllocators->m.values[0]);
                     }
                 }
+            }
+            if (featuresSetting) {
+                apiFeatures = featuresSetting.value;
             }
 
             // TODO: use C2Component wrapper to associate this pool with ourselves
@@ -982,7 +996,10 @@ status_t CCodecBufferChannel::start(
         input->numSlots = numInputSlots;
         input->extraBuffers.flush();
         input->numExtraSlots = 0u;
-        if (!buffersBoundToCodec) {
+        bool conforming = (apiFeatures & API_SAME_INPUT_BUFFER);
+        // For encrypted content, framework decrypts source buffer (ashmem) into
+        // C2Buffers. Thus non-conforming codecs can process these.
+        if (!buffersBoundToCodec && (hasCryptoOrDescrambler() || conforming)) {
             input->buffers.reset(new SlotInputBuffers(mName));
         } else if (graphic) {
             if (mInputSurface) {

@@ -496,9 +496,6 @@ void CameraService::disconnectClient(const String8& id, sp<BasicClient> clientTo
         clientToDisconnect->notifyError(
                 hardware::camera2::ICameraDeviceCallbacks::ERROR_CAMERA_DISCONNECTED,
                 CaptureResultExtras{});
-        // Ensure not in binder RPC so client disconnect PID checks work correctly
-        LOG_ALWAYS_FATAL_IF(CameraThreadState::getCallingPid() != getpid(),
-                "onDeviceStatusChanged must be called from the camera service process!");
         clientToDisconnect->disconnect();
     }
 }
@@ -1643,7 +1640,7 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
                     cameraId.string(), clientName8.string(), clientPid);
         }
 
-        // Enforce client permissions and do basic sanity checks
+        // Enforce client permissions and do basic validity checks
         if(!(ret = validateConnectLocked(cameraId, clientName8,
                 /*inout*/clientUid, /*inout*/clientPid, /*out*/originalClientPid)).isOk()) {
             return ret;
