@@ -36,6 +36,7 @@ public:
             ~TimeCheck();
     static  void setAudioHalPids(const std::vector<pid_t>& pids);
     static  std::vector<pid_t> getAudioHalPids();
+    static void setSystemReadyTimeoutMs(uint32_t timeoutMs);
 
 private:
 
