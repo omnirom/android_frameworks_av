@@ -27,6 +27,7 @@
 #include <media/stagefright/foundation/AHandlerReflector.h>
 #include <media/stagefright/foundation/ALooper.h>
 #include <mutex>
+#include <queue>
 
 namespace android {
 
@@ -126,6 +127,10 @@ protected:
     bool mWriteSeekErr;
     bool mFallocateErr;
     bool mPreAllocationEnabled;
+    // Queue to hold top long write durations
+    std::priority_queue<std::chrono::microseconds, std::vector<std::chrono::microseconds>,
+                        std::greater<std::chrono::microseconds>> mWriteDurationPQ;
+    const uint8_t kWriteDurationsCount = 5;
 
     sp<ALooper> mLooper;
     sp<AHandlerReflector<MPEG4Writer> > mReflector;
@@ -151,6 +156,7 @@ protected:
     int64_t estimateMoovBoxSize(int32_t bitRate);
     int64_t estimateFileLevelMetaSize(MetaData *params);
     void writeCachedBoxToFile(const char *type);
+    void printWriteDurations();
 
     struct Chunk {
         Track               *mTrack;        // Owner
