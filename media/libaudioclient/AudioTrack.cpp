@@ -1743,7 +1743,6 @@ status_t AudioTrack::obtainBuffer(Buffer* audioBuffer, const struct timespec *re
 {
     // previous and new IAudioTrack sequence numbers are used to detect track re-creation
     uint32_t oldSequence = 0;
-    uint32_t newSequence;
 
     Proxy::Buffer buffer;
     status_t status = NO_ERROR;
@@ -1760,7 +1759,7 @@ status_t AudioTrack::obtainBuffer(Buffer* audioBuffer, const struct timespec *re
         {   // start of lock scope
             AutoMutex lock(mLock);
 
-            newSequence = mSequence;
+            uint32_t newSequence = mSequence;
             // did previous obtainBuffer() fail due to media server death or voluntary invalidation?
             if (status == DEAD_OBJECT) {
                 // re-create track, unless someone else has already done so
@@ -1807,6 +1806,7 @@ status_t AudioTrack::obtainBuffer(Buffer* audioBuffer, const struct timespec *re
     audioBuffer->frameCount = buffer.mFrameCount;
     audioBuffer->size = buffer.mFrameCount * mFrameSize;
     audioBuffer->raw = buffer.mRaw;
+    audioBuffer->sequence = oldSequence;
     if (nonContig != NULL) {
         *nonContig = buffer.mNonContig;
     }
@@ -1830,6 +1830,12 @@ void AudioTrack::releaseBuffer(const Buffer* audioBuffer)
     buffer.mRaw = audioBuffer->raw;
 
     AutoMutex lock(mLock);
+    if (audioBuffer->sequence != mSequence) {
+        // This Buffer came from a different IAudioTrack instance, so ignore the releaseBuffer
+        ALOGD("%s is no-op due to IAudioTrack sequence mismatch %u != %u",
+                __func__, audioBuffer->sequence, mSequence);
+        return;
+    }
     mReleased += stepCount;
     mInUnderrun = false;
     mProxy->releaseBuffer(&buffer);
