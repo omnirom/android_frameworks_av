@@ -34,6 +34,7 @@ public:
     static constexpr uint32_t kDefaultTimeOutMs = 5000;
             TimeCheck(const char *tag, bool systemReady = false);
             ~TimeCheck();
+    static void setSystemReadyTimeoutMs(uint32_t timeoutMs);
 
 private:
 
