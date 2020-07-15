@@ -75,6 +75,10 @@ protected:
             int64_t timeUs,
             bool *done) = 0;
 
+    virtual bool shouldDropOutput(int64_t ptsUs __unused) {
+        return false;
+    }
+
     sp<MetaData> trackMeta()     const      { return mTrackMeta; }
     OMX_COLOR_FORMATTYPE dstFormat() const  { return mDstFormat; }
     ui::PixelFormat captureFormat() const   { return mCaptureFormat; }
@@ -132,6 +136,10 @@ protected:
             const sp<AMessage> &outputFormat,
             int64_t timeUs,
             bool *done) override;
+
+    virtual bool shouldDropOutput(int64_t ptsUs) override {
+        return !((mTargetTimeUs < 0LL) || (ptsUs >= mTargetTimeUs));
+    }
 
 private:
     sp<FrameCaptureLayer> mCaptureLayer;
