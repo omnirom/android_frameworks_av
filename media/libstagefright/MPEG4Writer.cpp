@@ -572,7 +572,7 @@ void MPEG4Writer::initInternal(int fd, bool isFirstSession) {
         release();
     }
 
-    if (fallocate(mFd, FALLOC_FL_KEEP_SIZE, 0, 1) == 0) {
+    if (fallocate64(mFd, FALLOC_FL_KEEP_SIZE, 0, 1) == 0) {
         ALOGD("PreAllocation enabled");
         mPreAllocationEnabled = true;
     } else {
@@ -1124,6 +1124,21 @@ void MPEG4Writer::writeCompositionMatrix(int degrees) {
     writeInt32(0x40000000);  // w
 }
 
+void MPEG4Writer::printWriteDurations() {
+    if (mWriteDurationPQ.empty()) {
+        return;
+    }
+    std::string writeDurationsString =
+            "Top " + std::to_string(mWriteDurationPQ.size()) + " write durations(microseconds):";
+    uint8_t i = 0;
+    while (!mWriteDurationPQ.empty()) {
+        writeDurationsString +=
+                " #" + std::to_string(++i) + ":" + std::to_string(mWriteDurationPQ.top().count());
+        mWriteDurationPQ.pop();
+    }
+    ALOGD("%s", writeDurationsString.c_str());
+}
+
 status_t MPEG4Writer::release() {
     ALOGD("release()");
     status_t err = OK;
@@ -1152,6 +1167,9 @@ status_t MPEG4Writer::release() {
     mStarted = false;
     free(mInMemoryCache);
     mInMemoryCache = NULL;
+
+    printWriteDurations();
+
     return err;
 }
 
@@ -1609,7 +1627,17 @@ size_t MPEG4Writer::write(
 void MPEG4Writer::writeOrPostError(int fd, const void* buf, size_t count) {
     if (mWriteSeekErr == true)
         return;
+
+    auto beforeTP = std::chrono::high_resolution_clock::now();
     ssize_t bytesWritten = ::write(fd, buf, count);
+    auto afterTP = std::chrono::high_resolution_clock::now();
+    auto writeDuration =
+            std::chrono::duration_cast<std::chrono::microseconds>(afterTP - beforeTP).count();
+    mWriteDurationPQ.emplace(writeDuration);
+    if (mWriteDurationPQ.size() > kWriteDurationsCount) {
+        mWriteDurationPQ.pop();
+    }
+
     /* Write as much as possible during stop() execution when there was an error
      * (mWriteSeekErr == true) in the previous call to write() or lseek64().
      */
@@ -1877,7 +1905,7 @@ bool MPEG4Writer::preAllocate(uint64_t wantSize) {
     ALOGV("preAllocateSize :%" PRIu64 " lastFileEndOffset:%" PRIu64, preAllocateSize,
           lastFileEndOffset);
 
-    int res = fallocate(mFd, FALLOC_FL_KEEP_SIZE, lastFileEndOffset, preAllocateSize);
+    int res = fallocate64(mFd, FALLOC_FL_KEEP_SIZE, lastFileEndOffset, preAllocateSize);
     if (res == -1) {
         ALOGE("fallocate err:%s, %d, fd:%d", strerror(errno), errno, mFd);
         sp<AMessage> msg = new AMessage(kWhatFallocateError, mReflector);
@@ -1904,7 +1932,7 @@ bool MPEG4Writer::truncatePreAllocation() {
     ALOGD("ftruncate mPreAllocateFileEndOffset:%" PRId64 " mOffset:%" PRIu64
           " mMdatEndOffset:%" PRIu64 " diff:%" PRId64, mPreAllocateFileEndOffset, mOffset,
           mMdatEndOffset, mPreAllocateFileEndOffset - endOffset);
-    if(ftruncate(mFd, endOffset) == -1) {
+    if (ftruncate64(mFd, endOffset) == -1) {
         ALOGE("ftruncate err:%s, %d, fd:%d", strerror(errno), errno, mFd);
         status = false;
         /* No need to post and handle(stop & notify client) error like it's done in preAllocate(),

@@ -150,6 +150,7 @@ private:
 
     bool mIsHeif;
     bool mIsAudio;
+    bool mIsUsac = false;
     sp<ItemTable> mItemTable;
 
     /* Shift start offset (move to earlier time) when media_time > 0,
@@ -3816,43 +3817,44 @@ status_t MPEG4Extractor::parseITunesMetaData(off64_t offset, size_t size) {
     switch ((int32_t)mPath[4]) {
         case FOURCC("\251alb"):
         {
-            metadataKey = "album";
+            metadataKey = AMEDIAFORMAT_KEY_ALBUM;
             break;
         }
         case FOURCC("\251ART"):
         {
-            metadataKey = "artist";
+            metadataKey = AMEDIAFORMAT_KEY_ARTIST;
             break;
         }
         case FOURCC("aART"):
         {
-            metadataKey = "albumartist";
+            metadataKey = AMEDIAFORMAT_KEY_ALBUMARTIST;
             break;
         }
         case FOURCC("\251day"):
         {
-            metadataKey = "year";
+            metadataKey = AMEDIAFORMAT_KEY_YEAR;
             break;
         }
         case FOURCC("\251nam"):
         {
-            metadataKey = "title";
+            metadataKey = AMEDIAFORMAT_KEY_TITLE;
             break;
         }
         case FOURCC("\251wrt"):
         {
-            metadataKey = "writer";
+            // various open source taggers agree that the "©wrt" tag is for composer, not writer
+            metadataKey = AMEDIAFORMAT_KEY_COMPOSER;
             break;
         }
         case FOURCC("covr"):
         {
-            metadataKey = "albumart";
+            metadataKey = AMEDIAFORMAT_KEY_ALBUMART;
             break;
         }
         case FOURCC("gnre"):
         case FOURCC("\251gen"):
         {
-            metadataKey = "genre";
+            metadataKey = AMEDIAFORMAT_KEY_GENRE;
             break;
         }
         case FOURCC("cpil"):
@@ -3957,7 +3959,7 @@ status_t MPEG4Extractor::parseITunesMetaData(off64_t offset, size_t size) {
         if (!strcmp(metadataKey, "albumart")) {
             AMediaFormat_setBuffer(mFileMetaData, metadataKey,
                     buffer + 8, size - 8);
-        } else if (!strcmp(metadataKey, "genre")) {
+        } else if (!strcmp(metadataKey, AMEDIAFORMAT_KEY_GENRE)) {
             if (flags == 0) {
                 // uint8_t genre code, iTunes genre codes are
                 // the standard id3 codes, except they start
@@ -4456,7 +4458,7 @@ typedef enum {
     //AOT_SLS              = 38, /**< SLS                                       */
     //AOT_ER_AAC_ELD       = 39, /**< AAC Enhanced Low Delay                    */
 
-    //AOT_USAC             = 42, /**< USAC                                      */
+    AOT_USAC               = 42, /**< USAC                                      */
     //AOT_SAOC             = 43, /**< SAOC                                      */
     //AOT_LD_MPEGS         = 44, /**< Low Delay MPEG Surround                   */
 
@@ -4604,7 +4606,7 @@ status_t MPEG4Extractor::updateAudioTrackInfoFromESDS_MPEG4Audio(
     ABitReader br(csd, csd_size);
     uint32_t objectType = br.getBits(5);
 
-    if (objectType == 31) {  // AAC-ELD => additional 6 bits
+    if (objectType == AOT_ESCAPE) {  // AAC-ELD => additional 6 bits
         objectType = 32 + br.getBits(6);
     }
 
@@ -4980,6 +4982,12 @@ MPEG4Source::MPEG4Source(
 
     mIsPcm = !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW);
     mIsAudio = !strncasecmp(mime, "audio/", 6);
+
+    int32_t aacObjectType = -1;
+
+    if (AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_AAC_PROFILE, &aacObjectType)) {
+        mIsUsac = (aacObjectType == AOT_USAC);
+    }
 
     if (mIsPcm) {
         int32_t numChannels = 0;
@@ -5974,10 +5982,10 @@ media_status_t MPEG4Source::read(
             }
 
             uint32_t syncSampleIndex = sampleIndex;
-            // assume every audio sample is a sync sample. This works around
+            // assume every non-USAC audio sample is a sync sample. This works around
             // seek issues with files that were incorrectly written with an
             // empty or single-sample stss block for the audio track
-            if (err == OK && !mIsAudio) {
+            if (err == OK && (!mIsAudio || mIsUsac)) {
                 err = mSampleTable->findSyncSampleNear(
                         sampleIndex, &syncSampleIndex, findFlags);
             }
