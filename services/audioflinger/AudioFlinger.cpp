@@ -2395,6 +2395,7 @@ status_t AudioFlinger::systemReady()
 {
     Mutex::Autolock _l(mLock);
     ALOGI("%s", __FUNCTION__);
+    TimeCheck::setSystemReadyTimeoutMs(TimeCheck::kDefaultTimeOutMs);
     if (mSystemReady) {
         ALOGW("%s called twice", __FUNCTION__);
         return NO_ERROR;
