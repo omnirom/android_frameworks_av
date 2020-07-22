@@ -1362,10 +1362,12 @@ void NuPlayer::Renderer::postDrainVideoQueue() {
     if (!mVideoSampleReceived || mediaTimeUs < mAudioFirstAnchorTimeMediaUs || getVideoLateByUs() > 40000) {
         msg->post();
     } else {
-        int64_t twoVsyncsUs = 2 * (mVideoScheduler->getVsyncPeriod() / 1000);
+        int64_t vsyncPeriodUs = mVideoScheduler->getVsyncPeriod() / 1000;
+        int64_t preVsyncsUs = vsyncPeriodUs ? (45000 / vsyncPeriodUs) * vsyncPeriodUs : 0ll;
 
-        // post 2 display refreshes before rendering is due
-        mMediaClock->addTimer(msg, mediaTimeUs, -twoVsyncsUs);
+        // post "45 ms / vsyncPeriod" display refreshes before rendering is due
+        // (ITU max-allowed video-lead-time is 45 ms)
+        mMediaClock->addTimer(msg, mediaTimeUs, -preVsyncsUs);
     }
 
     mDrainVideoQueuePending = true;
