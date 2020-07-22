@@ -706,6 +706,13 @@ MediaProfiles::getInstance()
                                     PROPERTY_VALUE_MAX);
                         }
                     }
+                    char variant[PROPERTY_VALUE_MAX];
+                    if (property_get("ro.media.xml_variant.codecs", variant, NULL) > 0) {
+                        std::string xmlPath = std::string("/vendor/etc/media_profiles") +
+                                              std::string(variant) + std::string(".xml");
+                        strlcpy(value, xmlPath.c_str(), PROPERTY_VALUE_MAX);
+                        ALOGI("Profiles xml path: %s", value);
+                    }
                 }
             sInstance = createInstanceFromXmlFile(value);
         }
