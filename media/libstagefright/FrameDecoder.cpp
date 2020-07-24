@@ -592,11 +592,14 @@ status_t VideoFrameDecoder::onOutputReceived(
     int32_t width, height, stride, srcFormat, slice_height;
     if (!outputFormat->findInt32("width", &width) ||
             !outputFormat->findInt32("height", &height) ||
-            !outputFormat->findInt32("color-format", &srcFormat) ||
-            !outputFormat->findInt32("slice-height", &slice_height)) {
+            !outputFormat->findInt32("color-format", &srcFormat)) {
         ALOGE("format missing dimension or color: %s",
                 outputFormat->debugString().c_str());
         return ERROR_MALFORMED;
+    }
+
+    if (!outputFormat->findInt32("slice-height", &slice_height)) {
+        slice_height = height;
     }
 
     if (!outputFormat->findInt32("stride", &stride)) {
@@ -862,7 +865,10 @@ status_t ImageDecoder::onOutputReceived(
     CHECK(outputFormat->findInt32("width", &width));
     CHECK(outputFormat->findInt32("height", &height));
     CHECK(outputFormat->findInt32("stride", &stride));
-    CHECK(outputFormat->findInt32("slice-height", &slice_height));
+
+    if (!outputFormat->findInt32("slice-height", &slice_height)) {
+        slice_height = height;
+    }
 
     if (mFrame == NULL) {
         sp<IMemory> frameMem = allocVideoFrame(
