@@ -999,10 +999,8 @@ status_t BnAudioFlinger::onTransact(
     }
 
     std::string tag("IAudioFlinger command " + std::to_string(code));
-    if (code == SYSTEM_READY)
-        TimeCheck check(tag.c_str(), true);
-    else
-        TimeCheck check(tag.c_str());
+
+    TimeCheck check(tag.c_str());
 
     switch (code) {
         case CREATE_TRACK: {

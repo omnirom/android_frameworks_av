@@ -67,6 +67,7 @@
 #include <media/nbaio/PipeReader.h>
 #include <mediautils/BatteryNotifier.h>
 #include <mediautils/ServiceUtilities.h>
+#include <mediautils/TimeCheck.h>
 #include <private/android_filesystem_config.h>
 
 //#define BUFLOG_NDEBUG 0
@@ -2256,6 +2257,7 @@ status_t AudioFlinger::systemReady()
 {
     Mutex::Autolock _l(mLock);
     ALOGI("%s", __FUNCTION__);
+    TimeCheck::setSystemReadyTimeoutMs(TimeCheck::kDefaultTimeOutMs);
     if (mSystemReady) {
         ALOGW("%s called twice", __FUNCTION__);
         return NO_ERROR;
