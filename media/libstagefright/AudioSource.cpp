@@ -30,6 +30,8 @@
 #include <media/stagefright/foundation/ALooper.h>
 #include <cutils/properties.h>
 
+#include <stagefright/AVExtensions.h>
+
 namespace android {
 
 static void AudioRecordCallbackFunction(int event, void *user, void *info) {
@@ -74,6 +76,12 @@ AudioSource::AudioSource(
             sampleRate, outSampleRate, channelCount);
     CHECK(channelCount == 1 || channelCount == 2 || channelCount == 4 || channelCount == 6);
     CHECK(sampleRate > 0);
+
+    bool bAggregate = AVUtils::get()->isAudioSourceAggregate(inputSource, channelCount);
+    if (bAggregate) {
+        mInitCheck = NO_INIT;
+        return;
+    }
 
     size_t minFrameCount;
     mMaxBufferSize = kMaxBufferSize;
