@@ -83,8 +83,9 @@ sp<IMemory> allocVideoFrame(const sp<MetaData>& trackMeta,
         tmp = width; width = height; height = tmp;
         tmp = displayWidth; displayWidth = displayHeight; displayHeight = tmp;
         tmp = tileWidth; tileWidth = tileHeight; tileHeight = tmp;
-        rotationAngle = 0;
     }
+    if (allocRotated)
+        rotationAngle = 0;
 
     VideoFrame frame(width, height, displayWidth, displayHeight,
             tileWidth, tileHeight, rotationAngle, dstBpp, !metaOnly, iccSize);
