@@ -1061,12 +1061,11 @@ status_t CCodecBufferChannel::start(
             Mutexed<OutputSurface>::Locked output(mOutputSurface);
             output->maxDequeueBuffers = numOutputSlots +
                     reorderDepth.value + kRenderingDepth;
-            if (!secure) {
-                output->maxDequeueBuffers += numInputSlots;
-            }
             outputSurface = output->surface ?
                     output->surface->getIGraphicBufferProducer() : nullptr;
             if (outputSurface) {
+                ALOGI("[%s] start: max output delay %u",
+                        mName, output->maxDequeueBuffers);
                 output->surface->setMaxDequeuedBufferCount(output->maxDequeueBuffers);
             }
             outputGeneration = output->generation;
@@ -1593,14 +1592,11 @@ bool CCodecBufferChannel::handleWork(
                     if (outputDelay.updateFrom(*param)) {
                         ALOGV("[%s] onWorkDone: updating output delay %u",
                               mName, outputDelay.value);
-                        bool secure = mComponent->getName().find(".secure") !=
-                                      std::string::npos;
                         (void)mPipelineWatcher.lock()->outputDelay(
                                 outputDelay.value);
 
                         bool outputBuffersChanged = false;
                         size_t numOutputSlots = 0;
-                        size_t numInputSlots = mInput.lock()->numSlots;
                         {
                             Mutexed<Output>::Locked output(mOutput);
                             if (!output->buffers) {
@@ -1620,7 +1616,7 @@ bool CCodecBufferChannel::handleWork(
                                     outputBuffersChanged = true;
                                 }
                             }
-                            numOutputSlots = output->numSlots;
+                            output->numSlots = numOutputSlots;
                         }
 
                         if (outputBuffersChanged) {
@@ -1630,10 +1626,9 @@ bool CCodecBufferChannel::handleWork(
                         uint32_t depth = mOutput.lock()->buffers->getReorderDepth();
                         Mutexed<OutputSurface>::Locked output(mOutputSurface);
                         output->maxDequeueBuffers = numOutputSlots + depth + kRenderingDepth;
-                        if (!secure) {
-                            output->maxDequeueBuffers += numInputSlots;
-                        }
                         if (output->surface) {
+                            ALOGI("[%s] onWorkDone: updating max output delay %u",
+                                    mName, output->maxDequeueBuffers);
                             output->surface->setMaxDequeuedBufferCount(output->maxDequeueBuffers);
                         }
                     }
