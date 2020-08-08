@@ -35,12 +35,8 @@ void TimeCheck::setSystemReadyTimeoutMs(uint32_t timeout_ms)
 {
     timeOutMs = timeout_ms;
 }
-TimeCheck::TimeCheck(const char *tag, bool systemReady)
+TimeCheck::TimeCheck(const char *tag)
 {
-    if (systemReady) {
-        timeOutMs = kDefaultTimeOutMs;
-        ALOGI("System is ready use default timeout: %d msec", timeOutMs);
-    }
     mEndTimeNs = getTimeCheckThread()->startMonitoring(tag, timeOutMs);
 }
 
