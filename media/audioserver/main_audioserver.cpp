@@ -26,6 +26,7 @@
 #include <binder/ProcessState.h>
 #include <binder/IServiceManager.h>
 #include <hidl/HidlTransportSupport.h>
+#include <mediautils/TimeCheck.h>
 #include <utils/Log.h>
 
 // from LOCAL_C_INCLUDES
@@ -108,6 +109,10 @@ int main(int argc __unused, char **argv)
     signal(SIGPIPE, SIG_IGN);
 
     bool doLog = (bool) property_get_bool("ro.test_harness", 0);
+
+    uint32_t timeOutMs = (uint32_t)property_get_int32("vendor.audio.hal.boot.timeout.ms", TimeCheck::kDefaultTimeOutMs);
+
+    TimeCheck::setSystemReadyTimeoutMs(timeOutMs);
 
     pid_t childPid;
     // FIXME The advantage of making the process containing media.log service the parent process of
