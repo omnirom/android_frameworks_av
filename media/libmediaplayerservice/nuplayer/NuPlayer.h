@@ -347,6 +347,9 @@ protected:
     status_t onPrepareDrm(const sp<AMessage> &msg);
     status_t onReleaseDrm();
 
+private:
+    bool mIsSeekPrerollMode;
+
     DISALLOW_EVIL_CONSTRUCTORS(NuPlayer);
 };
 
