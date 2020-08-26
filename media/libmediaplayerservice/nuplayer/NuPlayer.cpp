@@ -2039,7 +2039,8 @@ status_t NuPlayer::instantiateDecoder(
             format->setInt32("output-frame-rate", mMaxOutputFrameRate);
         if (rate <= 0 || rate > mMaxOutputFrameRate)
             format->setFloat("vendor.qti-ext-dec-output-render-frame-rate.value",
-		        mMaxOutputFrameRate);
+                    mMaxOutputFrameRate);
+        format->setInt32("vendor.qti-ext-dec-native_player.value", 1);
     }
 
     Mutex::Autolock autoLock(mDecoderLock);
