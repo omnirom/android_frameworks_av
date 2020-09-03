@@ -530,7 +530,6 @@ void MPEG4Writer::initInternal(int fd, bool isFirstSession) {
     // initialized in start(MetaData *param).
     mIsRealTimeRecording = true;
     mUse4ByteNalLength = true;
-    mSkipExhaustiveNalSearch = false;
     mOffset = 0;
     mPreAllocateFileEndOffset = 0;
     mMdatOffset = 0;
@@ -688,7 +687,6 @@ status_t MPEG4Writer::addSource(const sp<MediaSource> &source) {
 
     mHasMoovBox |= !track->isHeic();
     mHasFileLevelMeta |= track->isHeic();
-    mSkipExhaustiveNalSearch |= track->isAvc();
 
     return OK;
 }
@@ -1550,8 +1548,7 @@ void MPEG4Writer::addMultipleLengthPrefixedSamples_l(MediaBuffer *buffer) {
     const uint8_t *nextNalStart;
     const uint8_t *data = dataStart;
     size_t nextNalSize;
-    // TODO: revisit optimization for HEVC
-    size_t searchSize = mSkipExhaustiveNalSearch ? 64 : buffer->range_length();
+    size_t searchSize = buffer->range_length();
 
     while (getNextNALUnit(&data, &searchSize, &nextNalStart,
             &nextNalSize, true) == OK) {
