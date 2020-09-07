@@ -135,6 +135,7 @@ bool PipelineWatcher::pipelineFull() const {
 
 PipelineWatcher::Clock::duration PipelineWatcher::elapsed(
         const PipelineWatcher::Clock::time_point &now, size_t n) const {
+    ALOGD("DEBUG: elapsed %zu / %zu", mFramesInPipeline.size(), n);
     if (mFramesInPipeline.size() <= n) {
         return Clock::duration::zero();
     }
