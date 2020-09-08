@@ -1061,6 +1061,10 @@ status_t CCodecBufferChannel::start(
             Mutexed<OutputSurface>::Locked output(mOutputSurface);
             output->maxDequeueBuffers = numOutputSlots +
                     reorderDepth.value + kRenderingDepth;
+            bool isHW = mComponent->getName().find("c2.qti") != std::string::npos;
+            if (!isHW) {
+                output->maxDequeueBuffers += numInputSlots;
+            }
             outputSurface = output->surface ?
                     output->surface->getIGraphicBufferProducer() : nullptr;
             if (outputSurface) {
@@ -1233,8 +1237,9 @@ status_t CCodecBufferChannel::start(
     // mOutputBuffers are initialized to make sure that lingering callbacks
     // about buffers from the previous generation do not interfere with the
     // newly initialized pipeline capacity.
-
-    {
+    // Do not update the pipelinewatcher's delays when resuming
+    if (inputFormat) {
+        ALOGD("[%s] start: updating output delay %u", mName, outputDelayValue);
         Mutexed<PipelineWatcher>::Locked watcher(mPipelineWatcher);
         watcher->inputDelay(inputDelayValue)
                 .pipelineDelay(pipelineDelayValue)
@@ -1590,13 +1595,15 @@ bool CCodecBufferChannel::handleWork(
                 if (param->forOutput()) {
                     C2PortActualDelayTuning::output outputDelay;
                     if (outputDelay.updateFrom(*param)) {
-                        ALOGV("[%s] onWorkDone: updating output delay %u",
+                        ALOGD("[%s] onWorkDone: updating output delay %u",
                               mName, outputDelay.value);
                         (void)mPipelineWatcher.lock()->outputDelay(
                                 outputDelay.value);
 
                         bool outputBuffersChanged = false;
                         size_t numOutputSlots = 0;
+                        bool isHW = mComponent->getName().find("c2.qti") != std::string::npos;
+                        size_t numInputSlots = mInput.lock()->numSlots;
                         {
                             Mutexed<Output>::Locked output(mOutput);
                             if (!output->buffers) {
@@ -1615,8 +1622,12 @@ bool CCodecBufferChannel::handleWork(
                                     array->grow(numOutputSlots);
                                     outputBuffersChanged = true;
                                 }
+                            } else if (!output->buffers->isArrayMode() && isHW) {
+                                ALOGI("[%s] onWorkDone: shrinking output slots from %zu to %zu",
+                                        mName, output->numSlots, numOutputSlots);
+                                output->numSlots = numOutputSlots;
                             }
-                            output->numSlots = numOutputSlots;
+                            numOutputSlots = output->numSlots;
                         }
 
                         if (outputBuffersChanged) {
@@ -1626,6 +1637,9 @@ bool CCodecBufferChannel::handleWork(
                         uint32_t depth = mOutput.lock()->buffers->getReorderDepth();
                         Mutexed<OutputSurface>::Locked output(mOutputSurface);
                         output->maxDequeueBuffers = numOutputSlots + depth + kRenderingDepth;
+                        if (!isHW) {
+                            output->maxDequeueBuffers += numInputSlots;
+                        }
                         if (output->surface) {
                             ALOGI("[%s] onWorkDone: updating max output delay %u",
                                     mName, output->maxDequeueBuffers);
@@ -1850,7 +1864,9 @@ PipelineWatcher::Clock::duration CCodecBufferChannel::elapsed() {
     if (!mInputMetEos) {
         size_t outputDelay = mOutput.lock()->outputDelay;
         Mutexed<Input>::Locked input(mInput);
-        n = input->inputDelay + input->pipelineDelay + outputDelay;
+        n = input->inputDelay + input->pipelineDelay + outputDelay + kSmoothnessFactor;
+        ALOGD("[%s] DEBUG: elapsed: n=%zu [in=%u pipeline=%u out=%zu smoothness=%zu]", mName, n,
+                input->inputDelay, input->pipelineDelay, outputDelay, kSmoothnessFactor);
     }
     return mPipelineWatcher.lock()->elapsed(PipelineWatcher::Clock::now(), n);
 }
