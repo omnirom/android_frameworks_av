@@ -125,6 +125,12 @@ status_t AudioEffect::set(const effect_uuid_t *type,
         return NO_INIT;
     }
 
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) {
+        ALOGE("set(): Could not get aps");
+        return NO_INIT;
+    }
+
     if (type == NULL && uuid == NULL) {
         ALOGW("Must specify at least type or uuid");
         return BAD_VALUE;
