@@ -4175,7 +4175,10 @@ status_t MediaCodec::amendOutputFormatWithCodecSpecificData(
     CHECK(mOutputFormat->findString("mime", &mime));
 
     int32_t nalLengthBistream = 0;
-    mOutputFormat->findInt32("feature-nal-length-bitstream", &nalLengthBistream);
+    if (!mOutputFormat->findInt32("feature-nal-length-bitstream", &nalLengthBistream)) {
+        mOutputFormat->findInt32(
+                "vendor.qti-ext-enc-nal-length-bs.num-bytes", &nalLengthBistream);
+    }
 
     if (!strcasecmp(mime.c_str(), MEDIA_MIMETYPE_VIDEO_AVC)) {
         // Codec specific data should be SPS and PPS in a single buffer,
