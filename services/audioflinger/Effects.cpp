@@ -2855,7 +2855,7 @@ void AudioFlinger::EffectChain::EffectCallback::setVolumeForOutput(float left, f
 void AudioFlinger::EffectChain::EffectCallback::checkSuspendOnEffectEnabled(
         const sp<EffectBase>& effect, bool enabled, bool threadLocked) {
     sp<ThreadBase> t = mThread.promote();
-    if (t == nullptr) {
+    if (t == nullptr || effect == nullptr) {
         return;
     }
     t->checkSuspendOnEffectEnabled(enabled, effect->sessionId(), threadLocked);
