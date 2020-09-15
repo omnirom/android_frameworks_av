@@ -351,6 +351,8 @@ void NuPlayer::Decoder::onConfigure(const sp<AMessage> &format) {
     mIsEncryptedObservedEarlier = mIsEncryptedObservedEarlier || mIsEncrypted;
     ALOGV("onConfigure mCrypto: %p (%d)  mIsSecure: %d",
             crypto.get(), (crypto != NULL ? crypto->getStrongCount() : 0), mIsSecure);
+    // set flag to drop frame with corrupt flag
+    format->setInt32("vendor.qti-ext-dec-drop-corrupt.value", 1);
 
     err = mCodec->configure(
             format, mSurface, crypto, 0 /* flags */);
