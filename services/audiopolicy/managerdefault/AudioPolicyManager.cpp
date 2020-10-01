@@ -418,10 +418,11 @@ status_t AudioPolicyManager::handleDeviceConfigChange(audio_devices_t device,
                                                       const char *device_name,
                                                       audio_format_t encodedFormat)
 {
-    status_t status;
+    status_t status = NO_ERROR;
     String8 reply;
     AudioParameter param;
     int isReconfigA2dpSupported = 0;
+    int volIndex = 0;
 
     ALOGV("handleDeviceConfigChange(() device: 0x%X, address %s name %s encodedFormat: 0x%X",
           device, device_address, device_name, encodedFormat);
@@ -436,6 +437,15 @@ status_t AudioPolicyManager::handleDeviceConfigChange(audio_devices_t device,
         return NO_ERROR;
     }
     sp<DeviceDescriptor> devDesc = deviceList.itemAt(0);
+
+
+    //cache music stream volume on speaker and mute it to avoid leak on speaker
+    status = getStreamVolumeIndex(AUDIO_STREAM_MUSIC, &volIndex, AUDIO_DEVICE_OUT_SPEAKER);
+    if (status == NO_ERROR) {
+        status = setStreamVolumeIndex(AUDIO_STREAM_MUSIC, 0, AUDIO_DEVICE_OUT_SPEAKER);
+        ALOGD("MusicStream is muted on speaker, status%d and VolIndex is %d for unmute",
+              status, volIndex);
+    }
 
     // For offloaded A2DP, Hw modules may have the capability to
     // configure codecs.
@@ -460,7 +470,7 @@ status_t AudioPolicyManager::handleDeviceConfigChange(audio_devices_t device,
                 param.add(key, String8("true"));
                 mpClientInterface->setParameters(AUDIO_IO_HANDLE_NONE, param.toString());
                 devDesc->setEncodedFormat(encodedFormat);
-                return NO_ERROR;
+                goto exit;
             }
         }
     }
@@ -474,7 +484,7 @@ status_t AudioPolicyManager::handleDeviceConfigChange(audio_devices_t device,
     if (status != NO_ERROR) {
         ALOGW("handleDeviceConfigChange() error disabling connection state: %d",
               status);
-        return status;
+        goto exit;
     }
 
     status = setDeviceConnectionState(device,
@@ -483,10 +493,16 @@ status_t AudioPolicyManager::handleDeviceConfigChange(audio_devices_t device,
     if (status != NO_ERROR) {
         ALOGW("handleDeviceConfigChange() error enabling connection state: %d",
               status);
-        return status;
+        goto exit;
     }
 
-    return NO_ERROR;
+exit:
+    //Restore speaker volume for music stream
+    if (volIndex) {
+        setStreamVolumeIndex(AUDIO_STREAM_MUSIC, volIndex, AUDIO_DEVICE_OUT_SPEAKER);
+        ALOGD("MusicStreamVol is unmuted on speaker with Volume %d", volIndex);
+    }
+    return status;
 }
 
 status_t AudioPolicyManager::getHwOffloadEncodingFormatsSupportedForA2DP(
