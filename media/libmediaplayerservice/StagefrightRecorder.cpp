@@ -1890,6 +1890,9 @@ status_t StagefrightRecorder::setupVideoEncoder(
     if (mOutputFormat == OUTPUT_FORMAT_MPEG_4) {
         format->setInt32("feature-nal-length-bitstream", 1);
         format->setInt32("nal-length-in-bytes", 4);
+        if (mVideoEncoder == VIDEO_ENCODER_HEVC) {
+            format->setInt32("vendor.qti-ext-enc-nal-length-bs.num-bytes", 4);
+        }
     }
 
     // Will send this info to encoder component for custom optimizations
