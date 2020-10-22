@@ -25,6 +25,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/openmax/OMX_Video.h>
 #include <ui/GraphicTypes.h>
+#include <utils/threads.h>
 
 namespace android {
 
@@ -79,6 +80,8 @@ protected:
         return false;
     }
 
+    virtual status_t extractInternal();
+
     sp<MetaData> trackMeta()     const      { return mTrackMeta; }
     OMX_COLOR_FORMATTYPE dstFormat() const  { return mDstFormat; }
     ui::PixelFormat captureFormat() const   { return mCaptureFormat; }
@@ -86,22 +89,21 @@ protected:
     void setFrame(const sp<IMemory> &frameMem) { mFrameMemory = frameMem; }
     bool mIDRSent;
 
+    bool mHaveMoreInputs;
+    bool mFirstSample;
+    MediaSource::ReadOptions mReadOptions;
+    sp<IMediaSource> mSource;
+    sp<MediaCodec> mDecoder;
+    sp<AMessage> mOutputFormat;
+    sp<Surface> mSurface;
+
 private:
     AString mComponentName;
     sp<MetaData> mTrackMeta;
-    sp<IMediaSource> mSource;
     OMX_COLOR_FORMATTYPE mDstFormat;
     ui::PixelFormat mCaptureFormat;
     int32_t mDstBpp;
     sp<IMemory> mFrameMemory;
-    MediaSource::ReadOptions mReadOptions;
-    sp<MediaCodec> mDecoder;
-    sp<AMessage> mOutputFormat;
-    bool mHaveMoreInputs;
-    bool mFirstSample;
-    sp<Surface> mSurface;
-
-    status_t extractInternal();
 
     DISALLOW_EVIL_CONSTRUCTORS(FrameDecoder);
 };
@@ -161,6 +163,8 @@ struct ImageDecoder : public FrameDecoder {
             const sp<IMediaSource> &source);
 
 protected:
+    virtual ~ImageDecoder();
+
     virtual sp<AMessage> onGetFormatAndSeekOptions(
             int64_t frameTimeUs,
             int seekMode,
@@ -181,6 +185,8 @@ protected:
             int64_t timeUs,
             bool *done) override;
 
+    virtual status_t extractInternal() override;
+
 private:
     VideoFrame *mFrame;
     int32_t mWidth;
@@ -191,6 +197,12 @@ private:
     int32_t mTileHeight;
     int32_t mTilesDecoded;
     int32_t mTargetTiles;
+
+    struct ImageInputThread;
+    sp<ImageInputThread> mThread;
+    bool mUseMultiThread;
+
+    bool inputLoop();
 };
 
 }  // namespace android
