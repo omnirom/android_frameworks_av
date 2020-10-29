@@ -678,7 +678,9 @@ status_t CameraSource::initWithCameraAccess(
     if (mSurface != NULL) {
         // This CHECK is good, since we just passed the lock/unlock
         // check earlier by calling mCamera->setParameters().
-        CHECK_EQ((status_t)OK, mCamera->setPreviewTarget(mSurface));
+        if ((err = mCamera->setPreviewTarget(mSurface)) != OK) {
+            return err;
+        }
     }
 
     // By default, store real data in video buffers.
