@@ -909,7 +909,18 @@ status_t CCodecBufferChannel::start(
     uint32_t outputDelayValue = outputDelay ? outputDelay.value : 0;
 
     size_t numInputSlots = inputDelayValue + pipelineDelayValue + kSmoothnessFactor;
-    size_t numOutputSlots = outputDelayValue + kSmoothnessFactor;
+    size_t smoothnessFactor = kSmoothnessFactor;
+
+    if (outputFormat != nullptr) {
+        int32_t width = 0;
+        int32_t height = 0;
+        if (outputFormat->findInt32(KEY_HEIGHT, &height) &&
+                outputFormat->findInt32(KEY_WIDTH, &width) &&
+                width * height > 4096 * 2304) {
+            smoothnessFactor = 0;
+        }
+    }
+    size_t numOutputSlots = outputDelayValue + smoothnessFactor;
 
     // TODO: get this from input format
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
@@ -1609,9 +1620,19 @@ bool CCodecBufferChannel::handleWork(
                             if (!output->buffers) {
                                 return false;
                             }
+
+                            int32_t width = 0;
+                            int32_t height = 0;
+                            size_t smoothnessFactor = kSmoothnessFactor;
+                            const sp<AMessage> bufOutFormat = output->buffers->dupFormat();
+                            if (bufOutFormat->findInt32(KEY_HEIGHT, &height) &&
+                                    bufOutFormat->findInt32(KEY_WIDTH, &width) &&
+                                    width * height > 4096 * 2304) {
+                                smoothnessFactor = 0;
+                            }
                             output->outputDelay = outputDelay.value;
-                            numOutputSlots = outputDelay.value +
-                                             kSmoothnessFactor;
+                            numOutputSlots = outputDelay.value + smoothnessFactor;
+
                             if (output->numSlots < numOutputSlots) {
                                 output->numSlots = numOutputSlots;
                                 if (output->buffers->isArrayMode()) {
