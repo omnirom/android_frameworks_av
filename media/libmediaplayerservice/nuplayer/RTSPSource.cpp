@@ -151,8 +151,13 @@ void NuPlayer::RTSPSource::stop() {
         return;
     }
 
-    // Close socket before posting message to RTSPSource message handler.
-    close(mHandler->getARTSPConnection()->getSocket());
+    if (mHandler != NULL && mHandler->getARTSPConnection() != NULL) {
+        // Close socket before posting message to RTSPSource message handler.
+        close(mHandler->getARTSPConnection()->getSocket());
+    } else {
+        ALOGW("stop: Invalid handler or ARTSP connection");
+        return;
+    }
 
     sp<AMessage> msg = new AMessage(kWhatDisconnect, this);
 

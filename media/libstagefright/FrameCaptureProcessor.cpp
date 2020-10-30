@@ -157,6 +157,12 @@ status_t FrameCaptureProcessor::onCapture(const sp<Layer> &layer,
     base::unique_fd bufferFence;
     base::unique_fd drawFence;
     mRE->useProtectedContext(false);
+
+    for (auto layer : clientCompositionLayers) {
+        sp<GraphicBuffer> gBuf = layer->source.buffer.buffer;
+        mRE->cacheExternalTextureBuffer(gBuf);
+    }
+
     status_t err = mRE->drawLayers(clientCompositionDisplay, clientCompositionLayers, buffer.get(),
             /*useFramebufferCache=*/false, std::move(bufferFence), &drawFence);
 
@@ -171,6 +177,12 @@ status_t FrameCaptureProcessor::onCapture(const sp<Layer> &layer,
     if (err != OK) {
         ALOGW("wait for fence returned err %d", err);
     }
+
+    for (auto layer : clientCompositionLayers) {
+        sp<GraphicBuffer> gBuf = layer->source.buffer.buffer;
+        mRE->unbindExternalTextureBuffer(gBuf->getId());
+    }
+
     return OK;
 }
 
