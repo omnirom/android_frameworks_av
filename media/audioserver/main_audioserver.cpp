@@ -157,8 +157,11 @@ int main(int argc __unused, char **argv)
         sp<IServiceManager> sm = defaultServiceManager();
         ALOGI("ServiceManager: %p", sm.get());
         AudioFlinger::instantiate();
+        ALOGI("ServiceManager: AudioFlinger instantiate done %p", sm.get());
         AudioPolicyService::instantiate();
+        ALOGI("ServiceManager: AudioPolicyService instantiate done %p", sm.get());
         instantiateVRAudioServer();
+        ALOGI("ServiceManager: VRAudioServer instantiate done %p", sm.get());
 
         // AAudioService should only be used in OC-MR1 and later.
         // And only enable the AAudioService if the system MMAP policy explicitly allows it.
@@ -168,7 +171,7 @@ int main(int argc __unused, char **argv)
         if (mmapPolicy == AAUDIO_POLICY_AUTO || mmapPolicy == AAUDIO_POLICY_ALWAYS) {
             AAudioService::instantiate();
         }
-
+        ALOGI("ServiceManager: done %p", sm.get());
         ProcessState::self()->startThreadPool();
         IPCThreadState::self()->joinThreadPool();
     }
