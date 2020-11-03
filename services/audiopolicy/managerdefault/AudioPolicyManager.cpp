@@ -445,6 +445,11 @@ status_t AudioPolicyManager::handleDeviceConfigChange(audio_devices_t device,
         status = setStreamVolumeIndex(AUDIO_STREAM_MUSIC, 0, AUDIO_DEVICE_OUT_SPEAKER);
         ALOGD("MusicStream is muted on speaker, status%d and VolIndex is %d for unmute",
               status, volIndex);
+    } else {
+        /*Throw warning and reset error, streamVolumeIndex should not block
+        a2dp device config change*/
+        ALOGW("getStreamVolumeIndex failed status=%d",status);
+        status = NO_ERROR;
     }
 
     // For offloaded A2DP, Hw modules may have the capability to
