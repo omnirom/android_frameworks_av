@@ -757,6 +757,7 @@ static std::vector<std::pair<const char *, uint32_t>> int32Mappings {
         { "thumbnail-height", kKeyThumbnailHeight },
         { "track-id", kKeyTrackID },
         { "valid-samples", kKeyValidSamples },
+        { "vendor.qti-ext-enc-nal-length-bs.num-bytes",  kKeyVendorFeatureNalLength },
     }
 };
 
@@ -1884,7 +1885,9 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
 
     // reassemble the csd data into its original form
     int32_t nalLengthBitstream = 0;
-    msg->findInt32("feature-nal-length-bitstream", &nalLengthBitstream);
+    if (! msg->findInt32("feature-nal-length-bitstream", &nalLengthBitstream)) {
+        msg->findInt32("vendor.qti-ext-enc-nal-length-bs.num-bytes", &nalLengthBitstream);
+    }
     sp<ABuffer> csd0, csd1, csd2;
     if (msg->findBuffer("csd-0", &csd0)) {
         uint8_t* data = csd0->data();
