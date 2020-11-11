@@ -162,7 +162,8 @@ NuPlayer::Renderer::Renderer(
       mWakeLock(new AWakeLock()),
       mNeedVideoClearAnchor(false),
       mIsSeekCompleteNotified(false),
-      mIsPrerollCompleteNotified(false) {
+      mIsPrerollCompleteNotified(false),
+      mVideoRenderFps(0.0f) {
     CHECK(mediaClock != NULL);
     mPlaybackRate = mPlaybackSettings.mSpeed;
     mMediaClock->setPlaybackRate(mPlaybackRate);
@@ -1598,17 +1599,24 @@ void NuPlayer::Renderer::onQueueBuffer(const sp<AMessage> &msg) {
         mHasVideo = true;
     }
 
-    if (mHasVideo) {
-        if (mVideoScheduler == NULL) {
-            mVideoScheduler = new VideoFrameScheduler();
-            mVideoScheduler->init();
-        }
-    }
 
     sp<RefBase> obj;
     CHECK(msg->findObject("buffer", &obj));
     sp<MediaCodecBuffer> buffer = static_cast<MediaCodecBuffer *>(obj.get());
 
+    if (mHasVideo) {
+        if (mVideoScheduler == NULL) {
+            float renderFps = 0.0f;
+            // If the decoder has provided the render fps, use it.
+            // Else, use the fps set during onSetVideoFrameRate
+            if (buffer->meta()->findFloat("renderFps", &renderFps) && renderFps > 0.0f) {
+                mVideoRenderFps = renderFps;
+            }
+            mVideoScheduler = new VideoFrameScheduler();
+            ALOGI("Initializing video frame scheduler with %f fps",  mVideoRenderFps);
+            mVideoScheduler->init(mVideoRenderFps);
+        }
+    }
     sp<AMessage> notifyConsumed;
     CHECK(msg->findMessage("notifyConsumed", &notifyConsumed));
 
@@ -1970,10 +1978,7 @@ void NuPlayer::Renderer::onResume() {
 }
 
 void NuPlayer::Renderer::onSetVideoFrameRate(float fps) {
-    if (mVideoScheduler == NULL) {
-        mVideoScheduler = new VideoFrameScheduler();
-    }
-    mVideoScheduler->init(fps);
+    mVideoRenderFps = fps;
 }
 
 int32_t NuPlayer::Renderer::getQueueGeneration(bool audio) {
