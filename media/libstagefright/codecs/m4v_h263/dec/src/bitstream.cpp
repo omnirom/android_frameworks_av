@@ -649,11 +649,8 @@ PV_STATUS PVSearchNextM4VFrame(BitstreamDecVideo *stream)
 
 
 
-PV_STATUS PVLocateM4VFrameBoundary(BitstreamDecVideo *stream)
+void PVLocateM4VFrameBoundary(BitstreamDecVideo *stream)
 {
-    PV_STATUS status = BitstreamCheckEndBuffer(stream);
-    if (status == PV_END_OF_VOP) return status;
-
     uint8 *ptr;
     int32 byte_pos = (stream->bitcnt >> 3);
 
@@ -661,14 +658,10 @@ PV_STATUS PVLocateM4VFrameBoundary(BitstreamDecVideo *stream)
     ptr = stream->bitstreamBuffer + byte_pos;
 
     stream->data_end_pos = PVLocateFrameHeader(ptr, (int32)stream->data_end_pos - byte_pos) + byte_pos;
-    return PV_SUCCESS;
 }
 
-PV_STATUS PVLocateH263FrameBoundary(BitstreamDecVideo *stream)
+void PVLocateH263FrameBoundary(BitstreamDecVideo *stream)
 {
-    PV_STATUS status = BitstreamCheckEndBuffer(stream);
-    if (status == PV_END_OF_VOP) return status;
-
     uint8 *ptr;
     int32 byte_pos = (stream->bitcnt >> 3);
 
@@ -676,7 +669,6 @@ PV_STATUS PVLocateH263FrameBoundary(BitstreamDecVideo *stream)
     ptr = stream->bitstreamBuffer + byte_pos;
 
     stream->data_end_pos = PVLocateH263FrameHeader(ptr, (int32)stream->data_end_pos - byte_pos) + byte_pos;
-    return PV_SUCCESS;
 }
 
 /* ======================================================================== */
@@ -695,8 +687,7 @@ PV_STATUS quickSearchVideoPacketHeader(BitstreamDecVideo *stream, int marker_len
 
     if (stream->searched_frame_boundary == 0)
     {
-        status = PVLocateM4VFrameBoundary(stream);
-        if (status != PV_SUCCESS) return status;
+        PVLocateM4VFrameBoundary(stream);
     }
 
     do
@@ -720,8 +711,7 @@ PV_STATUS quickSearchH263SliceHeader(BitstreamDecVideo *stream)
 
     if (stream->searched_frame_boundary == 0)
     {
-        status = PVLocateH263FrameBoundary(stream);
-        if (status != PV_SUCCESS) return status;
+        PVLocateH263FrameBoundary(stream);
     }
 
     do
@@ -799,8 +789,7 @@ PV_STATUS quickSearchMotionMarker(BitstreamDecVideo *stream)
 
     if (stream->searched_frame_boundary == 0)
     {
-        status = PVLocateM4VFrameBoundary(stream);
-        if (status != PV_SUCCESS) return status;
+        PVLocateM4VFrameBoundary(stream);
     }
 
     while (TRUE)
@@ -891,8 +880,7 @@ PV_STATUS quickSearchDCM(BitstreamDecVideo *stream)
 
     if (stream->searched_frame_boundary == 0)
     {
-        status = PVLocateM4VFrameBoundary(stream);
-        if (status != PV_SUCCESS) return status;
+        PVLocateM4VFrameBoundary(stream);
     }
 
     while (TRUE)
@@ -968,8 +956,7 @@ PV_STATUS quickSearchGOBHeader(BitstreamDecVideo *stream)
 
     if (stream->searched_frame_boundary == 0)
     {
-        status = PVLocateH263FrameBoundary(stream);
-        if (status != PV_SUCCESS) return status;
+        PVLocateH263FrameBoundary(stream);
     }
 
     while (TRUE)

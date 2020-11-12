@@ -29,11 +29,12 @@ cc_library_shared {
         "liblog",
         "libbinder",
         "libdl",
-        "libdrmframeworkcommon",
     ],
 
+    static_libs: ["libdrmframeworkcommon"],
+
     export_include_dirs: ["include"],
-    export_shared_lib_headers: ["libdrmframeworkcommon"],
+    export_static_lib_headers: ["libdrmframeworkcommon"],
 
     cflags: ["-Werror"],
 }
