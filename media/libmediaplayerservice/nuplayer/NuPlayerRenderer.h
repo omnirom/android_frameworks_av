@@ -104,6 +104,7 @@ struct NuPlayer::Renderer : public AHandler {
         kWhatAudioTearDown            = 'adTD',
         kWhatAudioOffloadPauseTimeout = 'aOPT',
         kWhatVideoPrerollComplete     = 'vdpC',
+        kWhatSeekCompleteFromPreroll  = 'scFp',
     };
 
     enum AudioTearDownReason {
@@ -293,6 +294,7 @@ protected:
     void notifyVideoLateBy(int64_t lateByUs);
     void notifyVideoRenderingStart();
     void notifyAudioTearDown(AudioTearDownReason reason);
+    void notifySeekCompleteIfInSeekPreroll();
 
     void flushQueue(List<QueueEntry> *queue);
     bool dropBufferIfStale(bool audio, const sp<AMessage> &msg);
@@ -309,6 +311,8 @@ protected:
 
 private:
     bool mNeedVideoClearAnchor;
+    bool mIsSeekCompleteNotified;
+    bool mIsPrerollCompleteNotified;
 };
 
 } // namespace android
