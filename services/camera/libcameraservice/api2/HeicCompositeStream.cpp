@@ -16,6 +16,7 @@
 
 #define LOG_TAG "Camera3-HeicCompositeStream"
 #define ATRACE_TAG ATRACE_TAG_CAMERA
+#define ALIGN(x, mask) ( ((x) + (mask) - 1) & ~((mask) - 1) )
 //#define LOG_NDEBUG 0
 
 #include <linux/memfd.h>
@@ -1384,7 +1385,7 @@ status_t HeicCompositeStream::initializeCodec(uint32_t width, uint32_t height,
     mOutputWidth = width;
     mOutputHeight = height;
     mAppSegmentMaxSize = calcAppSegmentMaxSize(cameraDevice->info());
-    mMaxHeicBufferSize = mOutputWidth * mOutputHeight * 3 / 2 + mAppSegmentMaxSize;
+    mMaxHeicBufferSize = (ALIGN(mOutputWidth, 512) * ALIGN(mOutputHeight, 512)) * 3 / 2 + mAppSegmentMaxSize;
 
     return OK;
 }
