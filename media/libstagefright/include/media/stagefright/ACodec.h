@@ -607,10 +607,6 @@ protected:
 
     virtual void setBFrames(OMX_VIDEO_PARAM_MPEG4TYPE *mpeg4type __unused) {}
 
-    virtual status_t getVQZIPInfo(const sp<AMessage> &msg __unused) {
-        return OK;
-    }
-
     virtual bool getDSModeHint(const sp<AMessage>& msg __unused, int64_t timeUs __unused) {
        return false;
     }

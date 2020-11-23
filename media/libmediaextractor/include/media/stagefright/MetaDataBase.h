@@ -233,6 +233,8 @@ enum {
     kKeyFeatureNalLengthBitstream = 'nlbs', // int32_t key to check nal length bistream
     // AC-4 AudioPresentationInfo
     kKeyAudioPresentationInfo = 'audP',  // raw data
+
+    kKeyVendorFeatureNalLength = 'vfnl',
 };
 
 enum {

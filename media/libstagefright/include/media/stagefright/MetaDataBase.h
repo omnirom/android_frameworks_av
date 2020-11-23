@@ -248,6 +248,8 @@ enum {
 
     // Treat empty track as malformed for MediaRecorder.
     kKeyEmptyTrackMalFormed = 'nemt', // bool (int32_t)
+
+    kKeyVendorFeatureNalLength = 'vfnl', // int32_t key to check nal length enable
 };
 
 enum {

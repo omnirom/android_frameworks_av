@@ -222,13 +222,13 @@ FrameDecoder::FrameDecoder(
         const sp<MetaData> &trackMeta,
         const sp<IMediaSource> &source)
     : mIDRSent(false),
+      mHaveMoreInputs(true),
+      mFirstSample(true),
+      mSource(source),
       mComponentName(componentName),
       mTrackMeta(trackMeta),
-      mSource(source),
       mDstFormat(OMX_COLOR_Format16bitRGB565),
-      mDstBpp(2),
-      mHaveMoreInputs(true),
-      mFirstSample(true) {
+      mDstBpp(2) {
     ALOGD("FrameDecoder created");
 }
 
@@ -729,6 +729,28 @@ status_t VideoFrameDecoder::captureSurface() {
 
 ////////////////////////////////////////////////////////////////////////
 
+struct ImageDecoder::ImageInputThread : public Thread {
+    ImageInputThread(ImageDecoder *imageDecoder)
+        : Thread(false /*canCallJava*/),
+          mImageDecoder(imageDecoder) {
+        ALOGD("ImageInputThread created");
+    }
+
+    virtual bool threadLoop() {
+        return mImageDecoder->inputLoop();
+    }
+
+protected:
+    virtual ~ImageInputThread() {
+        ALOGD("ImageInputThread destroyed");
+    }
+
+private:
+    ImageDecoder *mImageDecoder;
+
+    DISALLOW_EVIL_CONSTRUCTORS(ImageInputThread);
+};
+
 ImageDecoder::ImageDecoder(
         const AString &componentName,
         const sp<MetaData> &trackMeta,
@@ -742,7 +764,16 @@ ImageDecoder::ImageDecoder(
       mTileWidth(0),
       mTileHeight(0),
       mTilesDecoded(0),
-      mTargetTiles(0) {
+      mTargetTiles(0),
+      mThread(NULL),
+      mUseMultiThread(false) {
+}
+
+ImageDecoder::~ImageDecoder() {
+    if (mThread != NULL) {
+        mThread->requestExitAndWait();
+        mThread.clear();
+    }
 }
 
 sp<AMessage> ImageDecoder::onGetFormatAndSeekOptions(
@@ -817,6 +848,9 @@ sp<AMessage> ImageDecoder::onGetFormatAndSeekOptions(
         videoFormat->setInt32("android._num-output-buffers", 1);
         videoFormat->setInt32("thumbnail-mode", 1);
         videoFormat->setInt32("vendor.qti-ext-dec-thumbnail-mode.value", 1);
+    } else {
+        ALOGD("Enable multi-thread for Heif");
+        mUseMultiThread = true;
     }
     return videoFormat;
 }
@@ -945,6 +979,228 @@ status_t ImageDecoder::onOutputReceived(
     ALOGE("Unable to convert from format 0x%08x to 0x%08x",
                 srcFormat, dstFormat());
     return ERROR_UNSUPPORTED;
+}
+
+bool ImageDecoder::inputLoop() {
+    status_t err = OK;
+    size_t index;
+    int64_t ptsUs = 0LL;
+    uint32_t flags = 0;
+
+    while (mHaveMoreInputs) {
+        err = mDecoder->dequeueInputBuffer(&index, 1000LL);
+        if (err != OK) {
+            ALOGV("Timed out waiting for input");
+            break;
+        }
+        sp<MediaCodecBuffer> codecBuffer;
+        err = mDecoder->getInputBuffer(index, &codecBuffer);
+        if (err != OK) {
+            ALOGE("failed to get input buffer %zu", index);
+            break;
+        }
+
+        MediaBufferBase *mediaBuffer = NULL;
+
+        err = mSource->read(&mediaBuffer, &mReadOptions);
+        mReadOptions.clearSeekTo();
+        if (err != OK) {
+            mHaveMoreInputs = false;
+            if (!mFirstSample && err == ERROR_END_OF_STREAM) {
+                ALOGV("EOS reached");
+                (void)mDecoder->queueInputBuffer(
+                        index, 0, 0, 0, MediaCodec::BUFFER_FLAG_EOS);
+                err = OK;
+                flags |= MediaCodec::BUFFER_FLAG_EOS;
+            } else {
+                ALOGW("Input Error: err=%d", err);
+            }
+            break;
+        }
+
+        if (mediaBuffer->range_length() > codecBuffer->capacity()) {
+            ALOGE("buffer size (%zu) too large for codec input size (%zu)",
+                    mediaBuffer->range_length(), codecBuffer->capacity());
+            mHaveMoreInputs = false;
+            err = BAD_VALUE;
+        } else {
+            codecBuffer->setRange(0, mediaBuffer->range_length());
+
+            CHECK(mediaBuffer->meta_data().findInt64(kKeyTime, &ptsUs));
+            memcpy(codecBuffer->data(),
+                    (const uint8_t*)mediaBuffer->data() + mediaBuffer->range_offset(),
+                    mediaBuffer->range_length());
+            mFirstSample = false;
+        }
+
+        mediaBuffer->release();
+
+        if (mHaveMoreInputs) {
+            ALOGV("QueueInput: size=%zu ts=%" PRId64 " us flags=%x",
+                    codecBuffer->size(), ptsUs, flags);
+
+            err = mDecoder->queueInputBuffer(
+                    index,
+                    codecBuffer->offset(),
+                    codecBuffer->size(),
+                    ptsUs,
+                    flags);
+
+            if (flags & MediaCodec::BUFFER_FLAG_EOS) {
+                mHaveMoreInputs = false;
+            }
+        }
+    }
+
+    return mHaveMoreInputs;
+}
+
+status_t ImageDecoder::extractInternal() {
+    status_t err = OK;
+    bool done = false;
+    size_t retriesLeft = kRetryCount;
+
+    if (mUseMultiThread && mThread == NULL) {
+        mThread = new ImageInputThread(this);
+        err = mThread->run("ImageDecoderInput");
+        if (err != OK) {
+            ALOGE("Failed to create ImageDecoder input thread");
+            mThread.clear();
+            return err;
+        }
+    }
+
+    do {
+        size_t index;
+        int64_t ptsUs = 0LL;
+        uint32_t flags = 0;
+
+        // Queue as many inputs as we possibly can, then block on dequeuing
+        // outputs. After getting each output, come back and queue the inputs
+        // again to keep the decoder busy.
+        while (!mUseMultiThread && mHaveMoreInputs) {
+            err = mDecoder->dequeueInputBuffer(&index, 0);
+            if (err != OK) {
+                ALOGV("Timed out waiting for input");
+                if (retriesLeft) {
+                    err = OK;
+                }
+                break;
+            }
+            sp<MediaCodecBuffer> codecBuffer;
+            err = mDecoder->getInputBuffer(index, &codecBuffer);
+            if (err != OK) {
+                ALOGE("failed to get input buffer %zu", index);
+                break;
+            }
+
+            MediaBufferBase *mediaBuffer = NULL;
+
+            err = mSource->read(&mediaBuffer, &mReadOptions);
+            mReadOptions.clearSeekTo();
+            if (err != OK) {
+                mHaveMoreInputs = false;
+                if (!mFirstSample && err == ERROR_END_OF_STREAM) {
+                    (void)mDecoder->queueInputBuffer(
+                            index, 0, 0, 0, MediaCodec::BUFFER_FLAG_EOS);
+                    err = OK;
+                    flags |= MediaCodec::BUFFER_FLAG_EOS;
+                } else {
+                    ALOGW("Input Error: err=%d", err);
+                }
+                break;
+            }
+
+            if (mediaBuffer->range_length() > codecBuffer->capacity()) {
+                ALOGE("buffer size (%zu) too large for codec input size (%zu)",
+                        mediaBuffer->range_length(), codecBuffer->capacity());
+                mHaveMoreInputs = false;
+                err = BAD_VALUE;
+            } else {
+                codecBuffer->setRange(0, mediaBuffer->range_length());
+
+                CHECK(mediaBuffer->meta_data().findInt64(kKeyTime, &ptsUs));
+                memcpy(codecBuffer->data(),
+                        (const uint8_t*)mediaBuffer->data() + mediaBuffer->range_offset(),
+                        mediaBuffer->range_length());
+                mFirstSample = false;
+            }
+
+            mediaBuffer->release();
+
+            if (mHaveMoreInputs) {
+                ALOGV("QueueInput: size=%zu ts=%" PRId64 " us flags=%x",
+                        codecBuffer->size(), ptsUs, flags);
+
+                err = mDecoder->queueInputBuffer(
+                        index,
+                        codecBuffer->offset(),
+                        codecBuffer->size(),
+                        ptsUs,
+                        flags);
+
+                if (flags & MediaCodec::BUFFER_FLAG_EOS) {
+                    mHaveMoreInputs = false;
+                }
+            }
+        }
+
+        while (err == OK) {
+            size_t offset, size;
+            // wait for a decoded buffer
+            err = mDecoder->dequeueOutputBuffer(
+                    &index,
+                    &offset,
+                    &size,
+                    &ptsUs,
+                    &flags,
+                    kBufferTimeOutUs);
+
+            if (err == INFO_FORMAT_CHANGED) {
+                ALOGV("Received format change");
+                err = mDecoder->getOutputFormat(&mOutputFormat);
+            } else if (err == INFO_OUTPUT_BUFFERS_CHANGED) {
+                ALOGV("Output buffers changed");
+                err = OK;
+            } else {
+                if (err == -EAGAIN /* INFO_TRY_AGAIN_LATER */ && --retriesLeft > 0) {
+                    ALOGV("Timed-out waiting for output.. retries left = %zu", retriesLeft);
+                    err = OK;
+                } else if (err == OK) {
+                    // If we're seeking with CLOSEST option and obtained a valid targetTimeUs
+                    // from the extractor, decode to the specified frame. Otherwise we're done.
+                    ALOGV("Received an output buffer, timeUs=%lld", (long long)ptsUs);
+                    sp<MediaCodecBuffer> videoFrameBuffer;
+                    err = mDecoder->getOutputBuffer(index, &videoFrameBuffer);
+                    if (err != OK) {
+                        ALOGE("failed to get output buffer %zu", index);
+                        break;
+                    }
+                    if (mSurface != nullptr) {
+                        if (!shouldDropOutput(ptsUs)) {
+                            mDecoder->renderOutputBufferAndRelease(index);
+                        } else {
+                            mDecoder->releaseOutputBuffer(index);
+                        }
+                        err = onOutputReceived(videoFrameBuffer, mOutputFormat, ptsUs, &done);
+                    } else {
+                        err = onOutputReceived(videoFrameBuffer, mOutputFormat, ptsUs, &done);
+                        mDecoder->releaseOutputBuffer(index);
+                    }
+                } else {
+                    ALOGW("Received error %d (%s) instead of output", err, asString(err));
+                    done = true;
+                }
+                break;
+            }
+        }
+    } while (err == OK && !done);
+
+    if (err != OK) {
+        ALOGE("failed to get video frame (err %d)", err);
+    }
+
+    return err;
 }
 
 }  // namespace android
