@@ -112,6 +112,8 @@ protected:
     bool mResumePending;
     AString mComponentName;
 
+    float mVideoRenderFps;
+
     void handleError(int32_t err);
     bool handleAnInputBuffer(size_t index);
     bool handleAnOutputBuffer(
