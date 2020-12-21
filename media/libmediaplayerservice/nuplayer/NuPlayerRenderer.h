@@ -313,6 +313,7 @@ private:
     bool mNeedVideoClearAnchor;
     bool mIsSeekCompleteNotified;
     bool mIsPrerollCompleteNotified;
+    float mVideoRenderFps;
 };
 
 } // namespace android
