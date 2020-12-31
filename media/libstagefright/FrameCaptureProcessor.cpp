@@ -183,6 +183,7 @@ status_t FrameCaptureProcessor::onCapture(const sp<Layer> &layer,
         mRE->unbindExternalTextureBuffer(gBuf->getId());
     }
 
+    mRE->cleanupPostRender(renderengine::RenderEngine::CleanupMode::CLEAN_ALL);
     return OK;
 }
 
