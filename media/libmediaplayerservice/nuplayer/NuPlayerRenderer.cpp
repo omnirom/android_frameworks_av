@@ -1933,7 +1933,10 @@ void NuPlayer::Renderer::onResume() {
 
     // Note: audio data may not have been decoded, and the AudioSink may not be opened.
     cancelAudioOffloadPauseTimeout();
-    if (mAudioSink->ready()) {
+    //If audio EOS reached already, then dont start/resume audio
+    //starting audio after EOS resets timestamp to 0 and video freezes
+    //when audio EOS reached mHasAudio set to false
+    if (mAudioSink->ready() && mHasAudio) {
         status_t err = mAudioSink->start();
         if (err != OK) {
             ALOGE("cannot start AudioSink err %d", err);
@@ -1961,7 +1964,7 @@ void NuPlayer::Renderer::onResume() {
             notifyIfMediaRenderingStarted_l();
         }
         // configure audiosink as we did not do it when pausing
-        if (mAudioSink != NULL && mAudioSink->ready()) {
+        if (mAudioSink != NULL && mAudioSink->ready() && mHasAudio) {
             mAudioSink->setPlaybackRate(mPlaybackSettings);
         }
 
