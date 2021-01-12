@@ -132,11 +132,10 @@ status_t setNativeWindowSizeFormatAndUsage(
 }
 
 void setNativeWindowHdrMetadata(ANativeWindow *nativeWindow, HDRStaticInfo *info) {
-    int err = 0;
-
-    // Do not use display luminance fields, if they are 0.
-    // This indicates that the bitstream may not contain these values
-    if (info->sType1.mMaxDisplayLuminance > 0 && info->sType1.mMinDisplayLuminance > 0) {
+    // If mastering max and min luminance fields are 0, do not use them.
+    // It indicates the value may not be present in the stream.
+    if ((float)info->sType1.mMaxDisplayLuminance > 0.0f &&
+        (info->sType1.mMinDisplayLuminance * 0.0001f) > 0.0f) {
         struct android_smpte2086_metadata smpte2086_meta = {
                 .displayPrimaryRed = {
                         info->sType1.mR.x * 0.00002f,
@@ -158,19 +157,20 @@ void setNativeWindowHdrMetadata(ANativeWindow *nativeWindow, HDRStaticInfo *info
                 .minLuminance = info->sType1.mMinDisplayLuminance * 0.0001f
         };
 
-        err = native_window_set_buffers_smpte2086_metadata(nativeWindow, &smpte2086_meta);
+        int err = native_window_set_buffers_smpte2086_metadata(nativeWindow, &smpte2086_meta);
         ALOGW_IF(err != 0, "failed to set smpte2086 metadata on surface (%d)", err);
     }
 
-    // Do not use content light level fields, if they are 0.
-    // This indicates that the bitstream may not contain these values
-    if (info->sType1.mMaxContentLightLevel > 0 && info->sType1.mMaxFrameAverageLightLevel > 0) {
+    // If the content light level fields are 0, do not use them, it
+    // indicates the value may not be present in the stream.
+    if ((float)info->sType1.mMaxContentLightLevel > 0.0f &&
+        (float)info->sType1.mMaxFrameAverageLightLevel > 0.0f) {
         struct android_cta861_3_metadata cta861_meta = {
                 .maxContentLightLevel = (float) info->sType1.mMaxContentLightLevel,
                 .maxFrameAverageLightLevel = (float) info->sType1.mMaxFrameAverageLightLevel
         };
 
-        err = native_window_set_buffers_cta861_3_metadata(nativeWindow, &cta861_meta);
+        int err = native_window_set_buffers_cta861_3_metadata(nativeWindow, &cta861_meta);
         ALOGW_IF(err != 0, "failed to set cta861_3 metadata on surface (%d)", err);
     }
 }
