@@ -207,7 +207,8 @@ class MediaPlayer : public BnMediaPlayerClient,
                     public virtual IMediaDeathNotifier
 {
 public:
-    MediaPlayer(const std::string opPackageName = "");
+    MediaPlayer();
+    explicit MediaPlaye(const std::string opPackageName);
     ~MediaPlayer();
             void            died();
             void            disconnect();
