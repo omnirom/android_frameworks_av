@@ -1859,7 +1859,12 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 }
             }
             if (config->mInputSurface) {
-                config->mInputSurface->onInputBufferDone(work->input.ordinal.frameIndex);
+                if (work->worklets.empty()
+                       || !work->worklets.back()
+                       || (work->worklets.back()->output.flags
+                              & C2FrameData::FLAG_INCOMPLETE) == 0) {
+                    config->mInputSurface->onInputBufferDone(work->input.ordinal.frameIndex);
+                }
             }
             mChannel->onWorkDone(
                     std::move(work), changed ? config->mOutputFormat->dup() : nullptr,
