@@ -33,6 +33,8 @@
 #include <utils/KeyedVector.h>
 #include <utils/String8.h>
 
+#include <string>
+
 struct ANativeWindow;
 
 namespace android {
@@ -206,6 +208,7 @@ class MediaPlayer : public BnMediaPlayerClient,
 {
 public:
     MediaPlayer();
+    explicit MediaPlayer(const std::string opPackageName);
     ~MediaPlayer();
             void            died();
             void            disconnect();
@@ -308,6 +311,7 @@ private:
     float                       mSendLevel;
     struct sockaddr_in          mRetransmitEndpoint;
     bool                        mRetransmitEndpointValid;
+    const std::string           mOpPackageName;
 };
 
 }; // namespace android
