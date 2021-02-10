@@ -625,18 +625,19 @@ void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
         Mutexed<Output>::Locked output(mOutput);
         if (!output->buffers ||
                 output->buffers->hasPending() ||
-                output->buffers->numClientBuffers() >= output->numSlots) {
+                output->buffers->numActiveSlots() >= output->numSlots) {
             return;
         }
     }
-    size_t numInputSlots = mInput.lock()->numSlots;
-    for (size_t i = 0; i < numInputSlots; ++i) {
+    size_t numActiveSlots = 0;
+    while (!mPipelineWatcher.lock()->pipelineFull()) {
         sp<MediaCodecBuffer> inBuffer;
         size_t index;
         {
             Mutexed<Input>::Locked input(mInput);
-            if (input->buffers->numClientBuffers() >= input->numSlots) {
-                return;
+            numActiveSlots = input->buffers->numActiveSlots();
+            if (numActiveSlots >= input->numSlots) {
+                break;
             }
             if (!input->buffers->requestNewBuffer(&index, &inBuffer)) {
                 ALOGV("[%s] no new buffer available", mName);
@@ -646,6 +647,7 @@ void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
         ALOGV("[%s] new input index = %zu [%p]", mName, index, inBuffer.get());
         mCallback->onInputBufferAvailable(index, inBuffer);
     }
+    ALOGV("[%s] # active slots after feedInputBufferIfAvailable = %zu", mName, numActiveSlots);
 }
 
 status_t CCodecBufferChannel::renderOutputBuffer(
@@ -909,7 +911,18 @@ status_t CCodecBufferChannel::start(
     uint32_t outputDelayValue = outputDelay ? outputDelay.value : 0;
 
     size_t numInputSlots = inputDelayValue + pipelineDelayValue + kSmoothnessFactor;
-    size_t numOutputSlots = outputDelayValue + kSmoothnessFactor;
+    size_t smoothnessFactor = kSmoothnessFactor;
+
+    if (outputFormat != nullptr) {
+        int32_t width = 0;
+        int32_t height = 0;
+        if (outputFormat->findInt32(KEY_HEIGHT, &height) &&
+                outputFormat->findInt32(KEY_WIDTH, &width) &&
+                width * height > 4096 * 2304) {
+            smoothnessFactor = 0;
+        }
+    }
+    size_t numOutputSlots = outputDelayValue + smoothnessFactor;
 
     // TODO: get this from input format
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
@@ -1609,9 +1622,19 @@ bool CCodecBufferChannel::handleWork(
                             if (!output->buffers) {
                                 return false;
                             }
+
+                            int32_t width = 0;
+                            int32_t height = 0;
+                            size_t smoothnessFactor = kSmoothnessFactor;
+                            const sp<AMessage> bufOutFormat = output->buffers->dupFormat();
+                            if (bufOutFormat->findInt32(KEY_HEIGHT, &height) &&
+                                    bufOutFormat->findInt32(KEY_WIDTH, &width) &&
+                                    width * height > 4096 * 2304) {
+                                smoothnessFactor = 0;
+                            }
                             output->outputDelay = outputDelay.value;
-                            numOutputSlots = outputDelay.value +
-                                             kSmoothnessFactor;
+                            numOutputSlots = outputDelay.value + smoothnessFactor;
+
                             if (output->numSlots < numOutputSlots) {
                                 output->numSlots = numOutputSlots;
                                 if (output->buffers->isArrayMode()) {
@@ -1716,7 +1739,10 @@ bool CCodecBufferChannel::handleWork(
             outBuffer->meta()->setInt64("timeUs", timestamp.peek());
             outBuffer->meta()->setInt32("flags", MediaCodec::BUFFER_FLAG_CODECCONFIG);
             ALOGV("[%s] onWorkDone: csd index = %zu [%p]", mName, index, outBuffer.get());
-
+            if (outputFormat) {
+                ALOGD("[%s] sending CSD : output format changed to %s",
+                      mName, outputFormat->debugString().c_str());
+            }
             output.unlock();
             mCallback->onOutputBufferAvailable(index, outBuffer);
         } else {
@@ -1758,7 +1784,7 @@ bool CCodecBufferChannel::handleWork(
                 notifyClient,
                 timestamp.peek(),
                 flags,
-                outputFormat,
+                (initData == nullptr ? outputFormat : nullptr),
                 worklet->output.ordinal);
     }
     sendOutputBuffers();
