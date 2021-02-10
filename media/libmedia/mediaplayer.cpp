@@ -41,7 +41,9 @@ namespace android {
 
 using media::VolumeShaper;
 
-MediaPlayer::MediaPlayer()
+MediaPlayer::MediaPlayer() : MediaPlayer("") {}
+
+MediaPlayer::MediaPlayer(const std::string opPackageName) : mOpPackageName(opPackageName)
 {
     ALOGV("constructor");
     mListener = NULL;
@@ -152,7 +154,7 @@ status_t MediaPlayer::setDataSource(
     if (url != NULL) {
         const sp<IMediaPlayerService> service(getMediaPlayerService());
         if (service != 0) {
-            sp<IMediaPlayer> player(service->create(this, mAudioSessionId));
+            sp<IMediaPlayer> player(service->create(this, mAudioSessionId, mOpPackageName));
             if ((NO_ERROR != doSetRetransmitEndpoint(player)) ||
                 (NO_ERROR != player->setDataSource(httpService, url, headers))) {
                 player.clear();
@@ -169,7 +171,7 @@ status_t MediaPlayer::setDataSource(int fd, int64_t offset, int64_t length)
     status_t err = UNKNOWN_ERROR;
     const sp<IMediaPlayerService> service(getMediaPlayerService());
     if (service != 0) {
-        sp<IMediaPlayer> player(service->create(this, mAudioSessionId));
+        sp<IMediaPlayer> player(service->create(this, mAudioSessionId, mOpPackageName));
         if ((NO_ERROR != doSetRetransmitEndpoint(player)) ||
             (NO_ERROR != player->setDataSource(fd, offset, length))) {
             player.clear();
@@ -185,7 +187,7 @@ status_t MediaPlayer::setDataSource(const sp<IDataSource> &source)
     status_t err = UNKNOWN_ERROR;
     const sp<IMediaPlayerService> service(getMediaPlayerService());
     if (service != 0) {
-        sp<IMediaPlayer> player(service->create(this, mAudioSessionId));
+        sp<IMediaPlayer> player(service->create(this, mAudioSessionId, mOpPackageName));
         if ((NO_ERROR != doSetRetransmitEndpoint(player)) ||
             (NO_ERROR != player->setDataSource(source))) {
             player.clear();
