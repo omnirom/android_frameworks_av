@@ -920,6 +920,8 @@ status_t CCodecBufferChannel::start(
                 outputFormat->findInt32(KEY_WIDTH, &width) &&
                 width * height > 4096 * 2304) {
             smoothnessFactor = 0;
+            outputDelayValue = (outputDelayValue > 12) ? 12 : outputDelayValue;
+            ALOGI("resolution > 4K, reduce default output delay value to %u", outputDelayValue);
         }
     }
     size_t numOutputSlots = outputDelayValue + smoothnessFactor;
