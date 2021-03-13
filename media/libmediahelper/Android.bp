@@ -8,7 +8,10 @@ cc_library_headers {
 cc_defaults {
     name: "libmedia_helper_defaults",
     double_loadable: true,
-    srcs: ["AudioParameter.cpp", "TypeConverter.cpp"],
+    srcs: [
+        "AudioParameter.cpp",
+        "TypeConverter.cpp",
+    ],
     cflags: [
         "-Werror",
         "-Wextra",
