@@ -1707,19 +1707,6 @@ void NuPlayer::onStart(int64_t startPositionUs, MediaPlayerSeekMode mode) {
         return;
     }
 
-    if (mSurface != NULL) {
-        int64_t refreshDuration = 0;
-        native_window_get_refresh_cycle_duration(mSurface.get(), &refreshDuration);
-        if (refreshDuration > 0)
-            mMaxOutputFrameRate = round(1000000000.0f / refreshDuration);
-    }
-
-    float rate = getFrameRate();
-    if (rate > 0) {
-        rate = (rate > mMaxOutputFrameRate) ? mMaxOutputFrameRate : rate;
-        mRenderer->setVideoFrameRate(rate);
-    }
-
     if (mVideoDecoder != NULL) {
         mVideoDecoder->setRenderer(mRenderer);
     }
@@ -2056,15 +2043,23 @@ status_t NuPlayer::instantiateDecoder(
             format->setInt32("protected", true);
         }
 
+        if (mSurface != NULL) {
+            int64_t refreshDuration = 0;
+            native_window_get_refresh_cycle_duration(mSurface.get(), &refreshDuration);
+            if (refreshDuration > 0)
+                mMaxOutputFrameRate = round(1000000000.0f / refreshDuration);
+        }
+
         float rate = getFrameRate();
         if (rate > 0) {
             format->setFloat("operating-rate", rate * mPlaybackSettings.mSpeed);
+            mRenderer->setVideoFrameRate(rate > mMaxOutputFrameRate ? mMaxOutputFrameRate : rate);
         }
-        if (rate <= 0 || rate > mMaxOutputFrameRate)
+        if (rate <= 0 || rate > mMaxOutputFrameRate) {
             format->setInt32("output-frame-rate", mMaxOutputFrameRate);
-        if (rate <= 0 || rate > mMaxOutputFrameRate)
             format->setFloat("vendor.qti-ext-dec-output-render-frame-rate.value",
                     mMaxOutputFrameRate);
+        }
         format->setInt32("vendor.qti-ext-dec-native_player.value", 1);
     }
 
