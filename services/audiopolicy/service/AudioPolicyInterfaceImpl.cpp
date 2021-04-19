@@ -155,6 +155,7 @@ status_t AudioPolicyService::setPhoneState(audio_mode_t state, uid_t uid)
     mAudioPolicyManager->setPhoneState(state);
     mPhoneState = state;
     mPhoneStateOwnerUid = uid;
+    updateUidStates_l();
     return NO_ERROR;
 }
 
