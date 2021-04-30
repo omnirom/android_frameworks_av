@@ -698,7 +698,10 @@ MediaProfiles::getInstance()
                         }
                     } else if (!strcmp(platform, "bengal")) {
                         property_get("vendor.sys.media.target.version", value, "0");
-                        if (atoi(value) == 2 || atoi(value) == 3) {
+                        if (atoi(value) == 3) {
+                            strlcpy(value, "/vendor/etc/media_profiles_khaje.xml",
+                                    PROPERTY_VALUE_MAX);
+                        } else if (atoi(value) == 2) {
                             strlcpy(value, "/vendor/etc/media_profiles_scuba.xml",
                                     PROPERTY_VALUE_MAX);
                         } else {
