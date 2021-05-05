@@ -159,6 +159,7 @@ const MediaProfiles::NameToTagMap MediaProfiles::sCamcorderQualityNameMap[] = {
     {"timelapse4kdci", CAMCORDER_QUALITY_TIME_LAPSE_4KDCI},
     {"timelapseqhd", CAMCORDER_QUALITY_TIME_LAPSE_QHD},
     {"timelapse2k", CAMCORDER_QUALITY_TIME_LAPSE_2K},
+    {"timelapse8kuhd", CAMCORDER_QUALITY_TIME_LAPSE_8KUHD},
 
     {"highspeedlow",  CAMCORDER_QUALITY_HIGH_SPEED_LOW},
     {"highspeedhigh", CAMCORDER_QUALITY_HIGH_SPEED_HIGH},
