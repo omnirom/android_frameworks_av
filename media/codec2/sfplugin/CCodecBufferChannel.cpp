@@ -618,7 +618,7 @@ void CCodecBufferChannel::feedInputBufferIfAvailable() {
 }
 
 void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
-    if (mInputMetEos || mPipelineWatcher.lock()->pipelineFull()) {
+    if (mInputMetEos) {
         return;
     }
     {
