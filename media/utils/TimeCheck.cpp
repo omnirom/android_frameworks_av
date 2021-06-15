@@ -40,10 +40,9 @@ void TimeCheck::accessAudioHalPids(std::vector<pid_t>* pids, bool update) {
     static std::atomic<int> curAudioHalPids = 0;
 
     if (update) {
-        audioHalPids[(curAudioHalPids + 1) % kNumAudioHalPidsVectors] = *pids;
-        curAudioHalPids++;
+        audioHalPids[(curAudioHalPids++ + 1) % kNumAudioHalPidsVectors] = *pids;
     } else {
-        *pids = audioHalPids[curAudioHalPids];
+        *pids = audioHalPids[curAudioHalPids % kNumAudioHalPidsVectors];
     }
 }
 
