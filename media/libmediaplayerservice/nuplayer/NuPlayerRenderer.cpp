@@ -646,7 +646,7 @@ void NuPlayer::Renderer::onMessageReceived(const sp<AMessage> &msg) {
 
             int64_t mediaTimeUs = -1;
             if (mAnchorTimeMediaUs < 0 && msg->findInt64("mediaTimeUs", &mediaTimeUs)
-                    && mediaTimeUs != -1) {
+                    && mediaTimeUs != -1 && offloadingAudio()) {
                 ALOGI("NOTE: audio still doesn't update anchor yet after wait, video has to update "
                         "anchor and start rendering");
                 int64_t nowUs = ALooper::GetNowUs();
@@ -1375,6 +1375,12 @@ void NuPlayer::Renderer::postDrainVideoQueue() {
         }
         if (mAnchorTimeMediaUs < 0) {
             if (mPaused && !mVideoSampleReceived && mHasAudio) {
+                mDrainVideoQueuePending = true;
+                AudioTimestamp ts;
+                if (!offloadingAudio() && mAudioSink->getTimestamp(ts) == WOULD_BLOCK) {
+                    msg->post();
+                    return;
+                }
                 // this is the first video buffer to be drained, and we know there is audio track
                 // exist. sicne audio start has inevitable latency, we wait audio for a while, give
                 // audio a chance to update anchor time. video doesn't update anchor this time to
@@ -1386,7 +1392,6 @@ void NuPlayer::Renderer::postDrainVideoQueue() {
                 // use first buffer ts to update anchor
                 msg->setInt64("mediaTimeUs", mediaTimeUs);
                 msg->post(audioStartLatency);
-                mDrainVideoQueuePending = true;
                 return;
             }
             mMediaClock->updateAnchor(mediaTimeUs, nowUs,
@@ -1912,12 +1917,14 @@ void NuPlayer::Renderer::onResume() {
 
     // Note: audio data may not have been decoded, and the AudioSink may not be opened.
     cancelAudioOffloadPauseTimeout();
+    bool audioSinkStart = false;
     if (mAudioSink->ready()) {
         status_t err = mAudioSink->start();
         if (err != OK) {
             ALOGE("cannot start AudioSink err %d", err);
             notifyAudioTearDown(kDueToError);
         } else {
+            audioSinkStart = true;
             // Update anchor time after resuming playback.
             // Anchor time has to be updated onResume
             // to adjust for AV sync after multiple pause/resumes
@@ -1949,6 +1956,19 @@ void NuPlayer::Renderer::onResume() {
         if (!mAudioQueue.empty()) {
             postDrainAudioQueue_l();
         }
+    }
+
+    if (audioSinkStart && !offloadingAudio() && mAnchorTimeMediaUs < 0) {
+        //In NON-offload playback post seek, delay posting drain video queue
+        // till audio start latency, to allow audio update the anchor time
+        // also alleviates A/V sync issue
+        sp<AMessage> msg = new AMessage(kWhatPostDrainVideoQueue, this);
+        auto audioStartLatency = 1000 * (mAudioSink->latency()
+                  - (1000 * mAudioSink->frameCount() / mAudioSink->getSampleRate()));
+        msg->setInt32("drainGeneration", getDrainGeneration(false /* audio */));
+        msg->post(audioStartLatency);
+        mDrainVideoQueuePending = true;
+        return;
     }
 
     if (!mVideoQueue.empty()) {

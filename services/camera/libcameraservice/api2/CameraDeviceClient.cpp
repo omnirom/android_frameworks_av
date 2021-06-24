@@ -1570,6 +1570,23 @@ bool CameraDeviceClient::roundBufferDimensionNearest(int32_t width, int32_t heig
         }
     }
 
+    if (bestWidth == -1 && format == HAL_PIXEL_FORMAT_RAW10) {
+        bool isLogicalCamera = false;
+        auto entry = info.find(ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
+        for (size_t i = 0; i < entry.count; ++i) {
+            uint8_t capability = entry.data.u8[i];
+            if (capability == ANDROID_REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) {
+                isLogicalCamera = true;
+                break;
+            }
+        }
+
+        if (isLogicalCamera == true) {
+            bestWidth = width;
+            bestHeight = height;
+        }
+    }
+
     if (bestWidth == -1) {
         // Return false if no configurations for this format were listed
         return false;
