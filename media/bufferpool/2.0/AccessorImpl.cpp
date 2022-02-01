@@ -322,7 +322,7 @@ std::atomic<std::uint32_t> Accessor::Impl::BufferPool::Invalidation::sInvSeqId(0
 
 Accessor::Impl::Impl::BufferPool::~BufferPool() {
     std::lock_guard<std::mutex> lock(mMutex);
-    ALOGD("Destruction - bufferpool2 %p "
+    ALOGV("Destruction - bufferpool2 %p "
           "cached: %zu/%zuM, %zu/%d%% in use; "
           "allocs: %zu, %d%% recycled; "
           "transfers: %zu, %d%% unfetched",
@@ -732,7 +732,7 @@ void Accessor::Impl::BufferPool::cleanUp(bool clearCache) {
         if (mTimestampUs > mLastLogUs + kLogDurationUs ||
                 mStats.buffersNotInUse() > kMaxUnusedBufferCount) {
             mLastLogUs = mTimestampUs;
-            ALOGD("bufferpool2 %p : %zu(%zu size) total buffers - "
+            ALOGV("bufferpool2 %p : %zu(%zu size) total buffers - "
                   "%zu(%zu size) used buffers - %zu/%zu (recycle/alloc) - "
                   "%zu/%zu (fetch/transfer)",
                   this, mStats.mBuffersCached, mStats.mSizeCached,
@@ -937,7 +937,7 @@ void Accessor::Impl::evictorThread(
             }
         }
         if (expired > 0) {
-            ALOGD("evictor expired: %d, evicted: %d", expired, evicted);
+            ALOGV("evictor expired: %d, evicted: %d", expired, evicted);
         }
         evictList.clear();
         ::usleep(kEvictGranularityNs / 1000);
