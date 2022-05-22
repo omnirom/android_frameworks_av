@@ -1192,7 +1192,7 @@ bool CCodecConfig::updateFormats(Domain domain) {
         start = (end == std::string::npos) ? std::string::npos : end + 1;
     }
     if (!diff.empty()) {
-        ALOGD("c2 config diff is %s", diff.c_str());
+        ALOGV("c2 config diff is %s", diff.c_str());
     }
     mLastConfig.swap(configLines);
 

@@ -204,7 +204,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(
     CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
 
     if (mInputMetEos) {
-        ALOGD("[%s] buffers after EOS ignored (%lld us)", mName, (long long)timeUs);
+        ALOGV("[%s] buffers after EOS ignored (%lld us)", mName, (long long)timeUs);
         return OK;
     }
 
@@ -942,7 +942,7 @@ status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) 
         sendOutputBuffers();
         feedInputBufferIfAvailable();
     } else {
-        ALOGD("[%s] MediaCodec discarded an unknown buffer", mName);
+        ALOGV("[%s] MediaCodec discarded an unknown buffer", mName);
     }
     return OK;
 }
@@ -1065,7 +1065,7 @@ status_t CCodecBufferChannel::start(
                                     C2_DONT_BLOCK,
                                     &params);
             if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
-                ALOGD("[%s] Query input allocators returned %zu params => %s (%u)",
+                ALOGV("[%s] Query input allocators returned %zu params => %s (%u)",
                         mName, params.size(), asString(err), err);
             } else if (params.size() == 1) {
                 C2PortAllocatorsTuning::input *inputAllocators =
@@ -1089,7 +1089,7 @@ status_t CCodecBufferChannel::start(
             // TODO: use C2Component wrapper to associate this pool with ourselves
             if ((poolMask >> pools->inputAllocatorId) & 1) {
                 err = CreateCodec2BlockPool(pools->inputAllocatorId, nullptr, &pool);
-                ALOGD("[%s] Created input block pool with allocatorID %u => poolID %llu - %s (%d)",
+                ALOGV("[%s] Created input block pool with allocatorID %u => poolID %llu - %s (%d)",
                         mName, pools->inputAllocatorId,
                         (unsigned long long)(pool ? pool->getLocalId() : 111000111),
                         asString(err), err);
@@ -1100,7 +1100,7 @@ status_t CCodecBufferChannel::start(
                 C2BlockPool::local_id_t inputPoolId =
                     graphic ? C2BlockPool::BASIC_GRAPHIC : C2BlockPool::BASIC_LINEAR;
                 err = GetCodec2BlockPool(inputPoolId, nullptr, &pool);
-                ALOGD("[%s] Using basic input block pool with poolID %llu => got %llu - %s (%d)",
+                ALOGV("[%s] Using basic input block pool with poolID %llu => got %llu - %s (%d)",
                         mName, (unsigned long long)inputPoolId,
                         (unsigned long long)(pool ? pool->getLocalId() : 111000111),
                         asString(err), err);
@@ -1301,7 +1301,7 @@ status_t CCodecBufferChannel::start(
 
             std::vector<std::unique_ptr<C2SettingResult>> failures;
             err = mComponent->config({ poolIdsTuning.get() }, C2_MAY_BLOCK, &failures);
-            ALOGD("[%s] Configured output block pool ids %llu => %s",
+            ALOGV("[%s] Configured output block pool ids %llu => %s",
                     mName, (unsigned long long)poolIdsTuning->m.values[0], asString(err));
             outputPoolId_ = pools->outputPoolId;
         }

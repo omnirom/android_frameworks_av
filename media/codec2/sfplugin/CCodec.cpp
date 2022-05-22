@@ -1421,9 +1421,9 @@ void CCodec::configure(const sp<AMessage> &msg) {
             }
         }
 
-        ALOGD("setup formats input: %s",
+        ALOGV("setup formats input: %s",
                 config->mInputFormat->debugString().c_str());
-        ALOGD("setup formats output: %s",
+        ALOGV("setup formats output: %s",
                 config->mOutputFormat->debugString().c_str());
         return OK;
     };
