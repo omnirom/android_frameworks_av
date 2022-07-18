@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "b8fcb95f_a31475e2",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 2
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 1002322
+      },
+      "writtenOn": "2022-07-18T21:47:09Z",
+      "side": 1,
+      "message": "working with https://gerrit.omnirom.org/c/android_device_asus_sm8250-common/+/41876",
+      "revId": "57d180ad39ca8e7f13bdb2ff8097da811fa0b436",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55"
+    }
+  ]
+}
