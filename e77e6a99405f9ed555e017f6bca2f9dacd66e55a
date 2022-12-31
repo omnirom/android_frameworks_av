@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "679a6592_2d463b72",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 1002322
+      },
+      "writtenOn": "2022-12-31T00:06:32Z",
+      "side": 1,
+      "message": "Add this for an proper fix\n\nhttps://gitlab.com/omnirom/android_hardware_omni_compat",
+      "revId": "e77e6a99405f9ed555e017f6bca2f9dacd66e55a",
+      "serverId": "56841c99-7c94-43d4-bf0b-cb4707e66d55"
+    }
+  ]
+}
