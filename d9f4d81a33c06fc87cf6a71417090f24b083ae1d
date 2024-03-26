@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "9eb74891_0959bbf2",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 1000002
+      },
+      "writtenOn": "2024-03-26T21:23:20Z",
+      "side": 1,
+      "message": "Fix Asus camera on sm8250 device",
+      "revId": "d9f4d81a33c06fc87cf6a71417090f24b083ae1d",
+      "serverId": "ed425d63-8d31-4f40-b4e0-dc35cc52d350"
+    }
+  ]
+}
