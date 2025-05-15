@@ -4441,7 +4441,7 @@ status_t CameraService::BasicClient::notifyCameraOpening() {
 
 #ifdef TARGET_CAMERA_NEEDS_CLIENT_INFO
     std::ofstream cpf("/data/misc/omni/client_package_name");
-    std::string cpn = mClientPackageName.c_str();
+    std::string cpn = getPackageName().c_str();
     cpf << cpn;
 #endif
 
