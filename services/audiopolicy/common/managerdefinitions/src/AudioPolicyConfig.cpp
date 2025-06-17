@@ -272,6 +272,17 @@ status_t AudioPolicyConfig::loadFromAidl(const media::AudioPolicyConfig& aidl) {
     mSource = kAidlConfigSource;
     if (aidl.engineConfig.capSpecificConfig.has_value()) {
         setEngineLibraryNameSuffix(kCapEngineLibraryNameSuffix);
+#ifdef ENABLE_CAP_AIDL_HYBRID_MODE
+        // Using AIDL Audio HAL to get policy configuration and relying on vendor xml configuration
+        // file for CAP engine.
+#ifndef DISABLE_CAP_AIDL
+        if (!aidl.engineConfig.capSpecificConfig.value().domains.has_value()) {
+#endif
+            mSource = kHybridAidlConfigSource;
+#ifndef DISABLE_CAP_AIDL
+        }
+#endif
+#endif
     }
     // No need to augmentData() as AIDL HAL must provide correct mic addresses.
     return NO_ERROR;

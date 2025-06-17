@@ -70,6 +70,9 @@ bool DrmManagerService::selinuxIsProtectedCallAllowed(pid_t spid, const char* ss
     if (ssid == NULL) {
         android_errorWriteLog(0x534e4554, "121035042");
 
+        LOG_ALWAYS_FATAL_IF(nullptr != IPCThreadState::self()->getServingStackPointer(),
+            "Missing SID from other process");
+
         if (getpidcon(spid, &sctx) != 0) {
             ALOGE("SELinux: getpidcon(pid=%d) failed.\n", spid);
             return false;

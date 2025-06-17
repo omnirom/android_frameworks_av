@@ -44,3 +44,15 @@ cc_library_headers {
     export_shared_lib_headers: ["aaudio-aidl-cpp"],
     shared_libs: ["aaudio-aidl-cpp"],
 }
+
+cc_library_headers {
+    // used in mediametrics's audio analytics
+    // just for the defines and typedefs, so no libraries like in libaaudio_headers
+    name: "libaaudio_headers-module",
+    export_include_dirs: ["include"],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media",
+    ],
+    min_sdk_version: "29",
+}

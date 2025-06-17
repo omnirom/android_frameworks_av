@@ -140,6 +140,13 @@ C2SoftFlacEnc::C2SoftFlacEnc(
       mInputBufferPcm32(nullptr) {
 }
 
+C2SoftFlacEnc::C2SoftFlacEnc(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftFlacEnc(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftFlacEnc::~C2SoftFlacEnc() {
     onRelease();
 }

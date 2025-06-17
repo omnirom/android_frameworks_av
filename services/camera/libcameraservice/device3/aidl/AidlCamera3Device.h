@@ -43,7 +43,7 @@ class AidlCamera3Device :
             std::shared_ptr<CameraServiceProxyWrapper>& cameraServiceProxyWrapper,
             std::shared_ptr<AttributionAndPermissionUtils> attributionAndPermissionUtils,
             const std::string& id, bool overrideForPerfClass, int rotationOverride,
-            bool legacyClient = false);
+            bool isVendorClient, bool legacyClient = false);
 
     virtual ~AidlCamera3Device() { }
 
@@ -74,6 +74,7 @@ class AidlCamera3Device :
 
     virtual status_t initialize(sp<CameraProviderManager> manager, const std::string& monitorTags)
             override;
+    virtual int32_t getCaptureResultFMQSize() override;
 
     class AidlHalInterface : public Camera3Device::HalInterface {
      public:

@@ -1,0 +1,38 @@
+LIBAPEXCODECS_36 { # introduced=36
+  global:
+    ApexCodec_Buffer_clear; # apex
+    ApexCodec_Buffer_create; # apex
+    ApexCodec_Buffer_destroy; # apex
+    ApexCodec_Buffer_getBufferInfo; # apex
+    ApexCodec_Buffer_getConfigUpdates; # apex
+    ApexCodec_Buffer_getGraphicBuffer; # apex
+    ApexCodec_Buffer_getLinearBuffer; # apex
+    ApexCodec_Buffer_getType; # apex
+    ApexCodec_Buffer_setBufferInfo; # apex
+    ApexCodec_Buffer_setConfigUpdates; # apex
+    ApexCodec_Buffer_setGraphicBuffer; # apex
+    ApexCodec_Buffer_setLinearBuffer; # apex
+    ApexCodec_Component_create; # apex
+    ApexCodec_Component_destroy; # apex
+    ApexCodec_Component_flush; # apex
+    ApexCodec_Component_getConfigurable; # apex
+    ApexCodec_Component_process; # apex
+    ApexCodec_Component_reset; # apex
+    ApexCodec_Component_start; # apex
+    ApexCodec_Configurable_config; # apex
+    ApexCodec_Configurable_query; # apex
+    ApexCodec_Configurable_querySupportedParams; # apex
+    ApexCodec_Configurable_querySupportedValues; # apex
+    ApexCodec_GetComponentStore; # apex
+    ApexCodec_ParamDescriptors_destroy; # apex
+    ApexCodec_ParamDescriptors_getDescriptor; # apex
+    ApexCodec_ParamDescriptors_getIndices; # apex
+    ApexCodec_SettingResults_destroy; # apex
+    ApexCodec_SettingResults_getResultAtIndex; # apex
+    ApexCodec_SupportedValues_destroy; # apex
+    ApexCodec_SupportedValues_getTypeAndValues; # apex
+    ApexCodec_Traits_get; # apex
+
+  local:
+    *;
+};

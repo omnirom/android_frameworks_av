@@ -99,8 +99,8 @@ struct AMediaCodecInfo {
     std::shared_ptr<const ACodecVideoCapabilities> mAVideoCaps;
     std::shared_ptr<const ACodecEncoderCapabilities> mAEncoderCaps;
 
-    AMediaCodecInfo(std::string name, android::sp<android::MediaCodecInfo> info,
-            std::shared_ptr<android::CodecCapabilities> codecCaps, std::string mediaType)
+    AMediaCodecInfo(const std::string &name, android::sp<android::MediaCodecInfo> info,
+            std::shared_ptr<android::CodecCapabilities> codecCaps, const std::string &mediaType)
             : mName(name), mInfo(info), mMediaType(mediaType), mCodecCaps(codecCaps) {
         if (!mName.empty() && mInfo != nullptr && !mMediaType.empty() && mCodecCaps != nullptr) {
             if (mCodecCaps->getAudioCapabilities() != nullptr) {

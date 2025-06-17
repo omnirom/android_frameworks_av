@@ -1,0 +1,13 @@
+package {
+    default_applicable_licenses: ["frameworks_av_license"],
+}
+
+cc_library {
+    name: "libcodec2_soft_iamfdec",
+
+    srcs: [],
+
+    shared_libs: [
+        // iamf_tools library will need to go here.
+    ],
+}

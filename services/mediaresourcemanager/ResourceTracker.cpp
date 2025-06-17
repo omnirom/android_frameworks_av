@@ -136,7 +136,60 @@ bool ResourceTracker::addResource(const ClientInfoParcel& clientInfo,
     return !resourceAdded.empty();
 }
 
-bool ResourceTracker::updateResource(const aidl::android::media::ClientInfoParcel& clientInfo) {
+bool ResourceTracker::updateResource(
+        const aidl::android::media::ClientInfoParcel& clientInfo,
+        const std::vector<::aidl::android::media::MediaResourceParcel>& resources) {
+    ResourceInfos& infos = getResourceInfosForEdit(clientInfo.pid);
+
+    ResourceInfos::iterator found = infos.find(clientInfo.id);
+    if (found == infos.end()) {
+        return false;
+    }
+
+    ResourceInfo& info = found->second;
+    ResourceList resourceAdded;
+    ResourceList resourceRemoved;
+
+    for (const MediaResourceParcel& res : resources) {
+        if (res.value < 0) {
+            ALOGV("%s: Ignoring request to update negative value of resource", __func__);
+            continue;
+        }
+
+        // Since resource value/amount is non-negative, we are using this magic value (-1)
+        // to detect whether the resource has been removed or updated.
+        long removedEntryValue = -1;
+        if (info.resources.update(res, &removedEntryValue)) {
+            // Check if the removedEntryValue has been updated.
+            if (removedEntryValue != -1) {
+                // An entry was removed.
+                onLastRemoved(res, info.uid);
+                // Add it to the list of removed resources for observers.
+                MediaResourceParcel actualRemoved = res;
+                actualRemoved.value = removedEntryValue;
+                resourceRemoved.add(actualRemoved);
+            }
+        } else {
+            // A new entry is added.
+            onFirstAdded(res, info.uid);
+            // Add it to the list of added resources for observers.
+            resourceAdded.add(res);
+        }
+    }
+    if (mObserverService != nullptr) {
+        if (!resourceAdded.empty()) {
+            mObserverService->onResourceAdded(info.uid, clientInfo.pid, resourceAdded);
+        }
+        if (!resourceRemoved.empty()) {
+            mObserverService->onResourceRemoved(info.uid, clientInfo.pid, resourceRemoved);
+        }
+    }
+
+    return true;
+}
+
+bool ResourceTracker::updateClientImportance(
+        const aidl::android::media::ClientInfoParcel& clientInfo) {
     ResourceInfos& infos = getResourceInfosForEdit(clientInfo.pid);
 
     ResourceInfos::iterator found = infos.find(clientInfo.id);
@@ -769,6 +822,22 @@ bool ResourceTracker::isCallingPriorityHigher(int callingPid, int pid) {
     }
 
     return (callingPidPriority < priority);
+}
+
+void ResourceTracker::getMediaResourceUsageReport(
+        std::vector<MediaResourceParcel>* resources) const {
+    ResourceList resourceUsageList;
+
+    // Add up all the resource usage by every process into resourceUsageList
+    for (const auto& [pid, /* ResourceInfos */ infos] : mMap) {
+        for (const auto& [infoKey, /* ResourceInfo */ info] : infos) {
+            for (const MediaResourceParcel& res : info.resources.getResources()) {
+                resourceUsageList.add(res);
+            }
+        }
+    }
+
+    *resources = resourceUsageList.getResources();
 }
 
 } // namespace android

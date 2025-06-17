@@ -315,7 +315,9 @@ int sendToStatsd(Types ... args)
     int result = 0;
 
 #ifdef STATSD_ENABLE
-    result = stats::media_metrics::stats_write(args...);
+    if (__builtin_available(android 33, *)) {
+        result = stats::media_metrics::stats_write(args...);
+    }
 #endif
     return result;
 }
@@ -331,7 +333,9 @@ std::pair<int, std::string> sendToStatsd(const char * const (& fields)[N], Types
     std::stringstream ss;
 
 #ifdef STATSD_ENABLE
-    result = stats::media_metrics::stats_write(args...);
+    if (__builtin_available(android 33, *)) {
+        result = stats::media_metrics::stats_write(args...);
+    }
     ss << "result:" << result;
 #endif
     ss << " { ";

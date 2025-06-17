@@ -16,17 +16,25 @@
 
 #pragma once
 
+#include <aidl/android/hardware/media/c2/BnInputSink.h>
 #include <aidl/android/hardware/media/c2/BnInputSurfaceConnection.h>
 #include <media/NdkImage.h>
+#include <utils/RefBase.h>
 
 #include <C2.h>
 
 #include <memory>
 
+namespace aidl::android::hardware::media::c2::implementation {
+class InputSurfaceSource;
+}
+
 namespace aidl::android::hardware::media::c2::utils {
 
 struct InputSurfaceConnection : public BnInputSurfaceConnection {
-    InputSurfaceConnection();
+    InputSurfaceConnection(
+            const std::shared_ptr<IInputSink>& sink,
+            ::android::sp<c2::implementation::InputSurfaceSource> const &source);
     c2_status_t status() const;
 
     // Methods from IInputSurfaceConnection follow.
@@ -51,6 +59,10 @@ struct InputSurfaceConnection : public BnInputSurfaceConnection {
 
 protected:
     virtual ~InputSurfaceConnection() override;
+
+private:
+    std::weak_ptr<IInputSink> mSink;
+    ::android::sp<c2::implementation::InputSurfaceSource> mSource;
 };
 
 }  // namespace aidl::android::hardware::media::c2::utils

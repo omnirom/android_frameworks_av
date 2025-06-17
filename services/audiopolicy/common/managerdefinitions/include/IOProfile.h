@@ -70,11 +70,20 @@ public:
         return mMixerBehaviors;
     }
 
+    /**
+     * NO_MATCH: Both config and flags are not compatible.
+     * PARTIAL_MATCH: Both config and flags are partially matched.
+     * PARTIAL_MATCH_WITH_CONFIG: Partial match with flags(e.g. fast flags) and exact match with
+     * config.
+     * PARTIAL_MATCH_WITH_FLAG: Partial match with config and exact match with flags.
+     * EXACT_MATCH: Both config and flags are exactly matched.
+     */
     enum CompatibilityScore{
         NO_MATCH = 0,
         PARTIAL_MATCH = 1,
-        PARTIAL_MATCH_WITH_FLAG = 2,
-        EXACT_MATCH = 3
+        PARTIAL_MATCH_WITH_CONFIG = 2,
+        PARTIAL_MATCH_WITH_FLAG = 3,
+        EXACT_MATCH = 4
     };
 
     /**

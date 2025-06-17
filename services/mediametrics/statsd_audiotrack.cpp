@@ -135,12 +135,15 @@ bool statsd_audiotrack(const std::shared_ptr<const mediametrics::Item>& item,
     const auto log_session_id = mediametrics::ValidateId::get()->validateId(logSessionId);
 
     const stats::media_metrics::BytesField bf_serialized( serialized.c_str(), serialized.size());
-    const int result = stats::media_metrics::stats_write(
+    int result = 0;
+    if (__builtin_available(android 33, *)) {
+        result = stats::media_metrics::stats_write(
                                stats::media_metrics::MEDIAMETRICS_AUDIOTRACK_REPORTED,
                                timestamp_nanos, package_name.c_str(), package_version_code,
                                media_apex_version,
                                bf_serialized,
                                log_session_id.c_str());
+    }
     std::stringstream log;
     log << "result:" << result << " {"
             << " mediametrics_audiotrack_reported:"

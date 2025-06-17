@@ -120,6 +120,7 @@ private:
     sp<ALooper> mAsyncLooper;
     bool mHaveMoreInputs;
     bool mFirstSample;
+    bool mSourceStopped;
     bool mHandleOutputBufferAsyncDone;
     sp<Surface> mSurface;
     std::mutex mMutex;

@@ -1457,6 +1457,11 @@ status_t EffectModule::sendSetAudioDevicesCommand(
     }
     status_t status = NO_ERROR;
     if ((mDescriptor.flags & EFFECT_FLAG_DEVICE_MASK) == EFFECT_FLAG_DEVICE_IND) {
+        // for AIDL, use setDevices to pass the AudioDeviceTypeAddrVector
+        if (!EffectConfiguration::isHidl()) {
+            return mEffectInterface->setDevices(devices);
+        }
+
         status_t cmdStatus;
         uint32_t size = sizeof(status_t);
         // FIXME: use audio device types and addresses when the hal interface is ready.
@@ -1574,6 +1579,11 @@ bool IAfEffectModule::isSpatializer(const effect_uuid_t *type) {
 
 bool EffectModule::isSpatializer() const {
     return IAfEffectModule::isSpatializer(&mDescriptor.type);
+}
+
+bool EffectModule::isEffect(const effect_uuid_t &uuid) const {
+    using android::effect::utils::operator==;
+    return mDescriptor.uuid == uuid;
 }
 
 status_t EffectModule::setHapticScale_l(int id, os::HapticScale hapticScale) {

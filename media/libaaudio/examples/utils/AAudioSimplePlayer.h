@@ -71,7 +71,7 @@ static float s_burnCPU(int32_t workload) {
 class AAudioSimplePlayer {
 public:
     AAudioSimplePlayer() {}
-    ~AAudioSimplePlayer() {
+    virtual ~AAudioSimplePlayer() {
         close();
     };
 
@@ -119,7 +119,8 @@ public:
     aaudio_result_t open(const AAudioParameters &parameters,
                          AAudioStream_dataCallback dataCallback = nullptr,
                          AAudioStream_errorCallback errorCallback = nullptr,
-                         void *userContext = nullptr) {
+                         void *userContext = nullptr,
+                         AAudioStream_presentationEndCallback presentationEndCallback = nullptr) {
         aaudio_result_t result = AAUDIO_OK;
 
         // Use an AAudioStreamBuilder to contain requested parameters.
@@ -136,6 +137,10 @@ public:
         }
         if (errorCallback != nullptr) {
             AAudioStreamBuilder_setErrorCallback(builder, errorCallback, userContext);
+        }
+        if (presentationEndCallback != nullptr) {
+            AAudioStreamBuilder_setPresentationEndCallback(
+                    builder, presentationEndCallback, userContext);
         }
         //AAudioStreamBuilder_setFramesPerDataCallback(builder, CALLBACK_SIZE_FRAMES);
         //AAudioStreamBuilder_setBufferCapacityInFrames(builder, 48 * 8);
@@ -266,6 +271,24 @@ public:
         aaudio_result_t result = AAudioStream_requestFlush(mStream);
         if (result != AAUDIO_OK) {
             printf("ERROR - AAudioStream_requestFlush(output) returned %d %s\n",
+                   result, AAudio_convertResultToText(result));
+        }
+        return result;
+    }
+
+    aaudio_result_t setOffloadDelayPadding(int delay, int padding) {
+        aaudio_result_t result = AAudioStream_setOffloadDelayPadding(mStream, delay, padding);
+        if (result != AAUDIO_OK) {
+            printf("WARNING - AAudioStream_setOffloadDelayPadding(%d, %d) returned %d %s\n",
+                   delay, padding, result, AAudio_convertResultToText(result));
+        }
+        return result;
+    }
+
+    aaudio_result_t setOffloadEndOfStream() {
+        aaudio_result_t result = AAudioStream_setOffloadEndOfStream(mStream);
+        if (result != AAUDIO_OK) {
+            printf("ERROR - AAudioStream_setOffloadEndOfStream() returned %d %s\n",
                    result, AAudio_convertResultToText(result));
         }
         return result;

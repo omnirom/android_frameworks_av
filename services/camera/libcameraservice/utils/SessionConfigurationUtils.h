@@ -104,11 +104,11 @@ bool roundBufferDimensionNearest(int32_t width, int32_t height, int32_t format,
 // check if format is not custom format
 bool isPublicFormat(int32_t format);
 
-// Create a Surface from an IGraphicBufferProducer. Returns error if
-// IGraphicBufferProducer's property doesn't match with streamInfo
-binder::Status createSurfaceFromGbp(
+// Recreates a Surface from another Surface setting the controlledByApp correctly. Returns error if
+// previous Surface property doesn't match with streamInfo
+binder::Status createConfiguredSurface(
         camera3::OutputStreamInfo& streamInfo, bool isStreamInfoValid,
-        sp<Surface>& surface, const sp<IGraphicBufferProducer>& gbp,
+        sp<Surface>& out_surface, const sp<SurfaceType>& surface,
         const std::string &logicalCameraId, const CameraMetadata &physicalCameraMetadata,
         const std::vector<int32_t> &sensorPixelModesUsed,  int64_t dynamicRangeProfile,
         int64_t streamUseCase, int timestampBase, int mirrorMode,
@@ -152,7 +152,8 @@ binder::Status
 convertToHALStreamCombination(
     const SessionConfiguration& sessionConfiguration,
     const std::string &logicalCameraId, const CameraMetadata &deviceInfo,
-    bool isCompositeJpegRDisabled, metadataGetter getMetadata,
+    bool isCompositeJpegRDisabled, bool isCompositeHeicDisabled,
+    bool isCompositeHeicUltraHDRDisabled, metadataGetter getMetadata,
     const std::vector<std::string> &physicalCameraIds,
     aidl::android::hardware::camera::device::StreamConfiguration &streamConfiguration,
     bool overrideForPerfClass, metadata_vendor_id_t vendorTagId,

@@ -44,26 +44,32 @@ int32_t FixedBlockReader::readFromStorage(uint8_t *buffer, int32_t numBytes) {
     return bytesToRead;
 }
 
-int32_t FixedBlockReader::processVariableBlock(uint8_t *buffer, int32_t numBytes) {
+AdapterProcessResult FixedBlockReader::processVariableBlock(uint8_t *buffer, int32_t numBytes) {
     int32_t result = 0;
     int32_t bytesLeft = numBytes;
+    int32_t bytesProcessed = 0;
     while(bytesLeft > 0 && result == 0) {
         if (mPosition < mSize) {
             // Use up bytes currently in storage.
             int32_t bytesRead = readFromStorage(buffer, bytesLeft);
             buffer += bytesRead;
             bytesLeft -= bytesRead;
+            bytesProcessed += bytesRead;
         } else if (bytesLeft >= mSize) {
             // Read through if enough for a complete block.
             result = mFixedBlockProcessor.onProcessFixedBlock(buffer, mSize);
+            if (result != 0) {
+                break;
+            }
             buffer += mSize;
             bytesLeft -= mSize;
+            bytesProcessed += mSize;
         } else {
             // Just need a partial block so we have to use storage.
             result = mFixedBlockProcessor.onProcessFixedBlock(mStorage.get(), mSize);
             mPosition = 0;
         }
     }
-    return result;
+    return {result, bytesProcessed};
 }
 

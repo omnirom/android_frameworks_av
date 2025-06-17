@@ -214,6 +214,28 @@ void NuPlayer::Decoder::onMessageReceived(const sp<AMessage> &msg) {
                     break;
                 }
 
+                case MediaCodec::CB_CRYPTO_ERROR:
+                {
+                    status_t err;
+                    CHECK(msg->findInt32("err", &err));
+                    AString comment;
+                    msg->findString("errorDetail", &comment);
+                    ALOGE("Decoder (%s) reported crypto error : 0x%x (%s)",
+                            mIsAudio ? "audio" : "video", err, comment.c_str());
+
+                    handleError(err);
+                    break;
+                }
+
+                case MediaCodec::CB_REQUIRED_RESOURCES_CHANGED:
+                case MediaCodec::CB_METRICS_FLUSHED:
+                {
+                    // Nothing to do. Informational. Safe to ignore.
+                    break;
+                }
+
+                case MediaCodec::CB_LARGE_FRAME_OUTPUT_AVAILABLE:
+                // unexpected as we are not using large frames
                 default:
                 {
                     TRESPASS();
@@ -374,9 +396,18 @@ void NuPlayer::Decoder::onConfigure(const sp<AMessage> &format) {
     }
     rememberCodecSpecificData(format);
 
-    // the following should work in configured state
-    CHECK_EQ((status_t)OK, mCodec->getOutputFormat(&mOutputFormat));
-    CHECK_EQ((status_t)OK, mCodec->getInputFormat(&mInputFormat));
+    err = mCodec->getOutputFormat(&mOutputFormat);
+    if (err == OK) {
+        err = mCodec->getInputFormat(&mInputFormat);
+    }
+    if (err != OK) {
+        ALOGE("Failed to get input/output format from [%s] decoder (err=%d)",
+                mComponentName.c_str(), err);
+        mCodec->release();
+        mCodec.clear();
+        handleError(err);
+        return;
+    }
 
     {
         Mutex::Autolock autolock(mStatsLock);

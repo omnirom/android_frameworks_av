@@ -104,6 +104,14 @@ private:
             return mExclusiveEnabled;
         }
 
+        bool isBinderNull() {
+            return mBinder == nullptr;
+        }
+
+        void setBinder(android::sp<IBinder>& binder) {
+            mBinder = binder;
+        }
+
         // IBinder::DeathRecipient
         void binderDied(const android::wp<IBinder>& who) override;
 

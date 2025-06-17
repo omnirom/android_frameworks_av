@@ -154,6 +154,9 @@ public:
 
     // Update the stored extension stats to the latest values
     std::string updateExtensionStats(const hardware::CameraExtensionSessionStats& extStats);
+
+    // notify CameraServiceProxy that watchdog is to be triggered
+    void notifyWatchdog(pid_t clientPid, bool isNativePid);
 };
 
 } // android

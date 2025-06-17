@@ -22,7 +22,9 @@
 #include <C2Buffer.h>
 #include <C2BlockInternal.h>
 
+#include <atomic>
 #include <functional>
+#include <mutex>
 
 namespace android {
 class GraphicBuffer;

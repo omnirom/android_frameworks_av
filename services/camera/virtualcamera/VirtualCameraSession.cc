@@ -94,9 +94,6 @@ using ::android::base::unique_fd;
 
 namespace {
 
-using metadata_ptr =
-    std::unique_ptr<camera_metadata_t, void (*)(camera_metadata_t*)>;
-
 using namespace std::chrono_literals;
 
 // Size of request/result metadata fast message queue.
@@ -106,8 +103,7 @@ constexpr size_t kMetadataMsgQueueSize = 0;
 // Maximum number of buffers to use per single stream.
 constexpr size_t kMaxStreamBuffers = 2;
 
-// Thumbnail size (0,0) correspods to disabling thumbnail.
-const Resolution kDefaultJpegThumbnailSize(0, 0);
+constexpr int kInvalidStreamId = -1;
 
 camera_metadata_enum_android_control_capture_intent_t requestTemplateToIntent(
     const RequestTemplate type) {
@@ -291,7 +287,7 @@ RequestSettings createSettingsFromMetadata(const CameraMetadata& metadata) {
       .aePrecaptureTrigger = getPrecaptureTrigger(metadata)};
 }
 
-}  // namespace
+};  // namespace
 
 VirtualCameraSession::VirtualCameraSession(
     std::shared_ptr<VirtualCameraDevice> cameraDevice,
@@ -299,7 +295,8 @@ VirtualCameraSession::VirtualCameraSession(
     std::shared_ptr<IVirtualCameraCallback> virtualCameraClientCallback)
     : mCameraDevice(cameraDevice),
       mCameraDeviceCallback(cameraDeviceCallback),
-      mVirtualCameraClientCallback(virtualCameraClientCallback) {
+      mVirtualCameraClientCallback(virtualCameraClientCallback),
+      mCurrentInputStreamId(kInvalidStreamId) {
   mRequestMetadataQueue = std::make_unique<RequestMetadataQueue>(
       kMetadataMsgQueueSize, false /* non blocking */);
   if (!mRequestMetadataQueue->isValid()) {
@@ -318,13 +315,15 @@ ndk::ScopedAStatus VirtualCameraSession::close() {
   {
     std::lock_guard<std::mutex> lock(mLock);
 
-    if (mVirtualCameraClientCallback != nullptr) {
-      mVirtualCameraClientCallback->onStreamClosed(mCurrentInputStreamId);
-    }
-
     if (mRenderThread != nullptr) {
+      mRenderThread->flush();
       mRenderThread->stop();
       mRenderThread = nullptr;
+
+      if (mVirtualCameraClientCallback != nullptr) {
+        mVirtualCameraClientCallback->onStreamClosed(mCurrentInputStreamId);
+      }
+      mCurrentInputStreamId = kInvalidStreamId;
     }
   }
 
@@ -357,7 +356,11 @@ ndk::ScopedAStatus VirtualCameraSession::configureStreams(
   halStreams.resize(in_requestedConfiguration.streams.size());
 
   if (!virtualCamera->isStreamCombinationSupported(in_requestedConfiguration)) {
-    ALOGE("%s: Requested stream configuration is not supported", __func__);
+    ALOGE(
+        "%s: Requested stream configuration is not supported, closing existing "
+        "session",
+        __func__);
+    close();
     return cameraStatus(Status::ILLEGAL_ARGUMENT);
   }
 
@@ -466,13 +469,11 @@ ndk::ScopedAStatus VirtualCameraSession::constructDefaultRequestSettings(
       // Don't support VIDEO_SNAPSHOT, MANUAL, ZSL templates
       return ndk::ScopedAStatus::fromServiceSpecificError(
           static_cast<int32_t>(Status::ILLEGAL_ARGUMENT));
-      ;
     default:
       ALOGE("%s: unknown request template type %d", __FUNCTION__,
             static_cast<int>(in_type));
       return ndk::ScopedAStatus::fromServiceSpecificError(
           static_cast<int32_t>(Status::ILLEGAL_ARGUMENT));
-      ;
   }
 }
 
@@ -518,7 +519,7 @@ ndk::ScopedAStatus VirtualCameraSession::isReconfigurationRequired(
 ndk::ScopedAStatus VirtualCameraSession::processCaptureRequest(
     const std::vector<CaptureRequest>& in_requests,
     const std::vector<BufferCache>& in_cachesToRemove, int32_t* _aidl_return) {
-  ALOGV("%s", __func__);
+  ALOGV("%s: request count: %zu", __func__, in_requests.size());
 
   if (!in_cachesToRemove.empty()) {
     mSessionContext.removeBufferCaches(in_cachesToRemove);
@@ -575,7 +576,7 @@ std::set<int> VirtualCameraSession::getStreamIds() const {
 
 ndk::ScopedAStatus VirtualCameraSession::processCaptureRequest(
     const CaptureRequest& request) {
-  ALOGV("%s: request: %s", __func__, request.toString().c_str());
+  ALOGV("%s: CaptureRequest { frameNumber:%d }", __func__, request.frameNumber);
 
   std::shared_ptr<ICameraDeviceCallback> cameraCallback = nullptr;
   RequestSettings requestSettings;

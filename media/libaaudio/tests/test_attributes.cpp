@@ -132,7 +132,7 @@ static void checkAttributes(aaudio_performance_mode_t perfMode,
         readTagsSet.insert(readTags[i]);
     }
     EXPECT_EQ(addedTags, readTagsSet);
-    AAudioStream_releaseTags(aaudioStream, readTags);
+    AAudioStream_destroyTags(aaudioStream, readTags);
 
     aaudio_input_preset_t expectedPreset =
             (preset == DONT_SET || preset == AAUDIO_UNSPECIFIED)

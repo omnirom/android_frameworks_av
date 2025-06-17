@@ -44,7 +44,6 @@
 #include <media/AidlConversion.h>
 #include <media/AudioParameter.h>
 #include <media/AudioValidator.h>
-#include <media/IMediaLogService.h>
 #include <media/IPermissionProvider.h>
 #include <media/MediaMetricsItem.h>
 #include <media/NativePermissionController.h>
@@ -83,6 +82,8 @@
 #define ALOGVV(a...) do { } while(0)
 #endif
 
+namespace audioserver_flags = com::android::media::audioserver;
+
 namespace android {
 
 using namespace std::string_view_literals;
@@ -95,9 +96,12 @@ using media::audio::common::AudioMMapPolicyType;
 using media::audio::common::AudioMode;
 using android::content::AttributionSourceState;
 using android::detail::AudioHalVersionInfo;
+using com::android::media::audio::audioserver_permissions;
 using com::android::media::permission::INativePermissionController;
 using com::android::media::permission::IPermissionProvider;
 using com::android::media::permission::NativePermissionController;
+using com::android::media::permission::PermissionEnum;
+using com::android::media::permission::PermissionEnum::MODIFY_AUDIO_SETTINGS;
 using com::android::media::permission::ValidatedAttributionSourceState;
 
 static const AudioHalVersionInfo kMaxAAudioPropertyDeviceHalVersion =
@@ -110,20 +114,7 @@ constexpr auto kNoEffectsFactory = "Effects Factory is absent\n"sv;
 
 static constexpr char kAudioServiceName[] = "audio";
 
-// Keep a strong reference to media.log service around forever.
-// The service is within our parent process so it can never die in a way that we could observe.
-// These two variables are const after initialization.
-static sp<IMediaLogService> sMediaLogService;
 
-static pthread_once_t sMediaLogOnce = PTHREAD_ONCE_INIT;
-
-static void sMediaLogInit()
-{
-    auto sMediaLogServiceAsBinder = defaultServiceManager()->getService(String16("media.log"));
-    if (sMediaLogServiceAsBinder != 0) {
-        sMediaLogService = interface_cast<IMediaLogService>(sMediaLogServiceAsBinder);
-    }
-}
 
 static int writeStr(int fd, std::string_view s) {
     return write(fd, s.data(), s.size());
@@ -142,7 +133,7 @@ validateAttributionFromContextOrTrustedCaller(AttributionSourceState attr,
         // Legacy paths may not properly populate package name, so we attempt to handle.
         if (!attr.packageName.has_value() || attr.packageName.value() == "") {
             ALOGW("Trusted client %d provided attr with missing package name" , callingUid);
-            attr.packageName = VALUE_OR_RETURN(provider.getPackagesForUid(callingUid))[0];
+            attr.packageName = VALUE_OR_RETURN(provider.getPackagesForUid(attr.uid))[0];
         }
         // Behavior change: In the case of delegation, if pid is invalid,
         // filling it in with the callingPid will cause a mismatch between the
@@ -329,24 +320,11 @@ AudioFlinger::AudioFlinger()
                         movingBase : 1) * AUDIO_UNIQUE_ID_USE_MAX;
     }
 
-#if 1
-    // FIXME See bug 165702394 and bug 168511485
-    const bool doLog = false;
-#else
-    const bool doLog = property_get_bool("ro.test_harness", false);
-#endif
-    if (doLog) {
-        mLogMemoryDealer = new MemoryDealer(kLogMemorySize, "LogWriters",
-                MemoryHeapBase::READ_ONLY);
-        (void) pthread_once(&sMediaLogOnce, sMediaLogInit);
-    }
-
     // reset battery stats.
     // if the audio service has crashed, battery stats could be left
     // in bad state, reset the state upon service start.
     BatteryNotifier::getInstance().noteResetAudio();
 
-    mMediaLogNotifier->run("MediaLogNotifier");
 
     // Notify that we have started (also called when audioserver service restarts)
     mediametrics::LogItem(mMetricsId)
@@ -518,16 +496,6 @@ AudioFlinger::~AudioFlinger()
         // no hardwareMutex() needed, as there are no other references to this
         delete mAudioHwDevs.valueAt(i);
     }
-
-    // Tell media.log service about any old writers that still need to be unregistered
-    if (sMediaLogService != 0) {
-        for (size_t count = mUnregisteredWriters.size(); count > 0; count--) {
-            sp<IMemory> iMemory(mUnregisteredWriters.top()->getIMemory());
-            mUnregisteredWriters.pop();
-            sMediaLogService->unregisterWriter(iMemory);
-        }
-    }
-    mMediaLogNotifier->requestExit();
     mPatchCommandThread->exit();
 }
 
@@ -580,7 +548,7 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
 
     // TODO b/182392553: refactor or make clearer
     AttributionSourceState adjAttributionSource;
-    if (!com::android::media::audio::audioserver_permissions()) {
+    if (!audioserver_permissions()) {
         pid_t clientPid =
             VALUE_OR_RETURN_STATUS(aidl2legacy_int32_t_pid_t(client.attributionSource.pid));
         bool updatePid = (clientPid == (pid_t)-1);
@@ -661,6 +629,11 @@ status_t AudioFlinger::openMmapStream(MmapStreamInterface::stream_direction_t di
         }
     }
     if (ret != NO_ERROR) {
+        if (audioserver_flags::enable_gmap_mode()
+                && direction == MmapStreamInterface::DIRECTION_INPUT) {
+            audio_utils::lock_guard _l(mutex());
+            setHasAlreadyCaptured_l(adjAttributionSource.uid);
+        }
         return ret;
     }
 
@@ -751,6 +724,20 @@ AudioHwDevice* AudioFlinger::findSuitableHwDev_l(
     }
 
     return NULL;
+}
+
+error::BinderResult<std::monostate> AudioFlinger::enforceCallingPermission(PermissionEnum perm) {
+    const uid_t uid = IPCThreadState::self()->getCallingUid();
+    // Due to a complicated start-up sequence, we could get a call from ourselves before APS
+    // populates the permission provider (done immediately following its construction). So,
+    // bail before calling into the permission provider, even though it also does this check.
+    if (uid == getuid()) return {};
+    const bool hasPerm = VALUE_OR_RETURN(getPermissionProvider().checkPermission(perm, uid));
+    if (hasPerm) {
+        return {};
+    } else {
+        return error::unexpectedExceptionCode(EX_SECURITY, "");
+    }
 }
 
 void AudioFlinger::dumpClients_ll(int fd, bool dumpAllocators) {
@@ -1050,61 +1037,6 @@ sp<Client> AudioFlinger::registerClient(pid_t pid, uid_t uid)
     return client;
 }
 
-sp<NBLog::Writer> AudioFlinger::newWriter_l(size_t size, const char *name)
-{
-    // If there is no memory allocated for logs, return a no-op writer that does nothing.
-    // Similarly if we can't contact the media.log service, also return a no-op writer.
-    if (mLogMemoryDealer == 0 || sMediaLogService == 0) {
-        return new NBLog::Writer();
-    }
-    sp<IMemory> shared = mLogMemoryDealer->allocate(NBLog::Timeline::sharedSize(size));
-    // If allocation fails, consult the vector of previously unregistered writers
-    // and garbage-collect one or more them until an allocation succeeds
-    if (shared == 0) {
-        audio_utils::lock_guard _l(unregisteredWritersMutex());
-        for (size_t count = mUnregisteredWriters.size(); count > 0; count--) {
-            {
-                // Pick the oldest stale writer to garbage-collect
-                sp<IMemory> iMemory(mUnregisteredWriters[0]->getIMemory());
-                mUnregisteredWriters.removeAt(0);
-                sMediaLogService->unregisterWriter(iMemory);
-                // Now the media.log remote reference to IMemory is gone.  When our last local
-                // reference to IMemory also drops to zero at end of this block,
-                // the IMemory destructor will deallocate the region from mLogMemoryDealer.
-            }
-            // Re-attempt the allocation
-            shared = mLogMemoryDealer->allocate(NBLog::Timeline::sharedSize(size));
-            if (shared != 0) {
-                goto success;
-            }
-        }
-        // Even after garbage-collecting all old writers, there is still not enough memory,
-        // so return a no-op writer
-        return new NBLog::Writer();
-    }
-success:
-    NBLog::Shared *sharedRawPtr = (NBLog::Shared *) shared->unsecurePointer();
-    new((void *) sharedRawPtr) NBLog::Shared(); // placement new here, but the corresponding
-                                                // explicit destructor not needed since it is POD
-    sMediaLogService->registerWriter(shared, size, name);
-    return new NBLog::Writer(shared, size);
-}
-
-void AudioFlinger::unregisterWriter(const sp<NBLog::Writer>& writer)
-{
-    if (writer == 0) {
-        return;
-    }
-    sp<IMemory> iMemory(writer->getIMemory());
-    if (iMemory == 0) {
-        return;
-    }
-    // Rather than removing the writer immediately, append it to a queue of old writers to
-    // be garbage-collected later.  This allows us to continue to view old logs for a while.
-    audio_utils::lock_guard _l(unregisteredWritersMutex());
-    mUnregisteredWriters.push(writer);
-}
-
 // IAudioFlinger interface
 
 status_t AudioFlinger::createTrack(const media::CreateTrackRequest& _input,
@@ -1132,7 +1064,7 @@ status_t AudioFlinger::createTrack(const media::CreateTrackRequest& _input,
 
     AttributionSourceState adjAttributionSource;
     pid_t callingPid = IPCThreadState::self()->getCallingPid();
-    if (!com::android::media::audio::audioserver_permissions()) {
+    if (!audioserver_permissions()) {
         adjAttributionSource = input.clientInfo.attributionSource;
         const uid_t callingUid = IPCThreadState::self()->getCallingUid();
         uid_t clientUid = VALUE_OR_RETURN_STATUS(aidl2legacy_int32_t_uid_t(
@@ -1413,8 +1345,12 @@ status_t AudioFlinger::setMasterVolume(float value)
     }
 
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+    if (audioserver_permissions()) {
+        VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
 
     audio_utils::lock_guard _l(mutex());
@@ -1455,8 +1391,12 @@ status_t AudioFlinger::setMasterBalance(float balance)
     }
 
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+    if (audioserver_permissions()) {
+        VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
 
     // check range
@@ -1489,8 +1429,12 @@ status_t AudioFlinger::setMode(audio_mode_t mode)
     }
 
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+    if (audioserver_permissions()) {
+        VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
     if (uint32_t(mode) >= AUDIO_MODE_CNT) {
         ALOGW("Illegal value: setMode(%d)", mode);
@@ -1531,8 +1475,12 @@ status_t AudioFlinger::setMicMute(bool state)
     }
 
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+     if (audioserver_permissions()) {
+         VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
 
     audio_utils::lock_guard lock(hardwareMutex());
@@ -1601,8 +1549,12 @@ status_t AudioFlinger::setMasterMute(bool muted)
     }
 
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+    if (audioserver_permissions()) {
+        VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
 
     audio_utils::lock_guard _l(mutex());
@@ -1688,8 +1640,12 @@ status_t AudioFlinger::setStreamVolume(audio_stream_type_t stream, float value,
         bool muted, audio_io_handle_t output)
 {
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+    if (audioserver_permissions()) {
+        VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
 
     status_t status = checkStreamType(stream);
@@ -1816,8 +1772,12 @@ status_t AudioFlinger::getSoundDoseInterface(const sp<media::ISoundDoseCallback>
 status_t AudioFlinger::setStreamMute(audio_stream_type_t stream, bool muted)
 {
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+    if (audioserver_permissions()) {
+        VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
 
     status_t status = checkStreamType(stream);
@@ -1949,8 +1909,12 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             IPCThreadState::self()->getCallingPid(), IPCThreadState::self()->getCallingUid());
 
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+    if (audioserver_permissions()) {
+        VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
 
     String8 filteredKeyValuePairs = keyValuePairs;
@@ -2191,8 +2155,12 @@ status_t AudioFlinger::setVoiceVolume(float value)
     }
 
     // check calling permissions
-    if (!settingsAllowed()) {
-        return PERMISSION_DENIED;
+    if (audioserver_permissions()) {
+        VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+    } else {
+        if (!settingsAllowed()) {
+            return PERMISSION_DENIED;
+        }
     }
 
     audio_utils::lock_guard lock(hardwareMutex());
@@ -2347,6 +2315,12 @@ const IPermissionProvider& AudioFlinger::getPermissionProvider() {
     return mAudioPolicyServiceLocal.load()->getPermissionProvider();
 }
 
+bool AudioFlinger::isHardeningOverrideEnabled() const {
+    // This is inited as part of service construction, prior to binder registration,
+    // so it should always be non-null.
+    return mAudioPolicyServiceLocal.load()->isHardeningOverrideEnabled();
+}
+
 // removeClient_l() must be called with AudioFlinger::clientMutex() held
 void AudioFlinger::removeClient_l(pid_t pid)
 {
@@ -2405,44 +2379,6 @@ void AudioFlinger::NotificationClient::binderDied(const wp<IBinder>& who __unuse
     mAudioFlinger->removeNotificationClient(mPid);
 }
 
-// ----------------------------------------------------------------------------
-AudioFlinger::MediaLogNotifier::MediaLogNotifier()
-    : mPendingRequests(false) {}
-
-
-void AudioFlinger::MediaLogNotifier::requestMerge() {
-    audio_utils::lock_guard _l(mMutex);
-    mPendingRequests = true;
-    mCondition.notify_one();
-}
-
-bool AudioFlinger::MediaLogNotifier::threadLoop() {
-    // Should already have been checked, but just in case
-    if (sMediaLogService == 0) {
-        return false;
-    }
-    // Wait until there are pending requests
-    {
-        audio_utils::unique_lock _l(mMutex);
-        mPendingRequests = false; // to ignore past requests
-        while (!mPendingRequests) {
-            mCondition.wait(_l);
-            // TODO may also need an exitPending check
-        }
-        mPendingRequests = false;
-    }
-    // Execute the actual MediaLogService binder call and ignore extra requests for a while
-    sMediaLogService->requestMergeWakeup();
-    usleep(kPostTriggerSleepPeriod);
-    return true;
-}
-
-void AudioFlinger::requestLogMerge() {
-    mMediaLogNotifier->requestMerge();
-}
-
-// ----------------------------------------------------------------------------
-
 status_t AudioFlinger::createRecord(const media::CreateRecordRequest& _input,
                                     media::CreateRecordResponse& _output)
 {
@@ -2461,7 +2397,7 @@ status_t AudioFlinger::createRecord(const media::CreateRecordRequest& _input,
 
     AttributionSourceState adjAttributionSource;
     pid_t callingPid = IPCThreadState::self()->getCallingPid();
-    if (!com::android::media::audio::audioserver_permissions()) {
+    if (!audioserver_permissions()) {
         adjAttributionSource = input.clientInfo.attributionSource;
         bool updatePid = (adjAttributionSource.pid == -1);
         const uid_t callingUid = IPCThreadState::self()->getCallingUid();
@@ -2612,6 +2548,9 @@ status_t AudioFlinger::createRecord(const media::CreateRecordRequest& _input,
             audio_utils::lock_guard _l2(thread->mutex());
             thread->addEffectChain_l(chain);
         }
+        if (audioserver_flags::enable_gmap_mode()) {
+            setHasAlreadyCaptured_l(adjAttributionSource.uid);
+        }
         break;
     }
     // End of retry loop.
@@ -2647,6 +2586,26 @@ Exit:
 
 
 // ----------------------------------------------------------------------------
+
+void AudioFlinger::setHasAlreadyCaptured_l(uid_t uid) {
+    {
+        const std::lock_guard _l(mCapturingClientsMutex);
+        if (mCapturingClients.count(uid)) return;
+        mCapturingClients.emplace(uid);
+    }
+    for (size_t i = 0; i < mPlaybackThreads.size(); i++) {
+        IAfPlaybackThread* const playbackThread = mPlaybackThreads.valueAt(i).get();
+        playbackThread->checkUpdateTrackMetadataForUid(uid);
+    }
+    for (size_t i = 0; i < mMmapThreads.size(); i++) {
+        IAfMmapThread* const mmapThread = mMmapThreads.valueAt(i).get();
+        if (mmapThread->isOutput()) {
+            IAfMmapPlaybackThread* const mmapPlaybackThread =
+                    mmapThread->asIAfMmapPlaybackThread().get();
+            mmapPlaybackThread->checkUpdateTrackMetadataForUid(uid);
+        }
+    }
+}
 
 status_t AudioFlinger::getAudioPolicyConfig(media::AudioPolicyConfig *config)
 {
@@ -2694,9 +2653,19 @@ audio_module_handle_t AudioFlinger::loadHwModule(const char *name)
     if (name == NULL) {
         return AUDIO_MODULE_HANDLE_NONE;
     }
-    if (!settingsAllowed()) {
-        return AUDIO_MODULE_HANDLE_NONE;
+    if (audioserver_permissions()) {
+        const auto res = enforceCallingPermission(MODIFY_AUDIO_SETTINGS);
+        if (!res.ok()) {
+            ALOGE("Function: %s perm check result (%s)", __FUNCTION__,
+                  errorToString(res.error()).c_str());
+            return AUDIO_MODULE_HANDLE_NONE;
+        }
+    } else {
+        if (!settingsAllowed()) {
+            return AUDIO_MODULE_HANDLE_NONE;
+        }
     }
+
     audio_utils::lock_guard _l(mutex());
     audio_utils::lock_guard lock(hardwareMutex());
     AudioHwDevice* module = loadHwModule_ll(name);
@@ -3021,19 +2990,27 @@ status_t AudioFlinger::systemReady()
     return NO_ERROR;
 }
 
-sp<IAudioManager> AudioFlinger::getOrCreateAudioManager()
-{
-    if (mAudioManager.load() == nullptr) {
+sp<IAudioManager> AudioFlinger::getOrCreateAudioManager() {
+    sp<IAudioManager> iface = mAudioManager.load();
+    if (iface == nullptr) {
         // use checkService() to avoid blocking
-        sp<IBinder> binder =
-            defaultServiceManager()->checkService(String16(kAudioServiceName));
+        sp<IBinder> binder = defaultServiceManager()->checkService(String16(kAudioServiceName));
         if (binder != nullptr) {
-            mAudioManager = interface_cast<IAudioManager>(binder);
-        } else {
-            ALOGE("%s(): binding to audio service failed.", __func__);
+            iface = interface_cast<IAudioManager>(binder);
+            if (const auto native_iface = iface->getNativeInterface(); native_iface) {
+                mAudioManagerNative = std::move(native_iface);
+                mAudioManager.store(iface);
+            } else {
+                iface = nullptr;
+            }
         }
     }
-    return mAudioManager.load();
+    ALOGE_IF(iface == nullptr, "%s(): binding to audio service failed.", __func__);
+    return iface;
+}
+
+sp<media::IAudioManagerNative> AudioFlinger::getAudioManagerNative() const {
+    return mAudioManagerNative.load();
 }
 
 status_t AudioFlinger::getMicrophones(std::vector<media::MicrophoneInfoFw>* microphones) const
@@ -3855,20 +3832,11 @@ void AudioFlinger::dumpToThreadLog_l(const sp<IAfThreadBase> &thread)
 {
     constexpr int THREAD_DUMP_TIMEOUT_MS = 2;
     constexpr auto PREFIX = "- ";
-    if (com::android::media::audioserver::fdtostring_timeout_fix()) {
-        using ::android::audio_utils::FdToString;
+    using ::android::audio_utils::FdToString;
 
-        auto writer = OR_RETURN(FdToString::createWriter(PREFIX));
-        thread->dump(writer.borrowFdUnsafe(), {} /* args */);
-        mThreadLog.logs(-1 /* time */, FdToString::closeWriterAndGetString(std::move(writer)));
-    } else {
-        audio_utils::FdToStringOldImpl fdToString("- ", THREAD_DUMP_TIMEOUT_MS);
-        const int fd = fdToString.borrowFdUnsafe();
-        if (fd >= 0) {
-            thread->dump(fd, {} /* args */);
-            mThreadLog.logs(-1 /* time */, fdToString.closeAndGetString());
-        }
-    }
+    auto writer = OR_RETURN(FdToString::createWriter(PREFIX));
+    thread->dump(writer.borrowFdUnsafe(), {} /* args */);
+    mThreadLog.logs(-1 /* time */, FdToString::closeWriterAndGetString(std::move(writer)));
 }
 
 // checkThread_l() must be called with AudioFlinger::mutex() held
@@ -4302,7 +4270,7 @@ status_t AudioFlinger::createEffect(const media::CreateEffectRequest& request,
     status_t lStatus = NO_ERROR;
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     pid_t currentPid;
-    if (!com::android::media::audio::audioserver_permissions()) {
+    if (!audioserver_permissions()) {
         adjAttributionSource.uid = VALUE_OR_RETURN_STATUS(legacy2aidl_uid_t_int32_t(callingUid));
         currentPid = VALUE_OR_RETURN_STATUS(aidl2legacy_int32_t_pid_t(adjAttributionSource.pid));
         if (currentPid == -1 || !isAudioServerOrMediaServerOrSystemServerOrRootUid(callingUid)) {
@@ -4336,9 +4304,23 @@ status_t AudioFlinger::createEffect(const media::CreateEffectRequest& request,
         goto Exit;
     }
 
+    bool isSettingsAllowed;
+    if (audioserver_permissions()) {
+        const auto res = getPermissionProvider().checkPermission(
+                MODIFY_AUDIO_SETTINGS,
+                IPCThreadState::self()->getCallingUid());
+        if (!res.ok()) {
+            lStatus = statusTFromBinderStatus(res.error());
+            goto Exit;
+        }
+        isSettingsAllowed = res.value();
+    } else {
+        isSettingsAllowed = settingsAllowed();
+    }
+
     // check audio settings permission for global effects
     if (sessionId == AUDIO_SESSION_OUTPUT_MIX) {
-        if (!settingsAllowed()) {
+        if (!isSettingsAllowed) {
             ALOGE("%s: no permission for AUDIO_SESSION_OUTPUT_MIX", __func__);
             lStatus = PERMISSION_DENIED;
             goto Exit;
@@ -5273,26 +5255,6 @@ status_t AudioFlinger::onTransactWrapper(TransactionCode code,
                 return OK;
             }
         } break;
-        default:
-            break;
-    }
-
-    // List of relevant events that trigger log merging.
-    // Log merging should activate during audio activity of any kind. This are considered the
-    // most relevant events.
-    // TODO should select more wisely the items from the list
-    switch (code) {
-        case TransactionCode::CREATE_TRACK:
-        case TransactionCode::CREATE_RECORD:
-        case TransactionCode::SET_MASTER_VOLUME:
-        case TransactionCode::SET_MASTER_MUTE:
-        case TransactionCode::SET_MIC_MUTE:
-        case TransactionCode::SET_PARAMETERS:
-        case TransactionCode::CREATE_EFFECT:
-        case TransactionCode::SYSTEM_READY: {
-            requestLogMerge();
-            break;
-        }
         default:
             break;
     }

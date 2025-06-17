@@ -14,9 +14,12 @@
  * limitations under the License.
  */
 
+#include <thread>
+
 //#define LOG_NDEBUG 0
 #define LOG_TAG "AudioTrackTests"
 
+#include <android-base/logging.h>
 #include <binder/ProcessState.h>
 #include <gtest/gtest.h>
 
@@ -176,6 +179,108 @@ TEST(AudioTrackTest, TestAudioCbNotifier) {
     EXPECT_EQ(INVALID_OPERATION, ap->getAudioTrackHandle()->removeAudioDeviceCallback(cbOld));
     EXPECT_EQ(OK, ap->getAudioTrackHandle()->removeAudioDeviceCallback(cb));
     ap->stop();
+}
+
+class AudioTrackOffloadTest : public ::testing::Test {
+  protected:
+    void TearDown() override {
+        if (!IsSkipped()) {
+            // Let the offload AF stream to exit to avoid interfering with other tests.
+            std::this_thread::sleep_for(std::chrono::milliseconds(750));
+        }
+    }
+    bool halSupportsClipTransition() const;
+    void testPlayback(bool testDrainPause, sp<AudioPlayback>* outPlayback = nullptr);
+};
+
+bool AudioTrackOffloadTest::halSupportsClipTransition() const {
+    // TODO: Check for the HAL type (HIDL/AIDL) and version. HIDL and AIDL V4 should also
+    //       support this.
+    AudioParameter param;
+    param.addKey(String8(AudioParameter::keyClipTransitionSupport));
+    String8 values = AudioSystem::getParameters(AUDIO_IO_HANDLE_NONE, param.keysToString());
+    LOG(DEBUG) << __func__ << ": values \"" << values << "\"";
+    return !values.empty();
+}
+
+void AudioTrackOffloadTest::testPlayback(bool testDrainPause, sp<AudioPlayback>* outPlayback) {
+    audio_offload_info_t info = AUDIO_INFO_INITIALIZER;
+    info.sample_rate = 48000;
+    info.channel_mask = AUDIO_CHANNEL_OUT_STEREO;
+    info.format = AUDIO_FORMAT_APE;
+    info.stream_type = AUDIO_STREAM_MUSIC;
+    info.bit_rate = 236256;
+    info.duration_us = 120 * 1000000;  // 120 sec to ensure the offloading choice
+
+    if (AUDIO_OFFLOAD_NOT_SUPPORTED == AudioSystem::getOffloadSupport(info)) {
+        GTEST_SKIP() << "offload playback is not supported for "
+                     << audio_format_to_string(info.format);
+    }
+    auto ap = sp<AudioPlayback>::make(info.sample_rate, info.format, info.channel_mask,
+                                      AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD, AUDIO_SESSION_NONE,
+                                      AudioTrack::TRANSFER_OBTAIN, nullptr, &info);
+    ASSERT_EQ(OK, ap->loadResource("/data/local/tmp/sine960hz_48000_3s.ape"))
+            << "unable to open the media file";
+    ASSERT_EQ(OK, ap->create()) << "track creation failed";
+    ASSERT_EQ(OK, ap->start()) << "audio track start failed";
+    LOG(INFO) << __func__ << ": Started track";
+    EXPECT_EQ(OK, ap->onProcess());
+    LOG(INFO) << __func__ << ": onProcess done";
+    if (!outPlayback) {
+        ap->stop();
+        LOG(INFO) << __func__ << ": Stopped track";
+    }
+    if (testDrainPause) {
+        // Wait for draining to start, no event for this.
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        LOG(INFO) << __func__ << ": Pausing drain";
+        ap->pause();
+        LOG(INFO) << __func__ << ": Resuming drain";
+        ap->resume();
+    }
+    if (!outPlayback) {
+        LOG(INFO) << __func__ << ": Waiting for stream end";
+        EXPECT_TRUE(ap->waitForStreamEnd()) << "Did not receive onStreamEnd";
+    } else {
+        *outPlayback = std::move(ap);
+    }
+}
+
+TEST_F(AudioTrackOffloadTest, Completion) {
+    testPlayback(false /*testDrainPause*/);
+}
+
+TEST_F(AudioTrackOffloadTest, DrainPause) {
+    if (!halSupportsClipTransition()) {
+        // TODO: In theory, this should also work w/o having the proper clip transition
+        //       support, but as a fact it was not. Need to figure out why.
+        GTEST_SKIP() << "Proper indication of clip transition is not supported";
+    }
+    testPlayback(true /*testDrainPause*/);
+}
+
+// Similar to AudioTrackOffloadTest.testMultipleAudioTrackOffloadPreemption
+TEST_F(AudioTrackOffloadTest, ClipPreemption) {
+    if (!halSupportsClipTransition()) {
+        GTEST_SKIP() << "Proper indication of clip transition is not supported";
+    }
+    sp<AudioPlayback> trackOne, trackTwo;
+    {
+        SCOPED_TRACE("track 1");
+        LOG(INFO) << __func__ << ": Creating and starting track 1";
+        ASSERT_NO_FATAL_FAILURE(testPlayback(false /*testDrainPause*/, &trackOne));
+    }
+    {
+        SCOPED_TRACE("track 2");
+        // Wait for track 1 to start playing, no event for this.
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        LOG(INFO) << __func__ << ": Creating and starting track 2";
+        ASSERT_NO_FATAL_FAILURE(testPlayback(false /*testDrainPause*/, &trackTwo));
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        trackTwo->stop();
+    }
+    LOG(INFO) << __func__ << ": Waiting for stream end on track 2";
+    EXPECT_TRUE(trackTwo->waitForStreamEnd()) << "Did not receive onStreamEnd on track 2";
 }
 
 class AudioTrackCreateTest

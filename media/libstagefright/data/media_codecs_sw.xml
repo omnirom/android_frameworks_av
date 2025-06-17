@@ -420,12 +420,12 @@
             <Attribute name="software-codec" />
         </MediaCodec>
         <MediaCodec name="c2.android.apv.encoder" type="video/apv" enabled="false" minsdk="36" variant="!slow-cpu">
-            <Limit name="size" min="2x2" max="1920x1920" />
+            <Limit name="size" min="16x16" max="1920x1920" />
             <Limit name="alignment" value="2x2" />
             <Limit name="block-size" value="16x16" />
             <Limit name="block-count" range="1-32768" /> <!-- max 4096x2048 equivalent -->
             <Limit name="bitrate" range="1-240000000" />
-            <Feature name="bitrate-modes" value="VBR,CBR" />
+            <Feature name="bitrate-modes" value="VBR" />
             <Attribute name="software-codec" />
         </MediaCodec>
     </Encoders>

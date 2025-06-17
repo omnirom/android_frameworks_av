@@ -760,7 +760,9 @@ bool statsd_codec(const std::shared_ptr<const mediametrics::Item>& item,
         parseVector(judderScoreHistogramStr, &statsJudderScoreHistogram);
         std::vector<int32_t> statsJudderScoreHistogramBuckets;
         parseVector(judderScoreHistogramBucketsStr, &statsJudderScoreHistogramBuckets);
-        int result = stats_write(
+        int result = -1;
+        if (__builtin_available(android 33, *)) {
+          result = stats_write(
             MEDIA_CODEC_RENDERED,
             statsUid,
             statsCodecId,
@@ -794,6 +796,7 @@ bool statsd_codec(const std::shared_ptr<const mediametrics::Item>& item,
             statsJudderRate,
             statsJudderScoreHistogram,
             statsJudderScoreHistogramBuckets);
+        }
         ALOGE_IF(result < 0, "Failed to record MEDIA_CODEC_RENDERED atom (%d)", result);
     }
 
@@ -803,10 +806,13 @@ bool statsd_codec(const std::shared_ptr<const mediametrics::Item>& item,
         return false;
     }
     const stats::media_metrics::BytesField bf_serialized(serialized.c_str(), serialized.size());
-    const int result = stats::media_metrics::stats_write(stats::media_metrics::MEDIAMETRICS_CODEC_REPORTED,
+    int result = 0;
+    if (__builtin_available(android 33, *)) {
+        result = stats::media_metrics::stats_write(stats::media_metrics::MEDIAMETRICS_CODEC_REPORTED,
                                timestampNanos, packageName.c_str(), packageVersionCode,
                                mediaApexVersion,
                                bf_serialized);
+    }
 
     std::stringstream log;
     log << "result:" << result << " {"

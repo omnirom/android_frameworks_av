@@ -32,6 +32,16 @@
 
 namespace android {
 
+static int32_t SaturateDoubleToInt32(double d) {
+    if (d >= static_cast<double>(std::numeric_limits<int32_t>::max())) {
+        return std::numeric_limits<int32_t>::max();
+    } else if (d <= static_cast<double>(std::numeric_limits<int32_t>::min())) {
+        return std::numeric_limits<int32_t>::min();
+    } else {
+        return static_cast<int32_t>(d);
+    }
+}
+
 // VideoSize
 
 VideoSize::VideoSize(int32_t width, int32_t height) : mWidth(width), mHeight(height) {}
@@ -126,9 +136,10 @@ Rational Rational::scale(int32_t num, int32_t den) {
     int32_t common = std::gcd(num, den);
     num /= common;
     den /= common;
+    // ToDo: Reevaluate how to satureate double to int without drastically changing it.
     return Rational(
-            (int32_t)(mNumerator * (double)num),     // saturate to int
-            (int32_t)(mDenominator * (double)den));  // saturate to int
+            SaturateDoubleToInt32(mNumerator * (double)num),
+            SaturateDoubleToInt32(mDenominator * (double)den));
 }
 
 Range<Rational> Rational::ScaleRange(Range<Rational> range, int32_t num, int32_t den) {

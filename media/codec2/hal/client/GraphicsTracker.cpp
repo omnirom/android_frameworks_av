@@ -18,6 +18,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <gui/BufferItemConsumer.h>
+#include <gui/BufferQueue.h>
+#include <gui/Surface.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <private/android/AHardwareBufferHelpers.h>
 #include <vndk/hardware_buffer.h>
@@ -56,6 +59,82 @@ c2_status_t retrieveAHardwareBufferId(const C2ConstGraphicBlock &blk, uint64_t *
 }
 
 } // anonymous namespace
+
+using ::android::BufferQueue;
+using ::android::BufferItemConsumer;
+using ::android::ConsumerListener;
+using ::android::IConsumerListener;
+using ::android::IGraphicBufferProducer;
+using ::android::IGraphicBufferConsumer;
+using ::android::Surface;
+
+class GraphicsTracker::PlaceHolderSurface {
+public:
+    static const int kMaxAcquiredBuffer = 2;
+    // Enough number to allocate in stop/release status.
+    static const int kMaxDequeuedBuffer = 16;
+
+    explicit PlaceHolderSurface(uint64_t usage) : mUsage(usage) {}
+
+    ~PlaceHolderSurface() {
+        if (mInit == C2_NO_INIT) {
+            return;
+        }
+        if (mSurface) {
+            mSurface->disconnect(NATIVE_WINDOW_API_MEDIA);
+        }
+    }
+
+    c2_status_t allocate(uint32_t width, uint32_t height,
+            uint32_t format, uint64_t usage,
+            AHardwareBuffer **pBuf, sp<Fence> *fence) {
+        std::unique_lock<std::mutex> l(mLock);
+        if (mInit == C2_NO_INIT) {
+            mInit = init();
+        }
+
+        if (!mBufferItemConsumer || !mSurface) {
+            ALOGE("PlaceHolderSurface not properly initialized");
+            return C2_CORRUPTED;
+        }
+
+        native_window_set_usage(mSurface.get(), usage);
+        native_window_set_buffers_format(mSurface.get(), format);
+        native_window_set_buffers_dimensions(mSurface.get(), width, height);
+
+        ::android::status_t res;
+        std::vector<Surface::BatchBuffer> buffers(1);
+        res = mSurface->dequeueBuffers(&buffers);
+        if (res != ::android::OK) {
+            ALOGE("dequeueBuffers failed from PlaceHolderSurface %d", res);
+            return C2_CORRUPTED;
+        }
+        sp<GraphicBuffer> gb = GraphicBuffer::from(buffers[0].buffer);
+        *pBuf = AHardwareBuffer_from_GraphicBuffer(gb.get());
+        AHardwareBuffer_acquire(*pBuf);
+        *fence = new Fence(buffers[0].fenceFd);
+        return C2_OK;
+    }
+
+private:
+    uint64_t mUsage;
+    sp<Surface> mSurface;
+    sp<BufferItemConsumer> mBufferItemConsumer;
+    c2_status_t mInit = C2_NO_INIT;
+    std::mutex mLock;
+
+    c2_status_t init() {
+        std::tie(mBufferItemConsumer, mSurface) =
+                BufferItemConsumer::create(mUsage, kMaxAcquiredBuffer);
+
+        if (mSurface) {
+            mSurface->connect(NATIVE_WINDOW_API_MEDIA, nullptr);
+            mSurface->setMaxDequeuedBufferCount(kMaxDequeuedBuffer);
+        }
+        return C2_OK;
+    }
+};
+
 
 GraphicsTracker::BufferItem::BufferItem(
         uint32_t generation, int slot, const sp<GraphicBuffer>& buf, const sp<Fence>& fence) :
@@ -256,9 +335,13 @@ c2_status_t GraphicsTracker::configureGraphics(
     // to the old surface in MediaCodec and allocate from the new surface from
     // GraphicsTracker cannot be synchronized properly.
     uint64_t bqId{0ULL};
+    uint64_t bqUsage{0ULL};
     ::android::status_t ret = ::android::OK;
     if (igbp) {
         ret = igbp->getUniqueId(&bqId);
+        if (ret == ::android::OK) {
+            (void)igbp->getConsumerUsage(&bqUsage);
+        }
     }
     if (ret != ::android::OK ||
             prevCache->mGeneration == generation) {
@@ -287,7 +370,8 @@ c2_status_t GraphicsTracker::configureGraphics(
     }
     ALOGD("new surface configured with id:%llu gen:%lu maxDequeue:%d",
           (unsigned long long)bqId, (unsigned long)generation, prevDequeueCommitted);
-    std::shared_ptr<BufferCache> newCache = std::make_shared<BufferCache>(bqId, generation, igbp);
+    std::shared_ptr<BufferCache> newCache =
+            std::make_shared<BufferCache>(bqId, bqUsage, generation, igbp);
     {
         std::unique_lock<std::mutex> l(mLock);
         mInConfig = false;
@@ -500,6 +584,9 @@ void GraphicsTracker::onRequestStop() {
     }
     if (mStopRequested) {
         return;
+    }
+    if (mBufferCache && mBufferCache->mBqId != 0) {
+        mReleaseSurface.reset(new PlaceHolderSurface(mBufferCache->mUsage));
     }
     mStopRequested = true;
     writeIncDequeueableLocked(kMaxDequeueMax - 1);
@@ -764,9 +851,7 @@ c2_status_t GraphicsTracker::_allocateDirect(
         }
     }
 
-    int alloced = mAllocAfterStopRequested++;
     *rFence = Fence::NO_FENCE;
-    ALOGD("_allocateDirect() allocated %d buffer", alloced);
     return C2_OK;
 }
 
@@ -783,7 +868,14 @@ c2_status_t GraphicsTracker::allocate(
         std::unique_lock<std::mutex> l(mLock);
         if (mStopRequested) {
             l.unlock();
-            res = _allocateDirect(width, height, format, usage, buf, rFence);
+            if (mReleaseSurface) {
+                res = mReleaseSurface->allocate(width, height, format, usage, buf, rFence);
+            } else {
+                res = _allocateDirect(width, height, format, usage, buf, rFence);
+            }
+            if (res == C2_OK) {
+                ALOGD("allocateed %d buffer after stop", ++mAllocAfterStopRequested);
+            }
             // Delay a little bit for HAL to receive stop()/release() request.
             ::usleep(kAllocateDirectDelayUs);
             return res;

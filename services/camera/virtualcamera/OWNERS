@@ -1,4 +1,3 @@
 # Bug component: 1171888
 include platform/frameworks/base:/services/companion/java/com/android/server/companion/virtual/OWNERS
 caen@google.com
-jsebechlebsky@google.com

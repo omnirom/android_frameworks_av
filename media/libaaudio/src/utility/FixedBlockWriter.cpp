@@ -24,7 +24,7 @@ FixedBlockWriter::FixedBlockWriter(FixedBlockProcessor &fixedBlockProcessor)
         : FixedBlockAdapter(fixedBlockProcessor) {}
 
 
-int32_t FixedBlockWriter::writeToStorage(uint8_t *buffer, int32_t numBytes) {
+int32_t FixedBlockWriter::writeToStorage(const uint8_t *buffer, int32_t numBytes) {
     int32_t bytesToStore = numBytes;
     int32_t roomAvailable = mSize - mPosition;
     if (bytesToStore > roomAvailable) {
@@ -35,15 +35,17 @@ int32_t FixedBlockWriter::writeToStorage(uint8_t *buffer, int32_t numBytes) {
     return bytesToStore;
 }
 
-int32_t FixedBlockWriter::processVariableBlock(uint8_t *buffer, int32_t numBytes) {
+AdapterProcessResult FixedBlockWriter::processVariableBlock(uint8_t *buffer, int32_t numBytes) {
     int32_t result = 0;
     int32_t bytesLeft = numBytes;
+    int32_t bytesProcessed = 0;
 
     // If we already have data in storage then add to it.
     if (mPosition > 0) {
         int32_t bytesWritten = writeToStorage(buffer, bytesLeft);
         buffer += bytesWritten;
         bytesLeft -= bytesWritten;
+        bytesProcessed += bytesWritten;
         // If storage full then flush it out
         if (mPosition == mSize) {
             result = mFixedBlockProcessor.onProcessFixedBlock(mStorage.get(), mSize);
@@ -54,14 +56,19 @@ int32_t FixedBlockWriter::processVariableBlock(uint8_t *buffer, int32_t numBytes
     // Write through if enough for a complete block.
     while(bytesLeft > mSize && result == 0) {
         result = mFixedBlockProcessor.onProcessFixedBlock(buffer, mSize);
+        if (result != 0) {
+            break;
+        }
         buffer += mSize;
         bytesLeft -= mSize;
+        bytesProcessed += mSize;
     }
 
     // Save any remaining partial block for next time.
     if (bytesLeft > 0) {
         writeToStorage(buffer, bytesLeft);
+        bytesProcessed += bytesLeft;
     }
 
-    return result;
+    return {result, bytesProcessed};
 }

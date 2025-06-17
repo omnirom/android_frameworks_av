@@ -17,6 +17,8 @@
 // #define LOG_NDEBUG 0
 #define LOG_TAG "C2AllocatorBlob"
 
+#include <memory>
+#include <mutex>
 #include <set>
 
 #include <C2AllocatorBlob.h>

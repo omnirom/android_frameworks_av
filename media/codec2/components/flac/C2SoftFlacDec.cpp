@@ -112,6 +112,13 @@ C2SoftFlacDec::C2SoftFlacDec(
       mFLACDecoder(nullptr) {
 }
 
+C2SoftFlacDec::C2SoftFlacDec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftFlacDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftFlacDec::~C2SoftFlacDec() {
     onRelease();
 }

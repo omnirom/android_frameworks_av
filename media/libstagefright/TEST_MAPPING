@@ -79,11 +79,7 @@
     },
     {
       "name": "CtsMediaTranscodingTestCases"
-    }
-  ],
-  "postsubmit": [
-    // writerTest fails about 5 out of 66
-    // { "name": "writerTest" },
+    },
     {
         "name": "BatteryChecker_test"
     },
@@ -92,6 +88,14 @@
     },
     {
         "name": "HEVCUtilsUnitTest"
+    },
+    {
+      "name": "MctsMediaCodecTestCases",
+      "options": [
+        {
+          "include-annotation": "android.platform.test.annotations.Presubmit"
+        }
+      ]
     },
     {
       "name": "MctsMediaDecoderTestCases",
@@ -108,14 +112,10 @@
           "include-annotation": "android.platform.test.annotations.Presubmit"
         }
       ]
-    },
-    {
-      "name": "MctsMediaCodecTestCases",
-      "options": [
-        {
-          "include-annotation": "android.platform.test.annotations.Presubmit"
-        }
-      ]
     }
   ]
+  // "postsubmit": [
+  //   writerTest fails about 5 out of 66
+  //   { "name": "writerTest" },
+  // ]
 }

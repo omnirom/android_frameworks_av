@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_OPUS_DEC_H_
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 
 struct OpusMSDecoder;
@@ -29,6 +30,8 @@ struct C2SoftOpusDec : public SimpleC2Component {
 
     C2SoftOpusDec(const char *name, c2_node_id_t id,
                const std::shared_ptr<IntfImpl> &intfImpl);
+    C2SoftOpusDec(const char *name, c2_node_id_t id,
+               const std::shared_ptr<C2ReflectorHelper> &helper);
     virtual ~C2SoftOpusDec();
 
     // From SimpleC2Component

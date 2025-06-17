@@ -172,16 +172,11 @@ status_t Overlay::setup_l() {
         return UNKNOWN_ERROR;
     }
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mGlConsumer = new GLConsumer(mExtTextureName, GL_TEXTURE_EXTERNAL_OES, /*useFenceSync=*/true,
-                                 /*isControlledByApp=*/false);
-    mProducer = mGlConsumer->getSurface()->getIGraphicBufferProducer();
-#else
-    sp<IGraphicBufferConsumer> consumer;
-    BufferQueue::createBufferQueue(&mProducer, &consumer);
-    mGlConsumer = new GLConsumer(consumer, mExtTextureName,
-                GL_TEXTURE_EXTERNAL_OES, true, false);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+    sp<Surface> surface;
+    std::tie(mGlConsumer, surface) =
+            GLConsumer::create(mExtTextureName, GL_TEXTURE_EXTERNAL_OES, /*useFenceSync=*/true,
+                               /*isControlledByApp=*/false);
+    mProducer = surface->getIGraphicBufferProducer();
     mGlConsumer->setName(String8("virtual display"));
     mGlConsumer->setDefaultBufferSize(width, height);
     mProducer->setMaxDequeuedBufferCount(4);

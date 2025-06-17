@@ -113,7 +113,7 @@
                 <route type="mix" sink="Hdmi"
                        sources="primary output"/>
                 <route type="mix" sink="BT SCO"
-                       sources="mixport_bt_hfp_output,voip_rx"/>
+                       sources="mixport_bt_hfp_output,voip_rx,primary output"/>
                 <route type="mix" sink="mixport_bt_hfp_input"
                        sources="BT SCO Headset Mic"/>
                 <route type="mix" sink="BT A2DP Out"

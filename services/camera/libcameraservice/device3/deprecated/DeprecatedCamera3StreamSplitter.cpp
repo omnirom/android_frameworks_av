@@ -80,19 +80,28 @@ status_t DeprecatedCamera3StreamSplitter::connect(
         }
     }
 
-    // Create BufferQueue for input
-    BufferQueue::createBufferQueue(&mProducer, &mConsumer);
-
     // Allocate 1 extra buffer to handle the case where all buffers are detached
     // from input, and attached to the outputs. In this case, the input queue's
     // dequeueBuffer can still allocate 1 extra buffer before being blocked by
     // the output's attachBuffer().
     mMaxConsumerBuffers++;
-    mBufferItemConsumer = new BufferItemConsumer(mConsumer, consumerUsage, mMaxConsumerBuffers);
-    if (mBufferItemConsumer == nullptr) {
-        return NO_MEMORY;
+    BufferQueue::createBufferQueue(&mProducer, &mConsumer);
+    res = mConsumer->setConsumerName(toString8(mConsumerName));
+    if (res != OK) {
+        SP_LOGE("%s: Failed to set consumer name: %s(%d)", __FUNCTION__, strerror(-res), res);
+        return res;
     }
-    mConsumer->setConsumerName(toString8(mConsumerName));
+    res = mConsumer->setConsumerUsageBits(consumerUsage);
+    if (res != OK) {
+        SP_LOGE("%s: Failed to set consumer usage bits: %s(%d)", __FUNCTION__, strerror(-res), res);
+        return res;
+    }
+    res = mConsumer->setMaxAcquiredBufferCount(mMaxConsumerBuffers);
+    if (res != OK) {
+        SP_LOGE("%s: Failed to set consumer max acquired buffer count: %s(%d)", __FUNCTION__,
+                strerror(-res), res);
+        return res;
+    }
 
     *consumer = new Surface(mProducer);
     if (*consumer == nullptr) {
@@ -474,6 +483,12 @@ status_t DeprecatedCamera3StreamSplitter::attachBufferToOutputs(
         mMutex.unlock();
         res = gbp->attachBuffer(&slot, gb);
         mMutex.lock();
+        // During buffer attach 'mMutex' is not held which makes the removal of
+        //"gbp" possible. Check whether this is the case and continue.
+        if (gbp.get() == nullptr) {
+            res = OK;
+            continue;
+        }
         if (res != OK) {
             SP_LOGE("%s: Cannot attachBuffer from GraphicBufferProducer %p: %s (%d)", __FUNCTION__,
                     gbp.get(), strerror(-res), res);
@@ -484,11 +499,6 @@ status_t DeprecatedCamera3StreamSplitter::attachBufferToOutputs(
             SP_LOGE("%s: Slot received %d either bigger than expected maximum %d or negative!",
                     __FUNCTION__, slot, BufferQueue::NUM_BUFFER_SLOTS);
             return BAD_VALUE;
-        }
-        // During buffer attach 'mMutex' is not held which makes the removal of
-        //"gbp" possible. Check whether this is the case and continue.
-        if (mOutputSlots[gbp] == nullptr) {
-            continue;
         }
         auto& outputSlots = *mOutputSlots[gbp];
         if (static_cast<size_t>(slot + 1) > outputSlots.size()) {
@@ -526,7 +536,8 @@ void DeprecatedCamera3StreamSplitter::onFrameAvailable(const BufferItem& /*item*
     uint64_t bufferId;
     if (bufferItem.mGraphicBuffer != nullptr) {
         mInputSlots[bufferItem.mSlot] = bufferItem;
-    } else if (bufferItem.mAcquireCalled) {
+    } else if (bufferItem.mAcquireCalled
+            && (mInputSlots[bufferItem.mSlot].mGraphicBuffer != nullptr)) {
         bufferItem.mGraphicBuffer = mInputSlots[bufferItem.mSlot].mGraphicBuffer;
         mInputSlots[bufferItem.mSlot].mFrameNumber = bufferItem.mFrameNumber;
     } else {

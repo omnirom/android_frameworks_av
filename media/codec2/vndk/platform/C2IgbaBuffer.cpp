@@ -167,7 +167,10 @@ C2IgbaBlockPool::C2IgbaBlockPool(
         const std::shared_ptr<C2Allocator> &allocator,
         const std::shared_ptr<C2IGBA> &igba,
         ::android::base::unique_fd &&ufd,
-        const local_id_t localId) : mAllocator(allocator), mIgba(igba), mLocalId(localId) {
+        const bool blockFence,
+        const local_id_t localId) :
+                mAllocator(allocator), mIgba(igba),
+                mBlockFence(blockFence), mLocalId(localId) {
     if (!mIgba) {
         mValid = false;
         return;
@@ -190,7 +193,8 @@ c2_status_t C2IgbaBlockPool::fetchGraphicBlock(
     uint64_t origId;
     C2Fence fence;
     c2_status_t res = _fetchGraphicBlock(
-            width, height, format, usage, kBlockingFetchTimeoutNs, &origId, block, &fence);
+            width, height, format, usage, kBlockingFetchTimeoutNs, false,
+            &origId, block, &fence);
 
     if (res == C2_TIMED_OUT) {
         // SyncFence waiting timeout.
@@ -205,7 +209,8 @@ c2_status_t C2IgbaBlockPool::fetchGraphicBlock(
         uint32_t width, uint32_t height, uint32_t format, C2MemoryUsage usage,
         std::shared_ptr<C2GraphicBlock> *block, C2Fence *fence) {
     uint64_t origId;
-    c2_status_t res = _fetchGraphicBlock(width, height, format, usage, 0LL, &origId, block, fence);
+    c2_status_t res = _fetchGraphicBlock(
+            width, height, format, usage, 0LL, mBlockFence, &origId, block, fence);
     if (res == C2_TIMED_OUT) {
         *fence = C2Fence();
         return C2_BLOCKING;
@@ -216,6 +221,7 @@ c2_status_t C2IgbaBlockPool::fetchGraphicBlock(
 c2_status_t C2IgbaBlockPool::_fetchGraphicBlock(
         uint32_t width, uint32_t height, uint32_t format, C2MemoryUsage usage,
         c2_nsecs_t timeoutNs,
+        bool blockFence,
         uint64_t *origId,
         std::shared_ptr<C2GraphicBlock> *block,
         C2Fence *fence) {
@@ -263,32 +269,36 @@ c2_status_t C2IgbaBlockPool::_fetchGraphicBlock(
         C2Fence syncFence  = _C2FenceFactory::CreateSyncFence(allocation.fence.release());
         AHardwareBuffer *ahwb = allocation.buffer.release(); // This is acquired.
         CHECK(AHardwareBuffer_getId(ahwb, origId) == ::android::OK);
+        bool syncFenceSignaled = false;
 
-        // We are waiting for SyncFence here for backward compatibility.
-        // H/W based Sync Fence could be returned to improve pipeline latency.
-        //
-        // TODO: Add a component configuration for returning sync fence
-        // from fetchGraphicBlock() as the C2Fence output param(b/322283520).
-        // In the case C2_OK along with GraphicBlock must be returned together.
-        c2_status_t res = syncFence.wait(kSyncFenceWaitNs);
-        if (res != C2_OK) {
-            AHardwareBuffer_release(ahwb);
-            bool aidlRet = true;
-            ::ndk::ScopedAStatus status = mIgba->deallocate(*origId, &aidlRet);
-            ALOGE("Waiting a sync fence failed %d aidl(%d: %d)",
-                  res, status.isOk(), aidlRet);
-            return C2_TIMED_OUT;
+        if (!blockFence) {
+            // If a sync fence is not supposed to return along with a block,
+            // We are waiting for SyncFence here for backward compatibility.
+            c2_status_t res = syncFence.wait(kSyncFenceWaitNs);
+            if (res != C2_OK) {
+                AHardwareBuffer_release(ahwb);
+                bool aidlRet = true;
+                ::ndk::ScopedAStatus status = mIgba->deallocate(*origId, &aidlRet);
+                ALOGE("Waiting a sync fence failed %d aidl(%d: %d)",
+                      res, status.isOk(), aidlRet);
+                return C2_TIMED_OUT;
+            }
+            syncFenceSignaled = true;
         }
 
-        res = CreateGraphicBlockFromAhwb(ahwb, mAllocator, mIgba, block);
+        c2_status_t res = CreateGraphicBlockFromAhwb(ahwb, mAllocator, mIgba, block);
         AHardwareBuffer_release(ahwb);
         if (res != C2_OK) {
             bool aidlRet = true;
             ::ndk::ScopedAStatus status = mIgba->deallocate(*origId, &aidlRet);
             ALOGE("We got AHWB via AIDL but failed to created C2GraphicBlock err(%d) aidl(%d, %d)",
                   res, status.isOk(), aidlRet);
+            return res;
         }
-        return res;
+        if (!syncFenceSignaled) {
+            *fence = syncFence;
+        }
+        return C2_OK;
     } else {
         return C2_OMITTED;
     }

@@ -19,8 +19,11 @@
 #include <utils/Log.h>
 
 #include <media/stagefright/foundation/AMessage.h>
+#include "media/stagefright/foundation/AString.h"
 #include <media/stagefright/MediaCodecListWriter.h>
 #include <media/MediaCodecInfo.h>
+
+#include <string>
 
 namespace android {
 
@@ -56,8 +59,52 @@ void MediaCodecListWriter::writeGlobalSettings(
 
 void MediaCodecListWriter::writeCodecInfos(
         std::vector<sp<MediaCodecInfo>> *codecInfos) const {
+    // Since the introduction of the NDK MediaCodecList API, each
+    // MediaCodecInfo object can only support a single media type, so infos that
+    // support multiple media types are split into multiple infos.
+    // This process may result in name collisions that are handled here.
+
+    // Prefer codec names that already support a single media type
+    // and also any existing aliases. If an alias matches an existing
+    // codec name, it is ignored, which is the right behavior.
+    std::set<std::string> reservedNames;
     for (const sp<MediaCodecInfo> &info : mCodecInfos) {
-        codecInfos->push_back(info);
+        Vector<AString> mediaTypes;
+        info->getSupportedMediaTypes(&mediaTypes);
+        if (mediaTypes.size() == 1) {
+            reservedNames.insert(info->getCodecName());
+        }
+        Vector<AString> aliases;
+        info->getAliases(&aliases);
+        for (const AString &alias : aliases) {
+            reservedNames.insert(alias.c_str());
+        }
+    }
+
+    for (const sp<MediaCodecInfo> &info : mCodecInfos) {
+        Vector<AString> mediaTypes;
+        info->getSupportedMediaTypes(&mediaTypes);
+        if (mediaTypes.size() == 1) {
+            codecInfos->push_back(info);
+        } else {
+            // disambiguate each type
+            for (const AString &mediaType : mediaTypes) {
+                // get the type name after the first slash (if exists)
+                ssize_t slashPosition = mediaType.find("/");
+                const char *typeName = mediaType.c_str() + (slashPosition + 1);
+
+                // find a unique name for the split codec info starting with "<name>.<type>"
+                AString newName = AStringPrintf("%s.%s", info->getCodecName(), typeName);
+                std::string newNameStr = newName.c_str();
+                // append increasing suffix of the form ".<number>" until a unique name is found
+                for (size_t ix = 1; reservedNames.count(newNameStr) > 0; ++ix) {
+                    newNameStr = AStringPrintf("%s.%zu", newName.c_str(), ix).c_str();
+                }
+
+                codecInfos->push_back(info->splitOutType(mediaType.c_str(), newNameStr.c_str()));
+                reservedNames.insert(newNameStr);
+            }
+        }
     }
 }
 

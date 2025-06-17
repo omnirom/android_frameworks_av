@@ -72,13 +72,16 @@ bool statsd_mediadrm(const std::shared_ptr<const mediametrics::Item>& item,
     // This field is not used anymore.
     const std::string  kUnusedField("");
     const stats::media_metrics::BytesField bf_serialized(kUnusedField.c_str(), kUnusedField.size());
-    const int result = stats::media_metrics::stats_write(
+    int result = 0;
+    if (__builtin_available(android 33, *)) {
+      result = stats::media_metrics::stats_write(
         stats::media_metrics::MEDIAMETRICS_MEDIADRM_REPORTED,
         timestamp_nanos, package_name.c_str(), package_version_code,
         media_apex_version,
         vendor.c_str(),
         description.c_str(),
         bf_serialized);
+    }
 
     std::stringstream log;
     log << "result:" << result << " {"

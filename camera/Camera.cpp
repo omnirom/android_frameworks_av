@@ -26,8 +26,6 @@
 #include <Camera.h>
 #include <android/hardware/ICameraService.h>
 #include <android/hardware/ICamera.h>
-
-#include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
 
 namespace android {

@@ -178,30 +178,39 @@ camera_status_t ACameraCaptureSession_abortCaptures(ACameraCaptureSession* sessi
 
 EXPORT
 camera_status_t ACameraCaptureSessionShared_startStreaming(
-    ACameraCaptureSession* /*session*/, ACameraCaptureSession_captureCallbacksV2* /*callbacks*/,
-    int /*numOutputWindows*/, ANativeWindow** /*window*/,
-    int* /*captureSequenceId*/) {
+    ACameraCaptureSession* session,
+    /*optional*/ACameraCaptureSession_captureCallbacksV2* callbacks,
+    int numOutputWindows, ANativeWindow** windows,
+    /*optional*/int* captureSequenceId) {
     ATRACE_CALL();
-    // Todo: need to add implementation
-    return  ACAMERA_OK;
+    return startStreamingTemplate(session, callbacks, numOutputWindows, windows,
+            captureSequenceId);
 }
 
 EXPORT
 camera_status_t ACameraCaptureSessionShared_logicalCamera_startStreaming(
-    ACameraCaptureSession* /*session*/,
-    ACameraCaptureSession_logicalCamera_captureCallbacksV2* /*callbacks*/,
-    int /*numOutputWindows*/, ANativeWindow** /*windows*/,
-    int* /*captureSequenceId*/) {
+    ACameraCaptureSession* session,
+    /*optional*/ACameraCaptureSession_logicalCamera_captureCallbacksV2* callbacks,
+    int numOutputWindows, ANativeWindow** windows,
+    /*optional*/int* captureSequenceId) {
     ATRACE_CALL();
-    // Todo: need to add implementation
-    return  ACAMERA_OK;
+    return  startStreamingTemplate(session, callbacks, numOutputWindows, windows,
+            captureSequenceId);
 }
 
 EXPORT
-camera_status_t ACameraCaptureSessionShared_stopStreaming(ACameraCaptureSession* /*session*/) {
+camera_status_t ACameraCaptureSessionShared_stopStreaming(ACameraCaptureSession* session) {
     ATRACE_CALL();
-    // Todo: need to add implementation
-    return  ACAMERA_OK;
+    if (session == nullptr) {
+        ALOGE("%s: Error: session is null", __FUNCTION__);
+        return ACAMERA_ERROR_INVALID_PARAMETER;
+    }
+
+    if (session->isClosed()) {
+        ALOGE("%s: session %p is already closed", __FUNCTION__, session);
+        return ACAMERA_ERROR_SESSION_CLOSED;
+    }
+    return session->stopStreaming();
 }
 
 EXPORT

@@ -60,6 +60,7 @@ public:
 
     CCodecConfigTest()
         : mReflector{std::make_shared<C2ReflectorHelper>()} {
+          initializeSystemResources();
     }
 
     void init(
@@ -68,7 +69,8 @@ public:
             const char *mediaType) {
         sp<hardware::media::c2::V1_0::utils::CachedConfigurable> cachedConfigurable =
             new hardware::media::c2::V1_0::utils::CachedConfigurable(
-                    std::make_unique<Configurable>(mReflector, domain, kind, mediaType));
+                    std::make_unique<Configurable>(mReflector, domain, kind, mediaType,
+                                                   mSystemResources, mExcludedResources));
         cachedConfigurable->init(std::make_shared<Cache>());
         mConfigurable = std::make_shared<Codec2Client::Configurable>(cachedConfigurable);
     }
@@ -85,9 +87,11 @@ public:
                 const std::shared_ptr<C2ReflectorHelper> &reflector,
                 C2Component::domain_t domain,
                 C2Component::kind_t kind,
-                const char *mediaType)
+                const char *mediaType,
+                const std::vector<C2SystemResourceStruct>& systemResources,
+                const std::vector<C2SystemResourceStruct>& excludedResources)
             : ConfigurableC2Intf("name", 0u),
-              mImpl(reflector, domain, kind, mediaType) {
+              mImpl(reflector, domain, kind, mediaType, systemResources, excludedResources) {
         }
 
         c2_status_t query(
@@ -121,7 +125,9 @@ public:
             Impl(const std::shared_ptr<C2ReflectorHelper> &reflector,
                     C2Component::domain_t domain,
                     C2Component::kind_t kind,
-                    const char *mediaType)
+                    const char *mediaType,
+                    const std::vector<C2SystemResourceStruct>& systemResources,
+                    const std::vector<C2SystemResourceStruct>& excludedResources)
                 : C2InterfaceHelper{reflector} {
 
                 setDerivedInstance(this);
@@ -210,6 +216,32 @@ public:
                         .withSetter(Setter<C2StreamPixelAspectRatioInfo::output>)
                         .build());
 
+                // Add System Resource Capacity
+                addParameter(
+                    DefineParam(mResourcesCapacity, C2_PARAMKEY_RESOURCES_CAPACITY)
+                    .withDefault(C2ResourcesCapacityTuning::AllocShared(
+                            systemResources.size(), systemResources))
+                    .withFields({
+                            C2F(mResourcesCapacity, m.values[0].id).any(),
+                            C2F(mResourcesCapacity, m.values[0].kind).any(),
+                            C2F(mResourcesCapacity, m.values[0].amount).any(),
+                    })
+                    .withSetter(Setter<C2ResourcesCapacityTuning>)
+                    .build());
+
+                // Add Excluded System Resources
+                addParameter(
+                    DefineParam(mResourcesExcluded, C2_PARAMKEY_RESOURCES_EXCLUDED)
+                    .withDefault(C2ResourcesExcludedTuning::AllocShared(
+                            excludedResources.size(), excludedResources))
+                    .withFields({
+                            C2F(mResourcesExcluded, m.values[0].id).any(),
+                            C2F(mResourcesExcluded, m.values[0].kind).any(),
+                            C2F(mResourcesExcluded, m.values[0].amount).any(),
+                    })
+                    .withSetter(Setter<C2ResourcesExcludedTuning>)
+                    .build());
+
                 if (isEncoder) {
                     addParameter(
                             DefineParam(mInputBitrate, C2_PARAMKEY_BITRATE)
@@ -273,6 +305,8 @@ public:
             std::shared_ptr<C2StreamProfileLevelInfo::input> mInputProfileLevel;
             std::shared_ptr<C2StreamProfileLevelInfo::output> mOutputProfileLevel;
             std::shared_ptr<C2StreamQpOffsetRects::output> mInputQpOffsetRects;
+            std::shared_ptr<C2ResourcesCapacityTuning> mResourcesCapacity;
+            std::shared_ptr<C2ResourcesExcludedTuning> mResourcesExcluded;
 
             template<typename T>
             static C2R Setter(bool, C2P<T> &) {
@@ -292,6 +326,51 @@ public:
     std::shared_ptr<C2ReflectorHelper> mReflector;
     std::shared_ptr<Codec2Client::Configurable> mConfigurable;
     CCodecConfig mConfig;
+
+    /*
+     * This test tracks two system resources:
+     *  - max instance limit, which is capped at 64
+     *  - max pixel count: up to 4 instances of 4K ==> 4 * 3840 * 2400
+     *
+     *  These 2 resource types are given 2 different ids as below.
+     */
+    void initializeSystemResources() {
+        // max instance limit 64
+        const uint32_t kMaxInstanceCount = 0x1000;
+        // max pixel count: up to 4 instances of 4K
+        const uint32_t kMaxPixelCount = 0x1001;
+        mSystemResources.push_back(C2SystemResourceStruct(kMaxInstanceCount, CONST, 64));
+        mSystemResources.push_back(C2SystemResourceStruct(kMaxPixelCount, CONST, 4 * 3840 * 2400));
+
+        // Nothing is excluded, but lets just add them with amount as 0.
+        mExcludedResources.push_back(C2SystemResourceStruct(kMaxInstanceCount, CONST, 0));
+        mExcludedResources.push_back(C2SystemResourceStruct(kMaxPixelCount, CONST, 0));
+    }
+
+    bool validateSystemResources(const std::vector<C2SystemResourceStruct>& resources) const {
+        if (resources.size() != mSystemResources.size()) {
+            return false;
+        }
+
+        for (const auto& resource : mSystemResources) {
+            auto found = std::find_if(resources.begin(),
+                                      resources.end(),
+                                      [resource](const C2SystemResourceStruct& item) {
+                                          return (item.id == resource.id &&
+                                                  item.kind == resource.kind &&
+                                                  item.amount == resource.amount); });
+
+            if (found == resources.end()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+private:
+    std::vector<C2SystemResourceStruct> mSystemResources;
+    std::vector<C2SystemResourceStruct> mExcludedResources;
 };
 
 using D = CCodecConfig::Domain;
@@ -705,6 +784,96 @@ TEST_F(CCodecConfigTest, SetRegionOfInterestParams) {
         EXPECT_EQ(bottom[i] - top[i], qpRectParam->m.values[i].height)
                 << "height for index " << i << " is not as expected ";
     }
+}
+
+static
+c2_status_t queryGlobalResources(std::shared_ptr<Codec2Client::Configurable>& configurable,
+                                 std::vector<C2SystemResourceStruct>& resources) {
+    std::vector<std::unique_ptr<C2Param>> heapParams;
+    c2_status_t c2err = configurable->query(
+            {},
+            {C2ResourcesCapacityTuning::PARAM_TYPE, C2ResourcesExcludedTuning::PARAM_TYPE},
+            C2_MAY_BLOCK, &heapParams);
+
+    if (c2err == C2_OK && heapParams.size() == 2u) {
+        // Construct Globally available resources now.
+        // Get the total capacity first.
+        const C2ResourcesCapacityTuning* systemCapacity =
+                C2ResourcesCapacityTuning::From(heapParams[0].get());
+        if (systemCapacity && *systemCapacity) {
+            for (size_t i = 0; i < systemCapacity->flexCount(); ++i) {
+                resources.push_back(systemCapacity->m.values[i]);
+                ALOGI("System Resource[%zu]{%u %d %jd}", i,
+                      systemCapacity->m.values[i].id,
+                      systemCapacity->m.values[i].kind,
+                      systemCapacity->m.values[i].amount);
+            }
+        } else {
+            ALOGE("Failed to get C2ResourcesCapacityTuning");
+            return C2_BAD_VALUE;
+        }
+
+        // Get the excluded resource info.
+        // The available resource should exclude this, if there are any.
+        const C2ResourcesExcludedTuning* systemExcluded =
+                C2ResourcesExcludedTuning::From(heapParams[1].get());
+        if (systemExcluded && *systemExcluded) {
+            for (size_t i = 0; i < systemExcluded->flexCount(); ++i) {
+                const C2SystemResourceStruct& resource =
+                    systemExcluded->m.values[i];
+                ALOGI("Excluded Resource[%zu]{%u %d %jd}", i,
+                      resource.id, resource.kind, resource.amount);
+                uint64_t excluded = (resource.kind == CONST) ? resource.amount : 0;
+                auto found = std::find_if(resources.begin(),
+                                          resources.end(),
+                                          [resource](const C2SystemResourceStruct& item) {
+                                              return item.id == resource.id; });
+
+                if (found != resources.end()) {
+                    // Take off excluded resources from available resources.
+                    if (found->amount >= excluded) {
+                        found->amount -= excluded;
+                    } else {
+                       ALOGE("Excluded resources(%jd) can't be more than Available resources(%jd)",
+                             excluded, found->amount);
+                       return C2_BAD_VALUE;
+                    }
+                } else {
+                    ALOGE("Failed to find the resource [%u]", resource.id);
+                    return C2_BAD_VALUE;
+                }
+            }
+        } else {
+            ALOGE("Failed to get C2ResourcesExcludedTuning");
+            return C2_BAD_VALUE;
+        }
+
+    } else if (c2err == C2_OK) {
+        ALOGE("Expected query results for 2 params, but got %zu", heapParams.size());
+        return C2_BAD_VALUE;
+    } else {
+        ALOGE("Failed to query component store for system resources: %d", c2err);
+        return c2err;
+    }
+
+    size_t index = 0;
+    for (const auto& resource : resources) {
+        ALOGI("Globally Available System Resource[%zu]{%u %d %jd}", index++,
+              resource.id, resource.kind, resource.amount);
+    }
+    return c2err;
+}
+
+TEST_F(CCodecConfigTest, QuerySystemResources) {
+    init(C2Component::DOMAIN_VIDEO, C2Component::KIND_DECODER, MIMETYPE_VIDEO_AVC);
+
+    ASSERT_EQ(OK, mConfig.initialize(mReflector, mConfigurable));
+
+    std::vector<C2SystemResourceStruct> resources;
+    ASSERT_EQ(C2_OK, queryGlobalResources(mConfigurable, resources));
+
+    // Make sure that what we got from the query is the same as what was added.
+    ASSERT_TRUE(validateSystemResources(resources));
 }
 
 } // namespace android

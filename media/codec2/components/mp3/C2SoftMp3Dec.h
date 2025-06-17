@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_MP3_DEC_H_
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 
 struct tPVMP3DecoderExternal;
@@ -35,6 +36,8 @@ struct C2SoftMP3 : public SimpleC2Component {
 
     C2SoftMP3(const char *name, c2_node_id_t id,
               const std::shared_ptr<IntfImpl> &intfImpl);
+    C2SoftMP3(const char *name, c2_node_id_t id,
+              const std::shared_ptr<C2ReflectorHelper> &helper);
     virtual ~C2SoftMP3();
 
     // From SimpleC2Component

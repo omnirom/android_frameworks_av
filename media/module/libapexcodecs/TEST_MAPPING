@@ -1,0 +1,7 @@
+{
+  "postsubmit": [
+    {
+      "name": "libcom.android.media.swcodec.apexcodecs-tests"
+    }
+  ]
+}

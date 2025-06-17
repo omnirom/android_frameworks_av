@@ -185,11 +185,23 @@ const engineConfig::VolumeGroups gSystemVolumeGroups = {
     }
 };
 
+const engineConfig::VolumeGroups gDefaultVolumeGroups = {
+    {"AUDIO_STREAM_MUSIC", 0, 15,
+     {
+        {"DEVICE_CATEGORY_SPEAKER", {{0,0}, {100, 15}}},
+        {"DEVICE_CATEGORY_HEADSET", {{0,0}, {100, 15}}},
+        {"DEVICE_CATEGORY_EARPIECE", {{0,0}, {100, 15}}},
+        {"DEVICE_CATEGORY_EXT_MEDIA", {{0,0}, {100, 15}}},
+        {"DEVICE_CATEGORY_HEARING_AID", {{0,0}, {100, 15}}},
+     }
+    },
+};
+
 const engineConfig::Config gDefaultEngineConfig = {
     1.0,
     gOrderedStrategies,
     {},
     {},
-    {}
+    {},
 };
 } // namespace android

@@ -21,6 +21,7 @@
 #include <gui/Surface.h>
 #include <gui/SurfaceComposerClient.h>
 #include <gui/view/Surface.h>
+#include <gui/Flags.h>  // remove with WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
 #include "camera2common.h"
 
 using namespace std;
@@ -90,9 +91,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
                 sp<Surface> surface = surfaceControl->getSurface();
                 captureRequest->mSurfaceList.push_back(surface);
                 if (fdp.ConsumeBool()) {
+#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+                    view::Surface surfaceShim = view::Surface::fromSurface(surface);
+#else
                     view::Surface surfaceShim;
-                    surfaceShim.name = String16((fdp.ConsumeRandomLengthString()).c_str());
                     surfaceShim.graphicBufferProducer = surface->getIGraphicBufferProducer();
+#endif
+                    surfaceShim.name = String16((fdp.ConsumeRandomLengthString()).c_str());
                     surfaceShim.writeToParcel(&parcelCamCaptureReq);
                 }
                 surface.clear();

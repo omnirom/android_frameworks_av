@@ -25,8 +25,7 @@ using namespace android;
 using namespace android::audioflinger;
 
 namespace {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wenum-constexpr-conversion"
+
 TEST(MediaSyncEventTests, Basic) {
     struct Cookie : public RefBase {};
 
@@ -67,5 +66,5 @@ TEST(MediaSyncEventTests, Basic) {
     syncEvent->cancel();
     ASSERT_TRUE(syncEvent->isCancelled());
 }
-#pragma clang diagnostic pop
+
 } // namespace

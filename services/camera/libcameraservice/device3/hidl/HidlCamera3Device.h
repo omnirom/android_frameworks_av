@@ -35,9 +35,9 @@ class HidlCamera3Device :
         std::shared_ptr<CameraServiceProxyWrapper>& cameraServiceProxyWrapper,
         std::shared_ptr<AttributionAndPermissionUtils> attributionAndPermissionUtils,
         const std::string& id, bool overrideForPerfClass, int rotationOverride,
-        bool legacyClient = false) :
+        bool isVendorClient, bool legacyClient = false) :
         Camera3Device(cameraServiceProxyWrapper, attributionAndPermissionUtils, id,
-                overrideForPerfClass, rotationOverride, legacyClient) { }
+                overrideForPerfClass, rotationOverride, isVendorClient, legacyClient) { }
 
     virtual ~HidlCamera3Device() {}
 
@@ -62,6 +62,8 @@ class HidlCamera3Device :
             hardware::camera::device::V3_2::BufferUsageFlags usage);
 
     status_t initialize(sp<CameraProviderManager> manager, const std::string& monitorTags) override;
+
+    virtual int32_t getCaptureResultFMQSize() override;
 
     /**
      * Implementation of android::hardware::camera::device::V3_5::ICameraDeviceCallback

@@ -86,7 +86,7 @@ bool AidlCameraService::registerService(::android::CameraService* cameraService)
 
 AidlCameraService::AidlCameraService(::android::CameraService* cameraService):
       mCameraService(cameraService) {
-    mVndkVersion = getVNDKVersionFromProp(__ANDROID_API_FUTURE__);
+    mVndkVersion = getVNDKVersion();
 }
 ScopedAStatus AidlCameraService::getCameraCharacteristics(const std::string& in_cameraId,
                                                           SCameraMetadata* _aidl_return) {
@@ -282,16 +282,6 @@ SStatus AidlCameraService::addListenerInternal(
         ALOGE("%s: Unable to add camera device status listener", __FUNCTION__);
         return convertToAidl(serviceRet);
     }
-
-    cameraStatusAndIds->erase(std::remove_if(cameraStatusAndIds->begin(),
-                                             cameraStatusAndIds->end(),
-            [this](const hardware::CameraStatus& s) {
-                bool supportsHAL3 = false;
-                binder::Status sRet =
-                            mCameraService->supportsCameraApi(s.cameraId,
-                                    UICameraService::API_VERSION_2, &supportsHAL3);
-                return !sRet.isOk() || !supportsHAL3;
-            }), cameraStatusAndIds->end());
 
     return SStatus::NO_ERROR;
 }

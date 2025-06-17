@@ -19,6 +19,7 @@
 #define LOG_TAG "EffectHalAidl"
 //#define LOG_NDEBUG 0
 
+#include <algorithm>
 #include <memory>
 
 #include <audio_utils/primitives.h>
@@ -63,7 +64,9 @@ using ::aidl::android::hardware::audio::effect::kEventFlagDataMqNotEmpty;
 using ::aidl::android::hardware::audio::effect::kEventFlagDataMqUpdate;
 using ::aidl::android::hardware::audio::effect::kEventFlagNotEmpty;
 using ::aidl::android::hardware::audio::effect::kReopenSupportedVersion;
+using ::aidl::android::hardware::audio::effect::Parameter;
 using ::aidl::android::hardware::audio::effect::State;
+using ::aidl::android::media::audio::common::AudioDeviceDescription;
 
 namespace android {
 namespace effect {
@@ -386,6 +389,25 @@ status_t EffectHalAidl::close() {
 status_t EffectHalAidl::dump(int fd) {
     TIME_CHECK();
     return mEffect->dump(fd, nullptr, 0);
+}
+
+status_t EffectHalAidl::setDevices(const AudioDeviceTypeAddrVector& deviceTypes) {
+    TIME_CHECK();
+
+    // TODO: b/397236443 - add this as part of effect dumpsys
+    ALOGD("%s %s", __func__,
+          dumpAudioDeviceTypeAddrVector(deviceTypes, false /*includeSensitiveInfo*/).c_str());
+
+    std::vector<AudioDeviceDescription> deviceDescs;
+    for (const AudioDeviceTypeAddr& deviceType : deviceTypes) {
+        AudioDeviceDescription deviceDesc = VALUE_OR_RETURN_STATUS(
+                ::aidl::android::legacy2aidl_audio_devices_t_AudioDeviceDescription(
+                        deviceType.mType));
+        deviceDescs.emplace_back(std::move(deviceDesc));
+    }
+
+    return statusTFromBinderStatus(
+            mEffect->setParameter(Parameter::make<Parameter::deviceDescription>(deviceDescs)));
 }
 
 } // namespace effect

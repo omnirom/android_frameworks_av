@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_XAAC_DEC_H_
 #include <utils/Vector.h>
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 #include "ixheaacd_type_def.h"
 #include "ixheaacd_error_standards.h"
@@ -49,6 +50,8 @@ struct C2SoftXaacDec : public SimpleC2Component {
 
     C2SoftXaacDec(const char* name, c2_node_id_t id,
                const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftXaacDec(const char* name, c2_node_id_t id,
+               const std::shared_ptr<C2ReflectorHelper>& helper);
     virtual ~C2SoftXaacDec();
 
     // From SimpleC2Component

@@ -619,6 +619,11 @@ C2SoftAvcEnc::C2SoftAvcEnc(
     initEncParams();
 }
 
+C2SoftAvcEnc::C2SoftAvcEnc(
+        const char *name, c2_node_id_t id, const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftAvcEnc(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftAvcEnc::~C2SoftAvcEnc() {
     onRelease();
 }

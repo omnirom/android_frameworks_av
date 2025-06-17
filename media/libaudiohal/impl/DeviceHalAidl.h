@@ -265,6 +265,7 @@ class DeviceHalAidl : public DeviceHalInterface, public ConversionHelperAidl,
     Hal2AidlMapper mMapper GUARDED_BY(mLock);
     LockedAccessor<Hal2AidlMapper> mMapperAccessor;
     Microphones mMicrophones GUARDED_BY(mLock);
+    bool mHasClipTransitionSupport = false;
 };
 
 } // namespace android

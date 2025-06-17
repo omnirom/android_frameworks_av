@@ -45,8 +45,11 @@ public:
             wp<hardware::camera2::ICameraDeviceCallbacks> cb);
     ~HeicCompositeStream() override;
 
-    static bool isHeicCompositeStream(const sp<Surface> &surface);
-    static bool isHeicCompositeStreamInfo(const OutputStreamInfo& streamInfo);
+    static bool isHeicCompositeStream(const sp<Surface>& surface, bool isCompositeHeicDisabled,
+                                      bool isCompositeHeicUltraHDRDisabled);
+    static bool isHeicCompositeStreamInfo(const OutputStreamInfo& streamInfo,
+                                          bool isCompositeHeicDisabled,
+                                          bool isCompositeHeicUltraHDRDisabled);
 
     status_t createInternalStreams(const std::vector<SurfaceHolder>& consumers,
             bool hasDeferredConsumer, uint32_t width, uint32_t height, int format,
@@ -89,7 +92,7 @@ public:
     static bool isInMemoryTempFileSupported();
 
     // HDR Gainmap subsampling
-    static const size_t kGainmapScale = 4;
+    static constexpr size_t kGainmapScale = 4;
 
 protected:
 
@@ -145,9 +148,9 @@ private:
     size_t            mGridRows, mGridCols, mGainmapGridRows, mGainmapGridCols;
     bool              mUseGrid, mGainmapUseGrid; // Whether to use framework YUV frame tiling.
 
-    static const int64_t kNoFrameDropMaxPtsGap = -1000000;
-    static const int32_t kNoGridOpRate = 30;
-    static const int32_t kGridOpRate = 120;
+    static constexpr int64_t kNoFrameDropMaxPtsGap = -1000000;
+    static constexpr int32_t kNoGridOpRate = 30;
+    static constexpr int32_t kGridOpRate = 120;
 
     void onHeicOutputFrameAvailable(const CodecOutputBufferInfo& bufferInfo, bool isGainmap);
     void onHeicInputFrameAvailable(int32_t index, bool isGainmap);// Only called for YUV input mode.
@@ -243,17 +246,17 @@ private:
     static size_t calcAppSegmentMaxSize(const CameraMetadata& info);
     void updateCodecQualityLocked(int32_t quality);
 
-    static const nsecs_t kWaitDuration = 10000000; // 10 ms
-    static const int32_t kDefaultJpegQuality = 99;
-    static const auto kJpegDataSpace = HAL_DATASPACE_V0_JFIF;
-    static const android_dataspace kAppSegmentDataSpace =
+    static constexpr nsecs_t kWaitDuration = 10000000; // 10 ms
+    static constexpr int32_t kDefaultJpegQuality = 99;
+    static constexpr auto kJpegDataSpace = HAL_DATASPACE_V0_JFIF;
+    static constexpr android_dataspace kAppSegmentDataSpace =
             static_cast<android_dataspace>(HAL_DATASPACE_JPEG_APP_SEGMENTS);
-    static const android_dataspace kHeifDataSpace =
+    static constexpr android_dataspace kHeifDataSpace =
             static_cast<android_dataspace>(HAL_DATASPACE_HEIF);
     android_dataspace mInternalDataSpace = kHeifDataSpace;
     // Use the limit of pipeline depth in the API sepc as maximum number of acquired
     // app segment buffers.
-    static const uint32_t kMaxAcquiredAppSegment = 8;
+    static constexpr uint32_t kMaxAcquiredAppSegment = 8;
 
     int               mAppSegmentStreamId, mAppSegmentSurfaceId;
     sp<CpuConsumer>   mAppSegmentConsumer;
@@ -268,7 +271,7 @@ private:
     bool              mYuvBufferAcquired; // Only applicable to HEVC codec
     std::queue<int64_t> mMainImageFrameNumbers;
 
-    static const int32_t        kMaxOutputSurfaceProducerCount = 1;
+    static constexpr int32_t    kMaxOutputSurfaceProducerCount = 1;
     sp<Surface>                 mOutputSurface;
     sp<StreamSurfaceListener>   mStreamSurfaceListener;
     int32_t                     mDequeuedOutputBufferCnt;
@@ -328,39 +331,39 @@ private:
     bool mHDRGainmapEnabled = false;
 
     // UltraHDR tonemap color and format aspects
-    static const uhdr_img_fmt_t kUltraHdrInputFmt = UHDR_IMG_FMT_24bppYCbCrP010;
-    static const uhdr_color_gamut kUltraHdrInputGamut = UHDR_CG_BT_2100;
-    static const uhdr_color_transfer kUltraHdrInputTransfer = UHDR_CT_HLG;
-    static const uhdr_color_range kUltraHdrInputRange = UHDR_CR_FULL_RANGE;
+    static constexpr uhdr_img_fmt_t kUltraHdrInputFmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    static constexpr uhdr_color_gamut kUltraHdrInputGamut = UHDR_CG_BT_2100;
+    static constexpr uhdr_color_transfer kUltraHdrInputTransfer = UHDR_CT_HLG;
+    static constexpr uhdr_color_range kUltraHdrInputRange = UHDR_CR_FULL_RANGE;
 
-    static const uhdr_img_fmt_t kUltraHdrOutputFmt = UHDR_IMG_FMT_12bppYCbCr420;
-    static const uhdr_color_gamut kUltraHdrOutputGamut = UHDR_CG_DISPLAY_P3;
-    static const uhdr_color_transfer kUltraHdrOutputTransfer = UHDR_CT_SRGB;
-    static const uhdr_color_range kUltraHdrOutputRange = UHDR_CR_FULL_RANGE;
+    static constexpr uhdr_img_fmt_t kUltraHdrOutputFmt = UHDR_IMG_FMT_12bppYCbCr420;
+    static constexpr uhdr_color_gamut kUltraHdrOutputGamut = UHDR_CG_DISPLAY_P3;
+    static constexpr uhdr_color_transfer kUltraHdrOutputTransfer = UHDR_CT_SRGB;
+    static constexpr uhdr_color_range kUltraHdrOutputRange = UHDR_CR_FULL_RANGE;
 
-    static const auto kUltraHDRDataSpace =
+    static constexpr auto kUltraHDRDataSpace =
         aidl::android::hardware::graphics::common::Dataspace::HEIF_ULTRAHDR;
 
     // MediaMuxer/Codec color and format aspects for base image and gainmap metadata
-    static const int32_t kCodecColorFormat = COLOR_FormatYUV420Flexible;
-    static const ColorAspects::Primaries kCodecColorPrimaries =
+    static constexpr int32_t kCodecColorFormat = COLOR_FormatYUV420Flexible;
+    static constexpr ColorAspects::Primaries kCodecColorPrimaries =
         ColorAspects::Primaries::PrimariesEG432;
-    static const ColorAspects::MatrixCoeffs kCodecColorMatrix =
+    static constexpr ColorAspects::MatrixCoeffs kCodecColorMatrix =
         ColorAspects::MatrixCoeffs::MatrixUnspecified;
-    static const ColorAspects::Transfer kCodecColorTransfer =
+    static constexpr ColorAspects::Transfer kCodecColorTransfer =
         ColorAspects::Transfer::TransferSRGB;
-    static const ColorAspects::Range kCodecColorRange =
+    static constexpr ColorAspects::Range kCodecColorRange =
         ColorAspects::Range::RangeFull;
 
     // MediaMuxer/Codec color and format aspects for gainmap as per ISO 23008-12:2024
-    static const int32_t kCodecGainmapColorFormat = COLOR_FormatYUV420Flexible;
-    static const ColorAspects::Primaries kCodecGainmapColorPrimaries =
+    static constexpr int32_t kCodecGainmapColorFormat = COLOR_FormatYUV420Flexible;
+    static constexpr ColorAspects::Primaries kCodecGainmapColorPrimaries =
         ColorAspects::Primaries::PrimariesUnspecified;
-    static const ColorAspects::MatrixCoeffs kCodecGainmapColorMatrix =
+    static constexpr ColorAspects::MatrixCoeffs kCodecGainmapColorMatrix =
         ColorAspects::MatrixCoeffs::MatrixUnspecified;
-    static const ColorAspects::Transfer kCodecGainmapColorTransfer =
+    static constexpr ColorAspects::Transfer kCodecGainmapColorTransfer =
         ColorAspects::Transfer::TransferUnspecified;
-    static const ColorAspects::Range kCodecGainmapColorRange =
+    static constexpr ColorAspects::Range kCodecGainmapColorRange =
         ColorAspects::Range::RangeFull;
 
 

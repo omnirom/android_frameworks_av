@@ -241,6 +241,13 @@ C2SoftXaacDec::C2SoftXaacDec(
         mOutputDrainBuffer(nullptr) {
 }
 
+C2SoftXaacDec::C2SoftXaacDec(
+        const char* name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftXaacDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftXaacDec::~C2SoftXaacDec() {
     onRelease();
 }

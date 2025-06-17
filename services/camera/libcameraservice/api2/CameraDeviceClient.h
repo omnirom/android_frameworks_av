@@ -98,6 +98,11 @@ public:
     virtual binder::Status cancelRequest(int requestId,
             /*out*/
             int64_t* lastFrameNumber = NULL) override;
+    virtual binder::Status startStreaming(
+            const std::vector<int>& streamIds,
+            const std::vector<int>& surfaceIds,
+            /*out*/
+            hardware::camera2::utils::SubmitInfo *submitInfo = nullptr) override;
 
     virtual binder::Status beginConfigure() override;
 
@@ -267,7 +272,7 @@ private:
             int8_t, android::hardware::common::fmq::SynchronizedReadWrite>;
     using CameraMetadataInfo = android::hardware::camera2::CameraMetadataInfo;
     status_t CreateMetadataQueue(
-            std::unique_ptr<MetadataQueue>* metadata_queue, uint32_t default_size);
+            std::unique_ptr<MetadataQueue>* metadata_queue, size_t size_bytes);
     // StreamSurfaceId encapsulates streamId + surfaceId for a particular surface.
     // streamId specifies the index of the stream the surface belongs to, and the
     // surfaceId specifies the index of the surface within the stream. (one stream
@@ -329,6 +334,11 @@ private:
     // Surface only
     status_t getSurfaceKey(sp<Surface> surface, SurfaceKey* out) const;
 
+    bool matchSharedStreamingRequest(int reqId);
+    bool matchSharedCaptureRequest(int reqId);
+    void markClientActive();
+    void markClientIdle();
+
     // IGraphicsBufferProducer binder -> Stream ID + Surface ID for output streams
     KeyedVector<SurfaceKey, StreamSurfaceId> mStreamMap;
 
@@ -350,6 +360,9 @@ private:
     // Streaming request ID
     int32_t mStreamingRequestId;
     Mutex mStreamingRequestIdLock;
+    std::pair<int32_t, int32_t> mSharedStreamingRequest;
+    std::map<int32_t, int32_t> mSharedRequestMap;
+    int64_t mStreamingRequestLastFrameNumber;
     static const int32_t REQUEST_ID_NONE = -1;
 
     int32_t mRequestIdCounter;

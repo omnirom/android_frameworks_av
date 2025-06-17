@@ -94,6 +94,10 @@ namespace android {
 
 namespace {
 
+static constexpr int32_t kAidlVersion1 = 1;
+static constexpr int32_t kAidlVersion2 = 2;
+static constexpr int32_t kAidlVersion3 = 3;
+
 // Note: these converters are for types defined in different AIDL files. Although these
 // AIDL files are copies of each other, however formally these are different types
 // thus we don't use a conversion via a parcelable.
@@ -175,6 +179,17 @@ status_t DeviceHalAidl::initCheck() {
     TIME_CHECK();
     RETURN_IF_MODULE_NOT_INIT(NO_INIT);
     std::lock_guard l(mLock);
+    int32_t aidlVersion = 0;
+    RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(mModule->getInterfaceVersion(&aidlVersion)));
+    if (aidlVersion > kAidlVersion3) {
+        mHasClipTransitionSupport = true;
+    } else {
+        AudioParameter parameterKeys;
+        parameterKeys.addKey(String8(AudioParameter::keyClipTransitionSupport));
+        String8 values;
+        auto status = parseAndGetVendorParameters(mVendorExt, mModule, parameterKeys, &values);
+        mHasClipTransitionSupport = status == OK && !values.empty();
+    }
     return mMapper.initialize();
 }
 
@@ -545,7 +560,7 @@ status_t DeviceHalAidl::openOutputStream(
         std::lock_guard l(mLock);
         RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(mModule->openOutputStream(args, &ret)));
     }
-    StreamContextAidl context(ret.desc, isOffload, aidlHandle);
+    StreamContextAidl context(ret.desc, isOffload, aidlHandle, mHasClipTransitionSupport);
     if (!context.isValid()) {
         AUGMENT_LOG(E, "Failed to created a valid stream context from the descriptor: %s",
                     ret.desc.toString().c_str());
@@ -627,7 +642,8 @@ status_t DeviceHalAidl::openInputStream(
         std::lock_guard l(mLock);
         RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(mModule->openInputStream(args, &ret)));
     }
-    StreamContextAidl context(ret.desc, false /*isAsynchronous*/, aidlHandle);
+    StreamContextAidl context(
+            ret.desc, false /*isAsynchronous*/, aidlHandle, mHasClipTransitionSupport);
     if (!context.isValid()) {
         AUGMENT_LOG(E, "Failed to created a valid stream context from the descriptor: %s",
                     ret.desc.toString().c_str());

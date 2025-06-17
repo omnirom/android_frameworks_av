@@ -116,11 +116,11 @@ TEST(AudioHealthTest, ConnectSupportedDevice) {
         ASSERT_EQ(AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
                 AudioSystem::getDeviceConnectionState(device->type(), address.c_str()));
         ASSERT_EQ(NO_ERROR, AudioSystem::setDeviceConnectionState(
-                AUDIO_POLICY_DEVICE_STATE_AVAILABLE, aidlPort.hal, AUDIO_FORMAT_DEFAULT));
+                AUDIO_POLICY_DEVICE_STATE_AVAILABLE, aidlPort.hal, AUDIO_FORMAT_DEFAULT, false));
         ASSERT_EQ(AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
                 AudioSystem::getDeviceConnectionState(device->type(), address.c_str()));
         ASSERT_EQ(NO_ERROR, AudioSystem::setDeviceConnectionState(
-                AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE, aidlPort.hal, AUDIO_FORMAT_DEFAULT));
+                AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE, aidlPort.hal, AUDIO_FORMAT_DEFAULT, false));
         ASSERT_EQ(AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
                 AudioSystem::getDeviceConnectionState(device->type(), address.c_str()));
     }

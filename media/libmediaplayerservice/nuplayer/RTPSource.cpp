@@ -432,32 +432,33 @@ void NuPlayer::RTPSource::onMessageReceived(const sp<AMessage> &msg) {
 
             // Implicitly assert on valid trackIndex here, which we ensure by
             // never removing tracks.
-            TrackInfo *info = &mTracks.editItemAt(trackIndex);
+            if (trackIndex < mTracks.size()) {
+                TrackInfo *info = &mTracks.editItemAt(trackIndex);
+                sp<AnotherPacketSource> source = info->mSource;
+                if (source != NULL) {
+                    uint32_t rtpTime;
+                    CHECK(accessUnit->meta()->findInt32("rtp-time", (int32_t *)&rtpTime));
 
-            sp<AnotherPacketSource> source = info->mSource;
-            if (source != NULL) {
-                uint32_t rtpTime;
-                CHECK(accessUnit->meta()->findInt32("rtp-time", (int32_t *)&rtpTime));
+                    /* AnotherPacketSource make an assertion if there is no ntp provided
+                       RTPSource should provide ntpUs all the times.
+                    if (!info->mNPTMappingValid) {
+                        // This is a live stream, we didn't receive any normal
+                        // playtime mapping. We won't map to npt time.
+                        source->queueAccessUnit(accessUnit);
+                        break;
+                    }
 
-                /* AnotherPacketSource make an assertion if there is no ntp provided
-                   RTPSource should provide ntpUs all the times.
-                if (!info->mNPTMappingValid) {
-                    // This is a live stream, we didn't receive any normal
-                    // playtime mapping. We won't map to npt time.
+                    int64_t nptUs =
+                        ((double)rtpTime - (double)info->mRTPTime)
+                            / info->mTimeScale
+                            * 1000000ll
+                            + info->mNormalPlaytimeUs;
+
+                    */
+                    accessUnit->meta()->setInt64("timeUs", ALooper::GetNowUs());
+
                     source->queueAccessUnit(accessUnit);
-                    break;
                 }
-
-                int64_t nptUs =
-                    ((double)rtpTime - (double)info->mRTPTime)
-                        / info->mTimeScale
-                        * 1000000ll
-                        + info->mNormalPlaytimeUs;
-
-                */
-                accessUnit->meta()->setInt64("timeUs", ALooper::GetNowUs());
-
-                source->queueAccessUnit(accessUnit);
             }
 
             break;

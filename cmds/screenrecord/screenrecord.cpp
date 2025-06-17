@@ -1382,14 +1382,16 @@ int main(int argc, char* const argv[]) {
             }
             break;
         case 'd':
-            if (const auto id = android::DisplayId::fromValue<PhysicalDisplayId>(atoll(optarg));
-                id && SurfaceComposerClient::getPhysicalDisplayToken(*id)) {
-                gPhysicalDisplayId = *id;
+        {
+            const PhysicalDisplayId id = android::PhysicalDisplayId::fromValue(atoll(optarg));
+            if (SurfaceComposerClient::getPhysicalDisplayToken(id)) {
+                gPhysicalDisplayId = id;
                 break;
             }
 
             fprintf(stderr, "Invalid physical display ID\n");
             return 2;
+        }
         case 'S':
             gSecureDisplay = true;
             break;

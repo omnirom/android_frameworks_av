@@ -576,11 +576,13 @@ private:
                 res = allocatorStore->fetchAllocator(
                         C2PlatformAllocatorStore::IGBA, &allocator);
                 if (res == C2_OK) {
+                    bool blockFence =
+                            (components.size() == 1 && allocatorParam.blockFenceSupport);
                     std::shared_ptr<C2BlockPool> ptr(
                             new C2IgbaBlockPool(allocator,
                                                 allocatorParam.igba,
                                                 std::move(allocatorParam.waitableFd),
-                                                poolId), deleter);
+                                                blockFence, poolId), deleter);
                     *pool = ptr;
                     mBlockPools[poolId] = ptr;
                     mComponents[poolId].insert(

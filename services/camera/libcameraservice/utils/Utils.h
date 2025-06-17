@@ -21,6 +21,8 @@
 #include <unistd.h>
 #include <type_traits>
 
+#include <camera/CameraMetadata.h>
+
 namespace android {
 
 /**
@@ -34,13 +36,18 @@ constexpr std::underlying_type_t<Enum> eToI(Enum val) {
 }
 
 /**
- * As of Android V, ro.board.api_level returns the year and month of release (ex. 202404)
- * instead of release SDK version. This function maps year/month format back to release
- * SDK version.
+ * Helper function for getting the current VNDK version.
  *
- * Returns defaultVersion if the property is not found.
+ * If the current VNDK version cannot be determined, this function returns
+ * __ANDROID_API_FUTURE__.
  */
-int getVNDKVersionFromProp(int defaultVersion);
+int getVNDKVersion();
+
+/**
+ * Returns the deviceId for the given camera metadata. For any virtual camera, this is the id
+ * of the virtual device owning the camera. For any real camera, this is kDefaultDeviceId.
+ */
+int32_t getDeviceId(const CameraMetadata& cameraInfo);
 
 /**
  * An instance of this class will raise the scheduling policy of a given

@@ -66,5 +66,8 @@ status_t CodecBase::unsubscribeFromParameters(const std::vector<std::string> &na
     return ERROR_UNSUPPORTED;
 }
 
+std::vector<InstanceResourceInfo> CodecBase::getRequiredSystemResources() {
+    return std::vector<InstanceResourceInfo>{};
+}
 
 } // namespace android

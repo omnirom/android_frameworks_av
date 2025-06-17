@@ -20,6 +20,7 @@
 #include <initializer_list>
 
 #include <android_media_codec.h>
+#include <android_media_tv_flags.h>
 
 #include <cutils/properties.h>
 #include <log/log.h>
@@ -1046,6 +1047,11 @@ void CCodecConfig::initializeStandardParams() {
             }
             return C2Value();
         }));
+
+    if (android::media::tv::flags::apply_picture_profiles()) {
+        add(ConfigMapper(KEY_PICTURE_PROFILE_HANDLE, C2_PARAMKEY_DISPLAY_PROCESSING_TOKEN, "value")
+                    .limitTo(D::VIDEO & D::RAW & D::DECODER));
+    }
 
     /* still to do
        not yet used by MediaCodec, but defined as MediaFormat

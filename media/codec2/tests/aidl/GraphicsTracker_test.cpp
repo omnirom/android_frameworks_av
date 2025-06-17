@@ -76,15 +76,15 @@ struct BqStatistics {
     }
 };
 
-struct DummyConsumerListener : public android::BnConsumerListener {
+struct DummyConsumerListener : public android::IConsumerListener {
     void onFrameAvailable(const BufferItem& /* item */) override {}
     void onBuffersReleased() override {}
     void onSidebandStreamChanged() override {}
 };
 
-struct TestConsumerListener : public android::BnConsumerListener {
-    TestConsumerListener(const sp<IGraphicBufferConsumer> &consumer)
-            : BnConsumerListener(), mConsumer(consumer) {}
+struct TestConsumerListener : public android::IConsumerListener {
+    TestConsumerListener(const sp<IGraphicBufferConsumer>& consumer)
+        : IConsumerListener(), mConsumer(consumer) {}
     void onFrameAvailable(const BufferItem&) override {
         constexpr static int kRenderDelayUs = 1000000/30; // 30fps
         BufferItem buffer;

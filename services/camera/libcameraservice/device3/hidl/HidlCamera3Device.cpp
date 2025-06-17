@@ -306,6 +306,10 @@ status_t HidlCamera3Device::initialize(sp<CameraProviderManager> manager,
     return initializeCommonLocked(manager);
 }
 
+int32_t HidlCamera3Device::getCaptureResultFMQSize() {
+    return Camera3Device::calculateFMQSize<ResultMetadataQueue>(mResultMetadataQueue);
+}
+
 hardware::Return<void> HidlCamera3Device::requestStreamBuffers(
         const hardware::hidl_vec<hardware::camera::device::V3_5::BufferRequest>& bufReqs,
         requestStreamBuffers_cb _hidl_cb) {

@@ -77,7 +77,11 @@ IOProfile::CompatibilityScore IOProfile::getCompatibilityScore(
             }
             result = EXACT_MATCH;
         } else if (checkExactAudioProfile(&config) == NO_ERROR) {
-            result = EXACT_MATCH;
+            if (flagsCompatibleScore == EXACT_MATCH) {
+                result = EXACT_MATCH;
+            } else {
+                result = PARTIAL_MATCH_WITH_CONFIG;
+            }
         } else if (checkCompatibleAudioProfile(
                 myUpdatedSamplingRate, myUpdatedChannelMask, myUpdatedFormat) == NO_ERROR) {
             if (flagsCompatibleScore == EXACT_MATCH) {

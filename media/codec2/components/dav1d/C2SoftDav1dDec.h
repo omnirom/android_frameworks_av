@@ -25,6 +25,7 @@
 
 #include <C2Config.h>
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 #include <dav1d/dav1d.h>
 #include <deque>
@@ -38,6 +39,8 @@ struct C2SoftDav1dDec : public SimpleC2Component {
     class IntfImpl;
 
     C2SoftDav1dDec(const char* name, c2_node_id_t id, const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftDav1dDec(const char* name, c2_node_id_t id,
+                   const std::shared_ptr<C2ReflectorHelper>& helper);
     ~C2SoftDav1dDec();
 
     // Begin SimpleC2Component overrides.
@@ -91,7 +94,7 @@ struct C2SoftDav1dDec : public SimpleC2Component {
               coeffs(C2Color::MATRIX_UNSPECIFIED),
               fullRange(C2Color::RANGE_UNSPECIFIED) {}
 
-        bool operator==(const VuiColorAspects& o) {
+        bool operator==(const VuiColorAspects& o) const {
             return primaries == o.primaries && transfer == o.transfer && coeffs == o.coeffs &&
                    fullRange == o.fullRange;
         }

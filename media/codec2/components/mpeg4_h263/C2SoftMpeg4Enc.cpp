@@ -313,6 +313,11 @@ C2SoftMpeg4Enc::C2SoftMpeg4Enc(const char* name, c2_node_id_t id,
       mOutBufferSize(524288) {
 }
 
+C2SoftMpeg4Enc::C2SoftMpeg4Enc(const char* name, c2_node_id_t id,
+                               const std::shared_ptr<C2ReflectorHelper>& helper)
+    : C2SoftMpeg4Enc(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftMpeg4Enc::~C2SoftMpeg4Enc() {
     onRelease();
 }

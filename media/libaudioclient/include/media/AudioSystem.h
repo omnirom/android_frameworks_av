@@ -30,6 +30,7 @@
 #include <android/media/BnAudioFlingerClient.h>
 #include <android/media/BnAudioPolicyServiceClient.h>
 #include <android/media/EffectDescriptor.h>
+#include <android/media/INativeAudioVolumeGroupCallback.h>
 #include <android/media/INativeSpatializerCallback.h>
 #include <android/media/ISoundDose.h>
 #include <android/media/ISoundDoseCallback.h>
@@ -304,7 +305,8 @@ public:
     static void onNewAudioModulesAvailable();
     static status_t setDeviceConnectionState(audio_policy_dev_state_t state,
                                              const android::media::audio::common::AudioPort& port,
-                                             audio_format_t encodedFormat);
+                                             audio_format_t encodedFormat,
+                                             bool deviceSwitch);
     static audio_policy_dev_state_t getDeviceConnectionState(audio_devices_t device,
                                                                 const char *device_address);
     static status_t handleDeviceConfigChange(audio_devices_t device,
@@ -738,12 +740,12 @@ public:
         virtual ~AudioVolumeGroupCallback() {}
 
         virtual void onAudioVolumeGroupChanged(volume_group_t group, int flags) = 0;
-        virtual void onServiceDied() = 0;
-
     };
 
-    static status_t addAudioVolumeGroupCallback(const sp<AudioVolumeGroupCallback>& callback);
-    static status_t removeAudioVolumeGroupCallback(const sp<AudioVolumeGroupCallback>& callback);
+    static status_t addAudioVolumeGroupCallback(
+            const sp<media::INativeAudioVolumeGroupCallback>& callback);
+    static status_t removeAudioVolumeGroupCallback(
+            const sp<media::INativeAudioVolumeGroupCallback>& callback);
 
     class AudioPortCallback : public virtual RefBase
     {
@@ -880,10 +882,10 @@ public:
         }
 
         int addAudioVolumeGroupCallback(
-                const sp<AudioVolumeGroupCallback>& callback) EXCLUDES(mMutex);
+                const sp<media::INativeAudioVolumeGroupCallback>& callback) EXCLUDES(mMutex);
 
         int removeAudioVolumeGroupCallback(
-                const sp<AudioVolumeGroupCallback>& callback) EXCLUDES(mMutex);
+                const sp<media::INativeAudioVolumeGroupCallback>& callback) EXCLUDES(mMutex);
 
         bool isAudioVolumeGroupCbEnabled() const EXCLUDES(mMutex) {
             std::lock_guard _l(mMutex);
@@ -913,7 +915,8 @@ public:
     private:
         mutable std::mutex mMutex;
         std::set<sp<AudioPortCallback>> mAudioPortCallbacks GUARDED_BY(mMutex);
-        std::set<sp<AudioVolumeGroupCallback>> mAudioVolumeGroupCallbacks GUARDED_BY(mMutex);
+        std::set<sp<media::INativeAudioVolumeGroupCallback>> mAudioVolumeGroupCallbacks
+                GUARDED_BY(mMutex);
     };
 
     private:

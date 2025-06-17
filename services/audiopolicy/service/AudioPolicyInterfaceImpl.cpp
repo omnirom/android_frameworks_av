@@ -19,7 +19,6 @@
 
 #include "AudioPolicyService.h"
 #include "AudioRecordClient.h"
-#include "TypeConverter.h"
 
 #include <android/content/AttributionSourceState.h>
 #include <android_media_audiopolicy.h>
@@ -29,6 +28,7 @@
 #include <cutils/properties.h>
 #include <error/expected_utils.h>
 #include <media/AidlConversion.h>
+#include <media/AudioPermissionPolicy.h>
 #include <media/AudioPolicy.h>
 #include <media/AudioValidator.h>
 #include <media/MediaMetricsItem.h>
@@ -57,7 +57,6 @@
 #define MAX_ITEMS_PER_LIST 1024
 
 namespace android {
-namespace audiopolicy_flags = android::media::audiopolicy;
 using binder::Status;
 using aidl_utils::binderStatusFromStatusT;
 using android::media::audio::concurrent_audio_record_bypass_permission;
@@ -94,6 +93,7 @@ using media::audio::common::AudioStreamType;
 using media::audio::common::AudioUsage;
 using media::audio::common::AudioUuid;
 using media::audio::common::Int;
+using media::permission::isSystemUsage;
 
 constexpr int kDefaultVirtualDeviceId = 0;
 namespace {
@@ -126,19 +126,6 @@ bool mustAnonymizeBluetoothAddress(const AttributionSourceState& attributionSour
     }
 }
 
-}
-
-const std::vector<audio_usage_t>& SYSTEM_USAGES = {
-    AUDIO_USAGE_CALL_ASSISTANT,
-    AUDIO_USAGE_EMERGENCY,
-    AUDIO_USAGE_SAFETY,
-    AUDIO_USAGE_VEHICLE_STATUS,
-    AUDIO_USAGE_ANNOUNCEMENT
-};
-
-bool isSystemUsage(audio_usage_t usage) {
-    return std::find(std::begin(SYSTEM_USAGES), std::end(SYSTEM_USAGES), usage)
-        != std::end(SYSTEM_USAGES);
 }
 
 bool AudioPolicyService::isSupportedSystemUsage(audio_usage_t usage) {
@@ -194,7 +181,8 @@ void AudioPolicyService::doOnNewAudioModulesAvailable()
 Status AudioPolicyService::setDeviceConnectionState(
         media::AudioPolicyDeviceState stateAidl,
         const android::media::audio::common::AudioPort& port,
-        const AudioFormatDescription& encodedFormatAidl) {
+        const AudioFormatDescription& encodedFormatAidl,
+        bool deviceSwitch) {
     audio_policy_dev_state_t state = VALUE_OR_RETURN_BINDER_STATUS(
             aidl2legacy_AudioPolicyDeviceState_audio_policy_dev_state_t(stateAidl));
     audio_format_t encodedFormat = VALUE_OR_RETURN_BINDER_STATUS(
@@ -217,7 +205,7 @@ Status AudioPolicyService::setDeviceConnectionState(
     audio_utils::lock_guard _l(mMutex);
     AutoCallerClear acc;
     status_t status = mAudioPolicyManager->setDeviceConnectionState(
-            state, port, encodedFormat);
+            state, port, encodedFormat, deviceSwitch);
     if (status == NO_ERROR) {
         onCheckSpatializer_l();
     }
@@ -2915,6 +2903,11 @@ Status AudioPolicyService::getMmapPolicyForDevice(
     audio_utils::lock_guard _l(mMutex);
     return binderStatusFromStatusT(
             mAudioPolicyManager->getMmapPolicyForDevice(policyType, policyInfo));
+}
+
+Status AudioPolicyService::setEnableHardening(bool shouldEnable) {
+    mShouldEnableHardening.store(shouldEnable);
+    return Status::ok();
 }
 
 } // namespace android

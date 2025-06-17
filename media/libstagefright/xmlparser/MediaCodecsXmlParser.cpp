@@ -515,11 +515,6 @@ MediaCodecsXmlParser::Impl::Parser::Parser(State *state, std::string path)
 
     std::call_once(sCheckOnce, [&](){
         mysdk = android_get_device_api_level();
-
-        // work around main development branch being on same SDK as the last dessert release.
-        if (__ANDROID_API__ == __ANDROID_API_FUTURE__) {
-            mysdk++;
-        }
     });
 #endif  // __ANDROID_API_U__
 }

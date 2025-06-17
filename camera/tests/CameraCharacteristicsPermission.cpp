@@ -66,19 +66,12 @@ void CameraCharacteristicsPermission::TearDown() {
 TEST_F(CameraCharacteristicsPermission, TestCameraPermission) {
     for (int32_t cameraId = 0; cameraId < numCameras; cameraId++) {
         std::string cameraIdStr = std::to_string(cameraId);
-        bool isSupported = false;
-        auto rc = mCameraService->supportsCameraApi(cameraIdStr,
-                hardware::ICameraService::API_VERSION_2, &isSupported);
-        EXPECT_TRUE(rc.isOk());
-        if (!isSupported) {
-            continue;
-        }
 
         CameraMetadata metadata;
         std::vector<int32_t> tagsNeedingPermission;
         AttributionSourceState clientAttribution;
         clientAttribution.deviceId = kDefaultDeviceId;
-        rc = mCameraService->getCameraCharacteristics(cameraIdStr,
+        auto rc = mCameraService->getCameraCharacteristics(cameraIdStr,
                 /*targetSdkVersion*/__ANDROID_API_FUTURE__,
                 /*overrideToPortrait*/false, clientAttribution, /*devicePolicy*/0, &metadata);
         ASSERT_TRUE(rc.isOk());

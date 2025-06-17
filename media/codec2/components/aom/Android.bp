@@ -12,6 +12,7 @@ cc_library {
     defaults: [
         "libcodec2_soft-defaults",
         "libcodec2_soft_sanitize_all-defaults",
+        "libcodec2_soft_sanitize_cfi-defaults",
     ],
 
     // coordinated with frameworks/av/media/codec2/components/gav1/Android.bp
@@ -29,6 +30,7 @@ cc_library {
     defaults: [
         "libcodec2_soft-defaults",
         "libcodec2_soft_sanitize_all-defaults",
+        "libcodec2_soft_sanitize_cfi-defaults",
     ],
 
     static_libs: ["libaom"],

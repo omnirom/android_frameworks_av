@@ -6,6 +6,14 @@ package: "android.media.soundtrigger"
 container: "system"
 
 flag {
+    name: "detection_service_paused_resumed_api"
+    is_exported: true
+    namespace: "media_audio"
+    description: "Feature flag for adding SoundTriggerDetectionService onRecognitionPaused and onRecognitionResumed APIs to SystemApi"
+    bug: "392968319"
+}
+
+flag {
     name: "generic_model_api"
     is_exported: true
     namespace: "media_audio"

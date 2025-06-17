@@ -97,6 +97,11 @@ C2SoftGsmDec::C2SoftGsmDec(const char *name, c2_node_id_t id,
       mGsm(nullptr) {
 }
 
+C2SoftGsmDec::C2SoftGsmDec(const char *name, c2_node_id_t id,
+                     const std::shared_ptr<C2ReflectorHelper>& helper)
+    : C2SoftGsmDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftGsmDec::~C2SoftGsmDec() {
     onRelease();
 }

@@ -444,15 +444,15 @@ bool isStreamUseCaseSupported(int64_t streamUseCase,
     return false;
 }
 
-binder::Status createSurfaceFromGbp(
+binder::Status createConfiguredSurface(
         OutputStreamInfo& streamInfo, bool isStreamInfoValid,
-        sp<Surface>& surface, const sp<IGraphicBufferProducer>& gbp,
+        sp<Surface>& out_surface, const sp<SurfaceType>& surface,
         const std::string &logicalCameraId, const CameraMetadata &physicalCameraMetadata,
         const std::vector<int32_t> &sensorPixelModesUsed, int64_t dynamicRangeProfile,
         int64_t streamUseCase, int timestampBase, int mirrorMode,
         int32_t colorSpace, bool respectSurfaceSize) {
     // bufferProducer must be non-null
-    if (gbp == nullptr) {
+    if ( flagtools::isSurfaceTypeValid(surface) == false ) {
         std::string msg = fmt::sprintf("Camera %s: Surface is NULL", logicalCameraId.c_str());
         ALOGW("%s: %s", __FUNCTION__, msg.c_str());
         return STATUS_ERROR(CameraService::ERROR_ILLEGAL_ARGUMENT, msg.c_str());
@@ -463,7 +463,7 @@ binder::Status createSurfaceFromGbp(
     bool useAsync = false;
     uint64_t consumerUsage = 0;
     status_t err;
-    if ((err = gbp->getConsumerUsage(&consumerUsage)) != OK) {
+    if ((err = surface->getConsumerUsage(&consumerUsage)) != OK) {
         std::string msg = fmt::sprintf("Camera %s: Failed to query Surface consumer usage: %s (%d)",
                 logicalCameraId.c_str(), strerror(-err), err);
         ALOGE("%s: %s", __FUNCTION__, msg.c_str());
@@ -483,8 +483,9 @@ binder::Status createSurfaceFromGbp(
     bool flexibleConsumer = (consumerUsage & disallowedFlags) == 0 &&
             (consumerUsage & allowedFlags) != 0;
 
-    surface = new Surface(gbp, useAsync);
-    ANativeWindow *anw = surface.get();
+    out_surface = new Surface(flagtools::surfaceTypeToIGBP(surface), useAsync);
+
+    ANativeWindow *anw = out_surface.get();
 
     int width, height, format;
     android_dataspace dataSpace;
@@ -695,16 +696,18 @@ void mapStreamInfo(const OutputStreamInfo &streamInfo,
     stream->useCase = static_cast<StreamUseCases>(streamInfo.streamUseCase);
 }
 
-binder::Status mapStream(const OutputStreamInfo& streamInfo, bool isCompositeJpegRDisabled,
+binder::Status mapStream(
+        const OutputStreamInfo& streamInfo, bool isCompositeJpegRDisabled,
+        bool isCompositeHeicDisabled, bool isCompositeHeicUltraHDRDisabled,
         const CameraMetadata& deviceInfo, camera_stream_rotation_t rotation,
-        size_t* streamIdx/*out*/, const std::string &physicalId, int32_t groupId,
+        size_t* streamIdx /*out*/, const std::string& physicalId, int32_t groupId,
         const std::string& logicalCameraId,
-        aidl::android::hardware::camera::device::StreamConfiguration &streamConfiguration /*out*/,
-        bool *earlyExit /*out*/) {
+        aidl::android::hardware::camera::device::StreamConfiguration& streamConfiguration /*out*/,
+        bool* earlyExit /*out*/) {
     bool isDepthCompositeStream =
             camera3::DepthCompositeStream::isDepthCompositeStreamInfo(streamInfo);
-    bool isHeicCompositeStream =
-            camera3::HeicCompositeStream::isHeicCompositeStreamInfo(streamInfo);
+    bool isHeicCompositeStream = camera3::HeicCompositeStream::isHeicCompositeStreamInfo(
+            streamInfo, isCompositeHeicDisabled, isCompositeHeicUltraHDRDisabled);
     bool isJpegRCompositeStream =
             camera3::JpegRCompositeStream::isJpegRCompositeStreamInfo(streamInfo) &&
             !isCompositeJpegRDisabled;
@@ -756,16 +759,14 @@ binder::Status mapStream(const OutputStreamInfo& streamInfo, bool isCompositeJpe
     return binder::Status::ok();
 }
 
-binder::Status
-convertToHALStreamCombination(
-        const SessionConfiguration& sessionConfiguration,
-        const std::string &logicalCameraId, const CameraMetadata &deviceInfo,
-        bool isCompositeJpegRDisabled,
-        metadataGetter getMetadata, const std::vector<std::string> &physicalCameraIds,
-        aidl::android::hardware::camera::device::StreamConfiguration &streamConfiguration,
-        bool overrideForPerfClass, metadata_vendor_id_t vendorTagId,
-        bool checkSessionParams, const std::vector<int32_t>& additionalKeys,
-        bool *earlyExit) {
+binder::Status convertToHALStreamCombination(
+        const SessionConfiguration& sessionConfiguration, const std::string& logicalCameraId,
+        const CameraMetadata& deviceInfo, bool isCompositeJpegRDisabled,
+        bool isCompositeHeicDisabled, bool isCompositeHeicUltraHDRDisabled,
+        metadataGetter getMetadata, const std::vector<std::string>& physicalCameraIds,
+        aidl::android::hardware::camera::device::StreamConfiguration& streamConfiguration,
+        bool overrideForPerfClass, metadata_vendor_id_t vendorTagId, bool checkSessionParams,
+        const std::vector<int32_t>& additionalKeys, bool* earlyExit) {
     using SensorPixelMode = aidl::android::hardware::camera::metadata::SensorPixelMode;
     auto operatingMode = sessionConfiguration.getOperatingMode();
     binder::Status res = checkOperatingMode(operatingMode, deviceInfo,
@@ -906,9 +907,10 @@ convertToHALStreamCombination(
                                 "Deferred surface sensor pixel modes not valid");
             }
             streamInfo.streamUseCase = streamUseCase;
-            auto status = mapStream(streamInfo, isCompositeJpegRDisabled, deviceInfo,
-                    camera3::CAMERA_STREAM_ROTATION_0, &streamIdx, physicalCameraId, groupId,
-                    logicalCameraId, streamConfiguration, earlyExit);
+            auto status = mapStream(streamInfo, isCompositeJpegRDisabled, isCompositeHeicDisabled,
+                                    isCompositeHeicUltraHDRDisabled, deviceInfo,
+                                    camera3::CAMERA_STREAM_ROTATION_0, &streamIdx, physicalCameraId,
+                                    groupId, logicalCameraId, streamConfiguration, earlyExit);
             if (*earlyExit || !status.isOk()) {
                 return status;
             }
@@ -923,23 +925,20 @@ convertToHALStreamCombination(
         for (auto& surface_type : surfaces) {
             sp<Surface> surface;
             int mirrorMode = it.getMirrorMode(surface_type);
-            res = createSurfaceFromGbp(streamInfo, isStreamInfoValid, surface,
-                                       surface_type
-#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
-                                       .graphicBufferProducer
-#endif
-                                       , logicalCameraId,
-                                       metadataChosen, sensorPixelModesUsed, dynamicRangeProfile,
-                                       streamUseCase, timestampBase, mirrorMode, colorSpace,
-                                       /*respectSurfaceSize*/ true);
+            res = createConfiguredSurface(streamInfo, isStreamInfoValid, surface,
+                                    flagtools::convertParcelableSurfaceTypeToSurface(surface_type),
+                                    logicalCameraId,  metadataChosen, sensorPixelModesUsed,
+                                    dynamicRangeProfile, streamUseCase, timestampBase, mirrorMode,
+                                    colorSpace, /*respectSurfaceSize*/ true);
 
             if (!res.isOk()) return res;
 
             if (!isStreamInfoValid) {
-                auto status = mapStream(streamInfo, isCompositeJpegRDisabled, deviceInfo,
-                                        static_cast<camera_stream_rotation_t>(it.getRotation()),
-                                        &streamIdx, physicalCameraId, groupId, logicalCameraId,
-                                        streamConfiguration, earlyExit);
+                auto status = mapStream(
+                        streamInfo, isCompositeJpegRDisabled, isCompositeHeicDisabled,
+                        isCompositeHeicUltraHDRDisabled, deviceInfo,
+                        static_cast<camera_stream_rotation_t>(it.getRotation()), &streamIdx,
+                        physicalCameraId, groupId, logicalCameraId, streamConfiguration, earlyExit);
                 if (*earlyExit || !status.isOk()) {
                     return status;
                 }

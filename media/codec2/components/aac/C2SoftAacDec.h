@@ -18,7 +18,7 @@
 #define ANDROID_C2_SOFT_AAC_DEC_H_
 
 #include <SimpleC2Component.h>
-
+#include <util/C2InterfaceHelper.h>
 
 #include "aacdecoder_lib.h"
 #include "DrcPresModeWrap.h"
@@ -29,6 +29,8 @@ struct C2SoftAacDec : public SimpleC2Component {
     class IntfImpl;
 
     C2SoftAacDec(const char *name, c2_node_id_t id, const std::shared_ptr<IntfImpl> &intfImpl);
+    C2SoftAacDec(const char *name, c2_node_id_t id,
+                 const std::shared_ptr<C2ReflectorHelper> &helper);
     virtual ~C2SoftAacDec();
 
     // From SimpleC2Component

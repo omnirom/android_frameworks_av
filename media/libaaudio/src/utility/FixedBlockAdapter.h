@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <stdio.h>
+#include <utility>
 
 /**
  * Interface for a class that needs fixed-size blocks.
@@ -28,6 +29,10 @@ public:
     virtual ~FixedBlockProcessor() = default;
     virtual int32_t onProcessFixedBlock(uint8_t *buffer, int32_t numBytes) = 0;
 };
+
+// The first value is the processing result code which 0 is OK.
+// The second value is the actual processed size in bytes.
+using AdapterProcessResult = std::pair<int32_t, int32_t>;
 
 /**
  * Base class for a variable-to-fixed-size block adapter.
@@ -53,9 +58,9 @@ public:
      *
      * @param buffer
      * @param numBytes
-     * @return zero if OK or a non-zero code
+     * @return
      */
-    virtual int32_t processVariableBlock(uint8_t *buffer, int32_t numBytes) = 0;
+    virtual AdapterProcessResult processVariableBlock(uint8_t *buffer, int32_t numBytes) = 0;
 
     /**
      * Free internal resources.

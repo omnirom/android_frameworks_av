@@ -80,6 +80,7 @@ struct C2Config {
 
 struct C2PlatformConfig {
     enum encoding_quality_level_t : uint32_t; ///< encoding quality level
+    enum resource_id_t : uint32_t;          ///< resource IDs defined by the platform
     enum tunnel_peek_mode_t: uint32_t;      ///< tunnel peek mode
 };
 
@@ -303,6 +304,9 @@ enum C2ParamIndexKind : C2Param::type_index_t {
     // input surface
     kParamIndexCaptureFrameRate, // input-surface, float
     kParamIndexStopTimeOffset, // input-surface, int64_t
+
+    // display processing token
+    kParamIndexDisplayProcessingToken, // int64_t
 };
 
 }
@@ -340,6 +344,8 @@ C2ENUM(C2Config::api_feature_t, uint64_t,
 
     API_SAME_INPUT_BUFFER = (1U << 16),   ///< supporting multiple input buffers
                                           ///< backed by the same allocation
+
+    API_BLOCK_FENCES     = (1U << 17),    ///< supporting block fences
 
     API_STREAMS          = (1ULL << 32),  ///< supporting variable number of streams
 
@@ -441,6 +447,7 @@ enum : uint32_t {
     _C2_PL_VP8_BASE  = 0xA000,
     _C2_PL_MPEGH_BASE = 0xB000,     // MPEG-H 3D Audio
     _C2_PL_APV_BASE = 0xC000,     // APV
+    _C2_PL_AC4_BASE  = 0xD000,
 
     C2_PROFILE_LEVEL_VENDOR_START = 0x70000000,
 };
@@ -617,6 +624,16 @@ enum C2Config::profile_t : uint32_t {
     PROFILE_APV_4444_10,                        ///< APV 4444-10 Profile
     PROFILE_APV_4444_12,                        ///< APV 4444-12 Profile
     PROFILE_APV_400_10,                         ///< APV 400-10 Profile
+
+    // AC-4 profiles
+    // Below profiles are labelled “AC-4 Profile xx.yy” where xx is the bitstream_version
+    // and yy is the presentation_version as described in "The MIME codecs parameter", Annex E.13
+    // found at https://www.etsi.org/deliver/etsi_ts/103100_103199/10319002/01.02.01_60/ts_10319002v010201p.pdf
+    PROFILE_AC4_0_0 = _C2_PL_AC4_BASE,          ///< AC-4 Profile 00.00
+    PROFILE_AC4_1_0,                            ///< AC-4 Profile 01.00
+    PROFILE_AC4_1_1,                            ///< AC-4 Profile 01.01
+    PROFILE_AC4_2_1,                            ///< AC-4 Profile 02.01
+    PROFILE_AC4_2_2,                            ///< AC-4 Profile 02.02
 };
 
 enum C2Config::level_t : uint32_t {
@@ -834,6 +851,15 @@ enum C2Config::level_t : uint32_t {
     LEVEL_APV_7_BAND_3,                              ///< APV L 7, BAND 3
     LEVEL_APV_7_1_BAND_3,                            ///< APV L 7.1, BAND 3
 
+    // AC-4 levels
+    // Below levels are labelled “AC-4 Level zz” where zz is the mdcompat as described in
+    // "The MIME codecs parameter", Annex E.13
+    // found at https://www.etsi.org/deliver/etsi_ts/103100_103199/10319002/01.02.01_60/ts_10319002v010201p.pdf
+    LEVEL_AC4_0 = _C2_PL_AC4_BASE,              ///< AC-4 Level 00
+    LEVEL_AC4_1,                                ///< AC-4 Level 01
+    LEVEL_AC4_2,                                ///< AC-4 Level 02
+    LEVEL_AC4_3,                                ///< AC-4 Level 03
+    LEVEL_AC4_4,                                ///< AC-4 Level 04
 };
 
 struct C2ProfileLevelStruct {
@@ -1285,7 +1311,10 @@ C2ENUM(C2Config::resource_kind_t, uint32_t,
  * They represent any physical or abstract entities of limited availability
  * that is required for a component instance to execute and process work.
  *
- * Each defined resource has an id.
+ * Each defined resource has an id. In general, the id is defined by the vendor,
+ * but the platform also defines a limited set of IDs. Vendor IDs SHALL start
+ * from C2PlatformConfig::resource_id_t::VENDOR_START.
+ *
  * The use of a resource is specified by the amount and the kind (e.g. whether the amount
  * of resources is required for each frame processed, or whether they are required
  * regardless of the processing rate (const amount)).
@@ -1300,7 +1329,8 @@ struct C2SystemResourceStruct {
                            C2Config::resource_kind_t kind_,
                            uint64_t amount_)
         : id(id_), kind(kind_), amount(amount_) { }
-    uint32_t id;
+    C2SystemResourceStruct() : C2SystemResourceStruct(0, CONST, 0) {}
+    uint32_t id;            ///< resource ID (see C2PlatformConfig::resource_id_t)
     C2Config::resource_kind_t kind;
     uint64_t amount;
 
@@ -2485,6 +2515,16 @@ typedef C2GlobalParam<C2Setting, C2SimpleValueStruct<C2Config::platform_feature_
 constexpr char C2_PARAMKEY_PLATFORM_FEATURES[] = "api.platform-features";
 
 /**
+ * Resource IDs
+ */
+enum C2PlatformConfig::resource_id_t : uint32_t {
+    DMABUF_MEMORY = 16,  ///< memory allocated from a platform allocator (dmabuf or gralloc)
+
+    /// vendor defined resource IDs start from here
+    VENDOR_START = 0x1000,
+};
+
+/**
  * This structure describes the preferred ion allocation parameters for a given memory usage.
  */
 struct C2StoreIonUsageStruct {
@@ -2851,6 +2891,16 @@ C2ENUM(C2PlatformConfig::encoding_quality_level_t, uint32_t,
     NONE = 0,
     S_HANDHELD = 1              // corresponds to VMAF=70
 );
+
+/**
+ * Display processing token.
+ *
+ * An int64 token specifying the display processing configuration for the frame.
+ * This value is passed to IGraphicBufferProducer via QueueBufferInput::setPictureProfileHandle().
+ */
+typedef C2StreamParam<C2Info, C2Int64Value, kParamIndexDisplayProcessingToken>
+        C2StreamDisplayProcessingToken;
+constexpr char C2_PARAMKEY_DISPLAY_PROCESSING_TOKEN[] = "display-processing-token";
 
 /**
  * Video Encoding Statistics Export

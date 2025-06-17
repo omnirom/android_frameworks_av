@@ -261,14 +261,6 @@ interface ICameraService
      */
     @utf8InCpp String getLegacyParameters(int cameraId);
 
-    /**
-     * apiVersion constants for supportsCameraApi
-     */
-    const int API_VERSION_1 = 1;
-    const int API_VERSION_2 = 2;
-
-    // Determines if a particular API version is supported directly for a cameraId.
-    boolean supportsCameraApi(@utf8InCpp String cameraId, int apiVersion);
     // Determines if a cameraId is a hidden physical camera of a logical multi-camera.
     boolean isHiddenPhysicalCamera(@utf8InCpp String cameraId);
     // Inject the external camera to replace the internal camera session.

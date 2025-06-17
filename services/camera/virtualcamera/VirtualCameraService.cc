@@ -38,6 +38,7 @@
 #include "android/binder_interface_utils.h"
 #include "android/binder_libbinder.h"
 #include "android/binder_status.h"
+#include "android/hardware_buffer.h"
 #include "binder/Status.h"
 #include "fmt/format.h"
 #include "util/EglDisplayContext.h"
@@ -213,6 +214,27 @@ ndk::ScopedAStatus verifyRequiredEglExtensions() {
   return ndk::ScopedAStatus::ok();
 }
 
+ndk::ScopedAStatus verifyHardwareBufferSupport() {
+  static constexpr AHardwareBuffer_Desc desc{
+      .width = static_cast<uint32_t>(kVgaWidth),
+      .height = static_cast<uint32_t>(kVgaHeight),
+      .layers = 1,
+      .format = kHardwareBufferFormat,
+      .usage = kHardwareBufferUsage,
+      .rfu0 = 0,
+      .rfu1 = 0};
+  if (AHardwareBuffer_isSupported(&desc)) {
+    return ndk::ScopedAStatus::ok();
+  }
+  ALOGE("%s: Hardware buffer allocation is unsupported for required formats",
+        __func__);
+  return ndk::ScopedAStatus::fromExceptionCodeWithMessage(
+      EX_UNSUPPORTED_OPERATION,
+      fmt::format("Cannot create virtual camera, because hardware buffer "
+                  "allocation is unsupported")
+          .c_str());
+}
+
 std::string createCameraId(const int32_t deviceId) {
   return kCameraIdPrefix + std::to_string(deviceId) + "_" +
          std::to_string(sNextIdNumericalPortion++);
@@ -255,8 +277,14 @@ ndk::ScopedAStatus VirtualCameraService::registerCameraNoCheck(
         Status::EX_ILLEGAL_ARGUMENT);
   }
 
-  if (mVerifyEglExtensions) {
+  if (mCheckHardwareRequirements) {
     auto status = verifyRequiredEglExtensions();
+    if (!status.isOk()) {
+      *_aidl_return = false;
+      return status;
+    }
+
+    status = verifyHardwareBufferSupport();
     if (!status.isOk()) {
       *_aidl_return = false;
       return status;
@@ -492,7 +520,8 @@ binder_status_t VirtualCameraService::enableTestCameraCmd(
       kDefaultDeviceId, &ret);
   if (!ret) {
     dprintf(err, "Failed to create test camera (error %d)\n", ret);
-    return ret;
+    mTestCameraToken.set(nullptr);
+    return EOPNOTSUPP;
   }
 
   dprintf(out, "Successfully registered test camera %s\n",

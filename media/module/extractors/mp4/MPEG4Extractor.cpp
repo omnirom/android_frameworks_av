@@ -22,12 +22,17 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <utils/Log.h>
 
+#include <android-base/properties.h>
+#ifdef __ANDROID__
+#include <android/api-level.h>
+#endif  //__ANDROID__
 #include "AC4Parser.h"
 #include "MPEG4Extractor.h"
 #include "SampleTable.h"
@@ -83,6 +88,22 @@ enum {
     // but we only allow up to this size.
     kMaxAtomSize = 64 * 1024 * 1024,
 };
+
+static bool isAtLeastRelease([[maybe_unused]] int version,
+                             [[maybe_unused]] const std::string codeName) {
+#ifdef __ANDROID__
+    static std::once_flag sCheckOnce;
+    static std::string sDeviceCodeName;
+    static int sDeviceApiLevel = 0;
+    std::call_once(sCheckOnce, [&]() {
+        sDeviceCodeName = base::GetProperty("ro.build.version.codename", "");
+        sDeviceApiLevel = android_get_device_api_level();
+    });
+    return sDeviceApiLevel >= version || sDeviceCodeName == codeName;
+#else   //__ANDROID__
+    return true;
+#endif  //__ANDROID__
+}
 
 class MPEG4Source : public MediaTrackHelper {
 static const size_t  kMaxPcmFrameSize = 8192;
@@ -190,6 +211,8 @@ private:
     int32_t parseHEVCLayerId(const uint8_t *data, size_t size);
     size_t getNALLengthSizeFromAvcCsd(const uint8_t *data, const size_t size) const;
     size_t getNALLengthSizeFromHevcCsd(const uint8_t *data, const size_t size) const;
+
+    int64_t rescaleTime(int64_t value, int64_t scale, int64_t originScale) const;
 
     struct TrackFragmentHeaderInfo {
         enum Flags {
@@ -369,7 +392,9 @@ static const char *FourCC2MIME(uint32_t fourcc) {
             return MEDIA_MIMETYPE_VIDEO_HEVC;
 
         case FOURCC("apv1"):
-            if (!com::android::media::extractor::flags::extractor_mp4_enable_apv()) {
+            // Enable APV codec support from Android Baklava
+            if (!(isAtLeastRelease(36, "Baklava") &&
+                  com::android::media::extractor::flags::extractor_mp4_enable_apv())) {
                 ALOGV("APV support not enabled");
                 return "application/octet-stream";
             }
@@ -2633,16 +2658,48 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             break;
         }
 
-        case FOURCC("apvC"):
-        case FOURCC("av1C"):
-        {
-            if (!com::android::media::extractor::flags::extractor_mp4_enable_apv() &&
-                chunk_type == FOURCC("apvC")) {
+        case FOURCC("apvC"): {
+            // Enable APV codec support from Android Baklava
+            if (!(isAtLeastRelease(36, "Baklava") &&
+                  com::android::media::extractor::flags::extractor_mp4_enable_apv())) {
                 ALOGV("APV support not enabled");
                 *offset += chunk_size;
                 break;
             }
 
+            auto buffer = heapbuffer<uint8_t>(chunk_data_size);
+
+            if (buffer.get() == NULL) {
+                ALOGE("b/28471206");
+                return NO_MEMORY;
+            }
+
+            if (mDataSource->readAt(data_offset, buffer.get(), chunk_data_size) < chunk_data_size) {
+                return ERROR_IO;
+            }
+
+            if (mLastTrack == NULL)
+                return ERROR_MALFORMED;
+
+            int bytes_to_skip = 4;
+            if (chunk_data_size < bytes_to_skip) {
+                return ERROR_MALFORMED;
+            }
+            // apvC extends FullBox so first 4 bytes of version and flag should be zero.
+            for (int i = 0; i < bytes_to_skip; i++) {
+                if (buffer[i] != 0) {
+                    return ERROR_MALFORMED;
+                }
+            }
+
+            // Advance the buffer pointer by 4 bytes as it contains 4 bytes of flag and version.
+            AMediaFormat_setBuffer(mLastTrack->meta, AMEDIAFORMAT_KEY_CSD_0,
+                                   buffer.get() + bytes_to_skip, chunk_data_size - bytes_to_skip);
+
+            *offset += chunk_size;
+            break;
+        }
+        case FOURCC("av1C"): {
             auto buffer = heapbuffer<uint8_t>(chunk_data_size);
 
             if (buffer.get() == NULL) {
@@ -5206,8 +5263,12 @@ MPEG4Source::MPEG4Source(
     mIsAVC = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC);
     mIsHEVC = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC) ||
               !strcasecmp(mime, MEDIA_MIMETYPE_IMAGE_ANDROID_HEIC);
-    mIsAPV = com::android::media::extractor::flags::extractor_mp4_enable_apv() &&
-             !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_APV);
+    // Enable APV codec support from Android Baklava
+    mIsAPV = false;
+    if (isAtLeastRelease(36, "Baklava")) {
+        mIsAPV = com::android::media::extractor::flags::extractor_mp4_enable_apv() &&
+                 !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_APV);
+    }
     mIsAC4 = !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AC4);
     mIsDolbyVision = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_DOLBY_VISION);
     mIsHeif = !strcasecmp(mime, MEDIA_MIMETYPE_IMAGE_ANDROID_HEIC) && mItemTable != NULL;
@@ -6200,6 +6261,63 @@ size_t MPEG4Source::getNALLengthSizeFromHevcCsd(const uint8_t *data, const size_
     return 1 + (data[14 + 7] & 3);
 }
 
+int64_t MPEG4Source::rescaleTime(int64_t value, int64_t scale, int64_t originScale) const {
+    // Rescale time: calculate value * scale / originScale
+    if (value == 0 || scale == 0) {
+        return 0;
+    }
+
+    CHECK(value > 0);
+    CHECK(scale > 0);
+    CHECK(originScale > 0);
+
+    if (originScale >= scale && (originScale % scale) == 0) {
+        int64_t factor = originScale / scale;
+        return value / factor;
+    } else if (originScale < scale && (scale % originScale) == 0) {
+        int64_t factor = scale / originScale;
+        if (__builtin_mul_overflow(value, factor, &value)) {
+            return std::numeric_limits<int64_t>::max();
+        }
+        return value;
+    } else if (originScale >= value && (originScale % value) == 0) {
+        int64_t factor = originScale / value;
+        return scale / factor;
+    } else if (originScale < value && (value % originScale) == 0) {
+        int64_t factor = value / originScale;
+        if (__builtin_mul_overflow(scale, factor, &value)) {
+            return std::numeric_limits<int64_t>::max();
+        }
+        return value;
+    } else {
+        int64_t rescaleValue;
+        if (!__builtin_mul_overflow(value, scale, &rescaleValue)) {
+            return rescaleValue / originScale;
+        } else {
+            // Divide the max gcd before calc scale/originScale
+            int64_t gcdOfScaleAndOriginScale = std::gcd(scale, originScale);
+            int64_t simpleScale = scale / gcdOfScaleAndOriginScale;
+            int64_t simpleOriginScale = originScale / gcdOfScaleAndOriginScale;
+            // Divide the max gcd before calc value/simpleOriginScale
+            int64_t gcdOfValueAndSimpleOriginScale = std::gcd(value, simpleOriginScale);
+            int64_t simpleValue = value / gcdOfValueAndSimpleOriginScale;
+            simpleOriginScale /= gcdOfValueAndSimpleOriginScale;
+
+            if (!__builtin_mul_overflow(simpleValue, simpleScale, &simpleValue)) {
+                return simpleValue / simpleOriginScale;
+            } else {
+                // Fallback using long double to calculate the rescale value
+                long double rescale = (long double)value / originScale * scale;
+                if (rescale > std::numeric_limits<int64_t>::max()) {
+                    return std::numeric_limits<int64_t>::max();
+                }
+
+                return rescale;
+            }
+        }
+    }
+}
+
 media_status_t MPEG4Source::read(
         MediaBufferHelper **out, const ReadOptions *options) {
     Mutex::Autolock autoLock(mLock);
@@ -6264,16 +6382,26 @@ media_status_t MPEG4Source::read(
             if( mode != ReadOptions::SEEK_FRAME_INDEX) {
                 int64_t elstInitialEmptyEditUs = 0, elstShiftStartUs = 0;
                 if (mElstInitialEmptyEditTicks > 0) {
-                    elstInitialEmptyEditUs = ((long double)mElstInitialEmptyEditTicks * 1000000) /
-                                             mTimescale;
+                    elstInitialEmptyEditUs = rescaleTime(mElstInitialEmptyEditTicks, 1000000,
+                            mTimescale);
+
                     /* Sample's composition time from ctts/stts entries are non-negative(>=0).
                      * Hence, lower bound on seekTimeUs is 0.
                      */
-                    seekTimeUs = std::max(seekTimeUs - elstInitialEmptyEditUs, (int64_t)0);
+                    if (__builtin_sub_overflow(seekTimeUs, elstInitialEmptyEditUs,
+                            &seekTimeUs) || seekTimeUs < 0) {
+                        ALOGW("seekTimeUs:%" PRId64 " would be a bogus value, set to 0",
+                                seekTimeUs);
+                        seekTimeUs = 0;
+                    }
                 }
                 if (mElstShiftStartTicks > 0) {
-                    elstShiftStartUs = ((long double)mElstShiftStartTicks * 1000000) / mTimescale;
-                    seekTimeUs += elstShiftStartUs;
+                    elstShiftStartUs = rescaleTime(mElstShiftStartTicks, 1000000, mTimescale);
+
+                    if (__builtin_add_overflow(seekTimeUs, elstShiftStartUs, &seekTimeUs)) {
+                        ALOGW("seek + elst shift start would be overflow, round to max");
+                        seekTimeUs = std::numeric_limits<int64_t>::max();
+                    }
                 }
                 ALOGV("shifted seekTimeUs:%" PRId64 ", elstInitialEmptyEditUs:%" PRIu64
                       ", elstShiftStartUs:%" PRIu64, seekTimeUs, elstInitialEmptyEditUs,
@@ -6711,16 +6839,26 @@ media_status_t MPEG4Source::fragmentedRead(
         ALOGV("seekTimeUs:%" PRId64, seekTimeUs);
         int64_t elstInitialEmptyEditUs = 0, elstShiftStartUs = 0;
         if (mElstInitialEmptyEditTicks > 0) {
-            elstInitialEmptyEditUs = ((long double)mElstInitialEmptyEditTicks * 1000000) /
-                                     mTimescale;
+            elstInitialEmptyEditUs = rescaleTime(mElstInitialEmptyEditTicks, 1000000,
+                    mTimescale);
+
             /* Sample's composition time from ctts/stts entries are non-negative(>=0).
              * Hence, lower bound on seekTimeUs is 0.
              */
-            seekTimeUs = std::max(seekTimeUs - elstInitialEmptyEditUs, (int64_t)0);
+            if (__builtin_sub_overflow(seekTimeUs, elstInitialEmptyEditUs,
+                    &seekTimeUs) || seekTimeUs < 0) {
+                ALOGW("seekTimeUs:%" PRId64 " would be a bogus value, set to 0",
+                        seekTimeUs);
+                seekTimeUs = 0;
+            }
         }
-        if (mElstShiftStartTicks > 0){
-            elstShiftStartUs = ((long double)mElstShiftStartTicks * 1000000) / mTimescale;
-            seekTimeUs += elstShiftStartUs;
+        if (mElstShiftStartTicks > 0) {
+            elstShiftStartUs = rescaleTime(mElstShiftStartTicks, 1000000, mTimescale);
+
+            if (__builtin_add_overflow(seekTimeUs, elstShiftStartUs, &seekTimeUs)) {
+                ALOGW("seek + elst shift start would be overflow, round to max");
+                seekTimeUs = std::numeric_limits<int64_t>::max();
+            }
         }
         ALOGV("shifted seekTimeUs:%" PRId64 ", elstInitialEmptyEditUs:%" PRIu64
               ", elstShiftStartUs:%" PRIu64, seekTimeUs, elstInitialEmptyEditUs,

@@ -16,7 +16,7 @@
  *
  *****************************************************************************/
 package {
-    default_team: "trendy_team_xr_framework",
+    default_team: "trendy_team_virtual_device_framework",
     // See: http://go/android-license-faq
     default_applicable_licenses: ["Android-Apache-2.0"],
 }

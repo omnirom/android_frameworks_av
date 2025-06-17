@@ -77,9 +77,6 @@ bool IsCodec2AidlInputSurfaceSelected() {
     if (inputSurfaceSetting <= 0) {
         return false;
     }
-    if (!android::media::codec::provider_->aidl_hal_input_surface()) {
-        return false;
-    }
     return true;
 }
 

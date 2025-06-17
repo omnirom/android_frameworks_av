@@ -149,7 +149,6 @@ cc_defaults {
         "audio-permission-aidl-cpp",
         "audioclient-types-aidl-cpp",
         "audioflinger-aidl-cpp",
-        "libaudiopermission",
         "av-types-aidl-cpp",
         "com.android.media.audio-aconfig-cc",
         "com.android.media.audioserver-aconfig-cc",
@@ -164,6 +163,7 @@ cc_defaults {
         "libaudiofoundation",
         "libaudiohal",
         "libaudiomanager",
+        "libaudiopermission",
         "libaudioprocessing",
         "libaudioutils",
         "libbinder",
@@ -211,13 +211,11 @@ cc_library {
 
     include_dirs: [
         "frameworks/av/services/audiopolicy",
-        "frameworks/av/services/medialog",
     ],
 
     static_libs: [
         "libaudiospdif",
         "libcpustats",
-        "libmedialogservice",
     ],
 
     header_libs: [

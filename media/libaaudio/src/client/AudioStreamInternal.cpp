@@ -134,12 +134,7 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     request.getConfiguration().setInputPreset(getInputPreset());
     request.getConfiguration().setPrivacySensitive(isPrivacySensitive());
 
-    // When sample rate conversion is needed, we use the device sample rate instead of the
-    // requested sample rate to scale the capacity in configureDataInformation().
-    // Thus, we should scale the capacity here to cancel out the (sampleRate / deviceSampleRate)
-    // scaling there.
-    request.getConfiguration().setBufferCapacity(builder.getBufferCapacity()
-            * 48000 / getSampleRate());
+    request.getConfiguration().setBufferCapacity(builder.getBufferCapacity());
 
     mServiceStreamHandleInfo = mServiceInterface.openStream(request, configurationOutput);
     if (getServiceHandle() < 0

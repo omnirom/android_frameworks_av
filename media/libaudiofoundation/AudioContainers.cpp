@@ -84,6 +84,13 @@ const DeviceTypeSet& getAudioDeviceOutLeAudioBroadcastSet() {
     return audioDeviceOutLeAudioUnicastSet;
 }
 
+const DeviceTypeSet& getAudioDeviceOutPickForVolumeSet() {
+    static const DeviceTypeSet audioDevicePickForVolumeSet = DeviceTypeSet(
+            std::begin(AUDIO_DEVICE_OUT_PICK_FOR_VOLUME_ARRAY),
+            std::end(AUDIO_DEVICE_OUT_PICK_FOR_VOLUME_ARRAY));
+    return audioDevicePickForVolumeSet;
+}
+
 std::string deviceTypesToString(const DeviceTypeSet &deviceTypes) {
     if (deviceTypes.empty()) {
         return "Empty device types";

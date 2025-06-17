@@ -260,9 +260,9 @@ cc_library_shared {
     srcs: [
         "AudioCapabilities.cpp",
         "CodecCapabilities.cpp",
+        "CodecCapabilitiesUtils.cpp",
         "EncoderCapabilities.cpp",
         "VideoCapabilities.cpp",
-        "CodecCapabilitiesUtils.cpp",
     ],
 
     local_include_dirs: [
@@ -270,10 +270,15 @@ cc_library_shared {
     ],
 
     shared_libs: [
+        "libaconfig_storage_read_api_cc",
         "libbinder",
         "liblog",
         "libstagefright_foundation",
         "libutils",
+    ],
+
+    static_libs: [
+        "android.media.codec-aconfig-cc",
     ],
 
     export_include_dirs: [
@@ -404,21 +409,21 @@ cc_library {
         "libbinder",
         "libbinder_ndk",
         //"libsonivox",
-        "libcutils",
-        "liblog",
-        "libutils",
         "framework-permission-aidl-cpp",
         "libandroidicu",
         "libaudioclient",
         "libaudiofoundation",
         "libcamera_client",
+        "libcutils",
         "libdl",
         "libexpat",
         "libgui",
+        "liblog",
         "libmedia_codeclist",
         "libmedia_omx",
         "libstagefright_foundation",
         "libui",
+        "libutils",
     ],
 
     export_shared_lib_headers: [

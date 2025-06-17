@@ -76,7 +76,21 @@ std::string AAudioServiceStreamShared::dump() const NO_THREAD_SAFETY_ANALYSIS {
 }
 
 int32_t AAudioServiceStreamShared::calculateBufferCapacity(int32_t requestedCapacityFrames,
-                                                           int32_t framesPerBurst) {
+                                                           int32_t framesPerBurst,
+                                                           int32_t requestedSampleRate,
+                                                           int32_t deviceSampleRate) {
+    if (requestedSampleRate != AAUDIO_UNSPECIFIED && requestedSampleRate != deviceSampleRate) {
+        // When sample rate conversion is needed, we use the device sample rate and the
+        // requested sample rate to scale the capacity in configureDataInformation().
+        // Thus, we should scale the capacity here to cancel out the
+        // (requestedSampleRate / deviceSampleRate) scaling there.
+
+        requestedCapacityFrames = static_cast<int64_t>(requestedCapacityFrames) * deviceSampleRate
+                                  / requestedSampleRate;
+        ALOGV("calculateBufferCapacity() scaled buffer capacity to %d frames, requested SR = %d"
+              ", device SR = %d",
+              requestedCapacityFrames, requestedSampleRate, deviceSampleRate);
+    }
 
     if (requestedCapacityFrames > MAX_FRAMES_PER_BUFFER) {
         ALOGE("calculateBufferCapacity() requested capacity %d > max %d",
@@ -168,7 +182,8 @@ aaudio_result_t AAudioServiceStreamShared::open(const aaudio::AAudioStreamReques
     }
 
     setBufferCapacity(calculateBufferCapacity(configurationInput.getBufferCapacity(),
-                                     mFramesPerBurst));
+                                              mFramesPerBurst, configurationInput.getSampleRate(),
+                                              getSampleRate()));
     if (getBufferCapacity() < 0) {
         result = getBufferCapacity(); // negative error code
         setBufferCapacity(0);

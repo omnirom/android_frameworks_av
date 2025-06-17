@@ -134,6 +134,11 @@ C2SoftOpusEnc::C2SoftOpusEnc(const char* name, c2_node_id_t id,
       mOutIndex(0u) {
 }
 
+C2SoftOpusEnc::C2SoftOpusEnc(const char* name, c2_node_id_t id,
+                             const std::shared_ptr<C2ReflectorHelper>& helper)
+    : C2SoftOpusEnc(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftOpusEnc::~C2SoftOpusEnc() {
     onRelease();
 }

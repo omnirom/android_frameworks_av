@@ -174,7 +174,11 @@ void AudioPowerUsage::sendItem(const std::shared_ptr<const mediametrics::Item>& 
     const int32_t duration_secs = (int32_t)(duration_ns / NANOS_PER_SECOND);
     const int32_t min_volume_duration_secs = (int32_t)(min_volume_duration_ns / NANOS_PER_SECOND);
     const int32_t max_volume_duration_secs = (int32_t)(max_volume_duration_ns / NANOS_PER_SECOND);
-    const int result = stats::media_metrics::stats_write(stats::media_metrics::AUDIO_POWER_USAGE_DATA_REPORTED,
+    int result = 0;
+
+    if (__builtin_available(android 33, *)) {
+        result = stats::media_metrics::stats_write(
+                                         stats::media_metrics::AUDIO_POWER_USAGE_DATA_REPORTED,
                                          audio_device,
                                          duration_secs,
                                          (float)volume,
@@ -183,6 +187,7 @@ void AudioPowerUsage::sendItem(const std::shared_ptr<const mediametrics::Item>& 
                                          (float)min_volume,
                                          max_volume_duration_secs,
                                          (float)max_volume);
+    }
 
     std::stringstream log;
     log << "result:" << result << " {"

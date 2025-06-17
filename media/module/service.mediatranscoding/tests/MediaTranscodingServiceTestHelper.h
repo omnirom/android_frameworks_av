@@ -114,6 +114,8 @@ struct EventTracker {
         enum { NoEvent, Start, Pause, Resume, Finished, Failed } type;
         int64_t clientId;
         int32_t sessionId;
+
+        friend bool operator==(const EventTracker::Event& lhs, const EventTracker::Event& rhs);
     };
 
 #define DECLARE_EVENT(action)                                  \

@@ -325,11 +325,13 @@ cc_library {
         "libaconfig_storage_read_api_cc",
         "aconfig_mediacodec_flags_c_lib",
         "camera_platform_flags_c_lib",
+        "media_quality_aidl_interface-cpp",
     ],
 
     static_libs: [
         "android.media.codec-aconfig-cc",
         "android.media.extractor.flags-aconfig-cc",
+        "android.media.tv.flags-aconfig-cc",
         "com.android.media.flags.editing-aconfig-cc",
         "framework-permission-aidl-cpp",
         "libmedia_ndkformatpriv",
@@ -349,6 +351,7 @@ cc_library {
         "libnativeloader-headers",
         "libstagefright_xmlparser_headers",
         "media_ndk_headers",
+        "media_quality_headers",
     ],
 
     export_shared_lib_headers: [

@@ -83,6 +83,7 @@ public:
     status_t setPreferredMicrophoneFieldDimension(float zoom) final;
     status_t shareAudioHistory(const std::string& sharedAudioPackageName,
             int64_t sharedAudioStartMs) final;
+    status_t setParameters(const String8& keyValuePairs) final;
     int32_t startFrames() const final { return mStartFrames; }
 
     using SinkMetadatas = std::vector<record_track_metadata_v7_t>;

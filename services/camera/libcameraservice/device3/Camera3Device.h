@@ -38,6 +38,7 @@
 
 #include "common/CameraDeviceBase.h"
 #include "common/DepthPhotoProcessor.h"
+#include "common/FrameProcessorBase.h"
 #include "device3/BufferUtils.h"
 #include "device3/StatusTracker.h"
 #include "device3/Camera3BufferManager.h"
@@ -92,7 +93,7 @@ class Camera3Device :
     explicit Camera3Device(std::shared_ptr<CameraServiceProxyWrapper>& cameraServiceProxyWrapper,
             std::shared_ptr<AttributionAndPermissionUtils> attributionAndPermissionUtils,
             const std::string& id, bool overrideForPerfClass, int rotationOverride,
-            bool legacyClient = false);
+            bool isVendorClient, bool legacyClient = false);
 
     virtual ~Camera3Device();
     // Delete and optionally close native handles and clear the input vector afterward
@@ -122,6 +123,24 @@ class Camera3Device :
     virtual status_t initialize(sp<CameraProviderManager> /*manager*/,
             const std::string& /*monitorTags*/) = 0;
 
+    static constexpr int32_t METADATA_QUEUE_SIZE = 1 << 20;
+
+    template <typename FMQType>
+    static size_t calculateFMQSize(const std::unique_ptr<FMQType> &fmq) {
+        if (fmq == nullptr) {
+            ALOGE("%s: result metadata queue hasn't been initialized", __FUNCTION__);
+            return METADATA_QUEUE_SIZE;
+        }
+        size_t quantumSize = fmq->getQuantumSize();
+        size_t quantumCount = fmq->getQuantumCount();
+        if ((quantumSize == 0) || (quantumCount == 0) ||
+                ((std::numeric_limits<size_t>::max() / quantumSize) < quantumCount)) {
+            ALOGE("%s: Error with FMQ quantum count / quantum size, quantum count %zu"
+                    "quantum count %zu", __FUNCTION__, quantumSize, quantumCount);
+            return METADATA_QUEUE_SIZE;
+        }
+        return fmq->getQuantumSize() * fmq->getQuantumCount();
+    }
     status_t disconnect() override;
     status_t dump(int fd, const Vector<String16> &args) override;
     status_t startWatchingTags(const std::string &tags) override;
@@ -130,6 +149,10 @@ class Camera3Device :
     const CameraMetadata& info() const override;
     const CameraMetadata& infoPhysical(const std::string& physicalId) const override;
     bool isCompositeJpegRDisabled() const override { return mIsCompositeJpegRDisabled; };
+    bool isCompositeHeicDisabled() const override { return mIsCompositeHeicDisabled; }
+    bool isCompositeHeicUltraHDRDisabled() const override {
+        return mIsCompositeHeicUltraHDRDisabled;
+    }
 
     // Capture and setStreamingRequest will configure streams if currently in
     // idle state
@@ -197,7 +220,7 @@ class Camera3Device :
 
     virtual status_t beginConfigure() override {return OK;};
 
-    virtual status_t getSharedStreamId(const OutputConfiguration& /*config*/,
+    virtual status_t getSharedStreamId(const OutputStreamInfo& /*config*/,
             int* /*streamId*/) override {return INVALID_OPERATION;};
 
     virtual status_t addSharedSurfaces(int /*streamId*/,
@@ -208,6 +231,25 @@ class Camera3Device :
     virtual status_t removeSharedSurfaces(int /*streamId*/,
             const std::vector<size_t>& /*surfaceIds*/) override {return INVALID_OPERATION;};
 
+    virtual status_t setSharedStreamingRequest(
+            const PhysicalCameraSettingsList& /*request*/, const SurfaceMap& /*surfaceMap*/,
+            int32_t* /*sharedReqID*/, int64_t* /*lastFrameNumber = NULL*/) override {
+        return INVALID_OPERATION;
+    };
+
+    virtual status_t clearSharedStreamingRequest(int64_t* /*lastFrameNumber = NULL*/) override {
+        return INVALID_OPERATION;
+    };
+
+    virtual status_t setSharedCaptureRequest(const PhysicalCameraSettingsList& /*request*/,
+            const SurfaceMap& /*surfaceMap*/, int32_t* /*sharedReqID*/,
+            int64_t* /*lastFrameNumber = NULL*/) override {return INVALID_OPERATION;};
+
+    virtual sp<camera2::FrameProcessorBase> getSharedFrameProcessor() override {return nullptr;};
+
+    virtual status_t startStreaming(const int32_t /*reqId*/, const SurfaceMap& /*surfaceMap*/,
+            int32_t* /*sharedReqID*/, int64_t* /*lastFrameNumber = NULL*/)
+            override {return INVALID_OPERATION;};
     status_t configureStreams(const CameraMetadata& sessionParams,
             int operatingMode =
             camera_stream_configuration_mode_t::CAMERA_STREAM_CONFIGURATION_NORMAL_MODE) override;
@@ -226,7 +268,7 @@ class Camera3Device :
     // Transitions to the idle state on success
     status_t waitUntilDrained() override;
 
-    status_t setNotifyCallback(wp<NotificationListener> listener) override;
+    virtual status_t setNotifyCallback(wp<NotificationListener> listener) override;
     bool     willNotify3A() override;
     status_t waitForNextFrame(nsecs_t timeout) override;
     status_t getNextResult(CaptureResult *frame) override;
@@ -596,6 +638,8 @@ class Camera3Device :
     CameraMetadata             mDeviceInfo;
     bool                       mSupportNativeZoomRatio;
     bool                       mIsCompositeJpegRDisabled;
+    bool                       mIsCompositeHeicDisabled;
+    bool                       mIsCompositeHeicUltraHDRDisabled;
     std::unordered_map<std::string, CameraMetadata> mPhysicalDeviceInfoMap;
 
     CameraMetadata             mRequestTemplateCache[CAMERA_TEMPLATE_COUNT];
@@ -761,6 +805,22 @@ class Camera3Device :
         int32_t inputStreamId = -1;
         std::set<int32_t> outputStreamIds;
     };
+
+    /**
+     * Get the first repeating request in the ongoing repeating request list.
+     */
+    const sp<CaptureRequest> getOngoingRepeatingRequestLocked();
+
+    /**
+     * Update the first repeating request in the ongoing repeating request list
+     * with the surface map provided.
+     */
+    status_t updateOngoingRepeatingRequestLocked(const SurfaceMap& surfaceMap);
+
+    /**
+     * Get the repeating request last frame number.
+     */
+    int64_t getRepeatingRequestLastFrameNumberLocked();
 
     /**
      * Get the last request submitted to the hal by the request thread.
@@ -1066,6 +1126,20 @@ class Camera3Device :
          * signal mLatestRequestmutex
          **/
         void wakeupLatestRequest(bool latestRequestFailed, int32_t latestRequestId);
+
+        /**
+         * Get the first repeating request in the ongoing repeating request list.
+         */
+        const sp<CaptureRequest> getOngoingRepeatingRequest();
+
+        /**
+         * Update the first repeating request in the ongoing repeating request list
+         * with the surface map provided.
+         */
+        status_t updateOngoingRepeatingRequest(const SurfaceMap& surfaceMap);
+
+        // Get the repeating request last frame number.
+        int64_t getRepeatingRequestLastFrameNumber();
 
       protected:
 
@@ -1573,6 +1647,10 @@ class Camera3Device :
 
     // Flag to indicate that we shouldn't forward extension related metadata
     bool mSupportsExtensionKeys = false;
+
+    // If the client is a native client, either opened through vndk, or caling
+    // Pid is a platform service.
+    bool mIsNativeClient;
 
     // Injection camera related methods.
     class Camera3DeviceInjectionMethods : public virtual RefBase {

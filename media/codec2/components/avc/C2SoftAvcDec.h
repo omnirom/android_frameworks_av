@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 #include "ih264_typedefs.h"
 #include "ih264d.h"
@@ -96,6 +97,8 @@ class C2SoftAvcDec : public SimpleC2Component {
 public:
     class IntfImpl;
     C2SoftAvcDec(const char *name, c2_node_id_t id, const std::shared_ptr<IntfImpl> &intfImpl);
+    C2SoftAvcDec(const char *name, c2_node_id_t id,
+                 const std::shared_ptr<C2ReflectorHelper> &helper);
     virtual ~C2SoftAvcDec();
 
     // From SimpleC2Component
@@ -173,7 +176,7 @@ private:
         VuiColorAspects()
             : primaries(2), transfer(2), coeffs(2), fullRange(0) { }
 
-        bool operator==(const VuiColorAspects &o) {
+        bool operator==(const VuiColorAspects &o) const {
             return primaries == o.primaries && transfer == o.transfer && coeffs == o.coeffs
                     && fullRange == o.fullRange;
         }

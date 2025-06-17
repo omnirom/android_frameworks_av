@@ -98,6 +98,11 @@ public:
 };
 
 TEST_P(AudioTrackTest, DefaultRoutingTest) {
+    bool isAutomotive;
+    ASSERT_EQ(OK, isAutomotivePlatform(&isAutomotive));
+    if (isAutomotive) {
+        GTEST_SKIP() << "auto uses its own policy for routing";
+    }
     audio_port_v7 port;
     if (OK != getPortByAttributes(AUDIO_PORT_ROLE_SOURCE, AUDIO_PORT_TYPE_DEVICE,
                                   AUDIO_DEVICE_IN_REMOTE_SUBMIX, "0", port)) {
@@ -154,6 +159,11 @@ INSTANTIATE_TEST_SUITE_P(
 class AudioRoutingTest : public ::testing::Test {
   public:
     void SetUp() override {
+        bool isAutomotive;
+        ASSERT_EQ(OK, isAutomotivePlatform(&isAutomotive));
+        if (isAutomotive) {
+            GTEST_SKIP() << "auto uses its own policy for routing";
+        }
         audio_port_v7 port;
         if (OK != getPortByAttributes(AUDIO_PORT_ROLE_SOURCE, AUDIO_PORT_TYPE_DEVICE,
                                       AUDIO_DEVICE_IN_REMOTE_SUBMIX, "0", port)) {

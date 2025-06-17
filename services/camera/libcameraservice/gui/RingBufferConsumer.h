@@ -21,6 +21,10 @@
 #include <gui/BufferItem.h>
 #include <gui/BufferQueue.h>
 #include <gui/ConsumerBase.h>
+#include <gui/Flags.h> // remove with WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+#include <gui/BufferItemConsumer.h>
+#endif
 
 #include <utils/List.h>
 
@@ -46,8 +50,13 @@ namespace android {
  *  - If all the buffers get filled or pinned then there will be no empty
  *    buffers left, so the producer will block on dequeue.
  */
-class RingBufferConsumer : public ConsumerBase,
+class RingBufferConsumer
+#if not WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+                         : public ConsumerBase,
                            public ConsumerBase::FrameAvailableListener
+#else
+                         : public BufferItemConsumer::FrameAvailableListener
+#endif
 {
   public:
     typedef ConsumerBase::FrameAvailableListener FrameAvailableListener;
@@ -161,11 +170,21 @@ class RingBufferConsumer : public ConsumerBase,
 
     // Return 0 if RingBuffer is empty, otherwise return timestamp of latest buffer.
     nsecs_t getLatestTimestamp();
+#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+    sp<Surface> getSurface() const;
+#endif
 
   private:
 
+#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+    Mutex mMutex;
+
+    sp<Surface> mSurface;
+    sp<BufferItemConsumer> mBufferItemConsumer;
+#endif
+
     // Override ConsumerBase::onFrameAvailable
-    virtual void onFrameAvailable(const BufferItem& item);
+    virtual void onFrameAvailable(const BufferItem& item) override;
 
     void pinBufferLocked(const BufferItem& item);
     void unpinBuffer(const BufferItem& item);

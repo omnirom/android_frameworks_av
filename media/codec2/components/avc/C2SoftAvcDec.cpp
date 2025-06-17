@@ -351,6 +351,12 @@ C2SoftAvcDec::C2SoftAvcDec(
     GENERATE_FILE_NAMES();
     CREATE_DUMP_FILE(mInFile);
 }
+C2SoftAvcDec::C2SoftAvcDec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftAvcDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
 
 C2SoftAvcDec::~C2SoftAvcDec() {
     onRelease();

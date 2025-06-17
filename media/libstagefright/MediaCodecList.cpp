@@ -20,6 +20,11 @@
 
 #include <binder/IServiceManager.h>
 
+#include <android_media_codec.h>
+
+#include <android-base/properties.h>
+#include <android-base/no_destructor.h>
+
 #include <media/IMediaCodecList.h>
 #include <media/IMediaPlayerService.h>
 #include <media/MediaCodecInfo.h>
@@ -49,10 +54,6 @@
 namespace android {
 
 namespace {
-
-Mutex sInitMutex;
-
-Mutex sRemoteInitMutex;
 
 constexpr const char* kProfilingResults =
         MediaCodecsXmlParser::defaultProfilingResultsXmlPath;
@@ -112,8 +113,98 @@ std::vector<MediaCodecListBuilderBase *> GetBuilders() {
 
 }  // unnamed namespace
 
-// static
-sp<IMediaCodecList> MediaCodecList::sCodecList;
+class MediaCodecList::InstanceCache {
+public:
+    static InstanceCache &Get() {
+        static base::NoDestructor<InstanceCache> sCache;
+        return *sCache;
+    }
+
+    InstanceCache() : mBootCompleted(false), mBootCompletedRemote(false) {}
+
+    sp<IMediaCodecList> getLocalInstance() {
+        std::unique_lock l(mLocalMutex);
+
+        if (android::media::codec::provider_->in_process_sw_audio_codec_support()
+                && !mBootCompleted) {
+            mBootCompleted = base::GetBoolProperty("sys.boot_completed", false);
+            if (mLocalInstance != nullptr && mBootCompleted) {
+                ALOGI("Boot completed, will reset local instance.");
+                mLocalInstance = nullptr;
+            }
+        }
+        if (mLocalInstance == nullptr) {
+            MediaCodecList *codecList = new MediaCodecList(GetBuilders());
+            if (codecList->initCheck() == OK) {
+                mLocalInstance = codecList;
+
+                if (isProfilingNeeded()) {
+                    ALOGV("Codec profiling needed, will be run in separated thread.");
+                    pthread_t profiler;
+                    if (pthread_create(&profiler, nullptr, profilerThreadWrapper, nullptr) != 0) {
+                        ALOGW("Failed to create thread for codec profiling.");
+                    }
+                }
+            } else {
+                // failure to initialize may be temporary. retry on next call.
+                delete codecList;
+            }
+        }
+
+        return mLocalInstance;
+    }
+
+    void setLocalInstance(const sp<IMediaCodecList> &instance) {
+        std::unique_lock l(mLocalMutex);
+        mLocalInstance = instance;
+    }
+
+    sp<IMediaCodecList> getRemoteInstance() {
+        std::unique_lock l(mRemoteMutex);
+        if (android::media::codec::provider_->in_process_sw_audio_codec_support()
+                && !mBootCompletedRemote) {
+            mBootCompletedRemote = base::GetBoolProperty("sys.boot_completed", false);
+            if (mRemoteInstance != nullptr && mBootCompletedRemote) {
+                ALOGI("Boot completed, will reset remote instance.");
+                mRemoteInstance = nullptr;
+            }
+        }
+        if (mRemoteInstance == nullptr) {
+            mMediaPlayer = defaultServiceManager()->getService(String16("media.player"));
+            sp<IMediaPlayerService> service =
+                interface_cast<IMediaPlayerService>(mMediaPlayer);
+            if (service.get() != nullptr) {
+                mRemoteInstance = service->getCodecList();
+                if (mRemoteInstance != nullptr) {
+                    mBinderDeathObserver = new BinderDeathObserver();
+                    mMediaPlayer->linkToDeath(mBinderDeathObserver.get());
+                }
+            }
+            if (mRemoteInstance == nullptr) {
+                // if failed to get remote list, create local list
+                mRemoteInstance = getLocalInstance();
+            }
+        }
+        return mRemoteInstance;
+    }
+
+    void binderDied() {
+        std::unique_lock l(mRemoteMutex);
+        mRemoteInstance.clear();
+        mBinderDeathObserver.clear();
+    }
+
+private:
+    std::mutex mLocalMutex;
+    bool mBootCompleted                 GUARDED_BY(mLocalMutex);
+    sp<IMediaCodecList> mLocalInstance  GUARDED_BY(mLocalMutex);
+
+    std::mutex mRemoteMutex;
+    bool mBootCompletedRemote                       GUARDED_BY(mRemoteMutex);
+    sp<IMediaCodecList> mRemoteInstance             GUARDED_BY(mRemoteMutex);
+    sp<BinderDeathObserver> mBinderDeathObserver    GUARDED_BY(mRemoteMutex);
+    sp<IBinder> mMediaPlayer                        GUARDED_BY(mRemoteMutex);
+};
 
 // static
 void *MediaCodecList::profilerThreadWrapper(void * /*arg*/) {
@@ -136,69 +227,22 @@ void *MediaCodecList::profilerThreadWrapper(void * /*arg*/) {
         return nullptr;
     }
 
-    {
-        Mutex::Autolock autoLock(sInitMutex);
-        sCodecList = codecList;
-    }
+    InstanceCache::Get().setLocalInstance(codecList);
     return nullptr;
 }
 
 // static
 sp<IMediaCodecList> MediaCodecList::getLocalInstance() {
-    Mutex::Autolock autoLock(sInitMutex);
-
-    if (sCodecList == nullptr) {
-        MediaCodecList *codecList = new MediaCodecList(GetBuilders());
-        if (codecList->initCheck() == OK) {
-            sCodecList = codecList;
-
-            if (isProfilingNeeded()) {
-                ALOGV("Codec profiling needed, will be run in separated thread.");
-                pthread_t profiler;
-                if (pthread_create(&profiler, nullptr, profilerThreadWrapper, nullptr) != 0) {
-                    ALOGW("Failed to create thread for codec profiling.");
-                }
-            }
-        } else {
-            // failure to initialize may be temporary. retry on next call.
-            delete codecList;
-        }
-    }
-
-    return sCodecList;
+    return InstanceCache::Get().getLocalInstance();
 }
 
-sp<IMediaCodecList> MediaCodecList::sRemoteList;
-
-sp<MediaCodecList::BinderDeathObserver> MediaCodecList::sBinderDeathObserver;
-sp<IBinder> MediaCodecList::sMediaPlayer;  // kept since linked to death
-
 void MediaCodecList::BinderDeathObserver::binderDied(const wp<IBinder> &who __unused) {
-    Mutex::Autolock _l(sRemoteInitMutex);
-    sRemoteList.clear();
-    sBinderDeathObserver.clear();
+    InstanceCache::Get().binderDied();
 }
 
 // static
 sp<IMediaCodecList> MediaCodecList::getInstance() {
-    Mutex::Autolock _l(sRemoteInitMutex);
-    if (sRemoteList == nullptr) {
-        sMediaPlayer = defaultServiceManager()->getService(String16("media.player"));
-        sp<IMediaPlayerService> service =
-            interface_cast<IMediaPlayerService>(sMediaPlayer);
-        if (service.get() != nullptr) {
-            sRemoteList = service->getCodecList();
-            if (sRemoteList != nullptr) {
-                sBinderDeathObserver = new BinderDeathObserver();
-                sMediaPlayer->linkToDeath(sBinderDeathObserver.get());
-            }
-        }
-        if (sRemoteList == nullptr) {
-            // if failed to get remote list, create local list
-            sRemoteList = getLocalInstance();
-        }
-    }
-    return sRemoteList;
+    return InstanceCache::Get().getRemoteInstance();
 }
 
 MediaCodecList::MediaCodecList(std::vector<MediaCodecListBuilderBase*> builders) {

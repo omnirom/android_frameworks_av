@@ -67,7 +67,7 @@ genrule {
 
 genrule {
     name: "buildaidlcommontypesstructure_gen",
-    defaults: ["buildcommontypesstructurerule"],
+    defaults: ["capBuildcommontypesstructurerule"],
     out: ["CapSubsystem-CommonTypes.xml"],
 }
 

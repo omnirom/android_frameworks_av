@@ -736,6 +736,41 @@ static void parseAV1ProfileLevelFromCsd(const sp<ABuffer> &csd, sp<AMessage> &fo
     }
 }
 
+static void parseAPVProfileLevelFromCsd(const sp<ABuffer>& csd, sp<AMessage>& format) {
+    // Parse CSD structure to extract profile level information
+    // https://github.com/openapv/openapv/blob/main/readme/apv_isobmff.md#syntax-1
+    const uint8_t* data = csd->data();
+    size_t csdSize = csd->size();
+    if (csdSize < 17 || data[0] != 0x01) {  // configurationVersion == 1
+        ALOGE("CSD is not according APV Configuration Standard");
+        return;
+    }
+    uint8_t profileData = data[5];             // profile_idc
+    uint8_t levelData = data[6];               // level_idc
+    uint8_t band = data[7];                    // band_idc
+    uint8_t bitDepth = (data[16] & 0x0F) + 8;  // bit_depth_minus8
+
+    const static ALookup<std::pair<uint8_t, uint8_t>, int32_t> profiles{
+            {{33, 10}, APVProfile422_10},
+            {{44, 12}, APVProfile422_10HDR10Plus},
+    };
+    int32_t profile;
+    if (profiles.map(std::make_pair(profileData, bitDepth), &profile)) {
+        // bump to HDR profile
+        if (isHdr10or10Plus(format) && profile == APVProfile422_10) {
+            if (format->contains("hdr-static-info")) {
+                profile = APVProfile422_10HDR10;
+            }
+        }
+        format->setInt32("profile", profile);
+    }
+    int level_num = (levelData / 30) * 2;
+    if (levelData % 30 == 0) {
+        level_num -= 1;
+    }
+    int32_t level = ((0x100 << (level_num - 1)) | (1 << band));
+    format->setInt32("level", level);
+}
 
 static std::vector<std::pair<const char *, uint32_t>> stringMappings {
     {
@@ -1456,6 +1491,7 @@ status_t convertMetaDataToMessage(
         buffer->meta()->setInt32("csd", true);
         buffer->meta()->setInt64("timeUs", 0);
         msg->setBuffer("csd-0", buffer);
+        parseAPVProfileLevelFromCsd(buffer, msg);
     } else if (meta->findData(kKeyESDS, &type, &data, &size)) {
         ESDS esds((const char *)data, size);
         if (esds.InitCheck() != (status_t)OK) {

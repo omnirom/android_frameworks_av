@@ -450,20 +450,18 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                 excludedDevices.push_back(AUDIO_DEVICE_OUT_AUX_DIGITAL);
             }
             if ((getForceUse(AUDIO_POLICY_FORCE_FOR_MEDIA) != AUDIO_POLICY_FORCE_NO_BT_A2DP)) {
-                // Get the last connected device of wired and bluetooth a2dp
-                devices2 = availableOutputDevices.getFirstDevicesFromTypes(
-                        getLastRemovableMediaDevices(GROUP_NONE, excludedDevices));
                 if (com::android::media::audioserver::use_bt_sco_for_media()) {
-                    if (isBtScoActive(availableOutputDevices)
-                         && !(devices2.getDevicesFromTypes(
-                                 getAudioDeviceOutAllA2dpSet()).isEmpty()
-                             && devices2.getDevicesFromTypes(
-                                     getAudioDeviceOutAllBleSet()).isEmpty())) {
+                    if (isBtScoActive(availableOutputDevices)) {
                         devices2 = availableOutputDevices.getFirstDevicesFromTypes(
                                 { AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT,
-                                  AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET,
-                                  AUDIO_DEVICE_OUT_BLUETOOTH_SCO});
+                                AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET,
+                                AUDIO_DEVICE_OUT_BLUETOOTH_SCO});
                     }
+                }
+                if (devices2.isEmpty()) {
+                    // Get the last connected device of wired and bluetooth a2dp
+                    devices2 = availableOutputDevices.getFirstDevicesFromTypes(
+                            getLastRemovableMediaDevices(GROUP_NONE, excludedDevices));
                 }
             } else {
                 // Get the last connected device of wired except bluetooth a2dp
@@ -871,6 +869,7 @@ DeviceVector Engine::getOutputDevicesForStream(audio_stream_type_t stream, bool 
 }
 
 sp<DeviceDescriptor> Engine::getInputDeviceForAttributes(const audio_attributes_t &attr,
+                                                         bool ignorePreferredDevice,
                                                          uid_t uid,
                                                          audio_session_t session,
                                                          sp<AudioPolicyMix> *mix) const
@@ -886,10 +885,13 @@ sp<DeviceDescriptor> Engine::getInputDeviceForAttributes(const audio_attributes_
     //
     // Honor explicit routing requests only if all active clients have a preferred route in which
     // case the last active client route is used
-    sp<DeviceDescriptor> device =
-            findPreferredDevice(inputs, attr.source, availableInputDevices);
-    if (device != nullptr) {
-        return device;
+    sp<DeviceDescriptor> device;
+    if (!com::android::media::audioserver::conditionally_ignore_preferred_input_device()
+            || !ignorePreferredDevice) {
+        device = findPreferredDevice(inputs, attr.source, availableInputDevices);
+        if (device != nullptr) {
+            return device;
+        }
     }
 
     device = policyMixes.getDeviceAndMixForInputSource(attr,
@@ -902,6 +904,14 @@ sp<DeviceDescriptor> Engine::getInputDeviceForAttributes(const audio_attributes_
     }
 
     device = getDeviceForInputSource(attr.source);
+
+    if (device != nullptr && device->type() == AUDIO_DEVICE_IN_ECHO_REFERENCE) {
+        sp<DeviceDescriptor> device2 = getInputDeviceForEchoRef(attr, availableInputDevices);
+        if (device2 != nullptr) {
+            return device2;
+        }
+    }
+
     if (device == nullptr || !audio_is_remote_submix_device(device->type())) {
         // Return immediately if the device is null or it is not a remote submix device.
         return device;

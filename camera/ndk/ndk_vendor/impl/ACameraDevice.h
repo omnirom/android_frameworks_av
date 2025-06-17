@@ -157,6 +157,7 @@ class CameraDevice final : public std::enable_shared_from_this<CameraDevice> {
     void stopLooperAndDisconnect();
     void setPrimaryClient(bool isPrimary) {mIsPrimaryClient = isPrimary;};
     bool isPrimaryClient() {return mIsPrimaryClient;};
+    bool isSharedMode() {return mSharedMode;};
 
   private:
     friend ACameraCaptureSession;
@@ -194,6 +195,13 @@ class CameraDevice final : public std::enable_shared_from_this<CameraDevice> {
             int numRequests, ACaptureRequest** requests,
             /*out*/int* captureSequenceId,
             bool isRepeating);
+
+    camera_status_t stopStreamingLocked();
+
+    template<class T>
+    camera_status_t startStreamingLocked(ACameraCaptureSession* session,
+            /*optional*/T* callbacks,
+            int numOutputWindows, ANativeWindow** windows, /*optional*/int* captureSequenceId);
 
     void addRequestSettingsMetadata(ACaptureRequest *aCaptureRequest, sp<CaptureRequest> &req);
 
@@ -237,6 +245,8 @@ class CameraDevice final : public std::enable_shared_from_this<CameraDevice> {
     ACameraDevice* mWrapper;
     bool mSharedMode;
     bool mIsPrimaryClient;
+    ACaptureRequest* mPreviewRequest = nullptr;
+    std::vector<ACameraOutputTarget*> mPreviewRequestOutputs;
 
     // stream id -> pair of (ACameraWindowType* from application, OutputConfiguration used for
     // camera service)
@@ -490,8 +500,11 @@ struct ACameraDevice {
     inline void setPrimaryClient(bool isPrimary) {
         mDevice->setPrimaryClient(isPrimary);
     }
-    inline bool isPrimaryClient() {
+    inline bool isPrimaryClient() const {
         return mDevice->isPrimaryClient();
+    }
+    inline bool isSharedMode() const {
+        return mDevice->isSharedMode();
     }
 
   private:

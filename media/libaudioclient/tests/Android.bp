@@ -136,7 +136,10 @@ cc_defaults {
     cflags: [
         "-Wthread-safety",
     ],
-    data: ["bbb*.raw"],
+    data: [
+        "bbb*.raw",
+        "sine960hz_48000_3s.ape",
+    ],
     srcs: [
         "audio_test_utils.cpp",
         "test_execution_tracer.cpp",

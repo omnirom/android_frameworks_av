@@ -22,7 +22,10 @@
 #include <com_android_internal_camera_flags.h>
 #include <gui/BufferItemConsumer.h>
 #include <gui/IGraphicBufferConsumer.h>
+#include <gui/Flags.h> // remove with WB_PLATFORM_API_IMPROVEMENTS
+#if not COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
 #include <gui/IGraphicBufferProducer.h>
+#endif
 #include <gui/Surface.h>
 #include <ui/Fence.h>
 #include <ui/GraphicBuffer.h>
@@ -55,16 +58,7 @@ PixelFormat kFormat = HAL_PIXEL_FORMAT_YCBCR_420_888;
 int64_t kDynamicRangeProfile = 0;
 
 std::tuple<sp<BufferItemConsumer>, sp<Surface>> createConsumerAndSurface() {
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    sp<BufferItemConsumer> consumer = sp<BufferItemConsumer>::make(kConsumerUsage);
-    return {consumer, consumer->getSurface()};
-#else
-    sp<IGraphicBufferProducer> producer;
-    sp<IGraphicBufferConsumer> consumer;
-    BufferQueue::createBufferQueue(&producer, &consumer);
-
-    return {sp<BufferItemConsumer>::make(consumer, kConsumerUsage), sp<Surface>::make(producer)};
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+    return BufferItemConsumer::create(kConsumerUsage);
 }
 
 class Camera3StreamSplitterTest : public testing::Test {
@@ -162,7 +156,11 @@ TEST_F(Camera3StreamSplitterTest, TestProcessSingleBuffer) {
     sp<TestSurfaceListener> surfaceListener = sp<TestSurfaceListener>::make();
     EXPECT_EQ(OK, inputSurface->connect(NATIVE_WINDOW_API_CAMERA, surfaceListener, false));
     // TODO: Do this with the surface itself once the API is available.
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
+    EXPECT_EQ(OK, inputSurface->allowAllocation(false));
+#else
     EXPECT_EQ(OK, inputSurface->getIGraphicBufferProducer()->allowAllocation(false));
+#endif
 
     //
     // Create a buffer to use:

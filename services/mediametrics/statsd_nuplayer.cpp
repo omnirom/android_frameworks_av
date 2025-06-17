@@ -154,11 +154,15 @@ bool statsd_nuplayer(const std::shared_ptr<const mediametrics::Item>& item,
     }
 
     const stats::media_metrics::BytesField bf_serialized( serialized.c_str(), serialized.size());
-    const int result = stats::media_metrics::stats_write(
+    int result = 0;
+        // RBE this could be expanded to include the bf_serialized and such too.
+    if (__builtin_available(android 33, *)) {
+      result = stats::media_metrics::stats_write(
         stats::media_metrics::MEDIAMETRICS_NUPLAYER_REPORTED,
         timestamp_nanos, package_name.c_str(), package_version_code,
         media_apex_version,
         bf_serialized);
+    }
 
     std::stringstream log;
     log << "result:" << result << " {"

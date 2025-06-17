@@ -1,8 +1,8 @@
 supDomain: DeviceForProductStrategies
-	supDomain: OemTrafficAnouncement
+	supDomain: OemTrafficAnnouncement
 		domain: UnreachableDevices
 			conf: calibration
-				component: /Policy/policy/product_strategies/oem_traffic_anouncement/selected_output_devices/mask
+				component: /Policy/policy/product_strategies/oem_traffic_announcement/selected_output_devices/mask
 					earpiece = 0
 					speaker = 0
 					wired_headset = 0
@@ -30,18 +30,18 @@ supDomain: DeviceForProductStrategies
 					proxy = 0
 					usb_headset = 0
 					stub = 0
-				/Policy/policy/product_strategies/oem_traffic_anouncement/device_address = BUS00_MEDIA
+				/Policy/policy/product_strategies/oem_traffic_announcement/device_address = BUS00_MEDIA
 
 		domain: SelectedDevice
 			conf: Bus
 				AvailableOutputDevices Includes Bus
 				AvailableOutputDevicesAddresses Includes BUS00_MEDIA
 
-				component: /Policy/policy/product_strategies/oem_traffic_anouncement/selected_output_devices/mask
+				component: /Policy/policy/product_strategies/oem_traffic_announcement/selected_output_devices/mask
 					bus = 1
 
 			conf: Default
-				component: /Policy/policy/product_strategies/oem_traffic_anouncement/selected_output_devices/mask
+				component: /Policy/policy/product_strategies/oem_traffic_announcement/selected_output_devices/mask
 					bus = 0
 
 	supDomain: OemStrategy1

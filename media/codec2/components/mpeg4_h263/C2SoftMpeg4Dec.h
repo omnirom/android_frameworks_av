@@ -18,6 +18,7 @@
 #define C2_SOFT_MPEG4_DEC_H_
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 #include <mp4dec_api.h>
 
@@ -29,6 +30,8 @@ struct C2SoftMpeg4Dec : public SimpleC2Component {
 
     C2SoftMpeg4Dec(const char* name, c2_node_id_t id,
                    const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftMpeg4Dec(const char* name, c2_node_id_t id,
+                   const std::shared_ptr<C2ReflectorHelper>& helper);
     virtual ~C2SoftMpeg4Dec();
 
     // From SimpleC2Component

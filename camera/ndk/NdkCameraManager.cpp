@@ -227,6 +227,11 @@ camera_status_t ACameraManager_openSharedCamera(
                 __FUNCTION__, mgr, cameraId, callback, device, primaryClient);
         return ACAMERA_ERROR_INVALID_PARAMETER;
     }
+    bool sharedMode;
+    camera_status_t status = mgr->isCameraDeviceSharingSupported(cameraId, &sharedMode);
+    if ((status != ACAMERA_OK) || !sharedMode) {
+         return ACAMERA_ERROR_UNSUPPORTED_OPERATION;
+    }
     return mgr->openCamera(cameraId, /*sharedMode*/true, callback, device, primaryClient);
 }
 

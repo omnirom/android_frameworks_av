@@ -37,9 +37,6 @@
 #include "ConversionHelperAidl.h"
 #include "StreamPowerLog.h"
 
-using ::aidl::android::hardware::audio::common::AudioOffloadMetadata;
-using ::aidl::android::hardware::audio::core::MmapBufferDescriptor;
-
 namespace android {
 
 class StreamContextAidl {
@@ -51,9 +48,8 @@ class StreamContextAidl {
     typedef AidlMessageQueue<int8_t,
             ::aidl::android::hardware::common::fmq::SynchronizedReadWrite> DataMQ;
 
-    StreamContextAidl(
-            ::aidl::android::hardware::audio::core::StreamDescriptor& descriptor,
-            bool isAsynchronous, int ioHandle)
+    StreamContextAidl(::aidl::android::hardware::audio::core::StreamDescriptor& descriptor,
+                      bool isAsynchronous, int ioHandle, bool hasClipTransitionSupport)
         : mFrameSizeBytes(descriptor.frameSizeBytes),
           mCommandMQ(new CommandMQ(descriptor.command)),
           mReplyMQ(new ReplyMQ(descriptor.reply)),
@@ -62,29 +58,10 @@ class StreamContextAidl {
           mIsAsynchronous(isAsynchronous),
           mIsMmapped(isMmapped(descriptor)),
           mMmapBufferDescriptor(maybeGetMmapBuffer(descriptor)),
-          mIoHandle(ioHandle) {}
-    StreamContextAidl(StreamContextAidl&& other) :
-            mFrameSizeBytes(other.mFrameSizeBytes),
-            mCommandMQ(std::move(other.mCommandMQ)),
-            mReplyMQ(std::move(other.mReplyMQ)),
-            mBufferSizeFrames(other.mBufferSizeFrames),
-            mDataMQ(std::move(other.mDataMQ)),
-            mIsAsynchronous(other.mIsAsynchronous),
-            mIsMmapped(other.mIsMmapped),
-            mMmapBufferDescriptor(std::move(other.mMmapBufferDescriptor)),
-            mIoHandle(other.mIoHandle) {}
-    StreamContextAidl& operator=(StreamContextAidl&& other) {
-        mFrameSizeBytes = other.mFrameSizeBytes;
-        mCommandMQ = std::move(other.mCommandMQ);
-        mReplyMQ = std::move(other.mReplyMQ);
-        mBufferSizeFrames = other.mBufferSizeFrames;
-        mDataMQ = std::move(other.mDataMQ);
-        mIsAsynchronous = other.mIsAsynchronous;
-        mIsMmapped = other.mIsMmapped;
-        mMmapBufferDescriptor = std::move(other.mMmapBufferDescriptor);
-        mIoHandle = other.mIoHandle;
-        return *this;
-    }
+          mIoHandle(ioHandle),
+          mHasClipTransitionSupport(hasClipTransitionSupport) {}
+    StreamContextAidl(StreamContextAidl&&) = default;
+    StreamContextAidl& operator=(StreamContextAidl&&) = default;
     bool isValid() const {
         return mFrameSizeBytes != 0 &&
                 mCommandMQ != nullptr && mCommandMQ->isValid() &&
@@ -107,9 +84,14 @@ class StreamContextAidl {
     ReplyMQ* getReplyMQ() const { return mReplyMQ.get(); }
     bool isAsynchronous() const { return mIsAsynchronous; }
     bool isMmapped() const { return mIsMmapped; }
-    const MmapBufferDescriptor& getMmapBufferDescriptor() const { return mMmapBufferDescriptor; }
+    const ::aidl::android::hardware::audio::core::MmapBufferDescriptor&
+            getMmapBufferDescriptor() const { return mMmapBufferDescriptor; }
     size_t getMmapBurstSize() const { return mMmapBufferDescriptor.burstSizeFrames; }
     int getIoHandle() const { return mIoHandle; }
+    bool hasClipTransitionSupport() const { return mHasClipTransitionSupport; }
+    void updateMmapBufferDescriptor(
+            ::aidl::android::hardware::audio::core::MmapBufferDescriptor&& desc) {
+        mMmapBufferDescriptor = std::move(desc); }
 
   private:
     static std::unique_ptr<DataMQ> maybeCreateDataMQ(
@@ -125,7 +107,7 @@ class StreamContextAidl {
         using Tag = ::aidl::android::hardware::audio::core::StreamDescriptor::AudioBuffer::Tag;
         return descriptor.audio.getTag() == Tag::mmap;
     }
-    static MmapBufferDescriptor maybeGetMmapBuffer(
+    static ::aidl::android::hardware::audio::core::MmapBufferDescriptor maybeGetMmapBuffer(
             ::aidl::android::hardware::audio::core::StreamDescriptor& descriptor) {
         using Tag = ::aidl::android::hardware::audio::core::StreamDescriptor::AudioBuffer::Tag;
         if (descriptor.audio.getTag() == Tag::mmap) {
@@ -141,8 +123,9 @@ class StreamContextAidl {
     std::unique_ptr<DataMQ> mDataMQ;
     bool mIsAsynchronous;
     bool mIsMmapped;
-    MmapBufferDescriptor mMmapBufferDescriptor;
+    ::aidl::android::hardware::audio::core::MmapBufferDescriptor mMmapBufferDescriptor;
     int mIoHandle;
+    bool mHasClipTransitionSupport;
 };
 
 class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelperAidl {
@@ -201,9 +184,15 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
     // For tests.
     friend class sp<StreamHalAidl>;
 
-    struct StatePositions {
+    struct FrameCounters {
         int64_t framesAtFlushOrDrain;
         int64_t framesAtStandby;
+    };
+    struct StatePositions {
+        FrameCounters observable;
+        FrameCounters hardware;
+        enum DrainState : int32_t { NONE, ALL, EN /*early notify*/, EN_RECEIVED };
+        DrainState drainState;
     };
 
     template<class T>
@@ -289,13 +278,22 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
 
     status_t exit();
 
+    template <typename T, typename Callable, typename... Args>
+    auto serializeCall(const std::shared_ptr<T>& obj, Callable&& func, Args&&... args)
+            EXCLUDES(mCallLock) {
+        std::lock_guard lock(mCallLock);
+        return std::invoke(std::forward<Callable&&>(func),
+                           std::forward<const std::shared_ptr<T>&>(obj),
+                           std::forward<Args&&>(args)...);
+    }
+
     void onAsyncTransferReady();
     void onAsyncDrainReady();
     void onAsyncError();
 
     const bool mIsInput;
     const audio_config_base_t mConfig;
-    const StreamContextAidl mContext;
+    StreamContextAidl mContext;
     // This lock is used to make sending of a command and receiving a reply an atomic
     // operation. Otherwise, when two threads are trying to send a command, they may both advance to
     // reading of the reply once the HAL has consumed the command from the MQ, and that creates a
@@ -325,7 +323,17 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
             ::aidl::android::hardware::audio::core::StreamDescriptor::Reply* reply = nullptr,
             StatePositions* statePositions = nullptr);
 
-    const std::shared_ptr<::aidl::android::hardware::audio::core::IStreamCommon> mStream;
+    /*
+     * This lock is exclusively intended to serialize binder calls to remote
+     * IStream[Common|Out|In] objects in Audio HAL. Thereby, preventing any race conditions in Audio
+     * HAL. The only exception for above is when calling the IStream[Common|Out|In]::dump API.
+     * Please note that lock doesn't prevent access to IStream[Common|Out|In] class fields. That
+     * explains why there is no 'GUARDED_BY' annotations.
+     */
+    std::mutex mCallLock;
+
+    using Stream = ::aidl::android::hardware::audio::core::IStreamCommon;
+    const std::shared_ptr<Stream> mStream;
     const std::shared_ptr<::aidl::android::media::audio::IHalAdapterVendorExtension> mVendorExt;
     const int64_t mLastReplyLifeTimeNs;
     std::mutex mLock;
@@ -337,6 +345,8 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
     // mStreamPowerLog is used for audio signal power logging.
     StreamPowerLog mStreamPowerLog;
     std::atomic<pid_t> mWorkerTid = -1;
+    int32_t mAidlInterfaceVersion = -1;
+    bool mSupportsCreateMmapBuffer = false;
 };
 
 class CallbackBroker;
@@ -430,17 +440,20 @@ class StreamOutHalAidl : public virtual StreamOutHalInterface,
     void onDrainReady() override;
     void onError(bool isHardError) override;
 
+    status_t dump(int fd, const Vector<String16>& args) override;
+
   private:
     friend class sp<StreamOutHalAidl>;
 
     static ConversionResult<::aidl::android::hardware::audio::common::SourceMetadata>
     legacy2aidl_SourceMetadata(const StreamOutHalInterface::SourceMetadata& legacy);
 
-    const std::shared_ptr<::aidl::android::hardware::audio::core::IStreamOut> mStream;
+    using Stream = ::aidl::android::hardware::audio::core::IStreamOut;
+    const std::shared_ptr<Stream> mStream;
     const wp<CallbackBroker> mCallbackBroker;
     mediautils::atomic_wp<StreamOutHalInterfaceCallback> mClientCallback;
 
-    AudioOffloadMetadata mOffloadMetadata;
+    ::aidl::android::hardware::audio::common::AudioOffloadMetadata mOffloadMetadata;
 
     // Can not be constructed directly by clients.
     StreamOutHalAidl(
@@ -487,13 +500,16 @@ class StreamInHalAidl : public StreamInHalInterface, public StreamHalAidl {
     // Called when the metadata of the stream's sink has been changed.
     status_t updateSinkMetadata(const SinkMetadata& sinkMetadata) override;
 
+    status_t dump(int fd, const Vector<String16>& args) override;
+
   private:
     friend class sp<StreamInHalAidl>;
 
     static ConversionResult<::aidl::android::hardware::audio::common::SinkMetadata>
     legacy2aidl_SinkMetadata(const StreamInHalInterface::SinkMetadata& legacy);
 
-    const std::shared_ptr<::aidl::android::hardware::audio::core::IStreamIn> mStream;
+    using Stream = ::aidl::android::hardware::audio::core::IStreamIn;
+    const std::shared_ptr<Stream> mStream;
     const wp<MicrophoneInfoProvider> mMicInfoProvider;
 
     // Can not be constructed directly by clients.

@@ -99,6 +99,11 @@ bool IsYUV420(const C2GraphicView &view);
 bool IsYUV420_10bit(const C2GraphicView &view);
 
 /**
+ * Returns true iff a view has a YUV 422 10-10-10 layout.
+ */
+bool IsYUV422_10bit(const C2GraphicView &view);
+
+/**
  * Returns true iff a view has a NV12 layout.
  */
 bool IsNV12(const C2GraphicView &view);
@@ -107,6 +112,11 @@ bool IsNV12(const C2GraphicView &view);
  * Returns true iff a view has a P010 layout.
  */
 bool IsP010(const C2GraphicView &view);
+
+/**
+ * Returns true iff a view has a P210 layout.
+ */
+bool IsP210(const C2GraphicView &view);
 
 /**
  * Returns true iff a view has a NV21 layout.

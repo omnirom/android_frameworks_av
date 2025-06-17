@@ -883,7 +883,7 @@ int64_t MPEG4Writer::estimateMoovBoxSize(int32_t bitRate) {
 
     // Max file size limit is set
     if (mMaxFileSizeLimitBytes != 0 && mIsFileSizeLimitExplicitlyRequested) {
-        size = mMaxFileSizeLimitBytes * 6 / 1000;
+        size = mMaxFileSizeLimitBytes / 1000 * 6;
     }
 
     // Max file duration limit is set
@@ -2640,6 +2640,11 @@ void MPEG4Writer::Track::addItemOffsetAndSize(off64_t offset, size_t size, bool 
     }
 
     if (mProperties.empty()) {
+        // Min length of hvcC CSD is 23. (ISO/IEC 14496-15:2014 Chapter 8.4.1.1.2)
+        if (mIsHeif && mCodecSpecificDataSize < 23) {
+            ALOGE("hvcC csd size is less than 23 bytes");
+            return;
+        }
         mProperties.push_back(mOwner->addProperty_l({
             .type = static_cast<uint32_t>(mIsAvif ?
                   FOURCC('a', 'v', '1', 'C') :
@@ -5354,6 +5359,9 @@ void MPEG4Writer::Track::writeApvcBox() {
     CHECK_GE(mCodecSpecificDataSize, 4u);
 
     mOwner->beginBox("apvC");
+    // apvC extends FullBox and hence the need to write first
+    // 4 bytes here when compared with av1C which extends Box.
+    mOwner->writeInt32(0);  // version=0, flags=0
     mOwner->write(mCodecSpecificData, mCodecSpecificDataSize);
     mOwner->endBox();  // apvC
 }

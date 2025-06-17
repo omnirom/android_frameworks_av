@@ -150,6 +150,12 @@ struct ACameraCaptureSession : public RefBase {
 
     ACameraDevice* getDevice();
 
+    template<class T>
+    camera_status_t startStreaming(/*optional*/T* callbacks,
+            int numOutputWindows, ANativeWindow** windows, /*optional*/int* captureSequenceId);
+
+    camera_status_t stopStreaming();
+
   private:
     friend class android::acam::CameraDevice;
 

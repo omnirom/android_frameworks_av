@@ -155,6 +155,12 @@ struct C2_HIDE _C2FlexHelper<S[],
 };
 
 /**
+ * Simple wrapper class for size_t, so that we can define a T::operator new(size_t, _C2FlexCount)
+ * because T::operator new(size_t, size_t) is disallowed by the C++ standard.
+ */
+enum class _C2FlexCount : size_t {};
+
+/**
  * \brief Helper class to check flexible struct requirements and add common operations.
  *
  * Features:
@@ -177,6 +183,11 @@ public:
 
     // default constructor needed because of the disabled copy constructor
     inline _C2FlexStructCheck() = default;
+
+    /// usual delete operator, needed because the class also has a placement delete operator
+    inline void operator delete(void* ptr) noexcept {
+        ::operator delete(ptr);
+    }
 
 protected:
     // cannot copy flexible params
@@ -202,13 +213,18 @@ protected:
     }
 
     /// dynamic new operator usable for params of type S
-    inline void* operator new(size_t size, size_t flexCount) noexcept {
+    inline void* operator new(size_t size, _C2FlexCount flexCount) noexcept {
         // TODO: assert(size == BASE_SIZE);
-        size = CalcSize(flexCount, size);
+        size = CalcSize(static_cast<size_t>(flexCount), size);
         if (size > 0) {
             return ::operator new(size);
         }
         return nullptr;
+    }
+
+    /// placement delete, called during placement new if constructor throws
+    inline void operator delete(void* ptr, _C2FlexCount) noexcept {
+        ::operator delete(ptr);
     }
 };
 
@@ -262,21 +278,24 @@ protected:
 #define DEFINE_FLEXIBLE_ALLOC(_Type, S, ptr, Ptr) \
     template<typename ...Args> \
     inline static std::ptr##_ptr<_Type> Alloc##Ptr(size_t flexCount, const Args(&... args)) { \
-        return std::ptr##_ptr<_Type>(new(flexCount) _Type(flexCount, args...)); \
+        return std::ptr##_ptr<_Type>(new(static_cast<_C2FlexCount>(flexCount)) \
+            _Type(flexCount, args...)); \
     } \
     template<typename ...Args, typename U=typename S::FlexType> \
     inline static std::ptr##_ptr<_Type> Alloc##Ptr( \
             const std::initializer_list<U> &init, const Args(&... args)) { \
-        return std::ptr##_ptr<_Type>(new(init.size()) _Type(init.size(), args..., init)); \
+        return std::ptr##_ptr<_Type>(new(static_cast<_C2FlexCount>(init.size())) \
+            _Type(init.size(), args..., init)); \
     } \
     template<typename ...Args, typename U=typename S::FlexType> \
     inline static std::ptr##_ptr<_Type> Alloc##Ptr( \
             const std::vector<U> &init, const Args(&... args)) { \
-        return std::ptr##_ptr<_Type>(new(init.size()) _Type(init.size(), args..., init)); \
+        return std::ptr##_ptr<_Type>(new(static_cast<_C2FlexCount>(init.size())) \
+            _Type(init.size(), args..., init)); \
     } \
     template<typename ...Args, typename U=typename S::FlexType, unsigned N> \
     inline static std::ptr##_ptr<_Type> Alloc##Ptr(const U(&init)[N], const Args(&... args)) { \
-        return std::ptr##_ptr<_Type>(new(N) _Type(N, args..., init)); \
+        return std::ptr##_ptr<_Type>(new(static_cast<_C2FlexCount>(N)) _Type(N, args..., init)); \
     } \
 
 /**

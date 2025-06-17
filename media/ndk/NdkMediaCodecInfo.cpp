@@ -25,18 +25,6 @@ using namespace android;
 
 extern "C" {
 
-// Utils
-
-EXPORT
-void AIntRange_delete(AIntRange *range) {
-    free(range);
-}
-
-EXPORT
-void ADoubleRange_delete(ADoubleRange *range) {
-    free(range);
-}
-
 // AMediaCodecInfo
 
 EXPORT
@@ -49,31 +37,39 @@ const char* AMediaCodecInfo_getCanonicalName(const AMediaCodecInfo *info) {
 }
 
 EXPORT
-bool AMediaCodecInfo_isEncoder(const AMediaCodecInfo *info) {
-    return info->mInfo->isEncoder();
+AMediaCodecKind AMediaCodecInfo_getKind(const AMediaCodecInfo* info) {
+    if (info == nullptr) {
+        return AMediaCodecKind_INVALID;
+    }
+
+    return info->mInfo->isEncoder() ? AMediaCodecKind_ENCODER : AMediaCodecKind_DECODER;
 }
 
 EXPORT
-bool AMediaCodecInfo_isVendor(const AMediaCodecInfo *info) {
+int32_t AMediaCodecInfo_isVendor(const AMediaCodecInfo *info) {
+    if (info == nullptr) {
+        return -1;
+    }
+
     int32_t attributes = info->mInfo->getAttributes();
-    return (attributes & android::MediaCodecInfo::kFlagIsVendor);
+    return (attributes & android::MediaCodecInfo::kFlagIsVendor) ? 1 : 0;
 }
 
 EXPORT
 AMediaCodecType AMediaCodecInfo_getMediaCodecInfoType(const AMediaCodecInfo *info) {
     if (info == nullptr || info->mInfo == nullptr) {
-        return (AMediaCodecType)0;
+        return AMediaCodecType_INVALID_CODEC_INFO;
     }
 
     int32_t attributes = info->mInfo->getAttributes();
 
     if (attributes & android::MediaCodecInfo::kFlagIsSoftwareOnly) {
-        return SOFTWARE_ONLY;
+        return AMediaCodecType_SOFTWARE_ONLY;
     }
     if (attributes & android::MediaCodecInfo::kFlagIsHardwareAccelerated) {
-        return HARDWARE_ACCELERATED;
+        return AMediaCodecType_HARDWARE_ACCELERATED;
     }
-    return SOFTWARE_WITH_DEVICE_ACCESS;
+    return AMediaCodecType_SOFTWARE_WITH_DEVICE_ACCESS;
 }
 
 EXPORT
@@ -96,7 +92,7 @@ int32_t AMediaCodecInfo_getMaxSupportedInstances(const AMediaCodecInfo *info) {
 
 EXPORT
 int32_t AMediaCodecInfo_isFeatureSupported(const AMediaCodecInfo *info, const char *featureName) {
-    if (featureName == nullptr) {
+    if (info == nullptr || featureName == nullptr) {
         return -1;
     }
     return info->mCodecCaps->isFeatureSupported(std::string(featureName));
@@ -104,7 +100,7 @@ int32_t AMediaCodecInfo_isFeatureSupported(const AMediaCodecInfo *info, const ch
 
 EXPORT
 int32_t AMediaCodecInfo_isFeatureRequired(const AMediaCodecInfo *info, const char *featureName) {
-    if (featureName == nullptr) {
+    if (info == nullptr || featureName == nullptr) {
         return -1;
     }
     return info->mCodecCaps->isFeatureRequired(std::string(featureName));
@@ -112,7 +108,7 @@ int32_t AMediaCodecInfo_isFeatureRequired(const AMediaCodecInfo *info, const cha
 
 EXPORT
 int32_t AMediaCodecInfo_isFormatSupported(const AMediaCodecInfo *info, const AMediaFormat *format) {
-    if (format == nullptr) {
+    if (info == nullptr || format == nullptr) {
         return -1;
     }
 
@@ -125,7 +121,7 @@ int32_t AMediaCodecInfo_isFormatSupported(const AMediaCodecInfo *info, const AMe
 EXPORT
 media_status_t AMediaCodecInfo_getAudioCapabilities(const AMediaCodecInfo *info,
         const ACodecAudioCapabilities **outAudioCaps) {
-    if (info == nullptr || info->mInfo == nullptr) {
+    if (info == nullptr || info->mInfo == nullptr || outAudioCaps == nullptr) {
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
 
@@ -141,7 +137,7 @@ media_status_t AMediaCodecInfo_getAudioCapabilities(const AMediaCodecInfo *info,
 EXPORT
 media_status_t AMediaCodecInfo_getVideoCapabilities(const AMediaCodecInfo *info,
         const ACodecVideoCapabilities **outVideoCaps) {
-    if (info == nullptr || info->mInfo == nullptr) {
+    if (info == nullptr || info->mInfo == nullptr || outVideoCaps == nullptr) {
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
 
@@ -157,7 +153,7 @@ media_status_t AMediaCodecInfo_getVideoCapabilities(const AMediaCodecInfo *info,
 EXPORT
 media_status_t AMediaCodecInfo_getEncoderCapabilities(const AMediaCodecInfo *info,
         const ACodecEncoderCapabilities **outEncoderCaps) {
-    if (info == nullptr || info->mInfo == nullptr) {
+    if (info == nullptr || info->mInfo == nullptr || outEncoderCaps == nullptr) {
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
 
@@ -264,19 +260,17 @@ ACodecPerformancePoint* ACodecPerformancePoint_create(int32_t width, int32_t hei
 }
 
 EXPORT
-media_status_t ACodecPerformancePoint_delete(ACodecPerformancePoint *performancePoint) {
-    if (performancePoint == nullptr) {
-        return AMEDIA_ERROR_INVALID_PARAMETER;
-    }
-
+void ACodecPerformancePoint_destroy(ACodecPerformancePoint *performancePoint) {
     delete performancePoint;
-
-    return AMEDIA_OK;
 }
 
 EXPORT
-bool ACodecPerformancePoint_coversFormat(const ACodecPerformancePoint *performancePoint,
+int32_t ACodecPerformancePoint_coversFormat(const ACodecPerformancePoint *performancePoint,
         const AMediaFormat *format) {
+    if (performancePoint == nullptr || format == nullptr) {
+        return -1;
+    }
+
     sp<AMessage> nativeFormat;
     AMediaFormat_getFormat(format, &nativeFormat);
 
@@ -284,14 +278,22 @@ bool ACodecPerformancePoint_coversFormat(const ACodecPerformancePoint *performan
 }
 
 EXPORT
-bool ACodecPerformancePoint_covers(const ACodecPerformancePoint *one,
+int32_t ACodecPerformancePoint_covers(const ACodecPerformancePoint *one,
         const ACodecPerformancePoint *another) {
+    if (one == nullptr || another == nullptr) {
+        return -1;
+    }
+
     return one->mPerformancePoint->covers(*(another->mPerformancePoint));
 }
 
 EXPORT
-bool ACodecPerformancePoint_equals(const ACodecPerformancePoint *one,
+int32_t ACodecPerformancePoint_equals(const ACodecPerformancePoint *one,
         const ACodecPerformancePoint *another) {
+    if (one == nullptr || another == nullptr) {
+        return -1;
+    }
+
     return one->mPerformancePoint->equals(*(another->mPerformancePoint));
 }
 
@@ -447,17 +449,25 @@ media_status_t ACodecVideoCapabilities_getAchievableFrameRatesFor(
 }
 
 EXPORT
-media_status_t ACodecVideoCapabilities_getSupportedPerformancePoints(
-        const ACodecVideoCapabilities *videoCaps,
-        const ACodecPerformancePoint **outPerformancePointArray, size_t *outCount) {
-    if (videoCaps == nullptr) {
+media_status_t ACodecVideoCapabilities_getNextSupportedPerformancePoint(
+        const ACodecVideoCapabilities* _Nonnull videoCaps,
+        const ACodecPerformancePoint* _Nullable * _Nonnull outPerformancePoint) {
+    if (videoCaps == nullptr || outPerformancePoint == nullptr) {
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
 
-    *outPerformancePointArray = videoCaps->mPerformancePoints.data();
-    *outCount = videoCaps->mPerformancePoints.size();
-
-    return AMEDIA_OK;
+    bool found = *outPerformancePoint == nullptr;
+    for (const ACodecPerformancePoint& pp : videoCaps->mPerformancePoints) {
+        if (found) {
+            *outPerformancePoint = &pp;
+            return AMEDIA_OK;
+        }
+        if (*outPerformancePoint == &pp) {
+            found = true;
+        }
+    }
+    *outPerformancePoint = nullptr;
+    return AMEDIA_ERROR_UNSUPPORTED;
 }
 
 EXPORT
@@ -509,12 +519,30 @@ media_status_t ACodecEncoderCapabilities_getComplexityRange(
 }
 
 int32_t ACodecEncoderCapabilities_isBitrateModeSupported(
-        const ACodecEncoderCapabilities *encoderCaps, ABiterateMode mode) {
+        const ACodecEncoderCapabilities *encoderCaps, ABitrateMode mode) {
     if (encoderCaps == nullptr) {
         return -1;
     }
     return encoderCaps->mEncoderCaps->isBitrateModeSupported(mode);
 }
 
+// Feature Names
+
+extern const char* AMediaCodecInfo_FEATURE_AdaptivePlayback     = "adaptive-playback";
+extern const char* AMediaCodecInfo_FEATURE_SecurePlayback       = "secure-playback";
+extern const char* AMediaCodecInfo_FEATURE_TunneledPlayback     = "tunneled-playback";
+extern const char* AMediaCodecInfo_FEATURE_DynamicTimestamp     = "dynamic-timestamp";
+extern const char* AMediaCodecInfo_FEATURE_FrameParsing         = "frame-parsing";
+extern const char* AMediaCodecInfo_FEATURE_MultipleFrames       = "multiple-frames";
+extern const char* AMediaCodecInfo_FEATURE_PartialFrame         = "partial-frame";
+extern const char* AMediaCodecInfo_FEATURE_IntraRefresh         = "intra-refresh";
+extern const char* AMediaCodecInfo_FEATURE_LowLatency           = "low-latency";
+extern const char* AMediaCodecInfo_FEATURE_QpBounds             = "qp-bounds";
+extern const char* AMediaCodecInfo_FEATURE_EncodingStatistics   = "encoding-statistics";
+extern const char* AMediaCodecInfo_FEATURE_HdrEditing           = "hdr-editing";
+extern const char* AMediaCodecInfo_FEATURE_HlgEditing           = "hlg-editing";
+extern const char* AMediaCodecInfo_FEATURE_DynamicColorAspects  = "dynamic-color-aspects";
+extern const char* AMediaCodecInfo_FEATURE_Roi                  = "region-of-interest";
+extern const char* AMediaCodecInfo_FEATURE_DetachedSurface      = "detached-surface";
 
 }

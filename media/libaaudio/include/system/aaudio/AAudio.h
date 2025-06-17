@@ -65,7 +65,7 @@ void AAudioStreamBuilder_clearTags(AAudioStreamBuilder* _Nonnull builder);
 /**
  * Allocate and read the audio attributes' tags for the stream into a buffer.
  * The client is responsible to free the memory for tags by calling
- * {@link #AAudioStream_releaseTags} unless the number of tags is 0.
+ * {@link #AAudioStream_destroyTags} unless the number of tags is 0.
  *
  * @param stream reference provided by AAudioStreamBuilder_openStream()
  * @param tags a pointer to a variable that will be set to a pointer to an array of char* pointers
@@ -82,7 +82,7 @@ int32_t AAudioStream_obtainTags(AAudioStream* _Nonnull stream,
  * @param stream reference provided by AAudioStreamBuilder_openStream()
  * @param tags reference provided by AAudioStream_obtainTags()
  */
-void AAudioStream_releaseTags(AAudioStream* _Nonnull stream, char* _Nonnull * _Nullable tags);
+void AAudioStream_destroyTags(AAudioStream* _Nonnull stream, char* _Nonnull * _Nullable tags);
 
 #ifdef __cplusplus
 }

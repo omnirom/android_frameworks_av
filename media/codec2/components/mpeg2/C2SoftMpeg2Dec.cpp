@@ -325,6 +325,13 @@ C2SoftMpeg2Dec::C2SoftMpeg2Dec(
     CREATE_DUMP_FILE(mInFile);
 }
 
+C2SoftMpeg2Dec::C2SoftMpeg2Dec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftMpeg2Dec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftMpeg2Dec::~C2SoftMpeg2Dec() {
     onRelease();
 }

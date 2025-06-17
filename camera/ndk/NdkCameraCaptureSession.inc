@@ -68,3 +68,24 @@ camera_status_t setRepeatingRequestTemplate(
 
     return session->setRepeatingRequest(cbs, numRequests, requests, captureSequenceId);
 }
+
+template <class CallbackType>
+camera_status_t startStreamingTemplate(ACameraCaptureSession* session,
+    /*optional*/CallbackType* callbacks,
+    int numOutputWindows, ANativeWindow** windows,
+    /*optional*/int* captureSequenceId) {
+    ATRACE_CALL();
+    if (session == nullptr || windows == nullptr || numOutputWindows < 1) {
+        ALOGE("%s: Error: invalid input: session %p, numOutputWindows %d, windows %p",
+                __FUNCTION__, session, numOutputWindows, windows);
+        return ACAMERA_ERROR_INVALID_PARAMETER;
+    }
+    if (session->isClosed()) {
+        ALOGE("%s: session %p is already closed", __FUNCTION__, session);
+        if (captureSequenceId) {
+            *captureSequenceId = CAPTURE_SEQUENCE_ID_NONE;
+        }
+        return ACAMERA_ERROR_SESSION_CLOSED;
+    }
+    return session->startStreaming(callbacks, numOutputWindows, windows, captureSequenceId);
+}

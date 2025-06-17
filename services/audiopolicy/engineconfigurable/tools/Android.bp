@@ -171,6 +171,30 @@ genrule_defaults {
 // Tools for policy parameter-framework common type structure file generation
 //
 python_binary_host {
+    name: "capBuildCommonTypesStructureFile",
+    main: "capBuildCommonTypesStructureFile.py",
+    srcs: [
+        "capBuildCommonTypesStructureFile.py",
+    ],
+}
+
+genrule_defaults {
+    name: "capBuildcommontypesstructurerule",
+    tools: ["capBuildCommonTypesStructureFile"],
+    cmd: "$(location capBuildCommonTypesStructureFile) " +
+        "--androidaudiobaseheader $(location :libaudio_system_audio_base) " +
+        "--commontypesstructure $(location :common_types_structure_template) " +
+        "--outputfile $(out)",
+    srcs: [
+        ":common_types_structure_template",
+        ":libaudio_system_audio_base",
+    ],
+}
+
+//##################################################################################################
+// Legacy tools for policy parameter-framework common type structure file generation
+//
+python_binary_host {
     name: "buildCommonTypesStructureFile",
     main: "buildCommonTypesStructureFile.py",
     srcs: [

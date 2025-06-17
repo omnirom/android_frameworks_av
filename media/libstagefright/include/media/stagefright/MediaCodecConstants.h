@@ -593,9 +593,9 @@ inline constexpr int32_t APVProfile422_10HDR10Plus  = 0x2000;
 
 inline static const char *asString_APVProfile(int32_t i, const char *def = "??") {
     switch (i) {
-        case APVProfile422_10:           return "APVProfile422_10";
-        case APVProfile422_10HDR10:      return "APVProfile422_10HDR10";
-        case APVProfile422_10HDR10Plus:  return "APVProfile422_10HDR10Plus";
+        case APVProfile422_10:           return "422_10";
+        case APVProfile422_10HDR10:      return "422_10HDR10";
+        case APVProfile422_10HDR10Plus:  return "422_10HDR10Plus";
         default:                        return def;
     }
 }
@@ -716,6 +716,54 @@ inline static const char *asString_APVBandLevel(int32_t i, const char *def = "??
         case APVLevel71Band2:     return "Level 7.1, Band 2";
         case APVLevel71Band3:     return "Level 7.1, Band 3";
         default:                return def;
+    }
+}
+
+// Profiles and levels for AC-4 Codec, corresponding to the definitions in
+// "The MIME codecs parameter", Annex E.13
+// found at https://www.etsi.org/deliver/etsi_ts/103100_103199/10319002/01.02.01_60/ts_10319002v010201p.pdf
+// profile = ((1 << bitstream_version) << 8) | (1 << presentation_version);
+// level = 1 << mdcompat;
+
+inline constexpr int32_t AC4BitstreamVersion0 = 0x01;
+inline constexpr int32_t AC4BitstreamVersion1 = 0x02;
+inline constexpr int32_t AC4BitstreamVersion2 = 0x04;
+
+inline constexpr int32_t AC4PresentationVersion0 = 0x01;
+inline constexpr int32_t AC4PresentationVersion1 = 0x02;
+inline constexpr int32_t AC4PresentationVersion2 = 0x04;
+
+inline constexpr int32_t AC4Profile00 = AC4BitstreamVersion0 << 8 | AC4PresentationVersion0;
+inline constexpr int32_t AC4Profile10 = AC4BitstreamVersion1 << 8 | AC4PresentationVersion0;
+inline constexpr int32_t AC4Profile11 = AC4BitstreamVersion1 << 8 | AC4PresentationVersion1;
+inline constexpr int32_t AC4Profile21 = AC4BitstreamVersion2 << 8 | AC4PresentationVersion1;
+inline constexpr int32_t AC4Profile22 = AC4BitstreamVersion2 << 8 | AC4PresentationVersion2;
+
+inline static const char *asString_AC4Profile(int32_t profile, const char *def = "??") {
+    switch (profile) {
+        case AC4Profile00: return "00.00";
+        case AC4Profile10: return "01.00";
+        case AC4Profile11: return "01.01";
+        case AC4Profile21: return "02.01";
+        case AC4Profile22: return "02.02";
+        default:           return def;
+    }
+}
+
+inline constexpr int32_t AC4Level0 = 0x01;
+inline constexpr int32_t AC4Level1 = 0x02;
+inline constexpr int32_t AC4Level2 = 0x04;
+inline constexpr int32_t AC4Level3 = 0x08;
+inline constexpr int32_t AC4Level4 = 0x10;
+
+inline static const char *asString_AC4Level(int32_t level, const char *def = "??") {
+    switch (level) {
+        case AC4Level0: return "00";
+        case AC4Level1: return "01";
+        case AC4Level2: return "02";
+        case AC4Level3: return "03";
+        case AC4Level4: return "04";
+        default:        return def;
     }
 }
 
@@ -854,15 +902,19 @@ inline static const char *asString_ColorFormat(int32_t i, const char *def = "??"
 }
 
 inline constexpr char FEATURE_AdaptivePlayback[]       = "adaptive-playback";
+inline constexpr char FEATURE_DetachedSurface[]        = "detached-surface";
+inline constexpr char FEATURE_DynamicColorAspects[]    = "dynamic-color-aspects";
 inline constexpr char FEATURE_DynamicTimestamp[]       = "dynamic-timestamp";
 inline constexpr char FEATURE_EncodingStatistics[]     = "encoding-statistics";
 inline constexpr char FEATURE_FrameParsing[]           = "frame-parsing";
 inline constexpr char FEATURE_HdrEditing[]             = "hdr-editing";
+inline constexpr char FEATURE_HlgEditing[]             = "hlg-editing";
 inline constexpr char FEATURE_IntraRefresh[] = "intra-refresh";
 inline constexpr char FEATURE_LowLatency[]             = "low-latency";
 inline constexpr char FEATURE_MultipleFrames[] = "multiple-frames";
 inline constexpr char FEATURE_PartialFrame[] = "partial-frame";
 inline constexpr char FEATURE_QpBounds[] = "qp-bounds";
+inline constexpr char FEATURE_Roi[]                    = "region-of-interest";
 inline constexpr char FEATURE_SecurePlayback[]         = "secure-playback";
 inline constexpr char FEATURE_SpecialCodec[]           = "special-codec";
 inline constexpr char FEATURE_TunneledPlayback[]       = "tunneled-playback";
@@ -1020,6 +1072,8 @@ inline constexpr char KEY_VIDEO_QP_MIN[] = "video-qp-min";
 inline constexpr char KEY_VIDEO_QP_P_MAX[] = "video-qp-p-max";
 inline constexpr char KEY_VIDEO_QP_P_MIN[] = "video-qp-p-min";
 inline constexpr char KEY_WIDTH[] = "width";
+inline constexpr char KEY_PICTURE_PROFILE_HANDLE[] = "picture-profile-handle";
+inline constexpr char KEY_PICTURE_PROFILE_ID[] = "picture-profile-id";
 
 // from MediaCodec.java
 inline constexpr int32_t ERROR_INSUFFICIENT_OUTPUT_PROTECTION = 4;

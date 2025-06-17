@@ -21,6 +21,7 @@
 #include <optional>
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 #include "aacenc_lib.h"
 
@@ -31,6 +32,8 @@ public:
     class IntfImpl;
 
     C2SoftAacEnc(const char *name, c2_node_id_t id, const std::shared_ptr<IntfImpl> &intfImpl);
+    C2SoftAacEnc(const char *name, c2_node_id_t id,
+                 const std::shared_ptr<C2ReflectorHelper> &helper);
     virtual ~C2SoftAacEnc();
 
     // From SimpleC2Component
@@ -58,7 +61,6 @@ private:
     UINT mOutBufferSize;
 
     bool mSentCodecSpecificData;
-    size_t mInputSize;
     std::optional<c2_cntr64_t> mNextFrameTimestampUs;
     std::optional<c2_cntr64_t> mLastFrameEndTimestampUs;
 

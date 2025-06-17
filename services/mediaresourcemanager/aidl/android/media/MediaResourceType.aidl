@@ -33,4 +33,12 @@ enum MediaResourceType {
     kBattery = 5,
     // DRM Session resource type
     kDrmSession = 6,
+
+    // Resources reserved for SW component store
+    kSwResourceTypeMin = 0x1000,
+    kSwResourceTypeMax = 0x1FFF,
+
+    // Resources reserved for HW component store
+    kHwResourceTypeMin = 0x2000,
+    kHwResourceTypeMax = 0x2FFF,
 }

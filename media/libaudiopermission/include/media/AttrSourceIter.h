@@ -105,4 +105,4 @@ inline ConstIter cbegin(const ::android::content::AttributionSourceState& a) {
 inline ConstIter cend() {
     return ConstIter::end();
 }
-}  // namespace com::android::media::permission::AttrSourceIter
+}  // namespace android::media::permission::AttrSourceIter

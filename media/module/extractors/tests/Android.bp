@@ -50,6 +50,7 @@ cc_test {
 
         "libstagefright_id3",
         "libstagefright_flacdec",
+        "libstagefright_foundation",
         "libstagefright_esds",
         "libstagefright_mpeg2support",
         "libstagefright_foundation_colorutils_ndk",
@@ -75,7 +76,6 @@ cc_test {
         "libmediandk",
         "libmedia",
         "libstagefright",
-        "libstagefright_foundation",
         "libcrypto",
         "libhidlmemory",
         "libhidlbase",
@@ -104,4 +104,6 @@ cc_test {
             "signed-integer-overflow",
         ],
     },
+
+    min_sdk_version: "29",
 }

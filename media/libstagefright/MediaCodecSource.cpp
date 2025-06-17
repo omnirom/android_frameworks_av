@@ -1030,6 +1030,10 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
             }
             signalEOS();
        }
+       // MediaCodec::CB_CRYPTO_ERROR is unexpected as we are not using crypto
+       // MediaCodec::CB_LARGE_FRAME_OUTPUT_AVAILABLE is unexpected as we are not using large frames
+       // MediaCodec::CB_METRICS_FLUSHED is safe to ignore as it is informational only
+       // MediaCodec::CB_REQUIRED_RESOURCES_CHANGED is safe to ignore as it is informational only
        break;
     }
     case kWhatStart:

@@ -562,6 +562,28 @@ camera_status_t CameraDevice::stopRepeatingLocked() {
     return ACAMERA_OK;
 }
 
+camera_status_t CameraDevice::stopStreamingLocked() {
+    camera_status_t ret = checkCameraClosedOrErrorLocked();
+    if (ret != ACAMERA_OK) {
+        ALOGE("%s: camera is in closed or error state %d", __FUNCTION__, ret);
+        return ret;
+    }
+    ret = stopRepeatingLocked();
+    if (ret != ACAMERA_OK) {
+        ALOGE("%s: error when trying to stop streaming %d", __FUNCTION__, ret);
+        return ret;
+    }
+    for (auto& outputTarget : mPreviewRequestOutputs) {
+        ACameraOutputTarget_free(outputTarget);
+    }
+    mPreviewRequestOutputs.clear();
+    if (mPreviewRequest) {
+        ACaptureRequest_free(mPreviewRequest);
+        mPreviewRequest = nullptr;
+    }
+    return ACAMERA_OK;
+}
+
 camera_status_t CameraDevice::flushLocked(ACameraCaptureSession* session) {
     camera_status_t ret = checkCameraClosedOrErrorLocked();
     if (ret != ACAMERA_OK) {

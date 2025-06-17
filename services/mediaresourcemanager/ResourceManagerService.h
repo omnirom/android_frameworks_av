@@ -83,6 +83,9 @@ public:
                        const std::shared_ptr<IResourceManagerClient>& client,
                        const std::vector<MediaResourceParcel>& resources) override;
 
+    Status updateResource(const ClientInfoParcel& clientInfo,
+                          const std::vector<MediaResourceParcel>& resources) override;
+
     Status removeResource(const ClientInfoParcel& clientInfo,
                           const std::vector<MediaResourceParcel>& resources) override;
 
@@ -111,6 +114,8 @@ public:
     Status notifyClientStopped(const ClientConfigParcel& clientConfig) override;
 
     Status notifyClientConfigChanged(const ClientConfigParcel& clientConfig) override;
+
+    Status getMediaResourceUsageReport(std::vector<MediaResourceParcel>* resources) override;
 
 protected:
     // To get notifications when a resource is added for the first time.

@@ -16,7 +16,9 @@
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "CCodecBuffers"
+#define ATRACE_TAG  ATRACE_TAG_VIDEO
 #include <utils/Log.h>
+#include <utils/Trace.h>
 
 #include <numeric>
 
@@ -984,6 +986,7 @@ sp<Codec2Buffer> SlotInputBuffers::createNewBuffer() {
 // LinearInputBuffers
 
 bool LinearInputBuffers::requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) {
+    ScopedTrace trace(ATRACE_TAG, "CCodec::LinearInputBuffers::requestNewBuffer");
     sp<Codec2Buffer> newBuffer = createNewBuffer();
     if (newBuffer == nullptr) {
         return false;

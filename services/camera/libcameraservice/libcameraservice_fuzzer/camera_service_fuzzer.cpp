@@ -26,6 +26,7 @@
 #include <ISchedulingPolicyService.h>
 #include <MediaPlayerService.h>
 #include <android-base/logging.h>
+#include <android/binder_manager.h>
 #include <android/content/AttributionSourceState.h>
 #include <android/hardware/BnCameraServiceListener.h>
 #include <android/hardware/ICameraServiceListener.h>
@@ -36,11 +37,13 @@
 #include <camera/CameraUtils.h>
 #include <camera/camera2/OutputConfiguration.h>
 #include <com_android_graphics_libgui_flags.h>
+#include <core-mock/ConfigMock.h>
+#include <core-mock/ModuleMock.h>
 #include <device3/Camera3StreamInterface.h>
+#include <effect-mock/FactoryMock.h>
 #include <fakeservicemanager/FakeServiceManager.h>
 #include <fuzzbinder/random_binder.h>
 #include <gui/BufferItemConsumer.h>
-#include <gui/Flags.h>
 #include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
 #include <gui/SurfaceComposerClient.h>
@@ -65,8 +68,6 @@ const size_t kMinArgs = 1;
 const size_t kMaxArgs = 5;
 const int32_t kCamType[] = {hardware::ICameraService::CAMERA_TYPE_BACKWARD_COMPATIBLE,
                             hardware::ICameraService::CAMERA_TYPE_ALL};
-const int kCameraApiVersion[] = {android::CameraService::API_VERSION_1,
-                                 android::CameraService::API_VERSION_2};
 const uint8_t kSensorPixelModes[] = {ANDROID_SENSOR_PIXEL_MODE_DEFAULT,
         ANDROID_SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION};
 const int32_t kRequestTemplates[] = {
@@ -113,6 +114,7 @@ const size_t kNumSoundKind = size(kSoundKind);
 const size_t kNumShellCmd = size(kShellCmd);
 static std::once_flag gSmOnce;
 sp<CameraService> gCameraService;
+sp<FakeServiceManager> gFsm;
 
 void addService(const String16& serviceName, const sp<FakeServiceManager>& fakeServiceManager,
                 FuzzedDataProvider* fdp) {
@@ -430,8 +432,6 @@ void CameraFuzzer::getNumCameras() {
 void CameraFuzzer::getCameraInformation(int32_t cameraId) {
     std::string cameraIdStr = std::to_string(cameraId);
     bool isSupported = false;
-    mCameraService->supportsCameraApi(
-        cameraIdStr, kCameraApiVersion[mFuzzedDataProvider->ConsumeBool()], &isSupported);
     mCameraService->isHiddenPhysicalCamera(cameraIdStr, &isSupported);
 
     std::string parameters;
@@ -835,8 +835,7 @@ void Camera2Fuzzer::process() {
             continue;
         }
         device->beginConfigure();
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-        sp<BufferItemConsumer> opaqueConsumer = new BufferItemConsumer(
+        auto [opaqueConsumer, surface] = BufferItemConsumer::create(
                 GRALLOC_USAGE_SW_READ_NEVER, /*maxImages*/ 8, /*controlledByApp*/ true);
         opaqueConsumer->setName(String8("Roger"));
 
@@ -844,34 +843,14 @@ void Camera2Fuzzer::process() {
         opaqueConsumer->setDefaultBufferSize(640, 480);
         opaqueConsumer->setDefaultBufferFormat(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED);
 
-        sp<Surface> surface = opaqueConsumer->getSurface();
-
         std::string noPhysicalId;
         size_t rotations = sizeof(kRotations) / sizeof(int32_t) - 1;
-        sp<IGraphicBufferProducer> igbp = surface->getIGraphicBufferProducer();
+        ParcelableSurfaceType pSurface = flagtools::surfaceToParcelableSurfaceType(surface);
         OutputConfiguration output(
-                igbp, kRotations[mFuzzedDataProvider->ConsumeIntegralInRange<size_t>(0, rotations)],
-                noPhysicalId);
-#else
-        sp<IGraphicBufferProducer> gbProducer;
-        sp<IGraphicBufferConsumer> gbConsumer;
-        BufferQueue::createBufferQueue(&gbProducer, &gbConsumer);
-        sp<BufferItemConsumer> opaqueConsumer = new BufferItemConsumer(gbConsumer,
-                GRALLOC_USAGE_SW_READ_NEVER, /*maxImages*/8, /*controlledByApp*/true);
-        opaqueConsumer->setName(String8("Roger"));
-
-        // Set to VGA dimension for default, as that is guaranteed to be present
-        gbConsumer->setDefaultBufferSize(640, 480);
-        gbConsumer->setDefaultBufferFormat(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED);
-
-        sp<Surface> surface(new Surface(gbProducer, /*controlledByApp*/false));
-
-        std::string noPhysicalId;
-        size_t rotations = sizeof(kRotations) / sizeof(int32_t) - 1;
-        OutputConfiguration output(gbProducer,
+                pSurface,
                 kRotations[mFuzzedDataProvider->ConsumeIntegralInRange<size_t>(0, rotations)],
                 noPhysicalId);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+
         int streamId;
         device->createStream(output, &streamId);
         CameraMetadata sessionParams;
@@ -902,35 +881,57 @@ void Camera2Fuzzer::process() {
     }
 }
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+extern "C" int LLVMFuzzerInitialize(int* /*argc*/, char*** /*argv*/) {
+    /* Create a FakeServiceManager instance and add required services */
+    gFsm = sp<FakeServiceManager>::make();
+    setDefaultServiceManager(gFsm);
+
+    auto configService = ndk::SharedRefBase::make<ConfigMock>();
+    CHECK_EQ(NO_ERROR, AServiceManager_addService(configService.get()->asBinder().get(),
+                                                  "android.hardware.audio.core.IConfig/default"));
+
+    auto factoryService = ndk::SharedRefBase::make<FactoryMock>();
+    CHECK_EQ(NO_ERROR,
+             AServiceManager_addService(factoryService.get()->asBinder().get(),
+                                        "android.hardware.audio.effect.IFactory/default"));
+
+    auto moduleService = ndk::SharedRefBase::make<ModuleMock>();
+    CHECK_EQ(NO_ERROR, AServiceManager_addService(moduleService.get()->asBinder().get(),
+                                                  "android.hardware.audio.core.IModule/default"));
+
+    // Disable creating thread pool for fuzzer instance of audio flinger
+    AudioSystem::disableThreadPool();
+
+    return 0;
+}
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     if (size < 1) {
         return 0;
     }
     setuid(AID_CAMERASERVER);
     std::shared_ptr<FuzzedDataProvider> fp = std::make_shared<FuzzedDataProvider>(data, size);
 
+    for (const char* service :
+         {"sensor_privacy", "permission", "media.camera.proxy", "batterystats", "media.metrics",
+          "media.extractor", "drm.drmManager", "permission_checker"}) {
+        addService(String16(service), gFsm, fp.get());
+    }
+
     std::call_once(gSmOnce, [&] {
-        /* Create a FakeServiceManager instance and add required services */
-        sp<FakeServiceManager> fsm = sp<FakeServiceManager>::make();
-        setDefaultServiceManager(fsm);
-        for (const char* service :
-             {"sensor_privacy", "permission", "media.camera.proxy", "batterystats", "media.metrics",
-              "media.extractor", "drm.drmManager", "permission_checker"}) {
-            addService(String16(service), fsm, fp.get());
-        }
         const auto audioFlinger = sp<AudioFlinger>::make();
         const auto afAdapter = sp<AudioFlingerServerAdapter>::make(audioFlinger);
         CHECK_EQ(NO_ERROR,
-                 fsm->addService(String16(IAudioFlinger::DEFAULT_SERVICE_NAME),
-                                 IInterface::asBinder(afAdapter), false /* allowIsolated */,
-                                 IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT));
+                 gFsm->addService(String16(IAudioFlinger::DEFAULT_SERVICE_NAME),
+                                  IInterface::asBinder(afAdapter), false /* allowIsolated */,
+                                  IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT));
         sp<FuzzerActivityManager> am = new FuzzerActivityManager();
-        CHECK_EQ(NO_ERROR, fsm->addService(String16("activity"), IInterface::asBinder(am)));
+        CHECK_EQ(NO_ERROR, gFsm->addService(String16("activity"), IInterface::asBinder(am)));
         sp<FuzzerSensorPrivacyManager> sensorPrivacyManager = new FuzzerSensorPrivacyManager();
-        CHECK_EQ(NO_ERROR, fsm->addService(String16("sensor_privacy"),
-                                           IInterface::asBinder(sensorPrivacyManager)));
+        CHECK_EQ(NO_ERROR, gFsm->addService(String16("sensor_privacy"),
+                                            IInterface::asBinder(sensorPrivacyManager)));
         sp<FuzzAppOpsService> appops = new FuzzAppOpsService();
-        CHECK_EQ(NO_ERROR, fsm->addService(String16("appops"), IInterface::asBinder(appops)));
+        CHECK_EQ(NO_ERROR, gFsm->addService(String16("appops"), IInterface::asBinder(appops)));
         MediaPlayerService::instantiate();
         gCameraService = new CameraService();
     });

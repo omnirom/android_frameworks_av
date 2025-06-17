@@ -59,7 +59,7 @@ HidlCameraDeviceUser::HidlCameraDeviceUser(
     const sp<hardware::camera2::ICameraDeviceUser> &deviceRemote)
   : mDeviceRemote(deviceRemote) {
     mInitSuccess = initDevice();
-    mVndkVersion = getVNDKVersionFromProp(__ANDROID_API_FUTURE__);
+    mVndkVersion = getVNDKVersion();
 }
 
 bool HidlCameraDeviceUser::initDevice() {

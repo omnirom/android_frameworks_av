@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_HEVC_ENC_H_
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 #include <algorithm>
 #include <inttypes.h>
 #include <map>
@@ -45,6 +46,8 @@ struct C2SoftHevcEnc : public SimpleC2Component {
 
     C2SoftHevcEnc(const char* name, c2_node_id_t id,
                   const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftHevcEnc(const char* name, c2_node_id_t id,
+                  const std::shared_ptr<C2ReflectorHelper>& helper);
 
     // From SimpleC2Component
     c2_status_t onInit() override;

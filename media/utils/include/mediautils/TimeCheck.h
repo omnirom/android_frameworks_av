@@ -159,6 +159,9 @@ class TimeCheck {
 TimeCheck makeTimeCheckStatsForClassMethod(
         std::string_view className, std::string_view methodName);
 
+std::unique_ptr<TimeCheck> makeTimeCheckStatsForClassMethodUniquePtr(
+            std::string_view className, std::string_view methodName);
+
 // A handy statement-like macro to put at the beginning of almost every method
 // which calls into HAL. Note that it requires the class to implement 'getClassName'.
 #define TIME_CHECK() auto timeCheck = \

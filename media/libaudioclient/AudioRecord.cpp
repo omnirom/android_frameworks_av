@@ -286,7 +286,7 @@ status_t AudioRecord::set(
     if (binder != nullptr) {
         // Barrier to ensure runtime permission update propagates to audioflinger
         // Must be client-side
-        interface_cast<IAudioManager>(binder)->permissionUpdateBarrier();
+        interface_cast<IAudioManager>(binder)->getNativeInterface()->permissionUpdateBarrier();
     }
 
     mSelectedDeviceId = selectedDeviceId;
@@ -1244,6 +1244,21 @@ audio_io_handle_t AudioRecord::getInputPrivate() const
 {
     AutoMutex lock(mLock);
     return mInput;
+}
+
+status_t AudioRecord::setParameters(const String8& keyValuePairs) {
+    AutoMutex lock(mLock);
+    if (mInput == AUDIO_IO_HANDLE_NONE || mAudioRecord == nullptr) {
+        return NO_INIT;
+    }
+    return statusTFromBinderStatus(mAudioRecord->setParameters(keyValuePairs.c_str()));
+}
+
+String8 AudioRecord::getParameters(const String8& keys) {
+    AutoMutex lock(mLock);
+    return mInput != AUDIO_IO_HANDLE_NONE
+               ? AudioSystem::getParameters(mInput, keys)
+               : String8();
 }
 
 // -------------------------------------------------------------------------

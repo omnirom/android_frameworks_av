@@ -36,7 +36,7 @@ class LoudnessEnhancerContext final : public EffectContext {
 
     RetCode enable() override;
     RetCode disable() override;
-
+    RetCode reset() override;
     RetCode setLeGain(int gainMb);
     int getLeGain() const { return mGain; }
 

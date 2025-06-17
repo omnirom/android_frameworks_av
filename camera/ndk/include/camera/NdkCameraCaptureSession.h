@@ -1242,8 +1242,7 @@ camera_status_t ACameraCaptureSessionShared_logicalCamera_startStreaming(
  *         </ul>
  */
 camera_status_t ACameraCaptureSessionShared_stopStreaming(
-    ACameraCaptureSession *sharedSession
-)  __INTRODUCED_IN(36);
+    ACameraCaptureSession* sharedSession)  __INTRODUCED_IN(36);
 __END_DECLS
 
 #endif /* _NDK_CAMERA_CAPTURE_SESSION_H */

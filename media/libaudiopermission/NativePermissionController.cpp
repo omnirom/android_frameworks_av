@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// #define LOG_NDEBUG 0
+#define LOG_TAG "NativePermissionController"
+
 #include <media/NativePermissionController.h>
 
 #include <algorithm>
@@ -23,6 +26,7 @@
 #include <android-base/expected.h>
 #include <cutils/android_filesystem_config.h>
 #include <utils/Errors.h>
+#include <utils/Log.h>
 
 using ::android::binder::Status;
 using ::android::error::BinderResult;
@@ -35,9 +39,9 @@ static std::optional<std::string> getFixedPackageName(uid_t uid) {
         case AID_ROOT:
             return "root";
         case AID_SYSTEM:
-            return "system";
+            return "android";
         case AID_SHELL:
-            return "shell";
+            return "com.android.shell";
         case AID_MEDIA:
             return "media";
         case AID_AUDIOSERVER:
@@ -66,6 +70,7 @@ Status NativePermissionController::populatePackagesForUids(
 
 Status NativePermissionController::updatePackagesForUid(const UidPackageState& newPackageState) {
     std::lock_guard l{m_};
+    ALOGD("%s, %s", __func__, newPackageState.toString().c_str());
     package_map_.insert_or_assign(newPackageState.uid, newPackageState.packageNames);
     const auto& cursor = package_map_.find(newPackageState.uid);
 
@@ -85,6 +90,7 @@ Status NativePermissionController::updatePackagesForUid(const UidPackageState& n
 
 Status NativePermissionController::populatePermissionState(PermissionEnum perm,
                                                            const std::vector<int>& uids) {
+    ALOGV("%s, %d", __func__, static_cast<int>(perm));
     if (perm >= PermissionEnum::ENUM_SIZE || static_cast<int>(perm) < 0) {
         return Status::fromExceptionCode(Status::EX_ILLEGAL_ARGUMENT);
     }
@@ -128,8 +134,8 @@ BinderResult<bool> NativePermissionController::validateUidPackagePair(
     uid = uid % AID_USER_OFFSET;
     const auto fixed_package_opt = getFixedPackageName(uid);
     if (fixed_package_opt.has_value()) {
-        return (uid == AID_ROOT || uid == AID_SYSTEM) ? true :
-                packageName == fixed_package_opt.value();
+        return (uid == AID_ROOT || uid == AID_SYSTEM) ? true
+                                                      : packageName == fixed_package_opt.value();
     }
     std::lock_guard l{m_};
     if (!is_package_populated_) {
@@ -138,18 +144,26 @@ BinderResult<bool> NativePermissionController::validateUidPackagePair(
                 "NPC::validatedUidPackagePair: controller never populated by system_server");
     }
     const auto cursor = package_map_.find(uid);
-    return (cursor != package_map_.end()) &&
-           (std::find(cursor->second.begin(), cursor->second.end(), packageName) !=
+    if (cursor == package_map_.end()) {
+        return unexpectedExceptionCode(
+                Status::EX_ILLEGAL_ARGUMENT,
+                "NPC::validatedUidPackagePair: unknown uid");
+    }
+    return (std::find(cursor->second.begin(), cursor->second.end(), packageName) !=
             cursor->second.end());
 }
 
 BinderResult<bool> NativePermissionController::checkPermission(PermissionEnum perm,
                                                                uid_t uid) const {
+    ALOGV("%s: checking %d for %u", __func__, static_cast<int>(perm), uid);
     if (uid == AID_ROOT || uid == AID_SYSTEM || uid == getuid()) return true;
     std::lock_guard l{m_};
     const auto& uids = permission_map_[static_cast<size_t>(perm)];
     if (!uids.empty()) {
-        return std::binary_search(uids.begin(), uids.end(), uid);
+        const bool ret = std::binary_search(uids.begin(), uids.end(), uid);
+        // Log locally until all call-sites log errors well
+        ALOGD_IF(!ret, "%s: missing %d for %u", __func__, static_cast<int>(perm), uid);
+        return ret;
     } else {
         return unexpectedExceptionCode(
                 Status::EX_ILLEGAL_STATE,

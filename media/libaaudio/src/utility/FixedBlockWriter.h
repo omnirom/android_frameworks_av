@@ -32,12 +32,12 @@ public:
 
     virtual ~FixedBlockWriter() = default;
 
-    int32_t writeToStorage(uint8_t *buffer, int32_t numBytes);
+    int32_t writeToStorage(const uint8_t *buffer, int32_t numBytes);
 
     /**
      * Write from a variable sized block.
      */
-    int32_t processVariableBlock(uint8_t *buffer, int32_t numBytes) override;
+    AdapterProcessResult processVariableBlock(uint8_t *buffer, int32_t numBytes) override;
 };
 
 #endif /* AAUDIO_FIXED_BLOCK_WRITER_H */

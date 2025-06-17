@@ -32,6 +32,11 @@ C2SoftVp9Enc::C2SoftVp9Enc(const char* name, c2_node_id_t id,
       mFrameParallelDecoding(false) {
 }
 
+C2SoftVp9Enc::C2SoftVp9Enc(const char* name, c2_node_id_t id,
+                           const std::shared_ptr<C2ReflectorHelper>& helper)
+    : C2SoftVp9Enc(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 void C2SoftVp9Enc::setCodecSpecificInterface() {
     mCodecInterface = vpx_codec_vp9_cx();
 }

@@ -18,6 +18,15 @@ aidl_interface {
     srcs: [
         "aidl/android/media/SharedFileRegion.aidl",
     ],
+    backend: {
+        ndk: {
+            min_sdk_version: "29",
+            apex_available: [
+                "//apex_available:platform",
+                "com.android.media",
+            ],
+        },
+    },
 }
 
 cc_library {

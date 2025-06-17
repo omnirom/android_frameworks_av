@@ -16,7 +16,6 @@
 #ifndef LE_FX_ENGINE_DSP_CORE_INTERPOLATION_H_
 #define LE_FX_ENGINE_DSP_CORE_INTERPOLATION_H_
 
-#include "common/core/math.h"
 #include "dsp/core/interpolator_base.h"
 #include "dsp/core/interpolator_linear.h"
 

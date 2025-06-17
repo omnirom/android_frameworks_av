@@ -179,39 +179,6 @@ cc_library_shared {
     },
 }
 
-cc_defaults {
-    name: "libstagefright_softomx-defaults",
-    // TODO (b/316432618) Software OMX codecs are no longer used, disable building them till
-    // this code is removed completely.
-    enabled: false,
-    vendor_available: true,
-
-    cflags: [
-        "-Werror",
-    ],
-
-    header_libs: [
-        "media_plugin_headers"
-    ],
-
-    shared_libs: [
-        "libstagefright_softomx",
-        "libstagefright_foundation",
-        "libutils",
-        "liblog",
-    ],
-
-    sanitize: {
-        misc_undefined: [
-            "signed-integer-overflow",
-            "unsigned-integer-overflow",
-        ],
-        cfi: true,
-    },
-
-    compile_multilib: "32",
-}
-
 cc_library_shared {
     name: "libstagefright_omx_utils",
     vendor_available: true,
@@ -241,5 +208,8 @@ cc_library_shared {
         ],
         cfi: true,
     },
-    cflags: ["-Wall", "-Werror"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
 }

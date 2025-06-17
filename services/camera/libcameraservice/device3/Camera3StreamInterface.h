@@ -131,6 +131,18 @@ class OutputStreamInfo {
             dataSpace(_dataSpace), consumerUsage(_consumerUsage),
             sensorPixelModesUsed(_sensorPixelModesUsed), dynamicRangeProfile(_dynamicRangeProfile),
             streamUseCase(_streamUseCase), timestampBase(_timestampBase), colorSpace(_colorSpace) {}
+        bool operator == (const OutputStreamInfo& other) const {
+            return (width == other.width &&
+                    height == other.height &&
+                    format == other.format &&
+                    (other.format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED ||
+                    (dataSpace == other.dataSpace && consumerUsage == other.consumerUsage)) &&
+                    sensorPixelModesUsed == other.sensorPixelModesUsed &&
+                    dynamicRangeProfile == other.dynamicRangeProfile &&
+                    colorSpace == other.colorSpace &&
+                    streamUseCase == other.streamUseCase &&
+                    timestampBase == other.timestampBase);
+    }
 };
 
 // A holder containing a surface and its corresponding mirroring mode

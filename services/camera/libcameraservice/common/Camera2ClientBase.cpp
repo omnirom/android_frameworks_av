@@ -24,7 +24,8 @@
 #include <utils/Trace.h>
 
 #include <cutils/properties.h>
-#include <gui/Surface.h>
+#include <gui/BufferItem.h>
+#include <gui/BufferItemConsumer.h>
 #include <gui/Surface.h>
 
 #include <android/hardware/ICameraService.h>
@@ -59,7 +60,7 @@ Camera2ClientBase<TClientBase>::Camera2ClientBase(
         const AttributionSourceState& clientAttribution, int callingPid, bool systemNativeClient,
         const std::string& cameraId, int api1CameraId, int cameraFacing, int sensorOrientation,
         int servicePid, bool overrideForPerfClass, int rotationOverride, bool sharedMode,
-        bool legacyClient)
+        bool isVendorClient, bool legacyClient)
     : TClientBase(cameraService, remoteCallback, attributionAndPermissionUtils, clientAttribution,
                   callingPid, systemNativeClient, cameraId, api1CameraId, cameraFacing,
                   sensorOrientation, servicePid, rotationOverride, sharedMode),
@@ -74,6 +75,7 @@ Camera2ClientBase<TClientBase>::Camera2ClientBase(
     mInitialClientPid = TClientBase::mCallingPid;
     mOverrideForPerfClass = overrideForPerfClass;
     mLegacyClient = legacyClient;
+    mIsVendorClient = isVendorClient;
 }
 
 template <typename TClientBase>
@@ -115,20 +117,23 @@ status_t Camera2ClientBase<TClientBase>::initializeImpl(TProviderPtr providerPtr
                     new HidlCamera3Device(mCameraServiceProxyWrapper,
                             TClientBase::mAttributionAndPermissionUtils,
                             TClientBase::mCameraIdStr, mOverrideForPerfClass,
-                            TClientBase::mRotationOverride, mLegacyClient);
+                            TClientBase::mRotationOverride, mIsVendorClient,
+                            mLegacyClient);
             break;
         case IPCTransport::AIDL:
             if (flags::camera_multi_client() && TClientBase::mSharedMode) {
                 mDevice = AidlCamera3SharedDevice::getInstance(mCameraServiceProxyWrapper,
                             TClientBase::mAttributionAndPermissionUtils,
                             TClientBase::mCameraIdStr, mOverrideForPerfClass,
-                            TClientBase::mRotationOverride, mLegacyClient);
+                            TClientBase::mRotationOverride, mIsVendorClient,
+                            mLegacyClient);
             } else {
                 mDevice =
                     new AidlCamera3Device(mCameraServiceProxyWrapper,
                             TClientBase::mAttributionAndPermissionUtils,
                             TClientBase::mCameraIdStr, mOverrideForPerfClass,
-                            TClientBase::mRotationOverride, mLegacyClient);
+                            TClientBase::mRotationOverride, mIsVendorClient,
+                            mLegacyClient);
             }
             break;
         default:
@@ -304,7 +309,7 @@ template <typename TClientBase>
 void Camera2ClientBase<TClientBase>::detachDevice() {
     if (mDevice == 0) return;
     if (flags::camera_multi_client() && TClientBase::mSharedMode) {
-        mDevice->disconnectClient(TClientBase::getClientUid());
+        mDevice->disconnectClient(TClientBase::getClientCallingPid());
     } else {
         mDevice->disconnect();
     }

@@ -13,6 +13,7 @@ cc_library {
     name: "libaudiopermission",
 
     srcs: [
+        "AppOpsSession.cpp",
         "NativePermissionController.cpp",
         "ValidatedAttributionSourceState.cpp",
     ],
@@ -21,10 +22,12 @@ cc_library {
     ],
 
     header_libs: [
+        "libaudio_system_headers",
         "libcutils_headers",
         "liberror_headers",
     ],
     export_header_lib_headers: [
+        "libaudio_system_headers",
         "liberror_headers",
     ],
     static_libs: [
@@ -35,6 +38,7 @@ cc_library {
         "libbase",
         "libbinder",
         "liblog",
+        "libpermission",
         "libutils",
     ],
 
@@ -63,8 +67,6 @@ cc_library {
     tidy_checks: [
         "android-*",
         "bugprone-*",
-        "cert-*",
-        "clang-analyzer-security*",
         "google-*",
         "misc-*",
         "modernize-*",
@@ -73,8 +75,6 @@ cc_library {
     tidy_checks_as_errors: [
         "android-*",
         "bugprone-*",
-        "cert-*",
-        "clang-analyzer-security*",
         "google-*",
         "misc-*",
         "modernize-*",
@@ -98,6 +98,7 @@ cc_test {
         "libbase",
         "libbinder",
         "liblog",
+        "libpermission",
         "libutils",
     ],
     srcs: ["tests/*.cpp"],

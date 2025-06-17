@@ -70,17 +70,11 @@ status_t FrameOutput::createInputSurface(int width, int height,
         return UNKNOWN_ERROR;
     }
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mGlConsumer = new GLConsumer(mExtTextureName, GL_TEXTURE_EXTERNAL_OES, /*useFenceSync=*/true,
-                                 /*isControlledByApp=*/false);
-    auto producer = mGlConsumer->getSurface()->getIGraphicBufferProducer();
-#else
-    sp<IGraphicBufferProducer> producer;
-    sp<IGraphicBufferConsumer> consumer;
-    BufferQueue::createBufferQueue(&producer, &consumer);
-    mGlConsumer = new GLConsumer(consumer, mExtTextureName,
-                GL_TEXTURE_EXTERNAL_OES, true, false);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+    sp<Surface> surface;
+    std::tie(mGlConsumer, surface) =
+            GLConsumer::create(mExtTextureName, GL_TEXTURE_EXTERNAL_OES, /*useFenceSync=*/true,
+                               /*isControlledByApp=*/false);
+    auto producer = surface->getIGraphicBufferProducer();
     mGlConsumer->setName(String8("virtual display"));
     mGlConsumer->setDefaultBufferSize(width, height);
     producer->setMaxDequeuedBufferCount(4);

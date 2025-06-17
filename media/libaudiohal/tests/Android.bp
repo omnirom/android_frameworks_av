@@ -76,3 +76,14 @@ cc_test {
     header_libs: ["libaudiohalimpl_headers"],
     static_libs: ["libgmock"],
 }
+
+cc_test {
+    name: "EffectHalAidlTest",
+    srcs: [
+        ":audio_effect_hal_aidl_src_files",
+        "EffectHalAidl_test.cpp",
+    ],
+    defaults: ["libaudiohal_aidl_test_default"],
+    header_libs: ["libaudiohalimpl_headers"],
+    static_libs: ["libgmock"],
+}

@@ -629,7 +629,7 @@ AAUDIO_API int32_t AAudioStream_obtainTags(AAudioStream* stream, char*** tags)
     return aaTags.size();
 }
 
-AAUDIO_API void AAudioStream_releaseTags(AAudioStream* stream, char** tags) {
+AAUDIO_API void AAudioStream_destroyTags(AAudioStream* stream, char** tags) {
     if (tags == nullptr) {
         return;
     }

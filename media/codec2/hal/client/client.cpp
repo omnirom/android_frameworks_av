@@ -77,12 +77,14 @@
 #include <private/android/AHardwareBufferHelpers.h>
 #include <system/window.h> // for NATIVE_WINDOW_QUERY_*
 
+#include <algorithm>
 #include <deque>
 #include <iterator>
 #include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <sstream>
 #include <thread>
 #include <type_traits>
@@ -1066,7 +1068,7 @@ c2_status_t Codec2ConfigurableClient::ApexImpl::config(
                 mBase, &config, &result);
         base::ScopeGuard guard([result] {
             if (result) {
-                ApexCodec_SettingResults_release(result);
+                ApexCodec_SettingResults_destroy(result);
             }
         });
         size_t index = 0;
@@ -1115,7 +1117,7 @@ c2_status_t Codec2ConfigurableClient::ApexImpl::querySupportedParams(
         ApexCodec_Configurable_querySupportedParams(mBase, &paramDescs);
         base::ScopeGuard guard([paramDescs] {
             if (paramDescs) {
-                ApexCodec_ParamDescriptors_release(paramDescs);
+                ApexCodec_ParamDescriptors_destroy(paramDescs);
             }
         });
         uint32_t *indices = nullptr;
@@ -1173,7 +1175,7 @@ c2_status_t Codec2ConfigurableClient::ApexImpl::querySupportedValues(
             fields[i].status = (c2_status_t)queries[i].status;
             FromApex(queries[i].values, &fields[i].values);
             if (queries[i].values) {
-                ApexCodec_SupportedValues_release(queries[i].values);
+                ApexCodec_SupportedValues_destroy(queries[i].values);
                 queries[i].values = nullptr;
             }
         }
@@ -1434,7 +1436,7 @@ public:
             mListener(listener),
             mComponent(comp),
             mStopped(false),
-            mOutputBufferType(APEXCODEC_BUFFER_TYPE_INVALID) {
+            mOutputBufferType(APEXCODEC_BUFFER_TYPE_EMPTY) {
     }
 
     void start() {
@@ -1455,7 +1457,7 @@ public:
             LOG(ERROR) << "ApexHandler::start -- unrecognized component kind " << kind.value;
             return;
         }
-        ApexCodec_BufferType outputBufferType = APEXCODEC_BUFFER_TYPE_INVALID;
+        ApexCodec_BufferType outputBufferType = APEXCODEC_BUFFER_TYPE_EMPTY;
         if (domain.value == C2Component::DOMAIN_AUDIO) {
             // For both encoders and decoders the output buffer type is linear.
             outputBufferType = APEXCODEC_BUFFER_TYPE_LINEAR;
@@ -1528,10 +1530,11 @@ private:
                 LOG(DEBUG) << "handleWork -- listener died.";
                 return;
             }
-            ApexCodec_Buffer input;
-            input.flags = (ApexCodec_BufferFlags)workItem->input.flags;
-            input.frameIndex = workItem->input.ordinal.frameIndex.peekll();
-            input.timestampUs = workItem->input.ordinal.timestamp.peekll();
+            thread_local ApexCodec_Buffer *input = ApexCodec_Buffer_create();
+            ApexCodec_Buffer_clear(input);
+            ApexCodec_BufferFlags flags = (ApexCodec_BufferFlags)workItem->input.flags;
+            uint64_t frameIndex = workItem->input.ordinal.frameIndex.peekll();
+            uint64_t timestampUs = workItem->input.ordinal.timestamp.peekll();
 
             if (workItem->input.buffers.size() > 1) {
                 LOG(ERROR) << "handleWork -- input buffer size is "
@@ -1543,7 +1546,7 @@ private:
             if (!workItem->input.buffers.empty()) {
                 buffer = workItem->input.buffers[0];
             }
-            if (!FillMemory(buffer, &input, &linearView)) {
+            if (!FillMemory(buffer, input, &linearView, flags, frameIndex, timestampUs)) {
                 LOG(ERROR) << "handleWork -- failed to map input";
                 return;
             }
@@ -1553,31 +1556,46 @@ private:
                 listener->onError(mComponent, C2_CORRUPTED);
                 return;
             }
-            input.configUpdates.data = configUpdatesVector.data();
-            input.configUpdates.size = configUpdatesVector.size();
+            ApexCodec_LinearBuffer configUpdates;
+            configUpdates.data = configUpdatesVector.data();
+            configUpdates.size = configUpdatesVector.size();
+            ApexCodec_Buffer_setConfigUpdates(input, &configUpdates);
             mWorkMap.insert_or_assign(
                     workItem->input.ordinal.frameIndex.peekll(), std::move(workItem));
 
             std::list<std::unique_ptr<C2Work>> workItems;
             bool inputDrained = false;
             while (!inputDrained) {
-                ApexCodec_Buffer output;
+                thread_local ApexCodec_Buffer *output = ApexCodec_Buffer_create();
+                ApexCodec_Buffer_clear(output);
                 std::shared_ptr<C2LinearBlock> linearBlock;
                 std::optional<C2WriteView> linearView;
                 std::shared_ptr<C2GraphicBlock> graphicBlock;
-                allocOutputBuffer(&output, &linearBlock, &linearView, &graphicBlock);
+                allocOutputBuffer(output, &linearBlock, &linearView, &graphicBlock);
                 size_t consumed = 0;
                 size_t produced = 0;
                 ApexCodec_Status status = ApexCodec_Component_process(
-                        mApexComponent, &input, &output, &consumed, &produced);
+                        mApexComponent, input, output, &consumed, &produced);
                 if (status == APEXCODEC_STATUS_NO_MEMORY) {
                     continue;
+                } else if (status != APEXCODEC_STATUS_OK) {
+                    LOG(ERROR) << "handleWork -- component process failed with status " << status;
+                    produced = 0;
                 }
                 if (produced > 0) {
-                    auto it = mWorkMap.find(output.frameIndex);
+                    ApexCodec_BufferFlags outputFlags;
+                    uint64_t outputFrameIndex;
+                    uint64_t outputTimestampUs;
+                    ApexCodec_Status status = ApexCodec_Buffer_getBufferInfo(
+                            output, &outputFlags, &outputFrameIndex, &outputTimestampUs);
+                    if (status != APEXCODEC_STATUS_OK) {
+                        LOG(WARNING) << "handleWork -- failed to get output buffer info";
+                        outputFrameIndex = ~(uint64_t(0));
+                    }
+                    auto it = mWorkMap.find(outputFrameIndex);
                     std::unique_ptr<C2Work> outputWorkItem;
                     if (it != mWorkMap.end()) {
-                        if (output.flags & APEXCODEC_FLAG_INCOMPLETE) {
+                        if (outputFlags & APEXCODEC_FLAG_INCOMPLETE) {
                             outputWorkItem = std::make_unique<C2Work>();
                             outputWorkItem->input.ordinal = it->second->input.ordinal;
                             outputWorkItem->input.flags = it->second->input.flags;
@@ -1587,10 +1605,10 @@ private:
                         }
                     } else {
                         LOG(WARNING) << "handleWork -- no work item found for output frame index "
-                                    << output.frameIndex;
+                                    << outputFrameIndex;
                         outputWorkItem = std::make_unique<C2Work>();
-                        outputWorkItem->input.ordinal.frameIndex = output.frameIndex;
-                        outputWorkItem->input.ordinal.timestamp = output.timestampUs;
+                        outputWorkItem->input.ordinal.frameIndex = outputFrameIndex;
+                        outputWorkItem->input.ordinal.timestamp = outputTimestampUs;
                     }
                     outputWorkItem->worklets.emplace_back(new C2Worklet);
                     const std::unique_ptr<C2Worklet> &worklet = outputWorkItem->worklets.front();
@@ -1598,35 +1616,52 @@ private:
                         LOG(ERROR) << "handleWork -- output work item has null worklet";
                         return;
                     }
-                    worklet->output.ordinal.frameIndex = output.frameIndex;
-                    worklet->output.ordinal.timestamp = output.timestampUs;
+                    worklet->output.ordinal.frameIndex = outputFrameIndex;
+                    worklet->output.ordinal.timestamp = outputTimestampUs;
+                    ApexCodec_LinearBuffer outputConfigUpdates;
+                    bool ownedByClient = false;
+                    status = ApexCodec_Buffer_getConfigUpdates(
+                            output, &outputConfigUpdates, &ownedByClient);
+                    if (status != APEXCODEC_STATUS_OK) {
+                        LOG(WARNING) << "handleWork -- failed to get output config updates";
+                        return;
+                    } else if (ownedByClient) {
+                        LOG(WARNING) << "handleWork -- output config updates are owned by client";
+                        return;
+                    }
                     // non-owning hidl_vec<> to wrap around the output config updates
-                    hidl_vec<uint8_t> outputConfigUpdates;
-                    outputConfigUpdates.setToExternal(
-                            output.configUpdates.data, output.configUpdates.size);
+                    hidl_vec<uint8_t> outputConfigUpdatesVec;
+                    outputConfigUpdatesVec.setToExternal(
+                            outputConfigUpdates.data, outputConfigUpdates.size);
                     std::vector<C2Param*> outputConfigUpdatePtrs;
-                    parseParamsBlob(&outputConfigUpdatePtrs, outputConfigUpdates);
+                    parseParamsBlob(&outputConfigUpdatePtrs, outputConfigUpdatesVec);
                     worklet->output.configUpdate.clear();
                     std::ranges::transform(
                             outputConfigUpdatePtrs,
                             std::back_inserter(worklet->output.configUpdate),
                             [](C2Param* param) { return C2Param::Copy(*param); });
-                    worklet->output.flags = (C2FrameData::flags_t)output.flags;
+                    worklet->output.flags = (C2FrameData::flags_t)outputFlags;
 
                     workItems.push_back(std::move(outputWorkItem));
                 }
 
+                ApexCodec_BufferType inputType = ApexCodec_Buffer_getType(input);
                 // determine whether the input buffer is drained
-                if (input.type == APEXCODEC_BUFFER_TYPE_LINEAR) {
-                    if (input.memory.linear.size < consumed) {
+                if (inputType == APEXCODEC_BUFFER_TYPE_LINEAR) {
+                    ApexCodec_LinearBuffer inputBuffer;
+                    status = ApexCodec_Buffer_getLinearBuffer(input, &inputBuffer);
+                    if (status != APEXCODEC_STATUS_OK) {
+                        LOG(WARNING) << "handleWork -- failed to get input linear buffer";
+                        inputDrained = true;
+                    } else if (inputBuffer.size < consumed) {
                         LOG(WARNING) << "handleWork -- component consumed more bytes "
-                                    << "than the input buffer size";
+                                     << "than the input buffer size";
                         inputDrained = true;
                     } else {
-                        input.memory.linear.data += consumed;
-                        input.memory.linear.size -= consumed;
+                        inputBuffer.data += consumed;
+                        inputBuffer.size -= consumed;
                     }
-                } else if (input.type == APEXCODEC_BUFFER_TYPE_GRAPHIC) {
+                } else if (inputType == APEXCODEC_BUFFER_TYPE_GRAPHIC) {
                     inputDrained = (consumed > 0);
                 }
             }
@@ -1669,124 +1704,171 @@ private:
             std::shared_ptr<C2LinearBlock> *linearBlock,
             std::optional<C2WriteView> *linearView,
             std::shared_ptr<C2GraphicBlock> *graphicBlock) {
-        if (mOutputBufferType == APEXCODEC_BUFFER_TYPE_LINEAR) {
-            if (!ensureBlockPool()) {
-                return;
-            }
-            {
-                std::shared_ptr<Component> comp = mComponent.lock();
-                if (!comp) {
+        if (__builtin_available(android 36, *)) {
+            switch (mOutputBufferType) {
+                case APEXCODEC_BUFFER_TYPE_LINEAR: {
+                    if (!ensureBlockPool()) {
+                        return;
+                    }
+                    {
+                        std::shared_ptr<Component> comp = mComponent.lock();
+                        if (!comp) {
+                            return;
+                        }
+                        C2StreamMaxBufferSizeInfo::output maxBufferSize(0u /* stream */);
+                        comp->query({&maxBufferSize}, {}, C2_MAY_BLOCK, {});
+                        mLinearBlockCapacity = maxBufferSize ? maxBufferSize.value : 1024 * 1024;
+                    }
+                    c2_status_t status = mBlockPool->fetchLinearBlock(
+                            mLinearBlockCapacity,
+                            C2MemoryUsage(C2MemoryUsage::CPU_READ | C2MemoryUsage::CPU_WRITE),
+                            linearBlock);
+                    if (!(*linearBlock)) {
+                        return;
+                    }
+                    linearView->emplace((*linearBlock)->map().get());
+                    if ((*linearView)->error() != C2_OK) {
+                        return;
+                    }
+                    ApexCodec_LinearBuffer linear;
+                    linear.data = (*linearView)->data();
+                    linear.size = (*linearView)->capacity();
+                    ApexCodec_Status apexStatus = ApexCodec_Buffer_setLinearBuffer(
+                            output, &linear);
+                    if (apexStatus != APEXCODEC_STATUS_OK) {
+                        LOG(ERROR) << "allocOutputBuffer -- failed to set linear buffer";
+                        return;
+                    }
+                    break;
+                }
+                case APEXCODEC_BUFFER_TYPE_GRAPHIC: {
+                    if (!ensureBlockPool()) {
+                        return;
+                    }
+                    {
+                        std::shared_ptr<Component> comp = mComponent.lock();
+                        if (!comp) {
+                            return;
+                        }
+                        C2StreamMaxPictureSizeTuning::output maxPictureSize(0u /* stream */);
+                        C2StreamPictureSizeInfo::output pictureSize(0u /* stream */);
+                        C2StreamPixelFormatInfo::output pixelFormat(0u /* stream */);
+                        comp->query({&maxPictureSize, &pictureSize, &pixelFormat},
+                                    {}, C2_MAY_BLOCK, {});
+                        mWidth = maxPictureSize ? maxPictureSize.width : pictureSize.width;
+                        mHeight = maxPictureSize ? maxPictureSize.height : pictureSize.height;
+                        mFormat = pixelFormat ? pixelFormat.value : HAL_PIXEL_FORMAT_YCBCR_420_888;
+                    }
+                    c2_status_t status = mBlockPool->fetchGraphicBlock(
+                            mWidth, mHeight, mFormat,
+                            C2MemoryUsage(C2MemoryUsage::CPU_READ | C2MemoryUsage::CPU_WRITE),
+                            graphicBlock);
+                    if (!(*graphicBlock)) {
+                        return;
+                    }
+                    const C2Handle *handle = (*graphicBlock)->handle();
+                    uint32_t width, height, format, stride, igbp_slot, generation;
+                    uint64_t usage, igbp_id;
+                    _UnwrapNativeCodec2GrallocMetadata(
+                            handle, &width, &height, &format, &usage, &stride, &generation,
+                            &igbp_id, &igbp_slot);
+                    native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(handle);
+                    sp<GraphicBuffer> graphicBuffer = new GraphicBuffer(
+                            grallocHandle, GraphicBuffer::CLONE_HANDLE,
+                            width, height, format, 1, usage, stride);
+                    native_handle_delete(grallocHandle);
+                    AHardwareBuffer *hardwareBuffer =
+                        AHardwareBuffer_from_GraphicBuffer(graphicBuffer.get());
+                    AHardwareBuffer_acquire(hardwareBuffer);
+                    ApexCodec_Status apexStatus = ApexCodec_Buffer_setGraphicBuffer(
+                            output, hardwareBuffer);
+                    if (apexStatus != APEXCODEC_STATUS_OK) {
+                        LOG(ERROR) << "allocOutputBuffer -- failed to set graphic buffer";
+                        return;
+                    }
+                    break;
+                }
+                default: {
+                    LOG(ERROR) << "allocOutputBuffer -- unsupported output buffer type: "
+                            << mOutputBufferType;
                     return;
                 }
-                C2StreamMaxBufferSizeInfo::output maxBufferSize(0u /* stream */);
-                comp->query({&maxBufferSize}, {}, C2_MAY_BLOCK, {});
-                mLinearBlockCapacity = maxBufferSize ? maxBufferSize.value : 1024 * 1024;
             }
-            output->type = APEXCODEC_BUFFER_TYPE_LINEAR;
-            c2_status_t status = mBlockPool->fetchLinearBlock(
-                    mLinearBlockCapacity,
-                    C2MemoryUsage(C2MemoryUsage::CPU_READ | C2MemoryUsage::CPU_WRITE),
-                    linearBlock);
-            if (!(*linearBlock)) {
-                return;
-            }
-            linearView->emplace((*linearBlock)->map().get());
-            if ((*linearView)->error() != C2_OK) {
-                return;
-            }
-            output->memory.linear.data = (*linearView)->data();
-            output->memory.linear.size = (*linearView)->capacity();
-        } else if (mOutputBufferType == APEXCODEC_BUFFER_TYPE_GRAPHIC) {
-            if (!ensureBlockPool()) {
-                return;
-            }
-            {
-                std::shared_ptr<Component> comp = mComponent.lock();
-                if (!comp) {
-                    return;
-                }
-                C2StreamMaxPictureSizeTuning::output maxPictureSize(0u /* stream */);
-                C2StreamPictureSizeInfo::output pictureSize(0u /* stream */);
-                C2StreamPixelFormatInfo::output pixelFormat(0u /* stream */);
-                comp->query({&maxPictureSize, &pictureSize, &pixelFormat}, {}, C2_MAY_BLOCK, {});
-                mWidth = maxPictureSize ? maxPictureSize.width : pictureSize.width;
-                mHeight = maxPictureSize ? maxPictureSize.height : pictureSize.height;
-                mFormat = pixelFormat ? pixelFormat.value : HAL_PIXEL_FORMAT_YCBCR_420_888;
-            }
-            output->type = APEXCODEC_BUFFER_TYPE_GRAPHIC;
-            c2_status_t status = mBlockPool->fetchGraphicBlock(
-                    mWidth, mHeight, mFormat,
-                    C2MemoryUsage(C2MemoryUsage::CPU_READ | C2MemoryUsage::CPU_WRITE),
-                    graphicBlock);
-            if (!(*graphicBlock)) {
-                return;
-            }
-            const C2Handle *handle = (*graphicBlock)->handle();
-            uint32_t width, height, format, stride, igbp_slot, generation;
-            uint64_t usage, igbp_id;
-            _UnwrapNativeCodec2GrallocMetadata(
-                    handle, &width, &height, &format, &usage, &stride, &generation,
-                    &igbp_id, &igbp_slot);
-            native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(handle);
-            sp<GraphicBuffer> graphicBuffer = new GraphicBuffer(
-                    grallocHandle, GraphicBuffer::CLONE_HANDLE,
-                    width, height, format, 1, usage, stride);
-            native_handle_delete(grallocHandle);
-            AHardwareBuffer *hardwareBuffer =
-                AHardwareBuffer_from_GraphicBuffer(graphicBuffer.get());
-            AHardwareBuffer_acquire(hardwareBuffer);
-            output->memory.graphic = hardwareBuffer;
         } else {
-            LOG(ERROR) << "allocOutputBuffer -- unsupported output buffer type: "
-                       << mOutputBufferType;
-            return;
+            LOG(ERROR) << "allocOutputBuffer -- ApexCodec is not supported";
         }
     }
 
     static bool FillMemory(
             const std::shared_ptr<C2Buffer>& buffer,
             ApexCodec_Buffer* apexBuffer,
-            std::optional<C2ReadView>* linearView) {
-        if (buffer->data().type() == C2BufferData::LINEAR) {
-            apexBuffer->type = APEXCODEC_BUFFER_TYPE_LINEAR;
-            if (buffer->data().linearBlocks().empty()) {
-                apexBuffer->memory.linear.data = nullptr;
-                apexBuffer->memory.linear.size = 0;
+            std::optional<C2ReadView>* linearView,
+            ApexCodec_BufferFlags flags,
+            uint64_t frameIndex,
+            uint64_t timestampUs) {
+        if (__builtin_available(android 36, *)) {
+            if (buffer->data().type() == C2BufferData::LINEAR) {
+                if (buffer->data().linearBlocks().empty()) {
+                    ApexCodec_Status status = ApexCodec_Buffer_setLinearBuffer(apexBuffer, nullptr);
+                    if (status != APEXCODEC_STATUS_OK) {
+                        LOG(ERROR) << "FillMemory -- failed to set linear buffer";
+                        return false;
+                    }
+                    ApexCodec_Buffer_setBufferInfo(apexBuffer, flags, frameIndex, timestampUs);
+                    return true;
+                } else if (buffer->data().linearBlocks().size() > 1) {
+                    return false;
+                }
+                linearView->emplace(buffer->data().linearBlocks().front().map().get());
+                if ((*linearView)->error() != C2_OK) {
+                    return false;
+                }
+                ApexCodec_LinearBuffer linear;
+                linear.data = const_cast<uint8_t*>((*linearView)->data());
+                linear.size = (*linearView)->capacity();
+                ApexCodec_Status status = ApexCodec_Buffer_setLinearBuffer(apexBuffer, &linear);
+                if (status != APEXCODEC_STATUS_OK) {
+                    LOG(ERROR) << "FillMemory -- failed to set linear buffer";
+                    return false;
+                }
+                ApexCodec_Buffer_setBufferInfo(apexBuffer, flags, frameIndex, timestampUs);
                 return true;
-            } else if (buffer->data().linearBlocks().size() > 1) {
-                return false;
-            }
-            linearView->emplace(buffer->data().linearBlocks().front().map().get());
-            if ((*linearView)->error() != C2_OK) {
-                return false;
-            }
-            apexBuffer->memory.linear.data = const_cast<uint8_t*>((*linearView)->data());
-            apexBuffer->memory.linear.size = (*linearView)->capacity();
-            return true;
-        } else if (buffer->data().type() == C2BufferData::GRAPHIC) {
-            apexBuffer->type = APEXCODEC_BUFFER_TYPE_GRAPHIC;
-            if (buffer->data().graphicBlocks().empty()) {
-                apexBuffer->memory.graphic = nullptr;
+            } else if (buffer->data().type() == C2BufferData::GRAPHIC) {
+                if (buffer->data().graphicBlocks().empty()) {
+                    ApexCodec_Status status = ApexCodec_Buffer_setGraphicBuffer(
+                            apexBuffer, nullptr);
+                    if (status != APEXCODEC_STATUS_OK) {
+                        LOG(ERROR) << "FillMemory -- failed to set graphic buffer";
+                        return false;
+                    }
+                    ApexCodec_Buffer_setBufferInfo(apexBuffer, flags, frameIndex, timestampUs);
+                    return true;
+                } else if (buffer->data().graphicBlocks().size() > 1) {
+                    return false;
+                }
+                const C2Handle *handle = buffer->data().graphicBlocks().front().handle();
+                uint32_t width, height, format, stride, igbp_slot, generation;
+                uint64_t usage, igbp_id;
+                _UnwrapNativeCodec2GrallocMetadata(
+                        handle, &width, &height, &format, &usage, &stride, &generation,
+                        &igbp_id, &igbp_slot);
+                native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(handle);
+                sp<GraphicBuffer> graphicBuffer = new GraphicBuffer(
+                        grallocHandle, GraphicBuffer::CLONE_HANDLE,
+                        width, height, format, 1, usage, stride);
+                native_handle_delete(grallocHandle);
+                AHardwareBuffer *hardwareBuffer =
+                    AHardwareBuffer_from_GraphicBuffer(graphicBuffer.get());
+                AHardwareBuffer_acquire(hardwareBuffer);
+                ApexCodec_Status status = ApexCodec_Buffer_setGraphicBuffer(
+                        apexBuffer, hardwareBuffer);
+                if (status != APEXCODEC_STATUS_OK) {
+                    LOG(ERROR) << "FillMemory -- failed to set graphic buffer";
+                    return false;
+                }
+                ApexCodec_Buffer_setBufferInfo(apexBuffer, flags, frameIndex, timestampUs);
                 return true;
-            } else if (buffer->data().graphicBlocks().size() > 1) {
-                return false;
             }
-            const C2Handle *handle = buffer->data().graphicBlocks().front().handle();
-            uint32_t width, height, format, stride, igbp_slot, generation;
-            uint64_t usage, igbp_id;
-            _UnwrapNativeCodec2GrallocMetadata(
-                    handle, &width, &height, &format, &usage, &stride, &generation,
-                    &igbp_id, &igbp_slot);
-            native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(handle);
-            sp<GraphicBuffer> graphicBuffer = new GraphicBuffer(
-                    grallocHandle, GraphicBuffer::CLONE_HANDLE,
-                    width, height, format, 1, usage, stride);
-            native_handle_delete(grallocHandle);
-            AHardwareBuffer *hardwareBuffer =
-                AHardwareBuffer_from_GraphicBuffer(graphicBuffer.get());
-            AHardwareBuffer_acquire(hardwareBuffer);
-            apexBuffer->memory.graphic = hardwareBuffer;
-            return true;
         }
         return false;
     }
@@ -3029,9 +3111,12 @@ c2_status_t Codec2Client::Component::queue(
     }
     if (mAidlBase) {
         c2_aidl::WorkBundle workBundle;
-        if (!c2_aidl::utils::ToAidl(&workBundle, *items, mAidlBufferPoolSender.get())) {
-            LOG(ERROR) << "queue -- bad input.";
-            return C2_TRANSACTION_FAILED;
+        {
+            ScopedTrace trace(ATRACE_TAG, "CCodec::Codec2Client::ToAidl");
+            if (!c2_aidl::utils::ToAidl(&workBundle, *items, mAidlBufferPoolSender.get())) {
+                LOG(ERROR) << "queue -- bad input.";
+                return C2_TRANSACTION_FAILED;
+            }
         }
         ::ndk::ScopedAStatus transStatus = mAidlBase->queue(workBundle);
         return GetC2Status(transStatus, "queue");
@@ -3364,7 +3449,7 @@ status_t Codec2Client::Component::queueToOutputSurface(
         const C2ConstGraphicBlock& block,
         const QueueBufferInput& input,
         QueueBufferOutput* output) {
-    ScopedTrace trace(ATRACE_TAG,"Codec2Client::Component::queueToOutputSurface");
+    ScopedTrace trace(ATRACE_TAG,"CCodec::Codec2Client::Component::queueToOutputSurface");
     if (mAidlBase) {
         std::shared_ptr<AidlGraphicBufferAllocator> gba =
                 mGraphicBufferAllocators->current();

@@ -59,6 +59,10 @@
         <option name="push-file" key="bbb_vp9_640x360_1600kbps_30fps_chksm.md5" value="/data/local/tmp/media/bbb_vp9_640x360_1600kbps_30fps_chksm.md5" />
         <option name="push-file" key="bbb_av1_640_360_chksum.md5" value="/data/local/tmp/media/bbb_av1_640_360_chksum.md5" />
         <option name="push-file" key="bbb_av1_176_144_chksm.md5" value="/data/local/tmp/media/bbb_av1_176_144_chksm.md5" />
+        <option name="push-file" key="trim_pattern_640x480_30fps_16mbps_apv_10bit.apv" value="/data/local/tmp/media/trim_pattern_640x480_30fps_16mbps_apv_10bit.apv" />
+        <option name="push-file" key="trim_pattern_1280x720_30fps_30mbps_apv_10bit.apv" value="/data/local/tmp/media/trim_pattern_1280x720_30fps_30mbps_apv_10bit.apv" />
+        <option name="push-file" key="trim_pattern_640x480_30fps_16mbps_apv_10bit.info" value="/data/local/tmp/media/trim_pattern_640x480_30fps_16mbps_apv_10bit.info" />
+        <option name="push-file" key="trim_pattern_1280x720_30fps_30mbps_apv_10bit.info" value="/data/local/tmp/media/trim_pattern_1280x720_30fps_30mbps_apv_10bit.info" />
     </target_preparer>
 
     <test class="com.android.tradefed.testtype.GTest" >

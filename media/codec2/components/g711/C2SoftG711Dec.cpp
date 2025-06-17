@@ -106,6 +106,13 @@ C2SoftG711Dec::C2SoftG711Dec(
       mIntf(intfImpl) {
 }
 
+C2SoftG711Dec::C2SoftG711Dec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftG711Dec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftG711Dec::~C2SoftG711Dec() {
     onRelease();
 }

@@ -114,7 +114,7 @@ public:
     // indicate a change in device connection status
     virtual status_t setDeviceConnectionState(audio_policy_dev_state_t state,
                                               const android::media::audio::common::AudioPort& port,
-                                              audio_format_t encodedFormat) = 0;
+                                              audio_format_t encodedFormat, bool deviceSwitch) = 0;
     // retrieve a device connection status
     virtual audio_policy_dev_state_t getDeviceConnectionState(audio_devices_t device,
                                                               const char *device_address) = 0;

@@ -18,8 +18,15 @@
 #define LOG_TAG "MediaSync"
 #include <inttypes.h>
 
-#include <gui/BufferQueue.h>
+#include <com_android_graphics_libgui_flags.h>
+
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+#include <gui/BufferItemConsumer.h>
+#include <gui/Surface.h>
+#else
 #include <gui/IGraphicBufferConsumer.h>
+#endif
+#include <gui/BufferQueue.h>
 #include <gui/IGraphicBufferProducer.h>
 
 #include <media/AudioTrack.h>
@@ -74,7 +81,11 @@ MediaSync::MediaSync()
 
 MediaSync::~MediaSync() {
     if (mInput != NULL) {
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        mInput->abandon();
+#else
         mInput->consumerDisconnect();
+#endif
     }
     if (mOutput != NULL) {
         mOutput->disconnect(NATIVE_WINDOW_API_MEDIA);
@@ -204,12 +215,44 @@ status_t MediaSync::createInputSurface(
         return INVALID_OPERATION;
     }
 
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    int usageFlags = 0;
+    mOutput->query(NATIVE_WINDOW_CONSUMER_USAGE_BITS, &usageFlags);
+
+    auto [newInput, surface] = BufferItemConsumer::create(usageFlags);
+
+    sp<InputListener> listener(new InputListener(this));
+    newInput->setFrameAvailableListener(listener);
+    newInput->setName(String8("MediaSync"));
+    // propagate usage bits from output surface
+    status_t status = newInput->setConsumerUsageBits(usageFlags);
+    if (status != OK) {
+        ALOGE("%s: Unable to set usage bits to %d", __FUNCTION__, usageFlags);
+        return status;
+    }
+
+    // set undequeued buffer count
+    int minUndequeuedBuffers;
+    mOutput->query(NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS, &minUndequeuedBuffers);
+    status = newInput->setMaxAcquiredBufferCount(minUndequeuedBuffers);
+    if (status != OK) {
+        ALOGE("%s: Unable to set setMaxAcquiredBufferCount to %d", __FUNCTION__,
+              minUndequeuedBuffers);
+        return status;
+    }
+
+    mMaxAcquiredBufferCount = minUndequeuedBuffers;
+    mUsageFlagsFromOutput = usageFlags;
+    mInput = newInput;
+    mListener = listener;
+    *outBufferProducer = surface->getIGraphicBufferProducer();
+    return OK;
+#else
     sp<IGraphicBufferProducer> bufferProducer;
     sp<IGraphicBufferConsumer> bufferConsumer;
     BufferQueue::createBufferQueue(&bufferProducer, &bufferConsumer);
 
     sp<InputListener> listener(new InputListener(this));
-    IInterface::asBinder(bufferConsumer)->linkToDeath(listener);
     status_t status =
         bufferConsumer->consumerConnect(listener, false /* controlledByApp */);
     if (status == NO_ERROR) {
@@ -228,6 +271,7 @@ status_t MediaSync::createInputSurface(
         bufferConsumer->setMaxAcquiredBufferCount(mMaxAcquiredBufferCount);
     }
     return status;
+#endif
 }
 
 void MediaSync::resync_l() {
@@ -340,7 +384,15 @@ status_t MediaSync::updateQueuedAudioData(
 
 void MediaSync::setName(const AString &name) {
     Mutex::Autolock lock(mMutex);
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    if (mInput) {
+        mInput->setName(String8(name.c_str()));
+    } else {
+        ALOGE("%s with name %s called without an mInput set", __FUNCTION__, name.c_str());
+    }
+#else
     mInput->setConsumerName(String8(name.c_str()));
+#endif
 }
 
 void MediaSync::flush() {
@@ -622,7 +674,11 @@ void MediaSync::onFrameAvailableFromInput() {
 
     ALOGV("acquired buffer %#llx from input", (long long)bufferItem.mGraphicBuffer->getId());
 
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    status = mInput->detachBuffer(bufferItem.mGraphicBuffer);
+#else
     status = mInput->detachBuffer(bufferItem.mSlot);
+#endif
     if (status != NO_ERROR) {
         ALOGE("detaching buffer from input failed (%d)", status);
         if (status == NO_INIT) {
@@ -635,7 +691,11 @@ void MediaSync::onFrameAvailableFromInput() {
     if (mBuffersFromInput.indexOfKey(bufferItem.mGraphicBuffer->getId()) >= 0) {
         // Something is wrong since this buffer should be at our hands, bail.
         ALOGE("received buffer multiple times from input");
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        mInput->abandon();
+#else
         mInput->consumerDisconnect();
+#endif
         onAbandoned_l(true /* isInput */);
         return;
     }
@@ -688,7 +748,11 @@ void MediaSync::renderOneBufferItem_l(const BufferItem &bufferItem) {
 
     if (mBuffersSentToOutput.indexOfKey(bufferItem.mGraphicBuffer->getId()) >= 0) {
         // Something is wrong since this buffer should be held by output now, bail.
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        mInput->abandon();
+#else
         mInput->consumerDisconnect();
+#endif
         onAbandoned_l(true /* isInput */);
         return;
     }
@@ -749,10 +813,18 @@ void MediaSync::returnBufferToInput_l(
 
     // Attach and release the buffer back to the input.
     int consumerSlot;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    status_t status = mInput->attachBuffer(oldBuffer);
+#else
     status_t status = mInput->attachBuffer(&consumerSlot, oldBuffer);
+#endif
     ALOGE_IF(status != NO_ERROR, "attaching buffer to input failed (%d)", status);
     if (status == NO_ERROR) {
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        mInput->releaseBuffer(oldBuffer, fence);
+#else
         status = mInput->releaseBuffer(consumerSlot, 0 /* frameNumber */, fence);
+#endif
         ALOGE_IF(status != NO_ERROR, "releasing buffer to input failed (%d)", status);
     }
 
@@ -771,7 +843,11 @@ void MediaSync::onAbandoned_l(bool isInput) {
         if (isInput) {
             mOutput->disconnect(NATIVE_WINDOW_API_MEDIA);
         } else {
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+            mInput->abandon();
+#else
             mInput->consumerDisconnect();
+#endif
         }
         mIsAbandoned = true;
     }
@@ -816,6 +892,7 @@ void MediaSync::InputListener::onFrameAvailable(const BufferItem &/* item */) {
     mSync->onFrameAvailableFromInput();
 }
 
+#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
 // We don't care about sideband streams, since we won't relay them.
 void MediaSync::InputListener::onSidebandStreamChanged() {
     ALOGE("onSidebandStreamChanged: got sideband stream unexpectedly.");
@@ -826,6 +903,7 @@ void MediaSync::InputListener::binderDied(const wp<IBinder> &/* who */) {
     Mutex::Autolock lock(mSync->mMutex);
     mSync->onAbandoned_l(true /* isInput */);
 }
+#endif
 
 MediaSync::OutputListener::OutputListener(const sp<MediaSync> &sync,
         const sp<IGraphicBufferProducer> &output)

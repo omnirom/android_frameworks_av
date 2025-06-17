@@ -41,8 +41,6 @@
 
 // Used to wrap the call of interest in start and stop calls
 #define WATCH(toMonitor) watchThread([&]() { return toMonitor;}, gettid(), __FUNCTION__)
-#define WATCH_CUSTOM_TIMER(toMonitor, cycles, cycleLength) \
-        watchThread([&]() { return toMonitor;}, gettid(), __FUNCTION__, cycles, cycleLength);
 
 // Default cycles and cycle length values used to calculate permitted elapsed time
 const static size_t   kMaxCycles     = 650;
@@ -59,17 +57,13 @@ struct MonitoredFunction {
 
 public:
 
-    explicit CameraServiceWatchdog(const std::set<pid_t> &pids, const std::string &cameraId,
+    explicit CameraServiceWatchdog(
+            const std::set<pid_t> &pids, pid_t clientPid,
+            bool isNativePid, const std::string &cameraId,
             std::shared_ptr<CameraServiceProxyWrapper> cameraServiceProxyWrapper) :
-                    mProviderPids(pids), mCameraId(cameraId), mPause(true), mMaxCycles(kMaxCycles),
+                    mProviderPids(pids), mClientPid(clientPid), mIsNativePid(isNativePid),
+                    mCameraId(cameraId), mPause(true), mMaxCycles(kMaxCycles),
                     mCycleLengthMs(kCycleLengthMs), mEnabled(true),
-                    mCameraServiceProxyWrapper(cameraServiceProxyWrapper) {};
-
-    explicit CameraServiceWatchdog (const std::set<pid_t> &pids, const std::string &cameraId,
-            size_t maxCycles, uint32_t cycleLengthMs, bool enabled,
-            std::shared_ptr<CameraServiceProxyWrapper> cameraServiceProxyWrapper) :
-                    mProviderPids(pids), mCameraId(cameraId), mPause(true), mMaxCycles(maxCycles),
-                    mCycleLengthMs(cycleLengthMs), mEnabled(enabled),
                     mCameraServiceProxyWrapper(cameraServiceProxyWrapper) {};
 
     virtual ~CameraServiceWatchdog() {};
@@ -78,42 +72,6 @@ public:
 
     /** Enables/disables the watchdog */
     void setEnabled(bool enable);
-
-    /** Used to wrap monitored calls in start and stop functions using custom timer values */
-    template<typename T>
-    auto watchThread(T func, uint32_t tid, const char* functionName, uint32_t cycles,
-            uint32_t cycleLength) {
-        decltype(func()) res;
-
-        if (cycles != mMaxCycles || cycleLength != mCycleLengthMs) {
-            // Create another instance of the watchdog to prevent disruption
-            // of timer for current monitored calls
-
-            // Lock for mEnabled
-            mEnabledLock.lock();
-            sp<CameraServiceWatchdog> tempWatchdog = new CameraServiceWatchdog(
-                    mProviderPids, mCameraId, cycles, cycleLength, mEnabled,
-                    mCameraServiceProxyWrapper);
-            mEnabledLock.unlock();
-
-            status_t status = tempWatchdog->run("CameraServiceWatchdog");
-            if (status != OK) {
-                ALOGE("Unable to watch thread: %s (%d)", strerror(-status), status);
-                res = watchThread(func, tid, functionName);
-                return res;
-            }
-
-            res = tempWatchdog->watchThread(func, tid, functionName);
-            tempWatchdog->requestExit();
-            tempWatchdog.clear();
-        } else {
-            // If custom timer values are equivalent to set class timer values, use
-            // current thread
-            res = watchThread(func, tid, functionName);
-        }
-
-        return res;
-    }
 
     /** Used to wrap monitored calls in start and stop functions using class timer values */
     template<typename T>
@@ -154,6 +112,8 @@ private:
     Mutex           mEnabledLock;       // Lock for enabled status
     Condition       mWatchdogCondition; // Condition variable for stop/start
     std::set<pid_t> mProviderPids;      // Process ID set of camera providers
+    pid_t           mClientPid;         // Process ID of the client
+    bool            mIsNativePid;       // Whether the client is a native process
     std::string     mCameraId;          // Camera Id the watchdog belongs to
     bool            mPause;             // True if tid map is empty
     uint32_t        mMaxCycles;         // Max cycles

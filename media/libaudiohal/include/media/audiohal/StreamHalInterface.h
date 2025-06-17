@@ -151,9 +151,9 @@ protected:
  *               | Mixed      | Direct       | Direct
  *               |            | non-offload  | offload
  * ==============|============|==============|==============
- *  PCM and      | Continuous |              |
- *  encapsulated |            |              |
- *  bitstream    |            |              |
+ *  PCM          | Continuous |              |
+ *               |            |              |
+ *               |            |              |
  * --------------|------------| Continuous†  |
  *  Bitstream    |            |              | Reset on
  *  encapsulated |            |              | flush, drain

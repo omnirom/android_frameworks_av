@@ -36,6 +36,20 @@ interface ICameraDeviceUser
 
     SubmitInfo submitRequest(in CaptureRequest request, boolean streaming);
     SubmitInfo submitRequestList(in CaptureRequest[] requestList, boolean streaming);
+    /**
+     * When a camera device is opened in shared mode, only the primary client can change capture
+     * parameters and submit capture requests. Secondary clients can use the startStreaming API to
+     * provide the stream and surface IDs they want to stream on. If the primary client has an
+     * ongoing repeating request, camera service will attach these surfaces to it. Otherwise,
+     * camera service will create a default capture request with a preview template.
+     *
+     * @param streamIdxArray stream ids of the target surfaces
+     * @param surfaceIdxArray surface ids of the target surfaces
+     * @return SubmitInfo data structure containing the request id of the capture request and the
+     *         frame number of the last request, of the previous batch of repeating requests, if
+     *         any. If there is no previous  batch, the frame number returned will be -1.
+     */
+    SubmitInfo startStreaming(in int[] streamIdxArray, in int[] surfaceIdxArray);
 
     /**
      * Cancel the repeating request specified by requestId

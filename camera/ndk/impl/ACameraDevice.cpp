@@ -272,6 +272,28 @@ camera_status_t CameraDevice::isSessionConfigurationSupported(
     }
 }
 
+camera_status_t CameraDevice::stopStreamingLocked() {
+    camera_status_t ret = checkCameraClosedOrErrorLocked();
+    if (ret != ACAMERA_OK) {
+        ALOGE("%s: camera is in closed or error state %d", __FUNCTION__, ret);
+        return ret;
+    }
+    ret = stopRepeatingLocked();
+    if (ret != ACAMERA_OK) {
+        ALOGE("%s: error when trying to stop streaming %d", __FUNCTION__, ret);
+        return ret;
+    }
+    for (auto& outputTarget : mPreviewRequestOutputs) {
+        ACameraOutputTarget_free(outputTarget);
+    }
+    mPreviewRequestOutputs.clear();
+    if (mPreviewRequest) {
+        ACaptureRequest_free(mPreviewRequest);
+        mPreviewRequest = nullptr;
+    }
+    return ACAMERA_OK;
+}
+
 camera_status_t CameraDevice::updateOutputConfigurationLocked(ACaptureSessionOutput *output) {
     camera_status_t ret = checkCameraClosedOrErrorLocked();
     if (ret != ACAMERA_OK) {
@@ -689,6 +711,11 @@ CameraDevice::configureStreamsLocked(const ACaptureSessionOutputContainer* outpu
         if (ret != ACAMERA_OK) {
             return ret;
         }
+        // Surface sharing cannot be enabled when a camera has been opened
+        // in shared mode.
+        if (flags::camera_multi_client() && mSharedMode && outConfig.mIsShared) {
+            return ACAMERA_ERROR_INVALID_PARAMETER;
+        }
         ParcelableSurfaceType pSurface = flagtools::convertSurfaceTypeToParcelable(surface);
         outputSet.insert(std::make_pair(
                 anw,
@@ -715,10 +742,14 @@ CameraDevice::configureStreamsLocked(const ACaptureSessionOutputContainer* outpu
         return ret;
     }
 
-    ret = waitUntilIdleLocked();
-    if (ret != ACAMERA_OK) {
-        ALOGE("Camera device %s wait until idle failed, ret %d", getId(), ret);
-        return ret;
+    // If device is opened in shared mode, there can be multiple clients accessing the
+    // camera device. So do not wait for idle if the device is opened in shared mode.
+    if ((!flags::camera_multi_client()) || (!mSharedMode)) {
+        ret = waitUntilIdleLocked();
+        if (ret != ACAMERA_OK) {
+            ALOGE("Camera device %s wait until idle failed, ret %d", getId(), ret);
+            return ret;
+        }
     }
 
     // Send onReady to previous session

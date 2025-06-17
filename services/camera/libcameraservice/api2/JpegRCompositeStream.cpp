@@ -16,7 +16,7 @@
 
 #define LOG_TAG "Camera3-JpegRCompositeStream"
 #define ATRACE_TAG ATRACE_TAG_CAMERA
-//#define LOG_NDEBUG 0
+// #define LOG_NDEBUG 0
 
 #include <aidl/android/hardware/camera/device/CameraBlob.h>
 #include <aidl/android/hardware/camera/device/CameraBlobId.h>
@@ -25,6 +25,7 @@
 #include "utils/SessionConfigurationUtils.h"
 
 #include <com_android_graphics_libgui_flags.h>
+#include <gui/CpuConsumer.h>
 #include <gui/Surface.h>
 #include <hardware/gralloc.h>
 #include <system/graphics-base-v1.0.h>
@@ -575,20 +576,10 @@ status_t JpegRCompositeStream::createInternalStreams(const std::vector<SurfaceHo
             mStaticInfo, mP010DynamicRange,
             ANDROID_REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES_MAP_STANDARD);
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mP010Consumer = new CpuConsumer(/*maxLockedBuffers*/ 1, /*controlledByApp*/ true);
+    std::tie(mP010Consumer, mP010Surface) =
+            CpuConsumer::create(/*maxLockedBuffers*/ 1, /*controlledByApp*/ true);
     mP010Consumer->setFrameAvailableListener(this);
     mP010Consumer->setName(String8("Camera3-P010CompositeStream"));
-    mP010Surface = mP010Consumer->getSurface();
-#else
-    sp<IGraphicBufferProducer> producer;
-    sp<IGraphicBufferConsumer> consumer;
-    BufferQueue::createBufferQueue(&producer, &consumer);
-    mP010Consumer = new CpuConsumer(consumer, /*maxLockedBuffers*/1, /*controlledByApp*/ true);
-    mP010Consumer->setFrameAvailableListener(this);
-    mP010Consumer->setName(String8("Camera3-P010CompositeStream"));
-    mP010Surface = new Surface(producer);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
     auto ret = device->createStream(mP010Surface, width, height, kP010PixelFormat,
             static_cast<android_dataspace>(mP010DataSpace), rotation,
@@ -606,18 +597,11 @@ status_t JpegRCompositeStream::createInternalStreams(const std::vector<SurfaceHo
     }
 
     if (mSupportInternalJpeg) {
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-        mBlobConsumer = new CpuConsumer(/*maxLockedBuffers*/ 1, /*controlledByApp*/ true);
+        std::tie(mBlobConsumer, mBlobSurface) =
+                CpuConsumer::create(/*maxLockedBuffers*/ 1, /*controlledByApp*/ true);
         mBlobConsumer->setFrameAvailableListener(this);
         mBlobConsumer->setName(String8("Camera3-JpegRCompositeStream"));
-        mBlobSurface = mBlobConsumer->getSurface();
-#else
-        BufferQueue::createBufferQueue(&producer, &consumer);
-        mBlobConsumer = new CpuConsumer(consumer, /*maxLockedBuffers*/ 1, /*controlledByApp*/ true);
-        mBlobConsumer->setFrameAvailableListener(this);
-        mBlobConsumer->setName(String8("Camera3-JpegRCompositeStream"));
-        mBlobSurface = new Surface(producer);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+
         std::vector<int> blobSurfaceId;
         ret = device->createStream(mBlobSurface, width, height, format,
                 kJpegDataSpace, rotation, &mBlobStreamId, physicalCameraId, sensorPixelModesUsed,

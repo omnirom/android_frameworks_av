@@ -20,49 +20,12 @@
 #include <media/stagefright/foundation/ColorUtils.h>
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 #include <inttypes.h>
 #include <atomic>
 
 #include "oapv.h"
 #include <C2SoftApvCommon.h>
-
-typedef unsigned int UWORD32;
-
-typedef enum {
-    IV_CHROMA_NA = 0xFFFFFFFF,
-    IV_YUV_420P = 0x1,
-    IV_YUV_422P = 0x2,
-    IV_420_UV_INTL = 0x3,
-    IV_YUV_422IBE = 0x4,
-    IV_YUV_422ILE = 0x5,
-    IV_YUV_444P = 0x6,
-    IV_YUV_411P = 0x7,
-    IV_GRAY = 0x8,
-    IV_RGB_565 = 0x9,
-    IV_RGB_24 = 0xa,
-    IV_YUV_420SP_UV = 0xb,
-    IV_YUV_420SP_VU = 0xc,
-    IV_YUV_422SP_UV = 0xd,
-    IV_YUV_422SP_VU = 0xe
-
-} IV_COLOR_FORMAT_T;
-
-typedef struct {
-    /**
-     * u4_size of the structure
-     */
-    UWORD32 u4_size;
-
-    /**
-     * Pointer to the API function pointer table of the codec
-     */
-    void* pv_fxns;
-
-    /**
-     * Pointer to the handle of the codec
-     */
-    void* pv_codec_handle;
-} iv_obj_t;
 
 namespace android {
 
@@ -70,6 +33,8 @@ struct C2SoftApvDec final : public SimpleC2Component {
     class IntfImpl;
 
     C2SoftApvDec(const char* name, c2_node_id_t id, const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftApvDec(const char* name, c2_node_id_t id,
+                 const std::shared_ptr<C2ReflectorHelper>& helper);
     virtual ~C2SoftApvDec();
 
     // From SimpleC2Component
@@ -102,11 +67,8 @@ struct C2SoftApvDec final : public SimpleC2Component {
                           const std::unique_ptr<C2Work>& work);
 
     std::shared_ptr<IntfImpl> mIntf;
-    iv_obj_t* mDecHandle;
-    uint8_t* mOutBufferFlush;
-    IV_COLOR_FORMAT_T mIvColorformat;
+    uint8_t *mOutBufferFlush;
     uint32_t mOutputDelay;
-    bool mHeaderDecoded;
     std::atomic_uint64_t mOutIndex;
     std::shared_ptr<C2GraphicBlock> mOutBlock;
 
@@ -118,6 +80,10 @@ struct C2SoftApvDec final : public SimpleC2Component {
     uint32_t mHeight;
     bool mSignalledOutputEos;
     bool mSignalledError;
+
+    C2StreamHdrStaticMetadataInfo::output mHdrStaticMetadataInfo;
+    std::unique_ptr<C2StreamHdr10PlusInfo::output> mHdr10PlusInfo = nullptr;
+
     // Color aspects. These are ISO values and are meant to detect changes in aspects to avoid
     // converting them to C2 values for each frame
     struct VuiColorAspects {
@@ -133,20 +99,60 @@ struct C2SoftApvDec final : public SimpleC2Component {
             coeffs(C2Color::MATRIX_UNSPECIFIED),
             fullRange(C2Color::RANGE_UNSPECIFIED) { }
 
-        bool operator==(const VuiColorAspects &o) {
+        bool operator==(const VuiColorAspects &o) const {
             return primaries == o.primaries && transfer == o.transfer && coeffs == o.coeffs
                 && fullRange == o.fullRange;
         }
     } mBitstreamColorAspects;
+    struct VuiColorAspects vuiColorAspects;
 
-    oapvd_t oapvdHandle;
-    oapvm_t oapvmHandle;
-    oapvd_cdesc_t cdesc;
-    oapv_frms_t ofrms;
+    // HDR info that can be carried in APV bitstream
+    // Section 10.3.1 of APV syntax https://www.ietf.org/archive/id/draft-lim-apv-02.html
+    struct ApvHdrInfo {
+        bool has_hdr_mdcv;
+        bool has_itut_t35;
+        bool has_hdr_cll;
 
-    int outputCsp;
+        ApvHdrInfo()
+            : has_hdr_mdcv(false),
+            has_itut_t35(false),
+            has_hdr_cll(false) { }
 
-    void getVuiParams(VuiColorAspects* buffer);
+        // Master Display Color Volume
+        struct HdrMdcv {
+            uint16_t primary_chromaticity_x[3];
+            uint16_t primary_chromaticity_y[3];
+            uint16_t white_point_chromaticity_x;
+            uint16_t white_point_chromaticity_y;
+            uint32_t max_mastering_luminance;
+            uint32_t min_mastering_luminance;
+        } hdr_mdcv;
+
+        // Content Light Level info
+        struct HdrCll {
+            uint16_t max_cll;
+            uint16_t max_fall;
+        } hdr_cll;
+
+        // ITU-T35 info
+        struct ItutT35 {
+            char country_code;
+            char country_code_extension_byte;
+            char *payload_bytes;
+            int payload_size;
+        } itut_t35;
+    };
+
+    oapvd_t mDecHandle;
+    oapvm_t mMetadataHandle;
+    oapv_frms_t mOutFrames;
+
+    int mOutCsp;
+
+    void getVuiParams(const std::unique_ptr<C2Work> &work);
+    void getHdrInfo(struct ApvHdrInfo *buffer, int id);
+    void getHDRStaticParams(const struct ApvHdrInfo *buffer, const std::unique_ptr<C2Work>& work);
+    void getHDR10PlusInfoData(const struct ApvHdrInfo *buffer, const std::unique_ptr<C2Work>& work);
 
     C2_DO_NOT_COPY(C2SoftApvDec);
 };

@@ -155,10 +155,16 @@ C2SoftAacEnc::C2SoftAacEnc(
       mNumBytesPerInputFrame(0u),
       mOutBufferSize(0u),
       mSentCodecSpecificData(false),
-      mInputSize(0),
       mSignalledError(false),
       mOutIndex(0u),
       mRemainderLen(0u) {
+}
+
+C2SoftAacEnc::C2SoftAacEnc(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftAacEnc(name, id, std::make_shared<IntfImpl>(helper)) {
 }
 
 C2SoftAacEnc::~C2SoftAacEnc() {
@@ -180,7 +186,6 @@ status_t C2SoftAacEnc::initEncoder() {
 
 c2_status_t C2SoftAacEnc::onStop() {
     mSentCodecSpecificData = false;
-    mInputSize = 0u;
     mNextFrameTimestampUs.reset();
     mLastFrameEndTimestampUs.reset();
     mSignalledError = false;
@@ -205,7 +210,6 @@ c2_status_t C2SoftAacEnc::onFlush_sm() {
         }
     }
     mSentCodecSpecificData = false;
-    mInputSize = 0u;
     mNextFrameTimestampUs.reset();
     mLastFrameEndTimestampUs.reset();
     mRemainderLen = 0;
@@ -401,21 +405,13 @@ void C2SoftAacEnc::process(
         MaybeLogTimestampWarning(mLastFrameEndTimestampUs->peekll(), inputTimestampUs.peekll());
         inputTimestampUs = *mLastFrameEndTimestampUs;
     }
-    if (capacity > 0) {
+    if (capacity > 0 || eos) {
         if (!mNextFrameTimestampUs) {
             mNextFrameTimestampUs = work->input.ordinal.timestamp;
         }
         mLastFrameEndTimestampUs = inputTimestampUs
                 + (capacity / sizeof(int16_t) * 1000000ll / channelCount / sampleRate);
     }
-
-    size_t numFrames =
-        (mRemainderLen + capacity + mInputSize + (eos ? mNumBytesPerInputFrame - 1 : 0))
-        / mNumBytesPerInputFrame;
-    ALOGV("capacity = %zu; mInputSize = %zu; numFrames = %zu "
-          "mNumBytesPerInputFrame = %u inputTS = %lld remaining = %zu",
-          capacity, mInputSize, numFrames, mNumBytesPerInputFrame, inputTimestampUs.peekll(),
-          mRemainderLen);
 
     std::shared_ptr<C2LinearBlock> block;
     std::unique_ptr<C2WriteView> wView;
@@ -509,8 +505,9 @@ void C2SoftAacEnc::process(
             inargs.numInSamples = 0;
         }
     }
-    while (encoderErr == AACENC_OK && inargs.numInSamples >= channelCount) {
-        if (numFrames && !block) {
+    int processedSampleCntInCurrBatch = 0;
+    while (encoderErr == AACENC_OK && (inargs.numInSamples >= channelCount || eos)) {
+        if (!block) {
             C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
             // TODO: error handling, proper usage, etc.
             c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
@@ -523,7 +520,6 @@ void C2SoftAacEnc::process(
             wView.reset(new C2WriteView(block->map().get()));
             outPtr = wView->data();
             outAvailable = wView->size();
-            --numFrames;
         }
 
         memset(&outargs, 0, sizeof(outargs));
@@ -531,6 +527,10 @@ void C2SoftAacEnc::process(
         outBuffer[0] = outPtr;
         outBufferSize[0] = outAvailable;
 
+        // flush
+        if (eos && inargs.numInSamples < channelCount) {
+            inargs.numInSamples = -1;
+        }
         encoderErr = aacEncEncode(mAACEncoder,
                                   &inBufDesc,
                                   &outBufDesc,
@@ -539,15 +539,16 @@ void C2SoftAacEnc::process(
 
         if (encoderErr == AACENC_OK) {
             if (outargs.numOutBytes > 0) {
-                mInputSize = 0;
-                int consumed = (capacity / sizeof(int16_t)) - inargs.numInSamples
-                        + outargs.numInSamples;
-                ALOGV("consumed = %d, capacity = %zu, inSamples = %d, outSamples = %d",
-                      consumed, capacity, inargs.numInSamples, outargs.numInSamples);
+                processedSampleCntInCurrBatch += mNumBytesPerInputFrame / sizeof(int16_t);
+                ALOGV("processedSampleCntInCurrBatch = %d, capacity = %zu, inSamples = %d, "
+                      "outSamples = %d",
+                      processedSampleCntInCurrBatch, capacity, inargs.numInSamples,
+                      outargs.numInSamples);
                 c2_cntr64_t currentFrameTimestampUs = *mNextFrameTimestampUs;
-                mNextFrameTimestampUs = inputTimestampUs
-                        + (consumed * 1000000ll / channelCount / sampleRate);
-                std::shared_ptr<C2Buffer> buffer = createLinearBuffer(block, 0, outargs.numOutBytes);
+                mNextFrameTimestampUs = inputTimestampUs + (processedSampleCntInCurrBatch *
+                                                            1000000ll / channelCount / sampleRate);
+                std::shared_ptr<C2Buffer> buffer =
+                        createLinearBuffer(block, 0, outargs.numOutBytes);
 #if 0
                 hexdump(outPtr, std::min(outargs.numOutBytes, 256));
 #endif
@@ -556,8 +557,6 @@ void C2SoftAacEnc::process(
                 block.reset();
 
                 outputBuffers.push_back({buffer, currentFrameTimestampUs});
-            } else {
-                mInputSize += outargs.numInSamples * sizeof(int16_t);
             }
 
             if (inBuffer[0] == mRemainder) {
@@ -575,44 +574,8 @@ void C2SoftAacEnc::process(
             inBufferSize[0] = 0;
             inargs.numInSamples = 0;
         }
-        ALOGV("encoderErr = %d mInputSize = %zu "
-              "inargs.numInSamples = %d, mNextFrameTimestampUs = %lld",
-              encoderErr, mInputSize, inargs.numInSamples, mNextFrameTimestampUs->peekll());
-    }
-    if (eos && inBufferSize[0] > 0) {
-        if (numFrames && !block) {
-            C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
-            // TODO: error handling, proper usage, etc.
-            c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
-            if (err != C2_OK) {
-                ALOGE("fetchLinearBlock failed : err = %d", err);
-                work->result = C2_NO_MEMORY;
-                return;
-            }
-
-            wView.reset(new C2WriteView(block->map().get()));
-            outPtr = wView->data();
-            outAvailable = wView->size();
-            --numFrames;
-        }
-
-        memset(&outargs, 0, sizeof(outargs));
-
-        outBuffer[0] = outPtr;
-        outBufferSize[0] = outAvailable;
-
-        // Flush
-        inargs.numInSamples = -1;
-
-        (void)aacEncEncode(mAACEncoder,
-                           &inBufDesc,
-                           &outBufDesc,
-                           &inargs,
-                           &outargs);
-
-        // after flush, discard remaining input bytes.
-        inBuffer[0] = nullptr;
-        inBufferSize[0] = 0;
+        ALOGV("encoderErr = %d, inargs.numInSamples = %d, mNextFrameTimestampUs = %lld", encoderErr,
+              inargs.numInSamples, mNextFrameTimestampUs->peekll());
     }
 
     if (inBufferSize[0] > 0) {
@@ -670,7 +633,6 @@ c2_status_t C2SoftAacEnc::drain(
 
     (void)pool;
     mSentCodecSpecificData = false;
-    mInputSize = 0u;
     mNextFrameTimestampUs.reset();
     mLastFrameEndTimestampUs.reset();
 

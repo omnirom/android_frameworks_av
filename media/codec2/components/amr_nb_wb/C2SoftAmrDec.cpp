@@ -129,6 +129,12 @@ C2SoftAmrDec::C2SoftAmrDec(
     mIsWide = true;
 #endif
 }
+C2SoftAmrDec::C2SoftAmrDec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftAmrDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
 
 C2SoftAmrDec::~C2SoftAmrDec() {
     (void)onRelease();

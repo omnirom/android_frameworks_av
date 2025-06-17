@@ -323,7 +323,7 @@ void LibAaudioFuzzer::process(const uint8_t *data, size_t size) {
             [&]() {
                 char** tags = nullptr;
                 (void)AAudioStream_obtainTags(mAaudioStream, &tags);
-                AAudioStream_releaseTags(mAaudioStream, tags);
+                AAudioStream_destroyTags(mAaudioStream, tags);
             },
             [&]() {
                 (void)AAudioStream_isMMapUsed(mAaudioStream);

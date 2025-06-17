@@ -108,6 +108,10 @@ void AudioStreamInternalPlay::prepareBuffersForStart() {
     mFlowGraph.reset();
     // Prevent stale data from being played.
     mAudioEndpoint->eraseDataMemory();
+    // All data has been erased. To avoid mixer for the shared stream use stale
+    // counters, which may cause the service side thinking stream starts flowing before
+    // the client actually writes data, advance the client to match server position.
+    advanceClientToMatchServerPosition(0 /*serverMargin*/);
 }
 
 void AudioStreamInternalPlay::prepareBuffersForStop() {
@@ -117,7 +121,8 @@ void AudioStreamInternalPlay::prepareBuffersForStop() {
         return;
     }
     // Sleep until the DSP has read all of the data written.
-    int64_t validFramesInBuffer = getFramesWritten() - getFramesRead();
+    int64_t validFramesInBuffer =
+            mAudioEndpoint->getDataWriteCounter() - mAudioEndpoint->getDataReadCounter();
     if (validFramesInBuffer >= 0) {
         int64_t emptyFramesInBuffer = ((int64_t) getBufferCapacity()) - validFramesInBuffer;
 
@@ -131,7 +136,8 @@ void AudioStreamInternalPlay::prepareBuffersForStop() {
         // Sleep until we are confident the DSP has consumed all of the valid data.
         // Sleep for one extra burst as a safety margin because the IsochronousClockModel
         // is not perfectly accurate.
-        int64_t positionInEmptyMemory = getFramesWritten() + getFramesPerBurst();
+        // The ClockModel uses the server frame position so do not use getFramesWritten().
+        int64_t positionInEmptyMemory = mAudioEndpoint->getDataWriteCounter() + getFramesPerBurst();
         int64_t timeAllConsumed = mClockModel.convertPositionToTime(positionInEmptyMemory);
         int64_t durationAllConsumed = timeAllConsumed - AudioClock::getNanoseconds();
         // Prevent sleeping for too long.

@@ -71,6 +71,7 @@ status_t CryptoAsync::decrypt(sp<AMessage> &msg) {
        return -ENOSYS;
     }
     bool shouldPost = false;
+    msg->setWhat(kWhatDecrypt);
     Mutexed<std::list<sp<AMessage>>>::Locked pendingBuffers(mPendingBuffers);
     if (mState != kCryptoAsyncActive) {
        ALOGE("Cannot decrypt in errored state");
@@ -132,6 +133,9 @@ status_t CryptoAsync::decryptAndQueue(sp<AMessage> & msg) {
     }
     if (err != OK) {
         std::list<sp<AMessage>> errorList;
+        if (buffer->meta()->findObject("cryptoInfos", &obj)) {
+            msg->setObject("cryptoInfos", obj);
+        }
         msg->removeEntryByName("buffer");
         msg->setInt32("err", err);
         msg->setInt32("actionCode", ACTION_CODE_FATAL);
@@ -238,18 +242,16 @@ void CryptoAsync::onMessageReceived(const sp<AMessage> & msg) {
                 pendingBuffers->pop_front();
                 continue;
             }
-            nextTask = kWhatDecrypt;
+            nextTask = nextBuffer->what();
         }
         return OK;
     };
+    sp<AMessage> thisMsg;
+    uint32_t nextTask = kWhatDoNothing;
+    getCurrentAndNextTask(&thisMsg, nextTask);
     switch(msg->what()) {
         case kWhatDecrypt:
         {
-            sp<AMessage> thisMsg;
-            uint32_t nextTask = kWhatDoNothing;
-            if(OK != getCurrentAndNextTask(&thisMsg, nextTask)) {
-                return;
-            }
             if (thisMsg != nullptr) {
                 int32_t action;
                 err = OK;
@@ -277,15 +279,6 @@ void CryptoAsync::onMessageReceived(const sp<AMessage> & msg) {
                     mState = kCryptoAsyncError;
                 }
             }
-            // we won't take  next buffers if buffer caused
-            // an error. We want the caller to deal with the error first
-            // Expected behahiour is that the caller acknowledge the error
-            // with a call to stop() which clear the queues.
-            // Then move forward with processing of next set of buffers.
-            if (mState == kCryptoAsyncActive && nextTask != kWhatDoNothing) {
-                sp<AMessage> nextMsg = new AMessage(nextTask,this);
-                nextMsg->post();
-            }
             break;
         }
 
@@ -303,10 +296,13 @@ void CryptoAsync::onMessageReceived(const sp<AMessage> & msg) {
                 returnList->splice(returnList->end(), std::move(*pendingBuffers));
             }
             pendingBuffers->clear();
+            // stop() is a blocking call.
+            // this is needed as the queue is cleared now and there should
+            // not be any next task. The next buffer when queued will kick off this loop
+            nextTask = kWhatDoNothing;
             mState = kCryptoAsyncActive;
             response->setInt32("err", OK);
             response->postReply(replyID);
-
             break;
         }
 
@@ -317,6 +313,15 @@ void CryptoAsync::onMessageReceived(const sp<AMessage> & msg) {
             (void)err;
             break;
         }
+    }
+    // we won't take  next buffers if buffer caused
+    // an error. We want the caller to deal with the error first
+    // Expected behahiour is that the caller acknowledge the error
+    // with a call to stop() which clear the queues.
+    // Then move forward with processing of next set of buffers.
+    if (mState == kCryptoAsyncActive && nextTask != kWhatDoNothing) {
+        sp<AMessage> nextMsg = new AMessage(nextTask,this);
+        nextMsg->post();
     }
 }
 

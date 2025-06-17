@@ -102,6 +102,11 @@ C2SoftMP3::C2SoftMP3(const char *name, c2_node_id_t id,
       mDecoderBuf(nullptr) {
 }
 
+C2SoftMP3::C2SoftMP3(const char *name, c2_node_id_t id,
+                     const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftMP3(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftMP3::~C2SoftMP3() {
     onRelease();
 }

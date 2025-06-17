@@ -20,6 +20,7 @@
 #include "TrackBase.h"
 
 #include <android/content/AttributionSourceState.h>
+#include <media/AppOpsSession.h>
 
 namespace android {
 
@@ -60,24 +61,6 @@ public:
                                                         mSilencedNotified = true;
                                                         return silencedNotified; }
 
-    /**
-     * Updates the mute state and notifies the audio service. Call this only when holding player
-     * thread lock.
-     */
-    void processMuteEvent_l(const sp<IAudioManager>& audioManager,
-                            mute_state_t muteState)
-                            /* REQUIRES(MmapPlaybackThread::mLock) */ final;
-
-    // VolumePortInterface implementation
-    void setPortVolume(float volume) override {
-        mVolume = volume;
-    }
-    void setPortMute(bool muted) override {
-        mMutedFromPort = muted;
-    }
-    float getPortVolume() const override { return mVolume; }
-    bool getPortMute() const override { return mMutedFromPort; }
-
     std::string trackFlagsAsString() const final { return {}; }
 private:
     DISALLOW_COPY_AND_ASSIGN(MmapTrack);
@@ -95,16 +78,6 @@ private:
     const uid_t mUid;
     bool  mSilenced;            // protected by MMapThread::mLock
     bool  mSilencedNotified;    // protected by MMapThread::mLock
-
-    // TODO: replace PersistableBundle with own struct
-    // access these two variables only when holding player thread lock.
-    std::unique_ptr<os::PersistableBundle> mMuteEventExtras
-            /* GUARDED_BY(MmapPlaybackThread::mLock) */;
-    mute_state_t mMuteState
-            /* GUARDED_BY(MmapPlaybackThread::mLock) */;
-    bool mMutedFromPort;
-
-    float mVolume = 0.0f;
 };  // end of Track
 
 } // namespace android

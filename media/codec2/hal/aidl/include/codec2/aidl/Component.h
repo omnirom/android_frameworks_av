@@ -99,6 +99,7 @@ protected:
     // alive. These C2BlockPool objects can be deleted by calling
     // destroyBlockPool(), reset() or release(), or by destroying the component.
     std::map<uint64_t, std::shared_ptr<C2BlockPool>> mBlockPools;
+    bool mBlockFenceSupport;
 
     void initListener(const std::shared_ptr<Component>& self);
 

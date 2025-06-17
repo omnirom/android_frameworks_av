@@ -293,30 +293,20 @@ media_status_t
 AImageReader::init() {
     mHalUsage = AHardwareBuffer_convertToGrallocUsageBits(mUsage);
 
-#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    sp<IGraphicBufferProducer> gbProducer;
-    sp<IGraphicBufferConsumer> gbConsumer;
-    BufferQueue::createBufferQueue(&gbProducer, &gbConsumer);
-#endif  // !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-
     String8 consumerName = String8::format("ImageReader-%dx%df%xu%" PRIu64 "m%d-%d-%d",
             mWidth, mHeight, mFormat, mUsage, mMaxImages, getpid(),
             createProcessUniqueId());
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mBufferItemConsumer = new BufferItemConsumer(mHalUsage, mMaxImages, /*controlledByApp*/ true);
-#else
-    mBufferItemConsumer =
-            new BufferItemConsumer(gbConsumer, mHalUsage, mMaxImages, /*controlledByApp*/ true);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+    std::tie(mBufferItemConsumer, mSurface) =
+            BufferItemConsumer::create(mHalUsage, mMaxImages, /*controlledByApp*/ true);
     if (mBufferItemConsumer == nullptr) {
         ALOGE("Failed to allocate BufferItemConsumer");
         return AMEDIA_ERROR_UNKNOWN;
     }
 
 #if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mProducer = gbProducer;
-#endif  // !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+    mProducer = mSurface->getIGraphicBufferProducer();
+#endif
     mBufferItemConsumer->setName(consumerName);
     mBufferItemConsumer->setFrameAvailableListener(mFrameListener);
     mBufferItemConsumer->setBufferFreedListener(mBufferRemovedListener);
@@ -338,18 +328,9 @@ AImageReader::init() {
         return AMEDIA_ERROR_UNKNOWN;
     }
     if (mUsage & AHARDWAREBUFFER_USAGE_PROTECTED_CONTENT) {
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
         mBufferItemConsumer->setConsumerIsProtected(true);
-#else
-        gbConsumer->setConsumerIsProtected(true);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     }
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mSurface = mBufferItemConsumer->getSurface();
-#else
-    mSurface = new Surface(mProducer, /*controlledByApp*/true);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     if (mSurface == nullptr) {
         ALOGE("Failed to create surface");
         return AMEDIA_ERROR_UNKNOWN;

@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_RAW_DEC_H_
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 
 namespace android {
@@ -27,6 +28,8 @@ struct C2SoftRawDec : public SimpleC2Component {
 
     C2SoftRawDec(const char* name, c2_node_id_t id,
               const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftRawDec(const char* name, c2_node_id_t id,
+              const std::shared_ptr<C2ReflectorHelper>& helper);
     virtual ~C2SoftRawDec();
 
     // From SimpleC2Component

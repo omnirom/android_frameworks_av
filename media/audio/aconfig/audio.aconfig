@@ -41,6 +41,7 @@ flag {
     bug: "367667349"
 }
 
+# unused
 flag {
     name: "bluetooth_mac_address_anonymization"
     namespace: "media_audio"
@@ -48,6 +49,15 @@ flag {
         "Enable Bluetooth MAC address anonymization when reporting "
         "audio device descriptors to non privileged apps."
     bug: "285588444"
+}
+
+flag {
+    name: "defer_wear_permission_updates"
+    namespace: "media_audio"
+    description:
+        "defer permission updates to reduce pressure"
+        "on app launch latency on lower core devices."
+    bug: "380347376"
 }
 
 flag {
@@ -84,6 +94,21 @@ flag {
 }
 
 flag {
+    name: "hardening_partial"
+    is_exported: true
+    namespace: "media_audio"
+    description: "Flag for partial enforcement of hardening"
+    bug: "376480814"
+}
+
+flag {
+    name: "hardening_partial_volume"
+    namespace: "media_audio"
+    description: "Flag for partial enforcement of volume hardening"
+    bug: "376480814"
+}
+
+flag {
     name: "hardening_strict"
     is_exported: true
     namespace: "media_audio"
@@ -96,6 +121,13 @@ flag {
     namespace: "media_audio"
     description: "Enable Edge-to-edge feature for MusicFx and handle insets"
     bug: "336204940"
+}
+
+flag {
+    name: "optimize_bt_device_switch"
+    namespace: "media_audio"
+    description: "Optimize the Bluetooth active device switch sequence"
+    bug: "373867402"
 }
 
 flag {

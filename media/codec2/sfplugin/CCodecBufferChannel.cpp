@@ -29,6 +29,7 @@
 #include <chrono>
 
 #include <android_media_codec.h>
+#include <android_media_tv_flags.h>
 
 #include <C2AllocatorGralloc.h>
 #include <C2PlatformSupport.h>
@@ -61,6 +62,7 @@
 #include <mediadrm/ICrypto.h>
 #include <server_configurable_flags/get_flags.h>
 #include <system/window.h>
+#include <ui/PictureProfileHandle.h>
 
 #include "CCodecBufferChannel.h"
 #include "Codec2Buffer.h"
@@ -649,7 +651,7 @@ status_t CCodecBufferChannel::attachEncryptedBuffers(
             return -ENOSYS;
         }
         // we are dealing with just one cryptoInfo or descrambler.
-        std::unique_ptr<CodecCryptoInfo> info = std::move(cryptoInfos->value[0]);
+        std::unique_ptr<CodecCryptoInfo> &info = cryptoInfos->value[0];
         if (info == nullptr) {
             ALOGE("Cannot decrypt, CryptoInfos are null.");
             return -ENOSYS;
@@ -698,7 +700,7 @@ status_t CCodecBufferChannel::attachEncryptedBuffers(
             mDecryptDestination, mHeapSeqNum, &dst.nonsecureMemory);
     for (int i = 0; i < bufferInfos->value.size(); i++) {
         if (bufferInfos->value[i].mSize > 0) {
-            std::unique_ptr<CodecCryptoInfo> info = std::move(cryptoInfos->value[cryptoInfoIdx++]);
+            std::unique_ptr<CodecCryptoInfo> &info = cryptoInfos->value[cryptoInfoIdx++];
             src.offset = srcOffset;
             src.size = bufferInfos->value[i].mSize;
             result = mCrypto->decrypt(
@@ -911,129 +913,130 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
     size_t bufferSize = 0;
     c2_status_t blockRes = C2_OK;
     bool copied = false;
-    ScopedTrace trace(ATRACE_TAG, android::base::StringPrintf(
-            "CCodecBufferChannel::decrypt(%s)", mName).c_str());
-    if (mSendEncryptedInfoBuffer) {
-        static const C2MemoryUsage kDefaultReadWriteUsage{
-            C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE};
-        constexpr int kAllocGranule0 = 1024 * 64;
-        constexpr int kAllocGranule1 = 1024 * 1024;
-        std::shared_ptr<C2BlockPool> pool = mBlockPools.lock()->inputPool;
-        // round up encrypted sizes to limit fragmentation and encourage buffer reuse
-        if (allocSize <= kAllocGranule1) {
-            bufferSize = align(allocSize, kAllocGranule0);
-        } else {
-            bufferSize = align(allocSize, kAllocGranule1);
-        }
-        blockRes = pool->fetchLinearBlock(
-                bufferSize, kDefaultReadWriteUsage, &block);
+    {
+        ScopedTrace trace(ATRACE_TAG, android::base::StringPrintf(
+                "CCodecBufferChannel::decrypt(%s)", mName).c_str());
+        if (mSendEncryptedInfoBuffer) {
+            static const C2MemoryUsage kDefaultReadWriteUsage{
+                C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE};
+            constexpr int kAllocGranule0 = 1024 * 64;
+            constexpr int kAllocGranule1 = 1024 * 1024;
+            std::shared_ptr<C2BlockPool> pool = mBlockPools.lock()->inputPool;
+            // round up encrypted sizes to limit fragmentation and encourage buffer reuse
+            if (allocSize <= kAllocGranule1) {
+                bufferSize = align(allocSize, kAllocGranule0);
+            } else {
+                bufferSize = align(allocSize, kAllocGranule1);
+            }
+            blockRes = pool->fetchLinearBlock(
+                    bufferSize, kDefaultReadWriteUsage, &block);
 
-        if (blockRes == C2_OK) {
-            C2WriteView view = block->map().get();
-            if (view.error() == C2_OK && view.size() == bufferSize) {
-                copied = true;
-                // TODO: only copy clear sections
-                memcpy(view.data(), buffer->data(), allocSize);
+            if (blockRes == C2_OK) {
+                C2WriteView view = block->map().get();
+                if (view.error() == C2_OK && view.size() == bufferSize) {
+                    copied = true;
+                    // TODO: only copy clear sections
+                    memcpy(view.data(), buffer->data(), allocSize);
+                }
             }
         }
-    }
 
-    if (!copied) {
-        block.reset();
-    }
+        if (!copied) {
+            block.reset();
+        }
 
-    ssize_t result = -1;
-    ssize_t codecDataOffset = 0;
-    if (numSubSamples == 1
-            && subSamples[0].mNumBytesOfClearData == 0
-            && subSamples[0].mNumBytesOfEncryptedData == 0) {
-        // We don't need to go through crypto or descrambler if the input is empty.
-        result = 0;
-    } else if (mCrypto != nullptr) {
-        hardware::drm::V1_0::DestinationBuffer destination;
-        if (secure) {
-            destination.type = DrmBufferType::NATIVE_HANDLE;
-            destination.secureMemory = hidl_handle(encryptedBuffer->handle());
+        ssize_t result = -1;
+        ssize_t codecDataOffset = 0;
+        if (numSubSamples == 1
+                && subSamples[0].mNumBytesOfClearData == 0
+                && subSamples[0].mNumBytesOfEncryptedData == 0) {
+            // We don't need to go through crypto or descrambler if the input is empty.
+            result = 0;
+        } else if (mCrypto != nullptr) {
+            hardware::drm::V1_0::DestinationBuffer destination;
+            if (secure) {
+                destination.type = DrmBufferType::NATIVE_HANDLE;
+                destination.secureMemory = hidl_handle(encryptedBuffer->handle());
+            } else {
+                destination.type = DrmBufferType::SHARED_MEMORY;
+                IMemoryToSharedBuffer(
+                        mDecryptDestination, mHeapSeqNum, &destination.nonsecureMemory);
+            }
+            hardware::drm::V1_0::SharedBuffer source;
+            encryptedBuffer->fillSourceBuffer(&source);
+            result = mCrypto->decrypt(
+                    key, iv, mode, pattern, source, buffer->offset(),
+                    subSamples, numSubSamples, destination, errorDetailMsg);
+            if (result < 0) {
+                ALOGI("[%s] decrypt failed: result=%zd", mName, result);
+                return result;
+            }
+            if (destination.type == DrmBufferType::SHARED_MEMORY) {
+                encryptedBuffer->copyDecryptedContent(mDecryptDestination, result);
+            }
         } else {
-            destination.type = DrmBufferType::SHARED_MEMORY;
-            IMemoryToSharedBuffer(
-                    mDecryptDestination, mHeapSeqNum, &destination.nonsecureMemory);
-        }
-        hardware::drm::V1_0::SharedBuffer source;
-        encryptedBuffer->fillSourceBuffer(&source);
-        result = mCrypto->decrypt(
-                key, iv, mode, pattern, source, buffer->offset(),
-                subSamples, numSubSamples, destination, errorDetailMsg);
-        if (result < 0) {
-            ALOGI("[%s] decrypt failed: result=%zd", mName, result);
-            return result;
-        }
-        if (destination.type == DrmBufferType::SHARED_MEMORY) {
-            encryptedBuffer->copyDecryptedContent(mDecryptDestination, result);
-        }
-    } else {
-        // Here we cast CryptoPlugin::SubSample to hardware::cas::native::V1_0::SubSample
-        // directly, the structure definitions should match as checked in DescramblerImpl.cpp.
-        hidl_vec<SubSample> hidlSubSamples;
-        hidlSubSamples.setToExternal((SubSample *)subSamples, numSubSamples, false /*own*/);
+            // Here we cast CryptoPlugin::SubSample to hardware::cas::native::V1_0::SubSample
+            // directly, the structure definitions should match as checked in DescramblerImpl.cpp.
+            hidl_vec<SubSample> hidlSubSamples;
+            hidlSubSamples.setToExternal((SubSample *)subSamples, numSubSamples, false /*own*/);
 
-        hardware::cas::native::V1_0::SharedBuffer srcBuffer;
-        encryptedBuffer->fillSourceBuffer(&srcBuffer);
+            hardware::cas::native::V1_0::SharedBuffer srcBuffer;
+            encryptedBuffer->fillSourceBuffer(&srcBuffer);
 
-        DestinationBuffer dstBuffer;
-        if (secure) {
-            dstBuffer.type = BufferType::NATIVE_HANDLE;
-            dstBuffer.secureMemory = hidl_handle(encryptedBuffer->handle());
-        } else {
-            dstBuffer.type = BufferType::SHARED_MEMORY;
-            dstBuffer.nonsecureMemory = srcBuffer;
-        }
+            DestinationBuffer dstBuffer;
+            if (secure) {
+                dstBuffer.type = BufferType::NATIVE_HANDLE;
+                dstBuffer.secureMemory = hidl_handle(encryptedBuffer->handle());
+            } else {
+                dstBuffer.type = BufferType::SHARED_MEMORY;
+                dstBuffer.nonsecureMemory = srcBuffer;
+            }
 
-        CasStatus status = CasStatus::OK;
-        hidl_string detailedError;
-        ScramblingControl sctrl = ScramblingControl::UNSCRAMBLED;
+            CasStatus status = CasStatus::OK;
+            hidl_string detailedError;
+            ScramblingControl sctrl = ScramblingControl::UNSCRAMBLED;
 
-        if (key != nullptr) {
-            sctrl = (ScramblingControl)key[0];
-            // Adjust for the PES offset
-            codecDataOffset = key[2] | (key[3] << 8);
-        }
+            if (key != nullptr) {
+                sctrl = (ScramblingControl)key[0];
+                // Adjust for the PES offset
+                codecDataOffset = key[2] | (key[3] << 8);
+            }
 
-        auto returnVoid = mDescrambler->descramble(
-                sctrl,
-                hidlSubSamples,
-                srcBuffer,
-                0,
-                dstBuffer,
-                0,
-                [&status, &result, &detailedError] (
-                        CasStatus _status, uint32_t _bytesWritten,
-                        const hidl_string& _detailedError) {
-                    status = _status;
-                    result = (ssize_t)_bytesWritten;
-                    detailedError = _detailedError;
-                });
+            auto returnVoid = mDescrambler->descramble(
+                    sctrl,
+                    hidlSubSamples,
+                    srcBuffer,
+                    0,
+                    dstBuffer,
+                    0,
+                    [&status, &result, &detailedError] (
+                            CasStatus _status, uint32_t _bytesWritten,
+                            const hidl_string& _detailedError) {
+                        status = _status;
+                        result = (ssize_t)_bytesWritten;
+                        detailedError = _detailedError;
+                    });
 
-        if (!returnVoid.isOk() || status != CasStatus::OK || result < 0) {
-            ALOGI("[%s] descramble failed, trans=%s, status=%d, result=%zd",
-                    mName, returnVoid.description().c_str(), status, result);
-            return UNKNOWN_ERROR;
+            if (!returnVoid.isOk() || status != CasStatus::OK || result < 0) {
+                ALOGI("[%s] descramble failed, trans=%s, status=%d, result=%zd",
+                        mName, returnVoid.description().c_str(), status, result);
+                return UNKNOWN_ERROR;
+            }
+
+            if (result < codecDataOffset) {
+                ALOGD("invalid codec data offset: %zd, result %zd", codecDataOffset, result);
+                return BAD_VALUE;
+            }
+
+            ALOGV("[%s] descramble succeeded, %zd bytes", mName, result);
+
+            if (dstBuffer.type == BufferType::SHARED_MEMORY) {
+                encryptedBuffer->copyDecryptedContentFromMemory(result);
+            }
         }
 
-        if (result < codecDataOffset) {
-            ALOGD("invalid codec data offset: %zd, result %zd", codecDataOffset, result);
-            return BAD_VALUE;
-        }
-
-        ALOGV("[%s] descramble succeeded, %zd bytes", mName, result);
-
-        if (dstBuffer.type == BufferType::SHARED_MEMORY) {
-            encryptedBuffer->copyDecryptedContentFromMemory(result);
-        }
+        buffer->setRange(codecDataOffset, result - codecDataOffset);
     }
-
-    buffer->setRange(codecDataOffset, result - codecDataOffset);
-
     return queueInputBufferInternal(buffer, block, bufferSize);
 }
 
@@ -1238,6 +1241,13 @@ void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
 
 status_t CCodecBufferChannel::renderOutputBuffer(
         const sp<MediaCodecBuffer> &buffer, int64_t timestampNs) {
+    std::string traceStr;
+    if (ATRACE_ENABLED()) {
+        traceStr = android::base::StringPrintf(
+                "CCodecBufferChannel::renderOutputBuffer-%s", mName);
+    }
+    ScopedTrace trace(ATRACE_TAG, traceStr.c_str());
+
     ALOGV("[%s] renderOutputBuffer: %p", mName, buffer.get());
     std::shared_ptr<C2Buffer> c2Buffer;
     bool released = false;
@@ -1456,6 +1466,14 @@ status_t CCodecBufferChannel::renderOutputBuffer(
 
     qbi.setSurfaceDamage(Region::INVALID_REGION); // we don't have dirty regions
     qbi.getFrameTimestamps = true; // we need to know when a frame is rendered
+
+    int64_t pictureProfileHandle;
+    if (android::media::tv::flags::apply_picture_profiles() &&
+                buffer->format()->findInt64(KEY_PICTURE_PROFILE_HANDLE, &pictureProfileHandle)) {
+        PictureProfileHandle handle(static_cast<PictureProfileId>(pictureProfileHandle));
+        qbi.setPictureProfileHandle(handle);
+    }
+
     IGraphicBufferProducer::QueueBufferOutput qbo;
     status_t result = std::atomic_load(&mComponent)->queueToOutputSurface(block, qbi, &qbo);
     if (result != OK) {
@@ -2363,6 +2381,12 @@ void CCodecBufferChannel::onWorkDone(
         const sp<AMessage> &inputFormat,
         const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData) {
+    std::string traceStr;
+    if (ATRACE_ENABLED()) {
+        traceStr = android::base::StringPrintf(
+                "CCodecBufferChannel::onWorkDone-%s", mName).c_str();
+    }
+    ScopedTrace trace(ATRACE_TAG, traceStr.c_str());
     if (handleWork(std::move(work), inputFormat, outputFormat, initData)) {
         feedInputBufferIfAvailable();
     }
@@ -2396,6 +2420,12 @@ bool CCodecBufferChannel::handleWork(
         const sp<AMessage> &inputFormat,
         const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData) {
+    std::string traceStr;
+    if (ATRACE_ENABLED()) {
+        traceStr = android::base::StringPrintf(
+                "CCodecBufferChannel::handleWork-%s", mName).c_str();
+    }
+    ScopedTrace atrace(ATRACE_TAG, traceStr.c_str());
     {
         Mutexed<Output>::Locked output(mOutput);
         if (!output->buffers) {
@@ -2752,6 +2782,12 @@ bool CCodecBufferChannel::handleWork(
 }
 
 void CCodecBufferChannel::sendOutputBuffers() {
+    std::string traceStr;
+    if (ATRACE_ENABLED()) {
+        traceStr = android::base::StringPrintf(
+                "CCodecBufferChannel::sendOutputBuffers-%s", mName);
+    }
+    ScopedTrace trace(ATRACE_TAG, traceStr.c_str());
     OutputBuffers::BufferAction action;
     size_t index;
     sp<MediaCodecBuffer> outBuffer;

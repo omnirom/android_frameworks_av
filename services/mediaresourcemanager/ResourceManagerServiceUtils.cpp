@@ -87,6 +87,29 @@ bool ResourceList::remove(const MediaResourceParcel& res, long* removedEntryValu
     return false;
 }
 
+bool ResourceList::update(const MediaResourceParcel& res, long* removedEntryValue) {
+    for (std::vector<MediaResourceParcel>::iterator it = mResourceList.begin();
+         it != mResourceList.end(); it++) {
+        if (it->type == res.type && it->subType == res.subType && it->id == res.id) {
+            if (res.value == 0) {
+                // This entry will be removed.
+                if (removedEntryValue) {
+                    *removedEntryValue = it->value;
+                }
+                mResourceList.erase(it);
+            } else {
+                // Update the new value.
+                it->value = res.value;
+            }
+            return true;
+        }
+    }
+
+    // Add the new entry.
+    mResourceList.push_back(res);
+    return false;
+}
+
 std::string ResourceList::toString() const {
     std::string str;
     for (const ::aidl::android::media::MediaResourceParcel& res : mResourceList) {

@@ -59,6 +59,24 @@ template<typename Interface>
 }
 
 /**
+ * Returns true if two interfaces pointer-match, or represent identical binder objects.
+ *
+ * C++ with C++ and NDK with NDK interfaces may be compared.
+ *
+ * It currently isn't possible through the NDK public interface to extract
+ * the underlying C++ binder object, so we don't allow NDK and C++ interfaces to
+ * be cross-checked even though they might be backed by the same binder object.
+ */
+static inline bool isSameInterface(const sp<IInterface>& a, const sp<IInterface>& b) {
+    return a == b || (a && b && IInterface::asBinder(a) == IInterface::asBinder(b));
+}
+
+static inline bool isSameInterface(const std::shared_ptr<::ndk::ICInterface>& a,
+        const std::shared_ptr<::ndk::ICInterface>& b) {
+    return a == b || (a && b && a->asBinder() == b->asBinder());
+}
+
+/**
  * Returns either a sp<Interface> or a std::shared_ptr<Interface> from a Binder object.
  *
  * A -cpp interface will return sp<Interface>.

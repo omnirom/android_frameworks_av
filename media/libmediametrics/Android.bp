@@ -16,6 +16,8 @@ cc_library {
     name: "libmediametrics",
 
     srcs: [
+        "ItemSerialize-ByteString.cpp",
+        "ItemSerialize-Parcel.cpp",
         "MediaMetrics.cpp",
         "MediaMetricsItem.cpp",
     ],

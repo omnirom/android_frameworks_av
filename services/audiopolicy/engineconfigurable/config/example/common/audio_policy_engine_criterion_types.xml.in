@@ -88,6 +88,7 @@
             <value literal="ForceNone" numerical="0"/>
             <value literal="ForceEncodedSurroundNever" numerical="13"/>
             <value literal="ForceEncodedSurroundAlways" numerical="14"/>
+            <value literal="ForceEncodedSurroundManual" numerical="15"/>
         </values>
     </criterion_type>
     <criterion_type name="ForceUseForVibrateRingingType" type="exclusive">

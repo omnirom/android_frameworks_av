@@ -20,6 +20,7 @@
 #include <inttypes.h>
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 #include "aom/aom_decoder.h"
 #include "aom/aomdx.h"
 
@@ -30,6 +31,8 @@ struct C2SoftAomDec : public SimpleC2Component {
 
     C2SoftAomDec(const char* name, c2_node_id_t id,
                  const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftAomDec(const char* name, c2_node_id_t id,
+                 const std::shared_ptr<C2ReflectorHelper>& intfImpl);
     virtual ~C2SoftAomDec();
 
     // From SimpleC2Component

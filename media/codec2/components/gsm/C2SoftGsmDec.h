@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_GSM_DEC_H_
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 #include "gsm.h"
 
@@ -34,6 +35,8 @@ struct C2SoftGsmDec : public SimpleC2Component {
 
     C2SoftGsmDec(const char *name, c2_node_id_t id,
               const std::shared_ptr<IntfImpl> &intfImpl);
+    C2SoftGsmDec(const char *name, c2_node_id_t id,
+              const std::shared_ptr<C2ReflectorHelper> &helper);
     virtual ~C2SoftGsmDec();
 
     // From SimpleC2Component

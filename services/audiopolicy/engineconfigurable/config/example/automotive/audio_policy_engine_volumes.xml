@@ -23,7 +23,7 @@
 
 <volumeGroups>
     <volumeGroup>
-        <name>oem_traffic_anouncement</name>
+        <name>oem_traffic_announcement</name>
         <indexMin>0</indexMin>
         <indexMax>40</indexMax>
         <volume deviceCategory="DEVICE_CATEGORY_SPEAKER">

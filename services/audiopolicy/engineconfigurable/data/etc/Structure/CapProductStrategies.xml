@@ -19,6 +19,15 @@
   <!-- This structure is expected to be in the system partition and provisionned a maximum
        allowed strategies to be used by vendor. -->
   <ComponentType Name="ProductStrategies" Description="">
+    <Component Name="STRATEGY_PHONE" Type="ProductStrategy" Mapping="Name:STRATEGY_PHONE"/>
+    <Component Name="STRATEGY_SONIFICATION" Type="ProductStrategy" Mapping="Name:STRATEGY_SONIFICATION"/>
+    <Component Name="STRATEGY_ENFORCED_AUDIBLE" Type="ProductStrategy" Mapping="Name:STRATEGY_ENFORCED_AUDIBLE"/>
+    <Component Name="STRATEGY_ACCESSIBILITY" Type="ProductStrategy" Mapping="Name:STRATEGY_ACCESSIBILITY"/>
+    <Component Name="STRATEGY_SONIFICATION_RESPECTFUL" Type="ProductStrategy" Mapping="Name:STRATEGY_SONIFICATION_RESPECTFUL"/>
+    <Component Name="STRATEGY_MEDIA" Type="ProductStrategy" Mapping="Name:STRATEGY_MEDIA"/>
+    <Component Name="STRATEGY_DTMF" Type="ProductStrategy" Mapping="Name:STRATEGY_DTMF"/>
+    <Component Name="STRATEGY_CALL_ASSISTANT" Type="ProductStrategy" Mapping="Name:STRATEGY_CALL_ASSISTANT"/>
+    <Component Name="STRATEGY_TRANSMITTED_THROUGH_SPEAKER" Type="ProductStrategy" Mapping="Name:STRATEGY_TRANSMITTED_THROUGH_SPEAKER"/>
     <Component Name="vx_1000" Type="ProductStrategy" Mapping="Identifier:1000,Name:vx_1000"/>
     <Component Name="vx_1001" Type="ProductStrategy" Mapping="Identifier:1001,Name:vx_1001"/>
     <Component Name="vx_1002" Type="ProductStrategy" Mapping="Identifier:1002,Name:vx_1002"/>

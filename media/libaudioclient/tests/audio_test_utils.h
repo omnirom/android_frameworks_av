@@ -22,7 +22,6 @@
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <utility>
 
 #include <android-base/thread_annotations.h>
@@ -45,8 +44,10 @@ struct Route {
     std::string sink;
 };
 
+status_t isAutomotivePlatform(bool* isAutomotive);
 status_t listAudioPorts(std::vector<audio_port_v7>& portsVec);
 status_t listAudioPatches(std::vector<struct audio_patch>& patchesVec);
+status_t getAnyPort(audio_port_role_t role, audio_port_type_t type, audio_port_v7& port);
 status_t getPortByAttributes(audio_port_role_t role, audio_port_type_t type,
                              audio_devices_t deviceType, const std::string& address,
                              audio_port_v7& port);
@@ -73,6 +74,39 @@ class OnAudioDeviceUpdateNotifier : public AudioSystem::AudioDeviceCallback {
     std::condition_variable mCondition;
 };
 
+namespace {
+
+class TestAudioTrack : public AudioTrack {
+  public:
+    explicit TestAudioTrack(const AttributionSourceState& attributionSourceState = {})
+        : AudioTrack(attributionSourceState) {}
+    TestAudioTrack(audio_stream_type_t streamType, uint32_t sampleRate, audio_format_t format,
+                   audio_channel_mask_t channelMask, const sp<IMemory>& sharedBuffer,
+                   audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
+                   const wp<IAudioTrackCallback>& callback = nullptr,
+                   int32_t notificationFrames = 0,
+                   audio_session_t sessionId = AUDIO_SESSION_ALLOCATE,
+                   transfer_type transferType = TRANSFER_DEFAULT,
+                   const audio_offload_info_t* offloadInfo = nullptr,
+                   const AttributionSourceState& attributionSource = AttributionSourceState(),
+                   const audio_attributes_t* pAttributes = nullptr, bool doNotReconnect = false,
+                   float maxRequiredSpeed = 1.0f)
+        : AudioTrack(streamType, sampleRate, format, channelMask, sharedBuffer, flags, callback,
+                     notificationFrames, sessionId, transferType, offloadInfo, attributionSource,
+                     pAttributes, doNotReconnect, maxRequiredSpeed) {}
+    // The callback thread is normally used for TRANSFER_SYNC_NOTIF_CALLBACK
+    // in order to deliver "more data" callback. However, for offload we are
+    // interested in the "stream end" event which is also served via the same
+    // callback interface.
+    void wakeCallbackThread() {
+        if (sp<AudioTrackThread> t = mAudioTrackThread; t != nullptr) {
+            t->wake();
+        }
+    }
+};
+
+}  // namespace
+
 // Simple AudioPlayback class.
 class AudioPlayback : public AudioTrack::IAudioTrackCallback {
     friend sp<AudioPlayback>;
@@ -90,11 +124,16 @@ class AudioPlayback : public AudioTrack::IAudioTrackCallback {
     status_t waitForConsumption(bool testSeek = false) EXCLUDES(mMutex);
     status_t fillBuffer();
     status_t onProcess(bool testSeek = false);
-    void onBufferEnd() override EXCLUDES(mMutex);
+    void pause();
+    void resume();
     void stop() EXCLUDES(mMutex);
+    bool waitForStreamEnd();
 
-    bool mStopPlaying GUARDED_BY(mMutex);
-    mutable std::mutex mMutex;
+    // IAudioTrackCallback
+    void onBufferEnd() override EXCLUDES(mMutex);
+    void onStreamEnd() override EXCLUDES(mMutex);
+
+    bool mStopPlaying GUARDED_BY(mMutex) = false;
 
     enum State {
         PLAY_NO_INIT,
@@ -114,13 +153,15 @@ class AudioPlayback : public AudioTrack::IAudioTrackCallback {
     const audio_attributes_t* mAttributes;
     const audio_offload_info_t* mOffloadInfo;
 
-    size_t mBytesUsedSoFar;
-    State mState;
-    size_t mMemCapacity;
+    size_t mBytesUsedSoFar = 0;
+    State mState = PLAY_NO_INIT;
+    size_t mMemCapacity = 0;
     sp<MemoryDealer> mMemoryDealer;
     sp<IMemory> mMemory;
-
-    sp<AudioTrack> mTrack;
+    sp<TestAudioTrack> mTrack;
+    mutable std::mutex mMutex;
+    bool mStreamEndReceived GUARDED_BY(mMutex) = false;
+    std::condition_variable mCondition;
 };
 
 // hold pcm data sent by AudioRecord

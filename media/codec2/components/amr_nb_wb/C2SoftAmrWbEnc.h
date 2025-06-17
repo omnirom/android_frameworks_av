@@ -19,6 +19,7 @@
 
 #include <SimpleC2Component.h>
 
+#include "util/C2InterfaceHelper.h"
 #include "voAMRWB.h"
 
 namespace android {
@@ -28,6 +29,8 @@ public:
     class IntfImpl;
     C2SoftAmrWbEnc(const char* name, c2_node_id_t id,
                    const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftAmrWbEnc(const char* name, c2_node_id_t id,
+                   const std::shared_ptr<C2ReflectorHelper>& helper);
     virtual ~C2SoftAmrWbEnc();
 
     // From SimpleC2Component

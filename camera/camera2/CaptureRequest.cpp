@@ -118,7 +118,7 @@ status_t CaptureRequest::readFromParcel(const android::Parcel* parcel) {
 #else
         sp<Surface> surface;
         if (surfaceShim.graphicBufferProducer != NULL) {
-            surface = new Surface(surfaceShim.graphicBufferProducer);
+            surface = sp<Surface>::make(surfaceShim.graphicBufferProducer);
         }
 #endif
         mSurfaceList.push_back(surface);

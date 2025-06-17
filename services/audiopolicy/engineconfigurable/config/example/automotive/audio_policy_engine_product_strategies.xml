@@ -30,11 +30,11 @@ limitations under the License.
     ( type == 1 ) )
     -->
 
-    <ProductStrategy name="oem_traffic_anouncement">
-        <AttributesGroup volumeGroup="oem_traffic_anouncement">
+    <ProductStrategy name="oem_traffic_announcement">
+        <AttributesGroup volumeGroup="oem_traffic_announcement">
             <ContentType value="AUDIO_CONTENT_TYPE_SPEECH"/>
             <Usage value="AUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE"/>
-            <!--  traffic_annoucement = 1 -->
+            <!--  traffic_announcement = 1 -->
             <Bundle key="oem" value="1"/>
         </AttributesGroup>
     </ProductStrategy>

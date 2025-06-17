@@ -42,7 +42,8 @@ getStatisticsClassesForModule(std::string_view moduleName) {
                 new std::vector<std::string>{
                 "DeviceHalAidl",
                 "EffectHalAidl",
-                "StreamHalAidl",
+                "StreamInHalAidl",
+                "StreamOutHalAidl",
               })
         },
     };

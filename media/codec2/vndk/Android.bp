@@ -174,14 +174,12 @@ cc_defaults {
         "libui",
         "libdl",
         "libvndksupport",
-        "libprocessgroup",
     ],
 }
 
 // public dependency for implementing Codec 2 components
 cc_defaults {
     name: "libcodec2-impl-defaults",
-    cpp_std: "gnu++17",
 
     defaults: [
         "libcodec2_hal_selection",

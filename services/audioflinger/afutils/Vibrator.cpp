@@ -51,12 +51,13 @@ os::HapticScale onExternalVibrationStart(const sp<os::ExternalVibration>& extern
     }
     const sp<os::IExternalVibratorService> evs = getExternalVibratorService();
     if (evs != nullptr) {
-
         os::ExternalVibrationScale ret;
         binder::Status status = evs->onExternalVibrationStart(*externalVibration, &ret);
         if (status.isOk()) {
             ALOGD("%s, start external vibration with intensity as %d", __func__, ret.scaleLevel);
             return os::ExternalVibration::externalVibrationScaleToHapticScale(ret);
+        } else {
+            ALOGE("Start external vibration request failed: %s", status.toString8().c_str());
         }
     }
     ALOGD("%s, start external vibration with intensity as MUTE due to %s",

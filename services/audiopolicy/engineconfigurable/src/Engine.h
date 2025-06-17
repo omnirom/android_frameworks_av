@@ -16,24 +16,26 @@
 
 #pragma once
 
+#include <memory>
+
 #include "Collection.h"
 #include "EngineBase.h"
 #include <AudioPolicyPluginInterface.h>
 #include <CapEngineConfig.h>
 #include <EngineInterface.h>
+#include <ParameterManagerWrapper.h>
 
 namespace android {
 class AudioPolicyManagerObserver;
 
 namespace audio_policy {
 
-class ParameterManagerWrapper;
 class VolumeProfile;
 
 class Engine : public EngineBase, AudioPolicyPluginInterface
 {
 public:
-    Engine();
+    Engine() = default;
     virtual ~Engine() = default;
 
     template <class RequestedInterface>
@@ -71,6 +73,7 @@ public:
                                            bool fromCache = false) const override;
 
     sp<DeviceDescriptor> getInputDeviceForAttributes(const audio_attributes_t &attr,
+                                                     bool ignorePreferredDevice = true,
                                                      uid_t uid = 0,
                                                      audio_session_t session = AUDIO_SESSION_NONE,
                                                      sp<AudioPolicyMix> *mix = nullptr)
@@ -157,7 +160,7 @@ private:
     /**
      * Policy Parameter Manager hidden through a wrapper.
      */
-    ParameterManagerWrapper *mPolicyParameterMgr;
+    std::unique_ptr<ParameterManagerWrapper> mPolicyParameterMgr;
 };
 
 } // namespace audio_policy

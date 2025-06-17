@@ -12,23 +12,26 @@ cc_library {
     name: "libcodec2_soft_apvenc",
     defaults: [
         "libcodec2_soft-defaults",
-        "libcodec2_soft_sanitize_signed-defaults",
         "libcodec2_soft_sanitize_cfi-defaults",
+        "libcodec2_soft_sanitize_signed-defaults",
     ],
 
     static_libs: [
-        "libopenapv",
         "android.media.swcodec.flags-aconfig-cc",
+        "libopenapv",
     ],
 
-    srcs: ["C2SoftApvEnc.cpp"],
+    srcs: [
+        "C2SoftApvEnc.cpp",
+        "isAtLeastRelease.cpp",
+    ],
 
     cflags: [
         "-DOAPV_STATIC_DEFINE",
-        "-Wno-unused-variable",
-        "-Wno-unused-parameter",
-        "-Wno-unused-function",
         "-Wno-reorder-ctor",
+        "-Wno-unused-function",
+        "-Wno-unused-parameter",
+        "-Wno-unused-variable",
     ],
 }
 
@@ -37,22 +40,25 @@ cc_library {
     name: "libcodec2_soft_apvdec",
     defaults: [
         "libcodec2_soft-defaults",
-        "libcodec2_soft_sanitize_signed-defaults",
         "libcodec2_soft_sanitize_cfi-defaults",
+        "libcodec2_soft_sanitize_signed-defaults",
     ],
 
     static_libs: [
-        "libopenapv",
         "android.media.swcodec.flags-aconfig-cc",
+        "libopenapv",
     ],
 
-    srcs: ["C2SoftApvDec.cpp"],
+    srcs: [
+        "C2SoftApvDec.cpp",
+        "isAtLeastRelease.cpp",
+    ],
 
     cflags: [
         "-DOAPV_STATIC_DEFINE",
-        "-Wno-unused-variable",
-        "-Wno-unused-parameter",
-        "-Wno-unused-function",
         "-Wno-reorder-ctor",
+        "-Wno-unused-function",
+        "-Wno-unused-parameter",
+        "-Wno-unused-variable",
     ],
 }

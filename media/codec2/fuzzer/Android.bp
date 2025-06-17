@@ -28,7 +28,7 @@ package {
 cc_defaults {
     name: "C2Fuzzer-defaults",
 
-    defaults: [ "libcodec2-static-defaults" ],
+    defaults: ["libcodec2-static-defaults"],
 
     srcs: [
         "C2Fuzzer.cpp",
@@ -38,7 +38,11 @@ cc_defaults {
         "-Wall",
         "-Werror",
     ],
+}
 
+cc_defaults {
+    name: "C2Fuzzer-defaults-shipped",
+    defaults: ["C2Fuzzer-defaults"],
     fuzz_config: {
         cc: [
             "android-fwk-video@google.com",
@@ -55,9 +59,28 @@ cc_defaults {
     },
 }
 
+cc_defaults {
+    name: "C2Fuzzer-defaults-experimental",
+    defaults: ["C2Fuzzer-defaults"],
+    fuzz_config: {
+        cc: [
+            "android-fwk-video@google.com",
+        ],
+        componentid: 1344,
+        hotlists: [
+            "4593311",
+        ],
+        description: "The fuzzer targets the APIs of libcodec2",
+        vector: "remote",
+        service_privilege: "constrained",
+        users: "multi_user",
+        fuzzed_code_usage: "experimental",
+    },
+}
+
 cc_fuzz {
     name: "C2FuzzerAvcDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.avc.decoder\"",
@@ -71,7 +94,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerHevcDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.hevc.decoder\"",
@@ -85,7 +108,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerMpeg2Dec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.mpeg2.decoder\"",
@@ -99,7 +122,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerMpeg4Dec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.mpeg4.decoder\"",
@@ -113,7 +136,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerH263Dec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.h263.decoder\"",
@@ -127,7 +150,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerVp8Dec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.vp8.decoder\"",
@@ -141,7 +164,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerVp9Dec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.vp9.decoder\"",
@@ -155,7 +178,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerAV1Dec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.av1.decoder\"",
@@ -169,8 +192,22 @@ cc_fuzz {
 }
 
 cc_fuzz {
-    name: "C2FuzzerAacDec",
+    name: "C2FuzzerAPVDec",
     defaults: ["C2Fuzzer-defaults"],
+
+    cflags: [
+        "-DC2COMPONENTNAME=\"c2.android.apv.decoder\"",
+    ],
+
+    static_libs: [
+        "libopenapv",
+        "libcodec2_soft_apvdec",
+    ],
+}
+
+cc_fuzz {
+    name: "C2FuzzerAacDec",
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.aac.decoder\"",
@@ -184,7 +221,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerAmrnbDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.amrnb.decoder\"",
@@ -200,7 +237,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerAmrwbDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.amrwb.decoder\"",
@@ -216,7 +253,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerFlacDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.flac.decoder\"",
@@ -231,7 +268,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerG711AlawDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.g711.alaw.decoder\"",
@@ -245,7 +282,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerG711MlawDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.g711.mlaw.decoder\"",
@@ -259,7 +296,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerGsmDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.gsm.decoder\"",
@@ -273,7 +310,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerMp3Dec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.mp3.decoder\"",
@@ -287,7 +324,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerOpusDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.opus.decoder\"",
@@ -301,7 +338,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerRawDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.raw.decoder\"",
@@ -314,7 +351,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerVorbisDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.vorbis.decoder\"",
@@ -328,7 +365,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerXaacDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-experimental"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.xaac.decoder\"",

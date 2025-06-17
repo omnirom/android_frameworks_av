@@ -21,6 +21,7 @@
 
 #include "EffectLoudnessEnhancer.h"
 
+using aidl::android::hardware::audio::common::getChannelCount;
 using aidl::android::hardware::audio::effect::Descriptor;
 using aidl::android::hardware::audio::effect::getEffectImplUuidLoudnessEnhancer;
 using aidl::android::hardware::audio::effect::getEffectTypeUuidLoudnessEnhancer;
@@ -137,6 +138,12 @@ std::shared_ptr<EffectContext> LoudnessEnhancerImpl::createContext(
     if (mContext) {
         LOG(DEBUG) << __func__ << " context already exist";
         return mContext;
+    }
+    const int channelCount = getChannelCount(common.input.base.channelMask);
+    if (FCC_LIMIT < channelCount) {
+        LOG(ERROR) << __func__
+                   << " channelCount not supported: " << common.input.base.channelMask.toString();
+        return nullptr;
     }
 
     mContext = std::make_shared<LoudnessEnhancerContext>(1 /* statusFmqDepth */, common);

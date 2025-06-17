@@ -17,6 +17,7 @@
 #ifndef _VNDK_IMAGE_READER_H
 #define _VNDK_IMAGE_READER_H
 
+#include <sys/cdefs.h>
 // vndk is a superset of the NDK
 #include <media/NdkImageReader.h>
 

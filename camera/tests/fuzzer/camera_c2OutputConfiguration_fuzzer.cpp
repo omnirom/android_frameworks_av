@@ -17,7 +17,6 @@
 #include <camera2/OutputConfiguration.h>
 #include <camera2/SessionConfiguration.h>
 #include <fuzzer/FuzzedDataProvider.h>
-#include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
 #include <gui/Flags.h>  // remove with WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
 #include <gui/SurfaceComposerClient.h>
@@ -70,8 +69,10 @@ unique_ptr<OutputConfiguration> C2OutputConfigurationFuzzer::getC2OutputConfig()
                         int32_t surfaceSetID = mFDP->ConsumeIntegral<int32_t>();
                         bool isShared = mFDP->ConsumeBool();
                         sp<SurfaceType> surface = createSurface();
+                        ParcelableSurfaceType pSurface =
+                            flagtools::convertSurfaceTypeToParcelable(surface);
                         outputConfiguration = make_unique<OutputConfiguration>(
-                                surface, rotation, physicalCameraId, surfaceSetID, isShared);
+                                pSurface, rotation, physicalCameraId, surfaceSetID, isShared);
                     },
 
                     [&]() {
@@ -81,10 +82,12 @@ unique_ptr<OutputConfiguration> C2OutputConfigurationFuzzer::getC2OutputConfig()
                         bool isShared = mFDP->ConsumeBool();
                         size_t surfaceSize =
                                 mFDP->ConsumeIntegralInRange<size_t>(kSizeMin, kSizeMax);
-                        vector<sp<SurfaceType>> surfaces;
+                        vector<ParcelableSurfaceType> surfaces;
                         for (size_t idx = 0; idx < surfaceSize; ++idx) {
                             sp<SurfaceType> surface = createSurface();
-                            surfaces.push_back(surface);
+                            ParcelableSurfaceType pSurface =
+                                flagtools::convertSurfaceTypeToParcelable(surface);
+                            surfaces.push_back(pSurface);
                         }
                         outputConfiguration = make_unique<OutputConfiguration>(
                                 surfaces, rotation, physicalCameraId, surfaceSetID, isShared);
@@ -115,7 +118,9 @@ void C2OutputConfigurationFuzzer::invokeC2OutputConfigFuzzer() {
                 [&]() { outputConfiguration->getSurfaces(); },
                 [&]() {
                     sp<SurfaceType> surface = createSurface();
-                    outputConfiguration->addSurface(surface);
+                    ParcelableSurfaceType pSurface =
+                        flagtools::convertSurfaceTypeToParcelable(surface);
+                    outputConfiguration->addSurface(pSurface);
                 },
                 [&]() { outputConfiguration->isMultiResolution(); },
                 [&]() { outputConfiguration->getColorSpace(); },
@@ -123,7 +128,9 @@ void C2OutputConfigurationFuzzer::invokeC2OutputConfigFuzzer() {
                 [&]() { outputConfiguration->getTimestampBase(); },
                 [&]() {
                     sp<SurfaceType> surface = createSurface();
-                    outputConfiguration->getMirrorMode(surface);
+                    ParcelableSurfaceType pSurface =
+                        flagtools::convertSurfaceTypeToParcelable(surface);
+                    outputConfiguration->getMirrorMode(pSurface);
                 },
                 [&]() { outputConfiguration->useReadoutTimestamp(); },
         });

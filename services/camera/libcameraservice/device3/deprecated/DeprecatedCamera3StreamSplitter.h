@@ -21,7 +21,6 @@
 
 #include <camera/CameraMetadata.h>
 
-#include <gui/BufferItemConsumer.h>
 #include <gui/IConsumerListener.h>
 #include <gui/Surface.h>
 
@@ -47,7 +46,7 @@ class IGraphicBufferProducer;
 // BufferQueue, where each buffer queued to the input is available to be
 // acquired by each of the outputs, and is able to be dequeued by the input
 // again only once all of the outputs have released it.
-class DeprecatedCamera3StreamSplitter : public BnConsumerListener {
+class DeprecatedCamera3StreamSplitter : public IConsumerListener {
   public:
     // Constructor
     DeprecatedCamera3StreamSplitter(bool useHalBufManager = false);
@@ -248,7 +247,6 @@ class DeprecatedCamera3StreamSplitter : public BnConsumerListener {
 
     sp<IGraphicBufferProducer> mProducer;
     sp<IGraphicBufferConsumer> mConsumer;
-    sp<BufferItemConsumer> mBufferItemConsumer;
     sp<Surface> mSurface;
 
     // Map graphic buffer ids -> buffer items
@@ -291,7 +289,7 @@ class DeprecatedCamera3StreamSplitter : public BnConsumerListener {
     std::atomic<status_t> mOnFrameAvailableRes{0};
 
     // Currently acquired input buffers
-    size_t mAcquiredInputBuffers;
+    size_t mAcquiredInputBuffers = 0;
 
     std::string mConsumerName;
 

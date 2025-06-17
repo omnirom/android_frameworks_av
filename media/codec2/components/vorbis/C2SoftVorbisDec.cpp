@@ -107,6 +107,13 @@ C2SoftVorbisDec::C2SoftVorbisDec(
       mVi(nullptr) {
 }
 
+C2SoftVorbisDec::C2SoftVorbisDec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftVorbisDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftVorbisDec::~C2SoftVorbisDec() {
     onRelease();
 }

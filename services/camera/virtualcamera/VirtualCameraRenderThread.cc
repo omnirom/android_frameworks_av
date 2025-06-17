@@ -16,6 +16,7 @@
 
 // #define LOG_NDEBUG 0
 #define LOG_TAG "VirtualCameraRenderThread"
+
 #include "VirtualCameraRenderThread.h"
 
 #include <android_companion_virtualdevice_flags.h>
@@ -103,6 +104,8 @@ static constexpr UpdateTextureTask kUpdateTextureTask;
 // The number of nanosecond to wait for the first frame to be drawn on the input surface
 static constexpr std::chrono::nanoseconds kMaxWaitFirstFrame = 3s;
 
+static constexpr double kOneSecondInNanos = 1e9;
+
 NotifyMsg createShutterNotifyMsg(int frameNumber,
                                  std::chrono::nanoseconds timestamp) {
   NotifyMsg msg;
@@ -136,15 +139,13 @@ NotifyMsg createRequestErrorNotifyMsg(int frameNumber) {
 
 std::shared_ptr<EglFrameBuffer> allocateTemporaryFramebuffer(
     EGLDisplay eglDisplay, const uint width, const int height) {
-  const AHardwareBuffer_Desc desc{
-      .width = static_cast<uint32_t>(width),
-      .height = static_cast<uint32_t>(height),
-      .layers = 1,
-      .format = AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420,
-      .usage = AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER |
-               AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,
-      .rfu0 = 0,
-      .rfu1 = 0};
+  const AHardwareBuffer_Desc desc{.width = static_cast<uint32_t>(width),
+                                  .height = static_cast<uint32_t>(height),
+                                  .layers = 1,
+                                  .format = kHardwareBufferFormat,
+                                  .usage = kHardwareBufferUsage,
+                                  .rfu0 = 0,
+                                  .rfu1 = 0};
 
   AHardwareBuffer* hwBufferPtr;
   int status = AHardwareBuffer_allocate(&desc, &hwBufferPtr);
@@ -217,10 +218,17 @@ std::chrono::nanoseconds getMaxFrameDuration(
     const RequestSettings& requestSettings) {
   if (requestSettings.fpsRange.has_value()) {
     return std::chrono::nanoseconds(static_cast<uint64_t>(
-        1e9 / std::max(1, requestSettings.fpsRange->minFps)));
+        kOneSecondInNanos / std::max(1, requestSettings.fpsRange->minFps)));
   }
   return std::chrono::nanoseconds(
-      static_cast<uint64_t>(1e9 / VirtualCameraDevice::kMinFps));
+      static_cast<uint64_t>(kOneSecondInNanos / VirtualCameraDevice::kMinFps));
+}
+
+// Translate a frame duration into a fps value with triple decimal precision
+double nanosToFps(std::chrono::nanoseconds frameDuration) {
+  const double oneSecondInNanos = 1e9;
+  const double fpsNanos = oneSecondInNanos / frameDuration.count();
+  return fpsNanos;
 }
 
 }  // namespace
@@ -283,6 +291,7 @@ const RequestSettings& ProcessCaptureRequestTask::getRequestSettings() const {
 
 void VirtualCameraRenderThread::requestTextureUpdate() {
   std::lock_guard<std::mutex> lock(mLock);
+  ALOGV("%s", __func__);
   // If queue is not empty, we don't need to set the mTextureUpdateRequested
   // flag, since the texture will be updated during ProcessCaptureRequestTask
   // processing anyway.
@@ -396,16 +405,20 @@ void VirtualCameraRenderThread::threadLoop() {
 
 void VirtualCameraRenderThread::processTask(
     const ProcessCaptureRequestTask& request) {
-  std::chrono::nanoseconds timestamp =
+  ALOGV("%s request frame number %d", __func__, request.getFrameNumber());
+  std::chrono::nanoseconds deviceTime =
       std::chrono::duration_cast<std::chrono::nanoseconds>(
           std::chrono::steady_clock::now().time_since_epoch());
   const std::chrono::nanoseconds lastAcquisitionTimestamp(
-      mLastAcquisitionTimestampNanoseconds.exchange(timestamp.count(),
+      mLastAcquisitionTimestampNanoseconds.exchange(deviceTime.count(),
                                                     std::memory_order_relaxed));
 
   if (request.getRequestSettings().fpsRange) {
+    ALOGV("%s request fps {%d,%d}", __func__,
+          request.getRequestSettings().fpsRange->minFps,
+          request.getRequestSettings().fpsRange->maxFps);
     int maxFps = std::max(1, request.getRequestSettings().fpsRange->maxFps);
-    timestamp = throttleRendering(maxFps, lastAcquisitionTimestamp, timestamp);
+    deviceTime = throttleRendering(maxFps, lastAcquisitionTimestamp, deviceTime);
   }
 
   // Calculate the maximal amount of time we can afford to wait for next frame.
@@ -416,7 +429,7 @@ void VirtualCameraRenderThread::processTask(
       isFirstFrameDrawn ? getMaxFrameDuration(request.getRequestSettings())
                         : kMaxWaitFirstFrame;
   const std::chrono::nanoseconds elapsedDuration =
-      isFirstFrameDrawn ? timestamp - lastAcquisitionTimestamp : 0ns;
+      isFirstFrameDrawn ? deviceTime - lastAcquisitionTimestamp : 0ns;
 
   if (elapsedDuration < maxFrameDuration) {
     // We can afford to wait for next frame.
@@ -424,7 +437,7 @@ void VirtualCameraRenderThread::processTask(
     // below returns immediatelly.
     bool gotNewFrame = mEglSurfaceTexture->waitForNextFrame(maxFrameDuration -
                                                             elapsedDuration);
-    timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+    deviceTime = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch());
     if (!gotNewFrame) {
       if (!mEglSurfaceTexture->isFirstFrameDrawn()) {
@@ -442,14 +455,15 @@ void VirtualCameraRenderThread::processTask(
           "%s: No new frame received on input surface after waiting for "
           "%" PRIu64 "ns, repeating last frame.",
           __func__,
-          static_cast<uint64_t>((timestamp - lastAcquisitionTimestamp).count()));
+          static_cast<uint64_t>(
+              (deviceTime - lastAcquisitionTimestamp).count()));
     }
-    mLastAcquisitionTimestampNanoseconds.store(timestamp.count(),
+    mLastAcquisitionTimestampNanoseconds.store(deviceTime.count(),
                                                std::memory_order_relaxed);
   }
   // Acquire new (most recent) image from the Surface.
   mEglSurfaceTexture->updateTexture();
-  std::chrono::nanoseconds captureTimestamp = timestamp;
+  std::chrono::nanoseconds captureTimestamp = deviceTime;
 
   if (flags::camera_timestamp_from_surface()) {
     std::chrono::nanoseconds surfaceTimestamp =
@@ -457,8 +471,11 @@ void VirtualCameraRenderThread::processTask(
     if (surfaceTimestamp.count() > 0) {
       captureTimestamp = surfaceTimestamp;
     }
-    ALOGV("%s captureTimestamp:%lld timestamp:%lld", __func__,
-          captureTimestamp.count(), timestamp.count());
+    ALOGV(
+        "%s surfaceTimestamp:%lld deviceTime:%lld captureTimestamp:%lld "
+        "(nanos)",
+        __func__, surfaceTimestamp.count(), deviceTime.count(),
+        captureTimestamp.count());
   }
 
   std::unique_ptr<CaptureResult> captureResult = createCaptureResult(
@@ -488,11 +505,12 @@ std::chrono::nanoseconds VirtualCameraRenderThread::throttleRendering(
     // We're too fast for the configured maxFps, let's wait a bit.
     const std::chrono::nanoseconds sleepTime = minFrameDuration - frameDuration;
     ALOGV("Current frame duration would  be %" PRIu64
-          " ns corresponding to, "
+          " ns corresponding to %.3f Fps, "
           "sleeping for %" PRIu64
           " ns before updating texture to match maxFps %d",
           static_cast<uint64_t>(frameDuration.count()),
-          static_cast<uint64_t>(sleepTime.count()), maxFps);
+          nanosToFps(frameDuration), static_cast<uint64_t>(sleepTime.count()),
+          maxFps);
 
     std::this_thread::sleep_for(sleepTime);
     timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(

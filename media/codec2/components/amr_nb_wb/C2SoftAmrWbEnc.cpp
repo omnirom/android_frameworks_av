@@ -106,6 +106,11 @@ C2SoftAmrWbEnc::C2SoftAmrWbEnc(const char* name, c2_node_id_t id,
       mMemOperator(nullptr) {
 }
 
+C2SoftAmrWbEnc::C2SoftAmrWbEnc(const char* name, c2_node_id_t id,
+                               const std::shared_ptr<C2ReflectorHelper>& helper)
+    : C2SoftAmrWbEnc(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftAmrWbEnc::~C2SoftAmrWbEnc() {
     onRelease();
 }
@@ -311,7 +316,7 @@ void C2SoftAmrWbEnc::process(
         mProcessedSamples * 1000000ll / mIntf->getSampleRate();
     size_t inPos = 0;
     size_t outPos = 0;
-    while (inPos < inSize) {
+    while (inPos < inSize || eos) {
         const uint8_t *inPtr = rView.data() + inOffset;
         int validSamples = mFilledLen / sizeof(int16_t);
         if ((inPos + (kNumBytesPerInputFrame - mFilledLen)) <= inSize) {
@@ -322,7 +327,7 @@ void C2SoftAmrWbEnc::process(
             memcpy(mInputFrame + validSamples, inPtr + inPos, (inSize - inPos));
             mFilledLen += (inSize - inPos);
             inPos += (inSize - inPos);
-            if (eos) {
+            if (eos && (mFilledLen > 0)) {
                 validSamples = mFilledLen / sizeof(int16_t);
                 memset(mInputFrame + validSamples, 0, (kNumBytesPerInputFrame - mFilledLen));
             } else break;
@@ -352,7 +357,6 @@ void C2SoftAmrWbEnc::process(
     if (eos) {
         mSignalledOutputEos = true;
         ALOGV("signalled EOS");
-        if (mFilledLen) ALOGV("Discarding trailing %d bytes", mFilledLen);
     }
 }
 

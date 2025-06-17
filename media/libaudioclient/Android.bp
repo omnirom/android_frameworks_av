@@ -32,12 +32,14 @@ cc_library_headers {
         "audiopolicy-aidl-cpp",
         "av-types-aidl-cpp",
         "spatializer-aidl-cpp",
+        "volumegroupcallback-aidl-cpp",
     ],
     export_static_lib_headers: [
         "audioflinger-aidl-cpp",
         "audiopolicy-aidl-cpp",
         "av-types-aidl-cpp",
         "spatializer-aidl-cpp",
+        "volumegroupcallback-aidl-cpp",
     ],
     target: {
         darwin: {
@@ -151,6 +153,7 @@ cc_library {
         "libutils",
         "packagemanager_aidl-cpp",
         "spatializer-aidl-cpp",
+        "volumegroupcallback-aidl-cpp",
     ],
     export_shared_lib_headers: [
         "audioflinger-aidl-cpp",
@@ -160,6 +163,7 @@ cc_library {
         "libmediametrics",
         "libmediautils",
         "spatializer-aidl-cpp",
+        "volumegroupcallback-aidl-cpp",
     ],
 
     include_dirs: [
@@ -336,6 +340,13 @@ aidl_interface {
         java: {
             sdk_version: "module_current",
         },
+        ndk: {
+            min_sdk_version: "29",
+            apex_available: [
+                "//apex_available:platform",
+                "com.android.media",
+            ],
+        },
     },
 }
 
@@ -465,6 +476,7 @@ aidl_interface {
         "capture_state_listener-aidl",
         "framework-permission-aidl",
         "spatializer-aidl",
+        "volumegroupcallback-aidl",
     ],
 
     double_loadable: true,
@@ -527,6 +539,33 @@ aidl_interface {
 
     double_loadable: true,
     backend: {
+        java: {
+            sdk_version: "module_current",
+        },
+    },
+}
+
+aidl_interface {
+    name: "volumegroupcallback-aidl",
+    unstable: true,
+    host_supported: true,
+    vendor_available: true,
+    local_include_dir: "aidl",
+    srcs: [
+        "aidl/android/media/INativeAudioVolumeGroupCallback.aidl",
+    ],
+    double_loadable: true,
+    defaults: [
+        "latest_android_media_audio_common_types_import_interface",
+    ],
+    backend: {
+        cpp: {
+            min_sdk_version: "29",
+            apex_available: [
+                "//apex_available:platform",
+                "com.android.media",
+            ],
+        },
         java: {
             sdk_version: "module_current",
         },

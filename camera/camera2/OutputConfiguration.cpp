@@ -343,9 +343,18 @@ status_t OutputConfiguration::readFromParcel(const android::Parcel* parcel) {
     mMirrorModeForProducers = std::move(mirrorModeForProducers);
     mUseReadoutTimestamp = useReadoutTimestamp != 0;
     for (auto& surface : surfaceShims) {
+#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+        IF_ALOGV() {
+            uint64_t bufferID;
+            surface.getUniqueId(&bufferID);
+            ALOGV("%s: OutputConfiguration: %" PRIu64 ", name %s", __FUNCTION__,
+                    bufferID, toString8(surface.name).c_str());
+        }
+#else
         ALOGV("%s: OutputConfiguration: %p, name %s", __FUNCTION__,
                 surface.graphicBufferProducer.get(),
                 toString8(surface.name).c_str());
+#endif
         mSurfaces.push_back(flagtools::toParcelableSurfaceType(surface));
     }
 

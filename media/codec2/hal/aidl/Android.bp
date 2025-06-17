@@ -55,9 +55,9 @@ cc_library {
 }
 
 // DO NOT DEPEND ON THIS DIRECTLY
-// use libcodec2-aidl-defaults instead
+// use libcodec2-aidl-noisurface-defaults instead
 cc_library {
-    name: "libcodec2_aidl",
+    name: "libcodec2_aidl_noisurface",
     min_sdk_version: "30",
     vendor_available: true,
     apex_available: [
@@ -78,8 +78,6 @@ cc_library {
         "Configurable.cpp",
         "InputBufferManager.cpp",
         "ParamTypes.cpp",
-        "inputsurface/InputSurface.cpp",
-        "inputsurface/InputSurfaceConnection.cpp",
     ],
 
     header_libs: [
@@ -100,7 +98,6 @@ cc_library {
         "libhidlbase",
         "liblog",
         "libnativewindow",
-        "libmediandk",
         "libstagefright_aidl_bufferpool2",
         "libstagefright_bufferpool@2.0.1",
         "libui",
@@ -137,6 +134,108 @@ cc_library {
         "libcodec2",
         "libstagefright_bufferpool@2.0.1",
         "libui",
+    ],
+}
+
+// DO NOT DEPEND ON THIS DIRECTLY
+// use libcodec2-aidl-defaults instead
+cc_library {
+    name: "libcodec2_aidl",
+    min_sdk_version: "30",
+    vendor_available: true,
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+    ],
+
+    defaults: [
+        "aconfig_lib_cc_static_link.defaults",
+        "libcodec2_hal_selection",
+    ],
+
+    srcs: [
+        "BufferTypes.cpp",
+        "Component.cpp",
+        "ComponentInterface.cpp",
+        "ComponentStore.cpp",
+        "Configurable.cpp",
+        "InputBufferManager.cpp",
+        "ParamTypes.cpp",
+        "inputsurface/FrameDropper.cpp",
+        "inputsurface/InputSurface.cpp",
+        "inputsurface/InputSurfaceConnection.cpp",
+        "inputsurface/InputSurfaceSource.cpp",
+    ],
+
+    header_libs: [
+        "libcodec2_internal", // private
+    ],
+
+    shared_libs: [
+        "android.hardware.common-V2-ndk",
+        "android.hardware.media.bufferpool2-V2-ndk",
+        "android.hardware.media.c2-V1-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "libcodec2",
+        "libcodec2_hal_common",
+        "libcodec2_hidl_plugin_stub",
+        "libcodec2_vndk",
+        "libcutils",
+        "libhidlbase",
+        "liblog",
+        "libnativewindow",
+        "libmediandk",
+        "libstagefright_aidl_bufferpool2",
+        "libstagefright_bufferpool@2.0.1",
+        "libstagefright_foundation",
+        "libui",
+        "libutils",
+    ],
+
+    static_libs: [
+        "libaidlcommonsupport",
+    ],
+
+    target: {
+        vendor: {
+            exclude_shared_libs: [
+                "libcodec2_hidl_plugin_stub",
+            ],
+            shared_libs: [
+                "libcodec2_hidl_plugin",
+            ],
+        },
+        apex: {
+            exclude_shared_libs: [
+                "libcodec2_hidl_plugin_stub",
+                "libcodec2_hidl_plugin",
+            ],
+        },
+    },
+
+    export_include_dirs: [
+        "include",
+    ],
+
+    export_shared_lib_headers: [
+        "android.hardware.media.c2-V1-ndk",
+        "libcodec2",
+        "libstagefright_bufferpool@2.0.1",
+        "libui",
+    ],
+}
+
+// public dependency for Codec 2.0 HAL service implementations
+cc_defaults {
+    name: "libcodec2-aidl-noisurface-defaults",
+    min_sdk_version: "30",
+    defaults: ["libcodec2-impl-defaults"],
+
+    shared_libs: [
+        "android.hardware.media.c2-V1-ndk",
+        "libbinder_ndk",
+        "libcodec2_aidl_noisurface",
     ],
 }
 

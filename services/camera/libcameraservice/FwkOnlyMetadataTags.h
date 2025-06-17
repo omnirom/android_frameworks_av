@@ -36,7 +36,6 @@ constexpr std::array kFwkOnlyMetadataKeys = {
         ANDROID_CONTROL_AWB_REGIONS_SET,
         ANDROID_CONTROL_ZOOM_METHOD,
         ANDROID_SCALER_CROP_REGION_SET,
-        ANDROID_EXTENSION_STRENGTH,
 };
 
 } //namespace android

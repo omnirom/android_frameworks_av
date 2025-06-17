@@ -193,7 +193,11 @@ struct MediaCodecInfo : public RefBase {
     void getSupportedMediaTypes(Vector<AString> *mediaTypes) const;
     const sp<Capabilities> getCapabilitiesFor(const char *mediaType) const;
     const std::shared_ptr<CodecCapabilities> getCodecCapsFor(const char *mediaType) const;
+
+    /// returns the codec name used by this info
     const char *getCodecName() const;
+    /// returns the codec name as used by the HAL
+    const char *getHalName() const;
 
     /**
      * Returns a vector containing alternate names for the codec.
@@ -229,14 +233,24 @@ struct MediaCodecInfo : public RefBase {
     static sp<MediaCodecInfo> FromParcel(const Parcel &parcel);
     status_t writeToParcel(Parcel *parcel) const;
 
+    /**
+     * Create a copy of this MediaCodecInfo supporting a single media type.
+     *
+     * \param mediaType the media type for the new MediaCodecInfo. This must be
+     *                  one of the media types supported by this MediaCodecInfo.
+     * \param newName the new codec name for the new MediaCodecInfo.
+     */
+    sp<MediaCodecInfo> splitOutType(const char *mediaType, const char *newName) const;
+
 private:
     /**
      * Max supported instances setting from MediaCodecList global setting.
      */
     static int32_t sMaxSupportedInstances;
 
-    AString mName;
-    AString mOwner;
+    AString mName;     // codec name for this info
+    AString mHalName;  // codec name at the HAL level
+    AString mOwner;    // owning HAL name
     Attributes mAttributes;
     KeyedVector<AString, sp<Capabilities> > mCaps;
     KeyedVector<AString, std::shared_ptr<CodecCapabilities>> mCodecCaps;
@@ -283,7 +297,13 @@ struct MediaCodecInfoWriter {
     /**
      * Set the name of the codec.
      *
-     * @param name The new name.
+     * This sets both the name used internally and the HAL name, as during
+     * creation, they are the same. A new internal name will only be created
+     * during name collision resolution while splitting out media types.
+     *
+     * @param name The new name (from XML).
+     *
+     * @see MediaCodecInfo::splitOutType
      */
     void setName(const char* name);
     /**

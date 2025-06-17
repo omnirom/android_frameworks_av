@@ -34,6 +34,12 @@ on property:init.svc.audioserver=stopped
     start vendor.audio-hal-4-0-msd
     start audio_proxy_service
 
+on property:init.svc.audioserver=running && property:vts.native_server.on=1
+    # See b/378773354. To ensure the audioserver disable when
+    # running test suite, this would cover the double start
+    # request from init that caused test flaky.
+    stop audioserver
+
 on property:init.svc.audioserver=running
     start vendor.audio-hal
     start vendor.audio-hal-aidl

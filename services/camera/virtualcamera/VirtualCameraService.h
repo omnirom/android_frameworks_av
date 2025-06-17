@@ -71,10 +71,10 @@ class VirtualCameraService
   binder_status_t handleShellCommand(int in, int out, int err, const char** args,
                                      uint32_t numArgs) override;
 
-  // Do not verify presence on required EGL extensions when registering virtual
-  // camera. Only to be used by unit tests.
-  void disableEglVerificationForTest() {
-    mVerifyEglExtensions = false;
+  // Do not check hardware requirements when registering virtual camera.
+  // Only to be used by unit tests.
+  void disableHardwareRequirementsCheck() {
+    mCheckHardwareRequirements = false;
   }
 
   // Default virtual device id (the host device id)
@@ -97,7 +97,7 @@ class VirtualCameraService
       EXCLUDES(mLock);
 
   std::shared_ptr<VirtualCameraProvider> mVirtualCameraProvider;
-  bool mVerifyEglExtensions = true;
+  bool mCheckHardwareRequirements = true;
   const PermissionsProxy& mPermissionProxy;
 
   std::mutex mLock;

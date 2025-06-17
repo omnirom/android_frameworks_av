@@ -180,6 +180,10 @@ struct C2PlatformAllocatorDesc {
     std::shared_ptr<::aidl::android::hardware::media::c2::IGraphicBufferAllocator> igba;
     ::android::base::unique_fd waitableFd; // This will be passed and moved to C2Fence
                                            // implementation.
+    bool blockFenceSupport;
+
+    C2PlatformAllocatorDesc()
+            : allocatorId(C2AllocatorStore::DEFAULT_LINEAR), blockFenceSupport(false) {}
 };
 
 /**

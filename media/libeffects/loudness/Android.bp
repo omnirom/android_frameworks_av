@@ -18,7 +18,7 @@ license {
     ],
 }
 
-cc_library_shared {
+cc_library {
     name: "libldnhncr",
 
     vendor: true,
@@ -36,6 +36,7 @@ cc_library_shared {
     ],
 
     shared_libs: [
+        "libaudioutils",
         "libcutils",
         "liblog",
     ],
@@ -64,6 +65,7 @@ cc_library_shared {
         "-Wthread-safety",
     ],
     shared_libs: [
+        "libaudioutils",
         "libcutils",
         "liblog",
     ],

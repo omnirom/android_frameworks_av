@@ -174,9 +174,9 @@ AidlCamera3Device::AidlCamera3Device(
         std::shared_ptr<CameraServiceProxyWrapper>& cameraServiceProxyWrapper,
         std::shared_ptr<AttributionAndPermissionUtils> attributionAndPermissionUtils,
         const std::string& id, bool overrideForPerfClass, int rotationOverride,
-        bool legacyClient) :
+        bool isVendorClient, bool legacyClient) :
         Camera3Device(cameraServiceProxyWrapper, attributionAndPermissionUtils, id,
-                overrideForPerfClass, rotationOverride, legacyClient) {
+                overrideForPerfClass, rotationOverride, isVendorClient, legacyClient) {
     mCallbacks = ndk::SharedRefBase::make<AidlCameraDeviceCallbacks>(this);
 }
 
@@ -215,6 +215,8 @@ status_t AidlCamera3Device::initialize(sp<CameraProviderManager> manager,
     }
     mSupportNativeZoomRatio = manager->supportNativeZoomRatio(mId);
     mIsCompositeJpegRDisabled = manager->isCompositeJpegRDisabled(mId);
+    mIsCompositeHeicDisabled = manager->isCompositeHeicDisabled(mId);
+    mIsCompositeHeicUltraHDRDisabled = manager->isCompositeHeicUltraHDRDisabled(mId);
 
     std::vector<std::string> physicalCameraIds;
     bool isLogical = manager->isLogicalCamera(mId, &physicalCameraIds);
@@ -350,6 +352,10 @@ status_t AidlCamera3Device::initialize(sp<CameraProviderManager> manager,
     }
 
     return initializeCommonLocked(manager);
+}
+
+int32_t AidlCamera3Device::getCaptureResultFMQSize() {
+    return Camera3Device::calculateFMQSize<AidlResultMetadataQueue>(mResultMetadataQueue);
 }
 
 ::ndk::ScopedAStatus AidlCamera3Device::AidlCameraDeviceCallbacks::processCaptureResult(

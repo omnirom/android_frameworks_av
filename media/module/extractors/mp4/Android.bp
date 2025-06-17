@@ -52,6 +52,7 @@ cc_library {
 
     shared_libs: [
         "server_configurable_flags",
+        "libbase",
     ],
 
     host_supported: true,

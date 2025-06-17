@@ -271,46 +271,6 @@ AudioTrack::AudioTrack(
         doNotReconnect, maxRequiredSpeed, selectedDeviceId);
 }
 
-namespace {
-    class LegacyCallbackWrapper : public AudioTrack::IAudioTrackCallback {
-      const AudioTrack::legacy_callback_t mCallback;
-      void * const mData;
-      public:
-        LegacyCallbackWrapper(AudioTrack::legacy_callback_t callback, void* user)
-            : mCallback(callback), mData(user) {}
-        size_t onMoreData(const AudioTrack::Buffer & buffer) override {
-          AudioTrack::Buffer copy = buffer;
-          mCallback(AudioTrack::EVENT_MORE_DATA, mData, static_cast<void*>(&copy));
-          return copy.size();
-        }
-        void onUnderrun() override {
-            mCallback(AudioTrack::EVENT_UNDERRUN, mData, nullptr);
-        }
-        void onLoopEnd(int32_t loopsRemaining) override {
-            mCallback(AudioTrack::EVENT_LOOP_END, mData, &loopsRemaining);
-        }
-        void onMarker(uint32_t markerPosition) override {
-            mCallback(AudioTrack::EVENT_MARKER, mData, &markerPosition);
-        }
-        void onNewPos(uint32_t newPos) override {
-            mCallback(AudioTrack::EVENT_NEW_POS, mData, &newPos);
-        }
-        void onBufferEnd() override {
-            mCallback(AudioTrack::EVENT_BUFFER_END, mData, nullptr);
-        }
-        void onNewIAudioTrack() override {
-            mCallback(AudioTrack::EVENT_NEW_IAUDIOTRACK, mData, nullptr);
-        }
-        void onStreamEnd() override {
-            mCallback(AudioTrack::EVENT_STREAM_END, mData, nullptr);
-        }
-        size_t onCanWriteMoreData(const AudioTrack::Buffer & buffer) override {
-          AudioTrack::Buffer copy = buffer;
-          mCallback(AudioTrack::EVENT_CAN_WRITE_MORE_DATA, mData, static_cast<void*>(&copy));
-          return copy.size();
-        }
-    };
-}
 AudioTrack::AudioTrack(
         audio_stream_type_t streamType,
         uint32_t sampleRate,
@@ -602,6 +562,8 @@ status_t AudioTrack::set(
         mOffloadInfoCopy.sample_rate = sampleRate;
         mOffloadInfoCopy.channel_mask = channelMask;
         mOffloadInfoCopy.stream_type = streamType;
+        mOffloadInfoCopy.usage = mAttributes.usage;
+        mOffloadInfoCopy.bit_width = audio_bytes_per_sample(format) * 8;
     }
 
     mVolume[AUDIO_INTERLEAVE_LEFT] = 1.0f;
@@ -714,58 +676,6 @@ status_t AudioTrack::set(
     mVolumeHandler = new media::VolumeHandler();
 
     return logIfErrorAndReturnStatus(status, "");
-}
-
-
-status_t AudioTrack::set(
-        audio_stream_type_t streamType,
-        uint32_t sampleRate,
-        audio_format_t format,
-        uint32_t channelMask,
-        size_t frameCount,
-        audio_output_flags_t flags,
-        legacy_callback_t callback,
-        void* user,
-        int32_t notificationFrames,
-        const sp<IMemory>& sharedBuffer,
-        bool threadCanCallJava,
-        audio_session_t sessionId,
-        transfer_type transferType,
-        const audio_offload_info_t *offloadInfo,
-        uid_t uid,
-        pid_t pid,
-        const audio_attributes_t* pAttributes,
-        bool doNotReconnect,
-        float maxRequiredSpeed,
-        audio_port_handle_t selectedDeviceId)
-{
-    AttributionSourceState attributionSource;
-    auto attributionSourceUid = legacy2aidl_uid_t_int32_t(uid);
-    if (!attributionSourceUid.ok()) {
-        return logIfErrorAndReturnStatus(
-                BAD_VALUE,
-                StringPrintf("%s: received invalid attribution source uid, uid: %d, session id: %d",
-                             __func__, uid, sessionId));
-    }
-    attributionSource.uid = attributionSourceUid.value();
-    auto attributionSourcePid = legacy2aidl_pid_t_int32_t(pid);
-    if (!attributionSourcePid.ok()) {
-        return logIfErrorAndReturnStatus(
-                BAD_VALUE,
-                StringPrintf("%s: received invalid attribution source pid, pid: %d, sessionId: %d",
-                             __func__, pid, sessionId));
-    }
-    attributionSource.pid = attributionSourcePid.value();
-    attributionSource.token = sp<BBinder>::make();
-    if (callback) {
-        mLegacyCallbackWrapper = sp<LegacyCallbackWrapper>::make(callback, user);
-    } else if (user) {
-        LOG_ALWAYS_FATAL("Callback data provided without callback pointer!");
-    }
-    return set(streamType, sampleRate, format, static_cast<audio_channel_mask_t>(channelMask),
-               frameCount, flags, mLegacyCallbackWrapper, notificationFrames, sharedBuffer,
-               threadCanCallJava, sessionId, transferType, offloadInfo, attributionSource,
-               pAttributes, doNotReconnect, maxRequiredSpeed, selectedDeviceId);
 }
 
 // -------------------------------------------------------------------------
@@ -2909,7 +2819,8 @@ status_t AudioTrack::restoreTrack_l(const char *from, bool forceRestore)
     // See b/74409267. Connecting to a BT A2DP device supporting multiple codecs
     // causes a lot of churn on the service side, and it can reject starting
     // playback of a previously created track. May also apply to other cases.
-    const int INITIAL_RETRIES = 3;
+    const int INITIAL_RETRIES = 10;
+    const uint32_t RETRY_DELAY_US = 150000;
     int retries = INITIAL_RETRIES;
 retry:
     mFlags = mOrigFlags;
@@ -2986,7 +2897,7 @@ retry:
         ALOGW("%s(%d): failed status %d, retries %d", __func__, mPortId, result, retries);
         if (--retries > 0) {
             // leave time for an eventual race condition to clear before retrying
-            usleep(500000);
+            usleep(RETRY_DELAY_US);
             goto retry;
         }
         // if no retries left, set invalid bit to force restoring at next occasion

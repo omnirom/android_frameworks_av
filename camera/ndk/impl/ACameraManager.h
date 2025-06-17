@@ -260,18 +260,16 @@ class CameraManagerGlobal final : public RefBase {
     // Utils for status
     static bool validStatus(int32_t status);
     static bool isStatusAvailable(int32_t status);
-    bool supportsCamera2ApiLocked(const std::string &cameraId);
 
-    struct StatusAndHAL3Support {
+    struct Status {
       private:
         int32_t status = hardware::ICameraServiceListener::STATUS_NOT_PRESENT;
         mutable std::mutex mLock;
         std::set<std::string> unavailablePhysicalIds;
       public:
-        const bool supportsHAL3 = false;
-        StatusAndHAL3Support(int32_t st, bool HAL3support):
-                status(st), supportsHAL3(HAL3support) { };
-        StatusAndHAL3Support() = default;
+        Status(int32_t st):
+                status(st) { };
+        Status() = default;
 
         bool addUnavailablePhysicalId(const std::string& physicalCameraId);
         bool removeUnavailablePhysicalId(const std::string& physicalCameraId);
@@ -308,7 +306,7 @@ class CameraManagerGlobal final : public RefBase {
         }
     };
 
-    std::map<DeviceStatusMapKey, StatusAndHAL3Support> mDeviceStatusMap;
+    std::map<DeviceStatusMapKey, Status> mDeviceStatusMap;
 
     // For the singleton instance
     static Mutex sLock;

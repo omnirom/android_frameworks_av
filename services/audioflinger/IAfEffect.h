@@ -114,6 +114,7 @@ public:
     virtual status_t updatePolicyState() EXCLUDES_EffectBase_Mutex = 0;
     virtual bool purgeHandles() EXCLUDES_EffectBase_Mutex = 0;
     virtual void checkSuspendOnEffectEnabled(bool enabled, bool threadLocked) = 0;
+    virtual bool suspended() const EXCLUDES_EffectBase_Mutex = 0;
 
     // mCallback is atomic so this can be lock-free.
     virtual void setCallback(const sp<EffectCallbackInterface>& callback) = 0;
@@ -135,7 +136,6 @@ private:
     virtual status_t setEnabled(bool enabled, bool fromHandle) EXCLUDES_EffectBase_Mutex = 0;
     virtual status_t setEnabled_l(bool enabled) REQUIRES(audio_utils::EffectBase_Mutex) = 0;
     virtual void setSuspended(bool suspended) EXCLUDES_EffectBase_Mutex = 0;
-    virtual bool suspended() const EXCLUDES_EffectBase_Mutex = 0;
 
     virtual ssize_t disconnectHandle(IAfEffectHandle* handle,
                                      bool unpinIfLast) EXCLUDES_EffectBase_Mutex = 0;
@@ -181,6 +181,7 @@ public:
     virtual bool isHapticGenerator() const = 0;
     static bool isSpatializer(const effect_uuid_t* type);
     virtual bool isSpatializer() const = 0;
+    virtual bool isEffect(const effect_uuid_t &uuid) const = 0;
 
     virtual status_t setHapticScale_l(int id, os::HapticScale hapticScale)
             REQUIRES(audio_utils::EffectChain_Mutex) EXCLUDES_EffectBase_Mutex = 0;

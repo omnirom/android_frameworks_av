@@ -111,10 +111,11 @@ convertToHALStreamCombination(
         hardware::camera::device::V3_7::StreamConfiguration &streamConfiguration,
         bool overrideForPerfClass, metadata_vendor_id_t vendorTagId, bool *earlyExit) {
     aidl::android::hardware::camera::device::StreamConfiguration aidlStreamConfiguration;
-    auto ret = convertToHALStreamCombination(sessionConfiguration, logicalCameraId, deviceInfo,
-            false /*isCompositeJpegRDisabled*/, getMetadata, physicalCameraIds,
-            aidlStreamConfiguration, overrideForPerfClass, vendorTagId,
-            /*checkSessionParams*/false, /*additionalKeys*/{}, earlyExit);
+    auto ret = convertToHALStreamCombination(
+            sessionConfiguration, logicalCameraId, deviceInfo, false /*isCompositeJpegRDisabled*/,
+            false /*isCompositeHeicDisabled*/, false /*isCompositeHeicUltraHDRDisabled*/,
+            getMetadata, physicalCameraIds, aidlStreamConfiguration, overrideForPerfClass,
+            vendorTagId, /*checkSessionParams*/ false, /*additionalKeys*/ {}, earlyExit);
     if (!ret.isOk()) {
         return ret;
     }

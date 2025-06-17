@@ -372,6 +372,13 @@ C2SoftVpxDec::C2SoftVpxDec(
       mQueue(new Mutexed<ConversionQueue>) {
 }
 
+C2SoftVpxDec::C2SoftVpxDec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftVpxDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftVpxDec::~C2SoftVpxDec() {
     onRelease();
 }

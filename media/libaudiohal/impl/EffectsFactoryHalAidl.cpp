@@ -49,7 +49,6 @@ using ::aidl::android::media::audio::common::AudioDeviceAddress;
 using ::aidl::android::media::audio::common::AudioSource;
 using ::aidl::android::media::audio::common::AudioStreamType;
 using ::aidl::android::media::audio::common::AudioUuid;
-using ::android::audio::utils::toString;
 using ::android::base::unexpected;
 using ::android::detail::AudioHalVersionInfo;
 
@@ -200,7 +199,8 @@ status_t EffectsFactoryHalAidl::createEffect(const effect_uuid_t* uuid, int32_t 
                 statusTFromBinderStatus(mFactory->createEffect(aidlUuid, &aidlEffect)));
     }
     if (aidlEffect == nullptr) {
-        ALOGE("%s failed to create effect with UUID: %s", __func__, toString(aidlUuid).c_str());
+        ALOGE("%s failed to create effect with UUID: %s", __func__,
+              ::android::audio::utils::toString(aidlUuid).c_str());
         return NAME_NOT_FOUND;
     }
     Descriptor desc;
@@ -239,7 +239,8 @@ status_t EffectsFactoryHalAidl::getHalDescriptorWithImplUuid(const AudioUuid& uu
     auto matchIt = std::find_if(list.begin(), list.end(),
                                 [&](const auto& desc) { return desc.common.id.uuid == uuid; });
     if (matchIt == list.end()) {
-        ALOGE("%s UUID not found in HAL and proxy list %s", __func__, toString(uuid).c_str());
+        ALOGE("%s UUID not found in HAL and proxy list %s", __func__,
+              ::android::audio::utils::toString(uuid).c_str());
         return NAME_NOT_FOUND;
     }
 
@@ -260,7 +261,8 @@ status_t EffectsFactoryHalAidl::getHalDescriptorWithTypeUuid(
     std::copy_if(mProxyDescList.begin(), mProxyDescList.end(), std::back_inserter(result),
                  [&](auto& desc) { return desc.common.id.type == type; });
     if (result.empty()) {
-        ALOGW("%s UUID type not found in HAL and proxy list %s", __func__, toString(type).c_str());
+        ALOGW("%s UUID type not found in HAL and proxy list %s", __func__,
+              ::android::audio::utils::toString(type).c_str());
         return BAD_VALUE;
     }
 

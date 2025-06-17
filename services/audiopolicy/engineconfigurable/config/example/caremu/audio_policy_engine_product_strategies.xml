@@ -17,7 +17,7 @@ limitations under the License.
 <ProductStrategies>
     <!-- OEM Usages -->
     <!-- product_strategy will be defined according this order
-    product_strategy is oem_traffic_anouncement if all the conditions are satisfied for
+    product_strategy is oem_traffic_announcement if all the conditions are satisfied for
     AudioAttributes aa
 
     int type = 0;
@@ -30,8 +30,8 @@ limitations under the License.
     ( type == 1 ) )
     -->
 
-    <ProductStrategy name="oem_traffic_anouncement">
-        <AttributesGroup volumeGroup="oem_traffic_anouncement">
+    <ProductStrategy name="oem_traffic_announcement">
+        <AttributesGroup volumeGroup="oem_traffic_announcement">
             <ContentType value="AUDIO_CONTENT_TYPE_SPEECH"/>
             <Usage value="AUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE"/>
             <!--  traffic_annoucement = 1 -->

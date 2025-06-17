@@ -62,6 +62,9 @@ class EffectHalAidl : public EffectHalInterface {
         return mEffect;
     }
 
+    // Set devices in AIDL type
+    status_t setDevices(const AudioDeviceTypeAddrVector& deviceTypes);
+
     // for TIME_CHECK
     const std::string getClassName() const { return "EffectHalAidl"; }
 

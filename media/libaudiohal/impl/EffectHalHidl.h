@@ -63,6 +63,9 @@ class EffectHalHidl : public EffectHalInterface, public EffectConversionHelperHi
 
     uint64_t effectId() const { return mEffectId; }
 
+    // Not implemented in HIDL effect HAL
+    status_t setDevices(const AudioDeviceTypeAddrVector&) { return INVALID_OPERATION; };
+
   private:
     friend class EffectsFactoryHalHidl;
     typedef MessageQueue<Result, hardware::kSynchronizedReadWrite> StatusMQ;

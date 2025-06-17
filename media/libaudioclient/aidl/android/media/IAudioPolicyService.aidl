@@ -72,7 +72,8 @@ interface IAudioPolicyService {
 
     void setDeviceConnectionState(in AudioPolicyDeviceState state,
                                   in android.media.audio.common.AudioPort port,
-                                  in AudioFormatDescription encodedFormat);
+                                  in AudioFormatDescription encodedFormat,
+                                  boolean deviceSwitch);
 
     AudioPolicyDeviceState getDeviceConnectionState(in AudioDevice device);
 
@@ -498,4 +499,9 @@ interface IAudioPolicyService {
     // When adding a new method, please review and update
     // AudioPolicyService.cpp AudioPolicyService::onTransact()
     // AudioPolicyService.cpp IAUDIOPOLICYSERVICE_BINDER_METHOD_MACRO_LIST
+
+    /**
+     * Enable hardening independent of flag or exemption state
+     */
+     void setEnableHardening(boolean shouldEnable);
 }

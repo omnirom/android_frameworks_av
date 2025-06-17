@@ -45,7 +45,13 @@ bool CameraServiceWatchdog::threadLoop()
 
             mTidMap[currentThreadId].cycles++;
 
-            if (mTidMap[currentThreadId].cycles >= mMaxCycles) {
+            // If we are at 3/4 of reaching timeout, trigger a stack trace dump
+            // for all relevant processes by CameraServiceProxy.
+            if (mTidMap[currentThreadId].cycles == mMaxCycles * 3 / 4) {
+                ALOGW("CameraServiceWatchdog pre-watchdog for pid: %d tid: %d, clientPid %d",
+                        getpid(), currentThreadId, mClientPid);
+                mCameraServiceProxyWrapper->notifyWatchdog(mClientPid, mIsNativePid);
+            } else if (mTidMap[currentThreadId].cycles >= mMaxCycles) {
                 std::string abortMessage = getAbortMessage(mTidMap[currentThreadId].functionName);
                 android_set_abort_message(abortMessage.c_str());
                 ALOGW("CameraServiceWatchdog triggering abort for pid: %d tid: %d", getpid(),

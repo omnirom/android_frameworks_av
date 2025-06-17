@@ -50,7 +50,7 @@ int getTargetSdkForPackageName(std::string_view packageName) {
         if (pm != nullptr) {
             const auto status = pm->getTargetSdkVersionForPackage(
                     String16{packageName.data(), packageName.size()}, &targetSdk);
-            return status.isOk() ? targetSdk : -1;
+            return status.isOk() ? targetSdk : __ANDROID_API_FUTURE__;
         }
     }
     return targetSdk;
@@ -205,15 +205,16 @@ OpRecordAudioMonitor::RecordAudioOpCallback::RecordAudioOpCallback(
         const wp<OpRecordAudioMonitor>& monitor) : mMonitor(monitor)
 { }
 
-void OpRecordAudioMonitor::RecordAudioOpCallback::opChanged(int32_t op,
-            const String16& packageName __unused) {
+binder::Status OpRecordAudioMonitor::RecordAudioOpCallback::opChanged(int32_t op, int32_t,
+            const String16&, const String16&) {
     sp<OpRecordAudioMonitor> monitor = mMonitor.promote();
     if (monitor != NULL) {
         if (op != monitor->getOp()) {
-            return;
+            return binder::Status::ok();
         }
         monitor->checkOp(true);
     }
+    return binder::Status::ok();
 }
 
 }  // namespace android::media::audiopolicy

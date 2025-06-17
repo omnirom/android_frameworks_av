@@ -294,6 +294,13 @@ C2SoftAacDec::C2SoftAacDec(
       mDeviceApiLevel(android_get_device_api_level()) {
 }
 
+C2SoftAacDec::C2SoftAacDec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftAacDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftAacDec::~C2SoftAacDec() {
     onRelease();
 }

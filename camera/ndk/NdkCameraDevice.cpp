@@ -59,6 +59,9 @@ camera_status_t ACameraDevice_createCaptureRequest(
                 __FUNCTION__, device, request);
         return ACAMERA_ERROR_INVALID_PARAMETER;
     }
+    if (device->isSharedMode() && !device->isPrimaryClient()) {
+        return ACAMERA_ERROR_UNSUPPORTED_OPERATION;
+    }
     switch (templateId) {
         case TEMPLATE_PREVIEW:
         case TEMPLATE_STILL_CAPTURE:
@@ -85,6 +88,9 @@ camera_status_t ACameraDevice_createCaptureRequest_withPhysicalIds(
         ALOGE("%s: invalid argument! device %p request %p, physicalCameraIdList %p",
                 __FUNCTION__, device, request, physicalCameraIdList);
         return ACAMERA_ERROR_INVALID_PARAMETER;
+    }
+    if (device->isSharedMode() && !device->isPrimaryClient()) {
+        return ACAMERA_ERROR_UNSUPPORTED_OPERATION;
     }
     switch (templateId) {
         case TEMPLATE_PREVIEW:

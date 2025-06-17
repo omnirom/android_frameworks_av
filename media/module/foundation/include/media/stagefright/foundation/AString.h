@@ -67,6 +67,9 @@ struct AString {
     void insert(const AString &from, size_t insertionPos);
     void insert(const char *from, size_t size, size_t insertionPos);
 
+    // Returns the index of the first occurrence of substring in the string, or -1 if not found.
+    // If start is specified, the search is limited to the substring starting at that position.
+    // The start parameter MUST NOT be greater than the string size.
     ssize_t find(const char *substring, size_t start = 0) const;
 
     size_t hash() const;

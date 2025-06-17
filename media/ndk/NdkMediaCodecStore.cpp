@@ -66,8 +66,10 @@ static void initMediaTypes() {
 
             auto it = typesInfoMap.find(mediaType);
             if (it == typesInfoMap.end()) {
-                AMediaCodecSupportedMediaType supportedType = { mediaType.c_str(), 0 };
-                it = typesInfoMap.emplace(mediaType, supportedType).first;
+                char *mediaTypePtr = new char[mediaType.size()+1];
+                strncpy(mediaTypePtr, mediaType.c_str(), mediaType.size()+1);
+                it = typesInfoMap.emplace(mediaType,
+                        (AMediaCodecSupportedMediaType) { mediaTypePtr, 0 }).first;
                 mediaTypes.push_back(mediaType);
             }
             uint32_t &mode = it->second.mMode;
@@ -152,12 +154,6 @@ static void initCodecInfoMap() {
     }
 }
 
-static bool codecHandlesFormat(const AMediaCodecInfo codecInfo,
-        sp<AMessage> format, bool isEncoder) {
-    return codecInfo.mCodecCaps->isEncoder() == isEncoder
-            && codecInfo.mCodecCaps->isFormatSupported(format);
-}
-
 static media_status_t findNextCodecForFormat(
         const AMediaFormat *format, bool isEncoder, const AMediaCodecInfo **outCodecInfo) {
     if (outCodecInfo == nullptr) {
@@ -168,10 +164,10 @@ static media_status_t findNextCodecForFormat(
         initCodecInfoMap();
     }
 
-    std::unique_ptr<std::vector<AMediaCodecInfo>> infos;
+    std::vector<AMediaCodecInfo> *infos;
     sp<AMessage> nativeFormat;
     if (format == nullptr) {
-        infos = std::unique_ptr<std::vector<AMediaCodecInfo>>(&sCodecInfos);
+        infos = &sCodecInfos;
     } else {
         AMediaFormat_getFormat(format, &nativeFormat);
         AString mime;
@@ -180,24 +176,24 @@ static media_status_t findNextCodecForFormat(
         }
 
         std::string mediaType = std::string(mime.c_str());
-        auto it = sTypeToInfoList.find(mediaType);
+        std::map<std::string, std::vector<AMediaCodecInfo>>::iterator it
+                = sTypeToInfoList.find(mediaType);
         if (it == sTypeToInfoList.end()) {
             return AMEDIA_ERROR_UNSUPPORTED;
         }
-        infos = std::unique_ptr<std::vector<AMediaCodecInfo>>(&(it->second));
+        infos = &(it->second);
     }
 
     bool found = *outCodecInfo == nullptr;
     for (const AMediaCodecInfo &info : *infos) {
-        if (found && (format == nullptr
-                || codecHandlesFormat(info, nativeFormat, isEncoder))) {
+        if (found && info.mCodecCaps->isEncoder() == isEncoder
+                && (format == nullptr || info.mCodecCaps->isFormatSupported(nativeFormat))) {
             *outCodecInfo = &info;
             return AMEDIA_OK;
         }
         if (*outCodecInfo == &info) {
             found = true;
         }
-
     }
     *outCodecInfo = nullptr;
     return AMEDIA_ERROR_UNSUPPORTED;
@@ -208,7 +204,7 @@ extern "C" {
 EXPORT
 media_status_t AMediaCodecStore_getSupportedMediaTypes(
         const AMediaCodecSupportedMediaType **outMediaTypes, size_t *outCount) {
-    if (outMediaTypes == nullptr) {
+    if (outMediaTypes == nullptr || outCount == nullptr) {
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
 
@@ -239,6 +235,10 @@ media_status_t AMediaCodecStore_getCodecInfo(
         const char *name, const AMediaCodecInfo **outCodecInfo) {
     if (outCodecInfo == nullptr || name == nullptr) {
         return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+
+    if (sNameToInfoMap.empty()) {
+        initCodecInfoMap();
     }
 
     auto it = sNameToInfoMap.find(std::string(name));

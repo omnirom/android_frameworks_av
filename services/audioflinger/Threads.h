@@ -741,9 +741,6 @@ protected:
                 // Updated by updateSuspendedSessions_l() only.
                 KeyedVector< audio_session_t, KeyedVector< int, sp<SuspendedSessionDesc> > >
                                         mSuspendedSessions;
-                // TODO: add comment and adjust size as needed
-                static const size_t     kLogSize = 4 * 1024;
-                sp<NBLog::Writer>       mNBLogWriter;
                 bool                    mSystemReady;
 
     // NO_THREAD_SAFETY_ANALYSIS - mTimestamp and mTimestampVerifier should be
@@ -1187,6 +1184,8 @@ public:
 
     IAfTrack* getTrackById_l(audio_port_handle_t trackId) final REQUIRES(mutex());
 
+    std::vector<sp<IAfTrack>> getTracks_l() final REQUIRES(mutex());
+
     bool hasMixer() const final {
                     return mType == MIXER || mType == DUPLICATING || mType == SPATIALIZER;
                 }
@@ -1241,6 +1240,8 @@ public:
     }
 
     std::string getLocalLogHeader() const override;
+
+    void checkUpdateTrackMetadataForUid(uid_t uid) final EXCLUDES_ThreadBase_Mutex;
 
 protected:
     // updated by readOutputParameters_l()
@@ -1550,9 +1551,6 @@ protected:
     sp<NBAIO_Sink>          mNormalSink;
 
     uint32_t                mScreenState;   // cached copy of gScreenState
-    // TODO: add comment and adjust size as needed
-    static const size_t     kFastMixerLogSize = 8 * 1024;
-    sp<NBLog::Writer>       mFastMixerNBLogWriter;
 
     // Downstream patch latency, available if mDownstreamLatencyStatMs.getN() > 0.
     audio_utils::Statistics<double> mDownstreamLatencyStatMs{0.999};
@@ -2003,6 +2001,7 @@ public:
     }
 
             RecordThread(const sp<IAfThreadCallback>& afThreadCallback,
+                    ThreadBase::type_t type,
                     AudioStreamIn *input,
                     audio_io_handle_t id,
                     bool systemReady
@@ -2236,6 +2235,13 @@ private:
             audio_session_t                     mSharedAudioSessionId = AUDIO_SESSION_NONE;
 };
 
+class DirectRecordThread final : public RecordThread {
+  public:
+    DirectRecordThread(const sp<IAfThreadCallback>& afThreadCallback, AudioStreamIn* input,
+                       audio_io_handle_t id, bool systemReady);
+    ~DirectRecordThread() override;
+};
+
 class MmapThread : public ThreadBase, public virtual IAfMmapThread
 {
  public:
@@ -2446,6 +2452,8 @@ public:
             REQUIRES(audio_utils::AudioFlinger_Mutex);
     void stopMelComputation_l() final
             REQUIRES(audio_utils::AudioFlinger_Mutex);
+
+    void checkUpdateTrackMetadataForUid(uid_t uid) final EXCLUDES_ThreadBase_Mutex;
 
 protected:
     void dumpInternals_l(int fd, const Vector<String16>& args) final REQUIRES(mutex());

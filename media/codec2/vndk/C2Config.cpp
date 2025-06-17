@@ -150,6 +150,11 @@ DEFINE_C2_ENUM_VALUE_CUSTOM_HELPER(C2Config::profile_t, ({
         { "mpegh-high", C2Config::PROFILE_MPEGH_HIGH },
         { "mpegh-lc", C2Config::PROFILE_MPEGH_LC },
         { "mpegh-baseline", C2Config::PROFILE_MPEGH_BASELINE },
+        { "ac4-00-00", C2Config::PROFILE_AC4_0_0 },
+        { "ac4-01-00", C2Config::PROFILE_AC4_1_0 },
+        { "ac4-01-01", C2Config::PROFILE_AC4_1_1 },
+        { "ac4-02-01", C2Config::PROFILE_AC4_2_1 },
+        { "ac4-02-02", C2Config::PROFILE_AC4_2_2 },
 }))
 
 DEFINE_C2_ENUM_VALUE_CUSTOM_HELPER(C2Config::level_t, ({
@@ -261,6 +266,11 @@ DEFINE_C2_ENUM_VALUE_CUSTOM_HELPER(C2Config::level_t, ({
         { "mpegh-3", C2Config::LEVEL_MPEGH_3 },
         { "mpegh-4", C2Config::LEVEL_MPEGH_4 },
         { "mpegh-5", C2Config::LEVEL_MPEGH_5 },
+        { "ac4-00", C2Config::LEVEL_AC4_0 },
+        { "ac4-01", C2Config::LEVEL_AC4_1 },
+        { "ac4-02", C2Config::LEVEL_AC4_2 },
+        { "ac4-03", C2Config::LEVEL_AC4_3 },
+        { "ac4-04", C2Config::LEVEL_AC4_4 },
 }))
 
 DEFINE_C2_ENUM_VALUE_CUSTOM_HELPER(C2BufferData::type_t, ({

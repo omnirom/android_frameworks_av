@@ -235,6 +235,7 @@ public:
 
     bool isHapticGenerator() const final;
     bool isSpatializer() const final;
+    bool isEffect(const effect_uuid_t &uuid) const;
 
     status_t setHapticScale_l(int id, os::HapticScale hapticScale) final
             REQUIRES(audio_utils::EffectChain_Mutex) EXCLUDES_EffectBase_Mutex;

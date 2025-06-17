@@ -42,7 +42,7 @@ class stop_source {
     stop_token get_token() { return stop_token{*this}; }
     bool stop_requested() const { return cancellation_signal_.load(); }
     bool request_stop() {
-        auto f = false;
+        bool f = false;
         return cancellation_signal_.compare_exchange_strong(f, true);
     }
 
@@ -83,6 +83,8 @@ class jthread {
     }
 
     bool request_stop() { return stop_source_.request_stop(); }
+
+    bool stop_requested() const { return stop_source_.stop_requested(); }
 
   private:
     // order matters

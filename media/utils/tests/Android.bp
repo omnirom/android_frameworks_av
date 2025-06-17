@@ -284,6 +284,8 @@ cc_test {
     name: "jthread_tests",
     defaults: ["libmediautils_tests_defaults"],
     srcs: [
+        "executor_tests.cpp",
         "jthread_tests.cpp",
+        "runnable_tests.cpp",
     ],
 }

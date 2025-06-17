@@ -61,6 +61,10 @@ using ::aidl::android::media::audio::common::PcmType;
 
 class VendorParameterMock {
   public:
+    void clearParameters() {
+        mAsyncParameters.clear();
+        mSyncParameters.clear();
+    }
     const std::vector<std::string>& getRetrievedParameterIds() const { return mGetParameterIds; }
     const std::vector<VendorParameter>& getAsyncParameters() const { return mAsyncParameters; }
     const std::vector<VendorParameter>& getSyncParameters() const { return mSyncParameters; }
@@ -827,15 +831,18 @@ class DeviceHalAidlTest : public testing::Test {
   public:
     void SetUp() override {
         mModule = ndk::SharedRefBase::make<ModuleMock>(getTestConfiguration());
-        mDevice = sp<DeviceHalAidl>::make("test", mModule, nullptr /*vext*/);
+        mVendorExt = ndk::SharedRefBase::make<TestHalAdapterVendorExtension>();
+        mDevice = sp<DeviceHalAidl>::make("test", mModule, mVendorExt);
     }
     void TearDown() override {
         mDevice.clear();
+        mVendorExt.reset();
         mModule.reset();
     }
 
   protected:
     std::shared_ptr<ModuleMock> mModule;
+    std::shared_ptr<TestHalAdapterVendorExtension> mVendorExt;
     sp<DeviceHalAidl> mDevice;
 };
 
@@ -988,9 +995,12 @@ class StreamHalAidlVendorParametersTest : public testing::Test {
         mVendorExt = ndk::SharedRefBase::make<TestHalAdapterVendorExtension>();
         struct audio_config config = AUDIO_CONFIG_INITIALIZER;
         ::aidl::android::hardware::audio::core::StreamDescriptor descriptor;
-        StreamContextAidl context(descriptor, false /*isAsynchronous*/, 0);
+        StreamContextAidl context(descriptor, false /*isAsynchronous*/, 0,
+                                  false /*hasClipTransitionSupport*/);
         mStream = sp<StreamHalAidl>::make("test", false /*isInput*/, config, 0 /*nominalLatency*/,
                                           std::move(context), mStreamCommon, mVendorExt);
+        // The stream may check for some properties after creating.
+        mStreamCommon->clearParameters();
     }
     void TearDown() override {
         mStream.clear();

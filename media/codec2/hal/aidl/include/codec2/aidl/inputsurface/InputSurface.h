@@ -17,15 +17,21 @@
 #pragma once
 
 #include <aidl/android/hardware/media/c2/BnInputSurface.h>
+#include <utils/RefBase.h>
 
+#include <C2.h>
+#include <C2Config.h>
 #include <codec2/aidl/Configurable.h>
 #include <util/C2InterfaceHelper.h>
 
-#include <C2.h>
-
 #include <memory>
 
+namespace aidl::android::hardware::media::c2::implementation {
+class InputSurfaceSource;
+}
+
 namespace aidl::android::hardware::media::c2::utils {
+struct InputSurfaceConnection;
 
 struct InputSurface : public BnInputSurface {
     InputSurface();
@@ -40,6 +46,61 @@ struct InputSurface : public BnInputSurface {
             const std::shared_ptr<IInputSink>& sink,
             std::shared_ptr<IInputSurfaceConnection>* connection) override;
 
+    // Constant definitions.
+    // Default image size for AImageReader
+    constexpr static uint32_t kDefaultImageWidth = 1280;
+    constexpr static uint32_t kDefaultImageHeight = 720;
+    // Default # of buffers for AImageReader
+    constexpr static uint32_t kDefaultImageBufferCount = 16;
+    constexpr static uint32_t kDefaultImageDataspace = HAL_DATASPACE_BT709;
+
+    // Configs
+    // Config for AImageReader creation
+    struct ImageConfig {
+        int32_t mWidth;         // image width
+        int32_t mHeight;        // image height
+        int32_t mFormat;        // image pixel format
+        int32_t mNumBuffers;    // number of max images for AImageReader(consumer)
+        uint64_t mUsage;        // image usage
+        uint32_t mDataspace;    // image dataspace
+    };
+
+    // Config for InputSurface active buffer stream control
+    struct StreamConfig {
+        // IN PARAMS
+        float mMinFps = 0.0;        // minimum fps (repeat frame to achieve this)
+        float mMaxFps = 0.0;        // max fps (via frame drop)
+        float mCaptureFps = 0.0;    // capture fps
+        float mCodedFps = 0.0;      // coded fps
+        bool mSuspended = false;    // suspended
+        int64_t mSuspendAtUs = 0;   // suspend time
+        int64_t mResumeAtUs = 0;   // resume time
+        bool mStopped = false;      // stopped
+        int64_t mStopAtUs = 0;      // stop time
+        int64_t mStartAtUs = 0;     // start time
+        int64_t mTimeOffsetUs = 0;  // time offset (input => codec)
+
+        // IN PARAMS (CODEC WRAPPER)
+        C2TimestampGapAdjustmentStruct::mode_t
+                mAdjustedFpsMode = C2TimestampGapAdjustmentStruct::NONE;
+        int64_t mAdjustedGapUs = 0;
+        int mPriority = INT_MAX;        // priority of queue thread (if any);
+                                        // INT_MAX for no-op
+    };
+
+    // TODO: optimize this
+    // The client requests the change of these configurations now.
+    // We can request the change of these configurations from HAL directly
+    // where onWorkDone() callback is called.
+    //
+    // Config for current work status w.r.t input buffers
+    struct WorkStatusConfig {
+        int32_t mLastDoneIndex = -1;      // Last work done input buffer index
+        uint32_t mLastDoneCount = 0;      // # of work done count
+        uint64_t mEmptyCount = 0;         // # of input buffers being emptied
+    };
+
+
 protected:
     class Interface;
     class ConfigurableIntf;
@@ -50,12 +111,29 @@ protected:
 
     virtual ~InputSurface() override;
 
+private:
+    ::android::sp<implementation::InputSurfaceSource> mSource;
+    std::shared_ptr<InputSurfaceConnection> mConnection;
 
-    ::ndk::ScopedAIBinder_DeathRecipient mDeathRecipient;
-    static void OnBinderDied(void *cookie);
-    static void OnBinderUnlinked(void *cookie);
-    struct DeathContext;
-    DeathContext *mDeathContext;
+    ImageConfig mImageConfig;
+    StreamConfig mStreamConfig;
+    WorkStatusConfig mWorkStatusConfig;
+
+    std::mutex mLock;
+
+    friend class ConfigurableIntf;
+
+    bool updateConfig(
+            ImageConfig &imageConfig,
+            StreamConfig &streamConfig,
+            WorkStatusConfig &workStatusConfig,
+            int64_t *inputDelayUs);
+
+    void updateImageConfig(ImageConfig &config);
+    bool updateStreamConfig(StreamConfig &config, int64_t *inputDelayUs);
+    void updateWorkStatusConfig(WorkStatusConfig &config);
+
+    void release();
 };
 
 }  // namespace aidl::android::hardware::media::c2::utils

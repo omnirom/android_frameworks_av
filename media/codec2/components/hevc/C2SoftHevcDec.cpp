@@ -341,6 +341,13 @@ C2SoftHevcDec::C2SoftHevcDec(
         mOutIndex(0u) {
 }
 
+C2SoftHevcDec::C2SoftHevcDec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftHevcDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftHevcDec::~C2SoftHevcDec() {
     onRelease();
 }

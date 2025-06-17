@@ -453,28 +453,6 @@ public:
                         }
             void       onFirstRef() override;
         public:
-            typedef void (*legacy_callback_t)(int event, void* user, void* info);
-            // FIXME(b/169889714): Vendor code depends on the old method signature at link time
-            status_t    set(audio_stream_type_t streamType,
-                            uint32_t sampleRate,
-                            audio_format_t format,
-                            uint32_t channelMask,
-                            size_t frameCount   = 0,
-                            audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
-                            legacy_callback_t cbf = nullptr,
-                            void* user          = nullptr,
-                            int32_t notificationFrames = 0,
-                            const sp<IMemory>& sharedBuffer = 0,
-                            bool threadCanCallJava = false,
-                            audio_session_t sessionId  = AUDIO_SESSION_ALLOCATE,
-                            transfer_type transferType = TRANSFER_DEFAULT,
-                            const audio_offload_info_t *offloadInfo = nullptr,
-                            uid_t uid = AUDIO_UID_INVALID,
-                            pid_t pid = -1,
-                            const audio_attributes_t* pAttributes = nullptr,
-                            bool doNotReconnect = false,
-                            float maxRequiredSpeed = 1.0f,
-                            audio_port_handle_t selectedDeviceId = AUDIO_PORT_HANDLE_NONE);
 
     /* Result of constructing the AudioTrack. This must be checked for successful initialization
      * before using any AudioTrack API (except for set()), because using
@@ -1348,7 +1326,6 @@ public:
 
     // for client callback handler
     wp<IAudioTrackCallback> mCallback;                   // callback handler for events, or NULL
-    sp<IAudioTrackCallback> mLegacyCallbackWrapper;      // wrapper for legacy callback interface
     // for notification APIs
     std::unique_ptr<SetParams> mSetParams;          // Temporary copy of ctor params to allow for
                                                     // deferred set after first reference.

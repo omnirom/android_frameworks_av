@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+#define LOG_TAG "RampLinear"
+//#define LOG_NDEBUG 0
+#include <utils/Log.h>
+
 #include <algorithm>
 #include <unistd.h>
 #include "FlowGraphNode.h"
@@ -31,6 +35,10 @@ void RampLinear::setLengthInFrames(int32_t frames) {
 }
 
 void RampLinear::setTarget(float target) {
+    if (std::isnan(target)) {
+        ALOGE("%s rejected to set target as nan", __func__);
+        return;
+    }
     mTarget.store(target);
     // If the ramp has not been used then start immediately at this level.
     if (mLastCallCount == kInitialCallCount) {

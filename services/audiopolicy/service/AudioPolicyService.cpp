@@ -59,6 +59,10 @@ static const int kDumpLockTimeoutNs = 1 * NANOS_PER_SECOND;
 
 static const nsecs_t kAudioCommandTimeoutNs = seconds(3); // 3 seconds
 
+// longer timeout for create audio patch to account for specific scenarii
+// with Bluetooth devices
+static const nsecs_t kPatchAudioCommandTimeoutNs = seconds(4); // 4 seconds
+
 static const String16 sManageAudioPolicyPermission("android.permission.MANAGE_AUDIO_POLICY");
 
 namespace {
@@ -2435,7 +2439,9 @@ status_t AudioPolicyService::AudioCommandThread::sendCommand(sp<AudioCommand>& c
     }
     audio_utils::unique_lock ul(command->mMutex);
     while (command->mWaitStatus) {
-        nsecs_t timeOutNs = kAudioCommandTimeoutNs + milliseconds(delayMs);
+        nsecs_t timeOutNs = (command->mCommand == CREATE_AUDIO_PATCH ?
+                kPatchAudioCommandTimeoutNs : kAudioCommandTimeoutNs) + milliseconds(delayMs);
+
         if (command->mCond.wait_for(
                 ul, std::chrono::nanoseconds(timeOutNs), getTid()) == std::cv_status::timeout) {
             command->mStatus = TIMED_OUT;

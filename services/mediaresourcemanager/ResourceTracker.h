@@ -67,8 +67,12 @@ public:
                      const std::shared_ptr<::aidl::android::media::IResourceManagerClient>& client,
                      const std::vector<::aidl::android::media::MediaResourceParcel>& resources);
 
-    // Update the resource info, if there is any changes.
-    bool updateResource(const aidl::android::media::ClientInfoParcel& clientInfo);
+    // Update the importance of the client.
+    bool updateClientImportance(const aidl::android::media::ClientInfoParcel& clientInfo);
+
+    // Update the resource info for given list of resources.
+    bool updateResource(const aidl::android::media::ClientInfoParcel& clientInfo,
+                        const std::vector<::aidl::android::media::MediaResourceParcel>& resources);
 
     // Remove a set of resources from the given client.
     // returns true on success, false otherwise.
@@ -210,6 +214,9 @@ public:
     const std::map<int, ResourceInfos>& getResourceMap() const {
         return mMap;
     }
+
+    // For each MediaResourceType, get amount of resource being used at the moment.
+    void getMediaResourceUsageReport(std::vector<MediaResourceParcel>* resources) const;
 
 private:
     // Get ResourceInfos associated with the given process.

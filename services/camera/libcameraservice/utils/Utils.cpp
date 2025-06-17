@@ -23,8 +23,13 @@
 #include <utils/Log.h>
 #include <vendorsupport/api_level.h>
 
+#include <camera/CameraUtils.h>
+
 namespace android {
 
+/**
+ * Returns defaultVersion if the property is not found.
+ */
 int getVNDKVersionFromProp(int defaultVersion) {
     int vendorApiLevel = AVendorSupport_getVendorApiLevel();
     if (vendorApiLevel == 0) {
@@ -36,6 +41,20 @@ int getVNDKVersionFromProp(int defaultVersion) {
     // AVendorSupport_getSdkApiLevelOf maps them back to SDK API levels while leaving older
     // values unchanged.
     return AVendorSupport_getSdkApiLevelOf(vendorApiLevel);
+}
+
+int getVNDKVersion() {
+    static int kVndkVersion = getVNDKVersionFromProp(__ANDROID_API_FUTURE__);
+    return kVndkVersion;
+}
+
+int32_t getDeviceId(const CameraMetadata& cameraInfo) {
+    if (!cameraInfo.exists(ANDROID_INFO_DEVICE_ID)) {
+        return kDefaultDeviceId;
+    }
+
+    const auto &deviceIdEntry = cameraInfo.find(ANDROID_INFO_DEVICE_ID);
+    return deviceIdEntry.data.i32[0];
 }
 
 RunThreadWithRealtimePriority::RunThreadWithRealtimePriority(int tid)

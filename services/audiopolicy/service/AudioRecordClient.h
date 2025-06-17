@@ -54,10 +54,11 @@ private:
 
     AppOpsManager mAppOpsManager;
 
-    class RecordAudioOpCallback : public BnAppOpsCallback {
+    class RecordAudioOpCallback : public com::android::internal::app::BnAppOpsCallback {
     public:
         explicit RecordAudioOpCallback(const wp<OpRecordAudioMonitor>& monitor);
-        void opChanged(int32_t op, const String16& packageName) override;
+        binder::Status opChanged(int32_t op, int32_t uid, const String16& packageName,
+                                 const String16& persistentDeviceId) override;
 
     private:
         const wp<OpRecordAudioMonitor> mMonitor;

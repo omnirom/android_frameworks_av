@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_AMR_DEC_H_
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 #include "gsmamr_dec.h"
 #include "pvamrwbdecoder.h"
 
@@ -29,6 +30,8 @@ struct C2SoftAmrDec : public SimpleC2Component {
 
     C2SoftAmrDec(const char *name, c2_node_id_t id,
               const std::shared_ptr<IntfImpl> &intfImpl);
+    C2SoftAmrDec(const char *name, c2_node_id_t id,
+              const std::shared_ptr<C2ReflectorHelper> &helper);
     virtual ~C2SoftAmrDec();
 
     // From SimpleC2Component

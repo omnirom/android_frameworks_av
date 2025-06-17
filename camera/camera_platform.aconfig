@@ -225,7 +225,7 @@ flag {
     name: "zoom_method"
     is_exported: true
     description: "Gives apps explicit control on reflects zoom via ZOOM_RATIO capture result"
-    bug: "298899993"
+    bug: "350076823"
 }
 
 flag {
@@ -256,16 +256,6 @@ flag {
 
 flag {
     namespace: "camera_platform"
-    name: "query_process_state"
-    description: "In opChanged, query the process state from AM instead of relying on mUidPolicy"
-    bug: "378016494"
-    metadata {
-        purpose: PURPOSE_BUGFIX
-    }
-}
-
-flag {
-    namespace: "camera_platform"
     name: "fmq_metadata"
     description: "Allow CameraMetadata transfer for ndk / sdk clients."
     bug: "362791857"
@@ -279,4 +269,14 @@ flag {
     name: "desktop_effects"
     description: "Applies system controlled effects targetting video conferencing"
     bug: "376797335"
+}
+
+flag {
+    namespace: "camera_platform"
+    name: "metadata_resize_fix"
+    description: "metadata resize during update needs to consider existing entry"
+    bug: "379388099"
+    metadata {
+        purpose: PURPOSE_BUGFIX
+    }
 }

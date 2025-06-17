@@ -101,7 +101,8 @@ public:
 
         // AudioPolicyInterface
         virtual status_t setDeviceConnectionState(audio_policy_dev_state_t state,
-                const android::media::audio::common::AudioPort& port, audio_format_t encodedFormat);
+                const android::media::audio::common::AudioPort& port, audio_format_t encodedFormat,
+                bool deviceSwitch);
         virtual audio_policy_dev_state_t getDeviceConnectionState(audio_devices_t device,
                                                                   const char *device_address);
         virtual status_t handleDeviceConfigChange(audio_devices_t device,
@@ -1240,14 +1241,14 @@ private:
         // Called by setDeviceConnectionState().
         status_t setDeviceConnectionStateInt(audio_policy_dev_state_t state,
                                              const android::media::audio::common::AudioPort& port,
-                                             audio_format_t encodedFormat);
+                                             audio_format_t encodedFormat, bool deviceSwitch);
         status_t setDeviceConnectionStateInt(audio_devices_t deviceType,
                                              audio_policy_dev_state_t state,
                                              const char *device_address,
                                              const char *device_name,
-                                             audio_format_t encodedFormat);
+                                             audio_format_t encodedFormat, bool deviceSwitch = false);
         status_t setDeviceConnectionStateInt(const sp<DeviceDescriptor> &device,
-                                             audio_policy_dev_state_t state);
+                                             audio_policy_dev_state_t state, bool deviceSwitch);
 
         void setEngineDeviceConnectionState(const sp<DeviceDescriptor> device,
                                       audio_policy_dev_state_t state);

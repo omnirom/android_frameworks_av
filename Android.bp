@@ -60,6 +60,7 @@ aidl_interface {
     double_loadable: true,
     local_include_dir: "aidl",
     srcs: [
+        "aidl/android/media/IAudioManagerNative.aidl",
         "aidl/android/media/InterpolatorConfig.aidl",
         "aidl/android/media/InterpolatorType.aidl",
         "aidl/android/media/MicrophoneInfoFw.aidl",
@@ -78,7 +79,7 @@ aidl_interface {
             min_sdk_version: "29",
             apex_available: [
                 "//apex_available:platform",
-                "com.android.btservices",
+                "com.android.bt",
                 "com.android.media",
                 "com.android.media.swcodec",
             ],
@@ -122,7 +123,7 @@ cc_library_headers {
     min_sdk_version: "29",
     apex_available: [
         "//apex_available:platform",
-        "com.android.btservices",
+        "com.android.bt",
         "com.android.media",
         "com.android.media.swcodec",
     ],

@@ -74,16 +74,28 @@ aaudio_result_t AAudioClientTracker::registerClient(pid_t pid,
     }
 
     const std::lock_guard<std::mutex> lock(mLock);
+    sp<NotificationClient> notificationClient;
+    status_t status;
+    sp<IBinder> binder = IInterface::asBinder(client);
     if (mNotificationClients.count(pid) == 0) {
-        const sp<IBinder> binder = IInterface::asBinder(client);
-        const sp<NotificationClient> notificationClient = new NotificationClient(pid, binder);
+        notificationClient = new NotificationClient(pid, binder);
         mNotificationClients[pid] = notificationClient;
 
-        const status_t status = binder->linkToDeath(notificationClient);
+        status = binder->linkToDeath(notificationClient);
         ALOGW_IF(status != NO_ERROR, "registerClient() linkToDeath = %d\n", status);
         return AAudioConvert_androidToAAudioResult(status);
     } else {
         ALOGW("registerClient(%d) already registered!", pid);
+        notificationClient = mNotificationClients[pid];
+        if (notificationClient-> isBinderNull()) {
+            ALOGW("registerClient() need to linkToDeath as notificationClient binder is null");
+            status = binder->linkToDeath(notificationClient);
+            if (status != NO_ERROR) {
+                ALOGE("registerClient() linkToDeath status = %d\n", status);
+            } else {
+                notificationClient->setBinder(binder);
+            }
+        }
         return AAUDIO_OK; // TODO should this be considered an error
     }
 }

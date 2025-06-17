@@ -33,17 +33,19 @@ cc_defaults {
         "service_fuzzer_defaults",
     ],
     static_libs: [
+        "android.media.codec-aconfig-cc",
         "liblog",
         "libresourcemanagerservice",
     ],
     shared_libs: [
+        "aconfig_mediacodec_flags_c_lib",
+        "libaconfig_storage_read_api_cc",
+        "libactivitymanager_aidl",
         "libmedia",
         "libmediautils",
         "libstats_media_metrics",
         "libstatspull",
         "libstatssocket",
-        "libactivitymanager_aidl",
-        "aconfig_mediacodec_flags_c_lib",
     ],
     fuzz_config: {
         cc: [

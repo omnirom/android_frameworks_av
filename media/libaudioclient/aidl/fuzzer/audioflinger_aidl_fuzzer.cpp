@@ -73,6 +73,8 @@ extern "C" int LLVMFuzzerInitialize(int* /*argc*/, char*** /*argv*/) {
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+    // TODO(b/183141167): need to rewrite 'dump' to avoid SIGPIPE.
+    signal(SIGPIPE, SIG_IGN);
     FuzzedDataProvider fdp(data, size);
 
     for (const char* service : {"activity", "sensor_privacy", "permission", "scheduling_policy",

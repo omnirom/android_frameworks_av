@@ -309,6 +309,7 @@ volume_group_t ProductStrategyMap::getDefaultVolumeGroup() const
 
 void ProductStrategyMap::initialize()
 {
+    mDefaultStrategy = PRODUCT_STRATEGY_NONE;
     mDefaultStrategy = getDefault();
     ALOG_ASSERT(mDefaultStrategy != PRODUCT_STRATEGY_NONE, "No default product strategy found");
 }

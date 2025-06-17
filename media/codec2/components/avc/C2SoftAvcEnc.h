@@ -23,6 +23,7 @@
 #include <utils/Vector.h>
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 #include "ih264_typedefs.h"
 #include "ih264e.h"
@@ -123,6 +124,8 @@ struct C2SoftAvcEnc : public SimpleC2Component {
     class IntfImpl;
 
     C2SoftAvcEnc(const char *name, c2_node_id_t id, const std::shared_ptr<IntfImpl> &intfImpl);
+    C2SoftAvcEnc(const char *name, c2_node_id_t id,
+                 const std::shared_ptr<C2ReflectorHelper> &helper);
 
     // From SimpleC2Component
     c2_status_t onInit() override;

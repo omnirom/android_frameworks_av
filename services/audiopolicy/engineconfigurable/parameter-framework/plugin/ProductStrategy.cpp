@@ -29,9 +29,6 @@ ProductStrategy::ProductStrategy(const std::string &mappingValue,
                                 (MappingKeyAmendEnd - MappingKeyAmend1 + 1),
                                 context) {
 
-    size_t id = context.getItemAsInteger(MappingKeyIdentifier);
-    std::string nameFromStructure(context.getItem(MappingKeyName));
-
     ALOG_ASSERT(instanceConfigurableElement != nullptr, "Invalid Configurable Element");
     mPolicySubsystem = static_cast<const PolicySubsystem *>(
             instanceConfigurableElement->getBelongingSubsystem());
@@ -40,14 +37,22 @@ ProductStrategy::ProductStrategy(const std::string &mappingValue,
     mPolicyPluginInterface = mPolicySubsystem->getPolicyPluginInterface();
     ALOG_ASSERT(mPolicyPluginInterface != nullptr, "Invalid Policy Plugin Interface");
 
-    mId = static_cast<android::product_strategy_t>(id);
-    std::string name = mPolicyPluginInterface->getProductStrategyName(mId);
-    if (name.empty()) {
+    const std::string nameFromStructure(context.getItem(MappingKeyName));
+    std::string name;
+    if (context.iSet(MappingKeyIdentifier)) {
+        size_t id = context.getItemAsInteger(MappingKeyIdentifier);
+        mId = static_cast<android::product_strategy_t>(id);
+        name = mPolicyPluginInterface->getProductStrategyName(mId);
+        if (name.empty()) {
+            name = nameFromStructure;
+            mId = mPolicyPluginInterface->getProductStrategyByName(name);
+        }
+    } else {
         name = nameFromStructure;
-        mId = mPolicyPluginInterface->getProductStrategyByName(name);
+        mId = mPolicyPluginInterface->getProductStrategyByName(nameFromStructure);
     }
 
-    ALOG_ASSERT(mId != PRODUCT_STRATEGY_INVALID, "Product Strategy %s not found", name.c_str());
+    ALOG_ASSERT(mId != PRODUCT_STRATEGY_NONE, "Product Strategy %s not found", name.c_str());
 
     ALOGE("Product Strategy %s added", name.c_str());
 }

@@ -185,11 +185,7 @@ std::vector<uint32_t> kSamplingRates = {8000, 16000, 44100, 48000, 88200, 96000}
 
 template <typename T>
 T getValueFromVector(FuzzedDataProvider *fdp, std::vector<T> arr) {
-    if (fdp->ConsumeBool()) {
-        return arr[fdp->ConsumeIntegralInRange<int32_t>(0, arr.size() - 1)];
-    } else {
-        return (T)fdp->ConsumeIntegral<uint32_t>();
-    }
+    return arr[fdp->ConsumeIntegralInRange<int32_t>(0, arr.size() - 1)];
 }
 
 class AudioPolicyManagerFuzzer {

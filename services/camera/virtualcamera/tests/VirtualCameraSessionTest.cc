@@ -220,6 +220,16 @@ TEST_F(VirtualCameraSessionTest, SecondConfigureDropsUnreferencedStreams) {
 }
 
 TEST_F(VirtualCameraSessionTest, CloseTriggersClientTerminateCallback) {
+  // First, configure a stream.
+  PixelFormat format = PixelFormat::YCBCR_420_888;
+  StreamConfiguration streamConfiguration;
+  streamConfiguration.streams = {
+      createStream(kStreamId, kVgaWidth, kVgaHeight, format)};
+  std::vector<HalStream> halStreams;
+  ASSERT_TRUE(
+      mVirtualCameraSession->configureStreams(streamConfiguration, &halStreams)
+          .isOk());
+
   EXPECT_CALL(*mMockVirtualCameraClientCallback, onStreamClosed(kStreamId))
       .WillOnce(Return(ndk::ScopedAStatus::ok()));
 

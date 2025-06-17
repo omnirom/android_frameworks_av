@@ -18,6 +18,7 @@
 #define ANDROID_C2_SOFT_VPX_DEC_H_
 
 #include <SimpleC2Component.h>
+#include <util/C2InterfaceHelper.h>
 
 
 #include "vpx/vpx_decoder.h"
@@ -30,6 +31,8 @@ struct C2SoftVpxDec : public SimpleC2Component {
 
     C2SoftVpxDec(const char* name, c2_node_id_t id,
               const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftVpxDec(const char* name, c2_node_id_t id,
+              const std::shared_ptr<C2ReflectorHelper>& helper);
     virtual ~C2SoftVpxDec();
 
     // From SimpleC2Component

@@ -254,7 +254,7 @@ void PolicyAudioPort::pickAudioProfile(uint32_t &samplingRate,
         }
     }
     ALOGV("%s Port[nm:%s] profile rate=%d, format=%d, channels=%d", __FUNCTION__,
-            asAudioPort()->getName().c_str(), samplingRate, channelMask, format);
+            asAudioPort()->getName().c_str(), samplingRate, format, channelMask);
 }
 
 status_t PolicyAudioPort::checkAudioProfile(

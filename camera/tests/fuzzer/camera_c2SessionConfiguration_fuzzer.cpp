@@ -17,7 +17,12 @@
 #include <camera2/OutputConfiguration.h>
 #include <camera2/SessionConfiguration.h>
 #include <fuzzer/FuzzedDataProvider.h>
+#include <gui/Flags.h> // remove with WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+#include <gui/Surface.h>
+#else
 #include <gui/IGraphicBufferProducer.h>
+#endif
 #include <gui/Surface.h>
 #include <gui/SurfaceComposerClient.h>
 #include "camera2common.h"
@@ -53,7 +58,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         outputConfiguration = new OutputConfiguration();
         sessionConfiguration->addOutputConfiguration(*outputConfiguration);
     } else {
-        sp<IGraphicBufferProducer> iGBP = nullptr;
+        ParcelableSurfaceType pSurface;
         sp<SurfaceComposerClient> composerClient = new SurfaceComposerClient;
         sp<SurfaceControl> surfaceControl = composerClient->createSurface(
                 static_cast<String8>(fdp.ConsumeRandomLengthString().c_str()),
@@ -61,7 +66,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
                 fdp.ConsumeIntegral<int32_t>(), fdp.ConsumeIntegral<int32_t>());
         if (surfaceControl) {
             sp<Surface> surface = surfaceControl->getSurface();
-            iGBP = surface->getIGraphicBufferProducer();
+            pSurface = flagtools::surfaceToParcelableSurfaceType(surface);
             surface.clear();
         }
         int32_t rotation = fdp.ConsumeIntegral<int32_t>();
@@ -69,7 +74,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         int32_t surfaceSetID = fdp.ConsumeIntegral<int32_t>();
         bool isShared = fdp.ConsumeBool();
         outputConfiguration =
-                new OutputConfiguration(iGBP, rotation, physicalCameraId, surfaceSetID, isShared);
+            new OutputConfiguration(pSurface, rotation, physicalCameraId, surfaceSetID, isShared);
         sessionConfiguration->addOutputConfiguration(*outputConfiguration);
     }
 

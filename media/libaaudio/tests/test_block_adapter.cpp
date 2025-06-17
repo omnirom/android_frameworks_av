@@ -77,7 +77,7 @@ public:
     }
 
     // Simulate audio input from a variable sized callback.
-    int32_t testInputWrite(int32_t variableCount) {
+    AdapterProcessResult testInputWrite(int32_t variableCount) {
         fillSequence(mTestBuffer, variableCount);
         int32_t sizeBytes = variableCount * sizeof(int32_t);
         return mFixedBlockWriter.processVariableBlock((uint8_t *) mTestBuffer, sizeBytes);
@@ -105,13 +105,14 @@ public:
     }
 
     // Simulate audio output from a variable sized callback.
-    int32_t testOutputRead(int32_t variableCount) {
+    AdapterProcessResult testOutputRead(int32_t variableCount) {
         int32_t sizeBytes = variableCount * sizeof(int32_t);
-        int32_t result = mFixedBlockReader.processVariableBlock((uint8_t *) mTestBuffer, sizeBytes);
+        auto [result, dataProcessedBytes] =
+                mFixedBlockReader.processVariableBlock((uint8_t *) mTestBuffer, sizeBytes);
         if (result >= 0) {
             result = checkSequence((int32_t *)mTestBuffer, variableCount);
         }
-        return result;
+        return {result, dataProcessedBytes};
     }
 
 private:
@@ -122,6 +123,7 @@ private:
 TEST(test_block_adapter, block_adapter_write) {
     TestBlockWriter tester;
     int result = 0;
+    int bytesProcessed = 0;
     const int numLoops = 1000;
 
     for (int i = 0; i<numLoops && result == 0; i++) {
@@ -129,7 +131,8 @@ TEST(test_block_adapter, block_adapter_write) {
         int32_t size = (r % TEST_BUFFER_SIZE);
         ASSERT_LE(size, TEST_BUFFER_SIZE);
         ASSERT_GE(size, 0);
-        result = tester.testInputWrite(size);
+        std::tie(result, bytesProcessed) = tester.testInputWrite(size);
+        ASSERT_GE(bytesProcessed, 0);
     }
     ASSERT_EQ(0, result);
 }
@@ -137,6 +140,7 @@ TEST(test_block_adapter, block_adapter_write) {
 TEST(test_block_adapter, block_adapter_read) {
     TestBlockReader tester;
     int result = 0;
+    int bytesProcessed = 0;
     const int numLoops = 1000;
 
     for (int i = 0; i < numLoops && result == 0; i++) {
@@ -144,7 +148,8 @@ TEST(test_block_adapter, block_adapter_read) {
         int32_t size = (r % TEST_BUFFER_SIZE);
         ASSERT_LE(size, TEST_BUFFER_SIZE);
         ASSERT_GE(size, 0);
-        result = tester.testOutputRead(size);
+        std::tie(result, bytesProcessed) = tester.testOutputRead(size);
+        ASSERT_GE(bytesProcessed, 0);
     }
     ASSERT_EQ(0, result);
 };

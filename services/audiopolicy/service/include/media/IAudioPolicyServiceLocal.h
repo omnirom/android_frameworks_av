@@ -26,6 +26,8 @@ class IAudioPolicyServiceLocal : public virtual RefBase {
     virtual const ::com::android::media::permission::IPermissionProvider&
     getPermissionProvider() const = 0;
 
+    virtual bool isHardeningOverrideEnabled() const = 0;
+
     virtual ~IAudioPolicyServiceLocal() = default;
 };
 

@@ -28,6 +28,8 @@ using ::android::companion::virtualcamera::VirtualCameraService;
 using ndk::SharedRefBase;
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  // TODO(b/183141167): need to rewrite 'dump' to avoid SIGPIPE.
+  signal(SIGPIPE, SIG_IGN);
   std::shared_ptr<VirtualCameraProvider> defaultProvider =
       SharedRefBase::make<VirtualCameraProvider>();
 

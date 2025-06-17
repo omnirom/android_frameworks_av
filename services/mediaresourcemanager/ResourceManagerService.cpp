@@ -1105,6 +1105,24 @@ Status ResourceManagerService::notifyClientConfigChanged(const ClientConfigParce
     return Status::ok();
 }
 
+Status ResourceManagerService::getMediaResourceUsageReport(
+        std::vector<MediaResourceParcel>* resources) {
+    // Not implemented
+    if (resources) {
+        resources->clear();
+    }
+    return Status::ok();
+}
+
+Status ResourceManagerService::updateResource(const ClientInfoParcel& clientInfo,
+                                              const std::vector<MediaResourceParcel>& resources) {
+    (void)clientInfo;
+    (void)resources;
+
+    // Not implemented
+    return Status::ok();
+}
+
 long ResourceManagerService::getPeakConcurrentPixelCount(int pid) const {
     return mResourceManagerMetrics->getPeakConcurrentPixelCount(pid);
 }

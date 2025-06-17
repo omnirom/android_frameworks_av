@@ -737,9 +737,10 @@ static void dumpCodecDetails(bool queryDecoders) {
                 }
 
                 printf("    owner: \"%s\"\n", info->getOwnerName());
+                printf("    hal name: \"%s\"\n", info->getHalName());
                 printf("    rank: %u\n", info->getRank());
             } else {
-                printf("    aliases, attributes, owner, rank: see above\n");
+                printf("    aliases, attributes, owner, hal name, rank: see above\n");
             }
 
             {
@@ -757,7 +758,8 @@ static void dumpCodecDetails(bool queryDecoders) {
                         mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_HEVC)  ? asString_HEVCProfile(pl.mProfile) :
                         mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_VP9)   ? asString_VP9Profile(pl.mProfile) :
                         mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_AV1)   ? asString_AV1Profile(pl.mProfile) :
-                        mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_DOLBY_VISION) ? asString_DolbyVisionProfile(pl.mProfile) :"??";
+                        mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_DOLBY_VISION) ? asString_DolbyVisionProfile(pl.mProfile) :
+                        mediaType.equalsIgnoreCase(MIMETYPE_AUDIO_AC4)   ? asString_AC4Profile(pl.mProfile) : "??";
                     const char *niceLevel =
                         mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_MPEG2) ? asString_MPEG2Level(pl.mLevel) :
                         mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_H263)  ? asString_H263Level(pl.mLevel) :
@@ -768,6 +770,7 @@ static void dumpCodecDetails(bool queryDecoders) {
                         mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_VP9)   ? asString_VP9Level(pl.mLevel) :
                         mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_AV1)   ? asString_AV1Level(pl.mLevel) :
                         mediaType.equalsIgnoreCase(MIMETYPE_VIDEO_DOLBY_VISION) ? asString_DolbyVisionLevel(pl.mLevel) :
+                        mediaType.equalsIgnoreCase(MIMETYPE_AUDIO_AC4)   ? asString_AC4Level(pl.mLevel) :
                         "??";
 
                     list.add(AStringPrintf("% 5u/% 5u (%s/%s)",
@@ -1134,20 +1137,10 @@ int main(int argc, char **argv) {
             CHECK(gSurface != NULL);
         } else {
             CHECK(useSurfaceTexAlloc);
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-            sp<GLConsumer> texture =
-                    new GLConsumer(0 /* tex */, GLConsumer::TEXTURE_EXTERNAL,
-                                   true /* useFenceSync */, false /* isControlledByApp */);
-            gSurface = texture->getSurface();
-#else
-            sp<IGraphicBufferProducer> producer;
-            sp<IGraphicBufferConsumer> consumer;
-            BufferQueue::createBufferQueue(&producer, &consumer);
-            sp<GLConsumer> texture = new GLConsumer(consumer, 0 /* tex */,
-                    GLConsumer::TEXTURE_EXTERNAL, true /* useFenceSync */,
-                    false /* isControlledByApp */);
-            gSurface = new Surface(producer);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+            sp<GLConsumer> texture;
+            std::tie(texture, gSurface) =
+                    GLConsumer::create(0 /* tex */, GLConsumer::TEXTURE_EXTERNAL,
+                                       true /* useFenceSync */, false /* isControlledByApp */);
         }
     }
 

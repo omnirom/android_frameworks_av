@@ -42,6 +42,9 @@ ACameraCaptureSession::setRepeatingRequest(
     camera_status_t ret;
     dev->lockDeviceForSessionOps();
     {
+        if (dev->isSharedMode() && !dev->isPrimaryClient()) {
+            return ACAMERA_ERROR_UNSUPPORTED_OPERATION;
+        }
         Mutex::Autolock _l(mSessionLock);
         ret = dev->setRepeatingRequestsLocked(
                 this, cbs, numRequests, requests, captureSequenceId);
@@ -67,8 +70,36 @@ camera_status_t ACameraCaptureSession::capture(
     camera_status_t ret;
     dev->lockDeviceForSessionOps();
     {
+        if (dev->isSharedMode() && !dev->isPrimaryClient()) {
+            return ACAMERA_ERROR_UNSUPPORTED_OPERATION;
+        }
         Mutex::Autolock _l(mSessionLock);
         ret = dev->captureLocked(this, cbs, numRequests, requests, captureSequenceId);
+    }
+    dev->unlockDevice();
+    return ret;
+}
+
+template <class T>
+camera_status_t ACameraCaptureSession::startStreaming(
+        /*optional*/T* callbacks, int numOutputWindows, ANativeWindow** windows,
+	/*optional*/int* captureSequenceId)  {
+#ifdef __ANDROID_VNDK__
+    std::shared_ptr<acam::CameraDevice> dev = getDevicePtr();
+#else
+    sp<acam::CameraDevice> dev = getDeviceSp();
+#endif
+    if (dev == nullptr) {
+        ALOGE("Error: Device associated with session %p has been closed!", this);
+        return ACAMERA_ERROR_SESSION_CLOSED;
+    }
+
+    camera_status_t ret;
+    dev->lockDeviceForSessionOps();
+    {
+        Mutex::Autolock _l(mSessionLock);
+        ret = dev->startStreamingLocked(this, callbacks, numOutputWindows, windows,
+                captureSequenceId);
     }
     dev->unlockDevice();
     return ret;

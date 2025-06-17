@@ -61,6 +61,7 @@ static constexpr const char *gLegacyForcePrefix = "AUDIO_POLICY_FORCE_";
 static constexpr const char *gLegacyStreamPrefix = "AUDIO_STREAM_";
 static constexpr const char *gLegacySourcePrefix = "AUDIO_SOURCE_";
 static constexpr const char *gPolicyParamPrefix = "/Policy/policy/";
+static constexpr const char *gVendorStrategyPrefix = "vx_";
 
 namespace {
 
@@ -316,11 +317,12 @@ ConversionResult<std::string> aidl2legacy_AudioHalCapRule_CapRule(
     }
     rule += "{";
     if (!aidlRule.nestedRules.empty()) {
-        for (const auto& nestedRule: aidlRule.nestedRules) {
-            rule += VALUE_OR_FATAL(aidl2legacy_AudioHalCapRule_CapRule(nestedRule));
-        }
-        if (!aidlRule.criterionRules.empty()) {
-            rule += ",";
+        for (auto ruleIter = aidlRule.nestedRules.begin(); ruleIter != aidlRule.nestedRules.end();
+                ++ruleIter) {
+            rule += VALUE_OR_FATAL(aidl2legacy_AudioHalCapRule_CapRule(*ruleIter));
+            if (ruleIter != (aidlRule.nestedRules.end()  - 1) || !aidlRule.criterionRules.empty()) {
+                rule += ",";
+            }
         }
     }
     bool isFirstCriterionRule = true;
@@ -366,6 +368,21 @@ ConversionResult<CapConfiguration> aidl2legacy_AudioHalCapConfiguration_CapConfi
     return legacy;
 }
 
+ConversionResult<std::string> aidl2legacy_AudioHalProductStrategyId_StrategyParamName(
+        int id) {
+    std::string strategyName;
+    if (id < media::audio::common::AudioHalProductStrategy::VENDOR_STRATEGY_ID_START) {
+        strategyName = legacy_strategy_to_string(static_cast<legacy_strategy>(id));
+        if (strategyName.empty()) {
+            ALOGE("%s Invalid legacy strategy id %d", __func__, id);
+            return unexpected(BAD_VALUE);
+        }
+    } else {
+        strategyName = gVendorStrategyPrefix + std::to_string(id);
+    }
+    return strategyName;
+}
+
 ConversionResult<ConfigurableElementValue> aidl2legacy_ParameterSetting_ConfigurableElementValue(
         const AudioHalCapParameter& aidl) {
     ConfigurableElementValue legacy;
@@ -387,14 +404,18 @@ ConversionResult<ConfigurableElementValue> aidl2legacy_ParameterSetting_Configur
                 deviceLiteral = "stub";
             }
             legacy.configurableElement.path = std::string(gPolicyParamPrefix)
-                    + "product_strategies/vx_" + std::to_string(strategyDevice.id)
+                    + "product_strategies/"
+                    + VALUE_OR_RETURN(aidl2legacy_AudioHalProductStrategyId_StrategyParamName(
+                            strategyDevice.id))
                     + "/selected_output_devices/mask/" + deviceLiteral;
             break;
         }
         case AudioHalCapParameter::strategyDeviceAddress: {
             auto strategyAddress = aidl.get<AudioHalCapParameter::strategyDeviceAddress>();
             legacy.configurableElement.path = std::string(gPolicyParamPrefix)
-                    + "product_strategies/vx_" + std::to_string(strategyAddress.id)
+                    + "product_strategies/"
+                    + VALUE_OR_RETURN(aidl2legacy_AudioHalProductStrategyId_StrategyParamName(
+                            strategyAddress.id))
                     + "/device_address";
             literalValue = strategyAddress.deviceAddress.get<AudioDeviceAddress::id>();
             break;
@@ -534,7 +555,7 @@ ConversionResult<CapCriterion> aidl2legacy_AudioHalCapCriterionV2_Criterion(
             }
             std::string deviceLiteral = VALUE_OR_RETURN_STATUS(truncatePrefix(legacyTypeLiteral,
                     isOut ? gLegacyOutputDevicePrefix : gLegacyInputDevicePrefix));
-            uint64_t pfwCriterionValue = 1 << shift++;
+            uint64_t pfwCriterionValue = 1ULL << (shift++);
             criterionType.valuePairs.push_back(
                     {pfwCriterionValue, static_cast<int32_t>(legacyDeviceType), deviceLiteral});
             ALOGV("%s: adding %" PRIu64 " %d %s %s", __func__, pfwCriterionValue, legacyDeviceType,

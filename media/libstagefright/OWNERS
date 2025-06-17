@@ -8,5 +8,7 @@ wonsik@google.com
 # go/android-fwk-media-solutions for info on areas of ownership.
 include platform/frameworks/av:/media/janitors/media_solutions_OWNERS
 
-per-file Camera*.cpp = file:/camera/OWNERS
-per-file Camera*.h = file:/camera/OWNERS
+per-file Camera*.cpp=file:/camera/OWNERS
+per-file Camera*.h=file:/camera/OWNERS
+per-file FrameDecoder.cpp,FrameDecoder.h=set noparent
+per-file FrameDecoder.cpp,FrameDecoder.h=file:platform/frameworks/av:/media/janitors/media_solutions_OWNERS

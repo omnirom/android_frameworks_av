@@ -64,4 +64,9 @@ interface ICameraServiceProxy
      * Checks if the camera has been disabled via device policy.
      */
     boolean isCameraDisabled(int userId);
+
+    /**
+     * Notify a cameraserver watchdog.
+     */
+    oneway void notifyWatchdog(int /* pid_t */ pid, boolean isNative);
 }

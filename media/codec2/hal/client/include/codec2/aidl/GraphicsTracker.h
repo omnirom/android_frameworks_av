@@ -224,6 +224,7 @@ private:
         static constexpr int kNumSlots = ::android::BufferQueueDefs::NUM_BUFFER_SLOTS;
 
         uint64_t mBqId;
+        uint64_t mUsage;
         uint32_t mGeneration;
         ::android::sp<IGraphicBufferProducer> mIgbp;
 
@@ -245,9 +246,11 @@ private:
 
         std::atomic<int> mNumAttached;
 
-        BufferCache() : mBqId{0ULL}, mGeneration{0}, mIgbp{nullptr}, mNumAttached{0} {}
-        BufferCache(uint64_t bqId, uint32_t generation, const sp<IGraphicBufferProducer>& igbp) :
-            mBqId{bqId}, mGeneration{generation}, mIgbp{igbp}, mNumAttached{0} {}
+        BufferCache() : mBqId{0ULL}, mUsage{0ULL},
+                mGeneration{0}, mIgbp{nullptr}, mNumAttached{0} {}
+        BufferCache(uint64_t bqId, uint64_t usage, uint32_t generation,
+                const sp<IGraphicBufferProducer>& igbp) :
+            mBqId{bqId}, mUsage{usage}, mGeneration{generation}, mIgbp{igbp}, mNumAttached{0} {}
 
         ~BufferCache();
 
@@ -306,6 +309,10 @@ private:
 
     bool mStopRequested;
     std::atomic<int> mAllocAfterStopRequested;
+
+    // Release Surface where we get allocations after stop/release being requested.
+    class PlaceHolderSurface;
+    std::unique_ptr<PlaceHolderSurface> mReleaseSurface;
 
 
 private:

@@ -61,7 +61,7 @@ sp<HidlCameraService> HidlCameraService::getInstance(android::CameraService *cs)
 }
 
 HidlCameraService::HidlCameraService(android::CameraService *cs) : mAidlICameraService(cs) {
-    mVndkVersion = getVNDKVersionFromProp(__ANDROID_API_FUTURE__);
+    mVndkVersion = getVNDKVersion();
 }
 
 Return<void>
@@ -254,15 +254,6 @@ HStatus HidlCameraService::addListenerInternal(const sp<T>& hCsListener,
         status = B2HStatus(serviceRet);
         return status;
     }
-    cameraStatusAndIds->erase(std::remove_if(cameraStatusAndIds->begin(), cameraStatusAndIds->end(),
-            [this](const hardware::CameraStatus& s) {
-                bool supportsHAL3 = false;
-                binder::Status sRet =
-                            mAidlICameraService->supportsCameraApi(s.cameraId,
-                                    hardware::ICameraService::API_VERSION_2, &supportsHAL3);
-                return !sRet.isOk() || !supportsHAL3;
-            }), cameraStatusAndIds->end());
-
     return HStatus::NO_ERROR;
 }
 

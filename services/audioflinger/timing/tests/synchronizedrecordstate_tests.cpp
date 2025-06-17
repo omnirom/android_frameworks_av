@@ -26,8 +26,6 @@ using namespace android::audioflinger;
 
 namespace {
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wenum-constexpr-conversion"
 TEST(SynchronizedRecordStateTests, Basic) {
     struct Cookie : public RefBase {};
 
@@ -76,5 +74,5 @@ TEST(SynchronizedRecordStateTests, Basic) {
     ASSERT_FALSE(triggered);
     ASSERT_TRUE(syncEvent->isCancelled());
 }
-#pragma clang diagnostic pop
+
 }

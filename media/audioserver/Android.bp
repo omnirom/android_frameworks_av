@@ -32,7 +32,6 @@ cc_binary {
         "libaaudioservice",
         "libaudioflinger",
         "libaudiopolicyservice",
-        "libmedialogservice",
     ],
 
     shared_libs: [

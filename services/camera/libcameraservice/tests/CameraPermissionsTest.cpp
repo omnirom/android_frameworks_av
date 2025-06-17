@@ -172,6 +172,10 @@ public:
         return mCameraServiceProxy->isCameraDisabled(userId, ret);
     }
 
+    virtual binder::Status notifyWatchdog(int pid, bool isNative) override {
+        return mCameraServiceProxy->notifyWatchdog(pid, isNative);
+    }
+
     void setCameraDisabled(bool cameraDisabled) {
         mCameraDisabled = cameraDisabled;
     }

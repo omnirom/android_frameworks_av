@@ -57,7 +57,7 @@ public:
                       bool systemNativeClient, const std::string& cameraId, int api1CameraId,
                       int cameraFacing, int sensorOrientation, int servicePid,
                       bool overrideForPerfClass, int rotationOverride,  bool sharedMode,
-                      bool legacyClient = false);
+                      bool isVendorClient, bool legacyClient = false);
     virtual ~Camera2ClientBase();
 
     virtual status_t      initialize(sp<CameraProviderManager> manager,
@@ -142,6 +142,7 @@ protected:
     pid_t mInitialClientPid;
     bool mOverrideForPerfClass = false;
     bool mLegacyClient = false;
+    bool mIsVendorClient = false;
     std::shared_ptr<CameraServiceProxyWrapper> mCameraServiceProxyWrapper;
 
     virtual sp<IBinder> asBinderWrapper() {

@@ -17,6 +17,8 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "ResourceManagerService_test"
 
+#include <sstream>
+
 #include <utils/Log.h>
 
 #include "ResourceManagerServiceTestUtils.h"
@@ -1829,6 +1831,248 @@ public:
         // aren't any lower priority clients or lower priority processes.
         EXPECT_FALSE(doReclaimResource(lowPriPidClientInfos[0]));
     }
+
+    // Gets 5 types of HW resources of random count (11 - 110)
+    std::vector<MediaResourceParcel> getHwResources() {
+        const int32_t resourceType = static_cast<int32_t>(MediaResourceType::kHwResourceTypeMin);
+        static const std::vector<std::pair<int32_t, uint64_t>> hwResources =
+            { {resourceType + 1, 10},
+              {resourceType + 2, 10},
+              {resourceType + 3, 10},
+              {resourceType + 4, 10},
+              {resourceType + 5, 10},
+            };
+
+        // Seed the random number generator with the current time
+        srand(time(0));
+        // Generate a random number between 1 and 100
+        int random_num = rand() % 100 + 1;
+
+        std::vector<MediaResourceParcel> resources;
+        for (const auto& resource : hwResources) {
+            MediaResourceParcel res;
+            res.type = static_cast<MediaResourceType>(resource.first);
+            res.value = resource.second + random_num++;
+            resources.push_back(res);
+        }
+
+        return resources;
+    }
+
+    void addResources(const std::vector<MediaResourceParcel>& rhs,
+                      std::vector<MediaResourceParcel>& lhs) {
+        for (MediaResourceParcel& res : lhs) {
+            auto found = std::find_if(rhs.begin(), rhs.end(),
+                                      [res](const MediaResourceParcel& item) {
+                                          return item.type == res.type; });
+
+            if (found != rhs.end() && found->value > 0) {
+                res.value += found->value;
+            }
+        }
+    }
+
+    void subtractResources(const std::vector<MediaResourceParcel>& rhs,
+                           std::vector<MediaResourceParcel>& lhs) {
+        for (MediaResourceParcel& res : lhs) {
+            auto found = std::find_if(rhs.begin(), rhs.end(),
+                                      [res](const MediaResourceParcel& item) {
+                                          return item.type == res.type; });
+
+            if (found != rhs.end() && found->value > 0) {
+                res.value -= found->value;
+            }
+        }
+    }
+
+    void displayResources(const char* what, const std::vector<MediaResourceParcel>& resources) {
+        std::stringstream debug;
+        debug << what << ": ";
+        for (const MediaResourceParcel& res : resources) {
+            debug << "{ " << static_cast<int32_t>(res.type) << " : " << res.value << " } ";
+        }
+        ALOGI("%s", debug.str().c_str());
+    }
+
+    // Compare the locally tracked resources with the tracked resources by the RM.
+    void validateResourceUsage(const std::vector<MediaResourceParcel>& trackedResources) {
+        // Query the RM about current resource usage.
+        std::vector<MediaResourceParcel> currentResourceUsage;
+        mService->getMediaResourceUsageReport(&currentResourceUsage);
+        displayResources("Current Resources", currentResourceUsage);
+
+        // If we subtract the resources added, it should be left with 0 now.
+        subtractResources(trackedResources, currentResourceUsage);
+        displayResources("To Verify Resources", currentResourceUsage);
+
+        // Create a set of added HW resource types.
+        std::set<MediaResourceType> addedResourceTypes;
+        for (const auto& res : trackedResources) {
+            addedResourceTypes.insert(res.type);
+        }
+
+        for (const auto& res : currentResourceUsage) {
+            if (addedResourceTypes.find(res.type) == addedResourceTypes.end()) {
+                // Ignore the resource thats not added by us now.
+                continue;
+            }
+            bool isZero = (res.value == 0);
+            if (!isZero) {
+                ALOGE("%s: Expected resource [%d] to be 0 but its %lld",
+                      __func__, res.type, (long long)res.value);
+                EXPECT_TRUE(isZero);
+            }
+        }
+    }
+
+    // Update each resource by given amount (increasing OR decreasing).
+    void updateAllResources(std::vector<MediaResourceParcel>& resources,
+                            int updateAmount) {
+        std::transform(resources.begin(), resources.end(),
+                       resources.begin(),
+                       [updateAmount](MediaResourceParcel& res) {
+                           res.value += updateAmount;
+                           return res;
+                       });
+    }
+
+    // Update each resource by given amount and verify the result
+    void updateAllAndVerify(const ClientInfoParcel& clientInfo,
+                           std::vector<MediaResourceParcel>& resources,
+                           std::vector<MediaResourceParcel>& trackedResources,
+                           int updateAmount) {
+        updateAllResources(resources, updateAmount);
+        updateAllResources(trackedResources, updateAmount);
+        mService->updateResource(clientInfo, resources);
+        displayResources("Resources", resources);
+
+        // We expect trackedResources and current resource usage to be the same.
+        validateResourceUsage(trackedResources);
+    }
+
+    // Update the resource from oldResources to newResources.
+    // The newResources could have some resources missing compared to oldResources
+    // OR may have additional resources thatn oldResources.
+    void updateResource(const ClientInfoParcel& clientInfo,
+                        const std::vector<MediaResourceParcel>& oldResources,
+                        std::vector<MediaResourceParcel>& newResources,
+                        std::vector<MediaResourceParcel>& trackedResources) {
+      std::vector<MediaResourceParcel> removedResources;
+        // Look for resources that aren't required anymore.
+        for (const MediaResourceParcel& oldRes : oldResources) {
+            auto found = std::find_if(newResources.begin(),
+                                      newResources.end(),
+                                      [oldRes](const MediaResourceParcel& newRes) {
+                                          return oldRes.type == newRes.type; });
+
+            // If this old resource isn't found in updated resources, that means its
+            // not required anymore.
+            // Set the count to 0, so that it will be removed from the RM.
+            if (found == newResources.end()) {
+                // Add this to list of removed resources.
+                removedResources.push_back(oldRes);
+                MediaResourceParcel res = oldRes;
+                res.value = 0;
+                newResources.push_back(res);
+            }
+        }
+
+        if (!removedResources.empty()) {
+            // Remove those resources from the trackedResources.
+            subtractResources(removedResources, trackedResources);
+        }
+
+        // Update with new resources.
+        mService->updateResource(clientInfo, newResources);
+        displayResources("Resources", newResources);
+
+        // We expect trackedResources and current resource usage to be the same.
+        validateResourceUsage(trackedResources);
+    }
+
+    // Verifies the resource usage among all clients.
+    void testResourceUsage() {
+        // Create 2 clients for a low priority pid.
+        std::vector<std::shared_ptr<IResourceManagerClient>> lowPriPidClients;
+        lowPriPidClients.push_back(createTestClient(kLowPriorityPid, kTestUid1));
+        lowPriPidClients.push_back(createTestClient(kLowPriorityPid, kTestUid1));
+        // Create 2 clients for a high priority pid.
+        std::vector<std::shared_ptr<IResourceManagerClient>> highPriPidClients;
+        highPriPidClients.push_back(createTestClient(kHighPriorityPid, kTestUid2));
+        highPriPidClients.push_back(createTestClient(kHighPriorityPid, kTestUid2));
+
+        // Add non secure video codec resources for all these clients.
+        std::vector<ClientInfoParcel> clientInfos;
+        for (auto& client : lowPriPidClients) {
+            addNonSecureVideoCodecResource(client, clientInfos);
+        }
+        // Add non secure video codec resources for all the 3 clients of high priority pid.
+        for (auto& client : highPriPidClients) {
+            addNonSecureVideoCodecResource(client, clientInfos);
+        }
+
+        // Now randomly add some HW resources for these clients.
+        // In trackedResources, we are tracking all the resources locally
+        // and we will compare that with what RM tracks to verify
+        std::vector<MediaResourceParcel> trackedResources;
+        std::vector<MediaResourceParcel> resources;
+        for (auto& clientInfo : clientInfos) {
+            resources = getHwResources();
+            mService->addResource(clientInfo, nullptr, resources);
+            if (trackedResources.empty()) {
+                trackedResources = resources;
+            } else {
+                addResources(resources, trackedResources);
+            }
+            displayResources("Resources", resources);
+            displayResources("Tracked Resources", trackedResources);
+        }
+
+        // We expect trackedResources to be same as current resource usage
+        validateResourceUsage(trackedResources);
+
+        // For one of the client, start updating resources.
+        const ClientInfoParcel& lastClientInfo = clientInfos[clientInfos.size() - 1];
+
+        // Now update the resources by adding a new resource type for the
+        // selected client.
+        const int32_t resourceType = static_cast<int32_t>(MediaResourceType::kHwResourceTypeMin);
+        MediaResourceParcel newResource {.type = static_cast<MediaResourceType>(resourceType + 6),
+                                         .value = 100};
+        {
+            std::vector<MediaResourceParcel> newTrackedResources = trackedResources;
+            newTrackedResources.push_back(newResource);
+            std::vector<MediaResourceParcel> newResources = resources;
+            newResources.push_back(newResource);
+            updateResource(lastClientInfo, resources, newResources, newTrackedResources);
+        }
+
+        // Update the resources for the selected client by increasing the amount by
+        // 10 for all the resources.
+        int updateAmount = 10;
+        updateAllAndVerify(lastClientInfo, resources, trackedResources, updateAmount);
+
+        // Update the resources for the selected client by decreasing the count by 5
+        // for all the resources.
+        updateAmount = -5;
+        updateAllAndVerify(lastClientInfo, resources, trackedResources, updateAmount);
+
+        // Now update the resources by removing one resource type completely.
+        for (size_t index = 0; index < resources.size(); ++index) {
+            std::vector<MediaResourceParcel> newResources = resources;
+            std::vector<MediaResourceParcel> newTrackedResources = trackedResources;
+            newResources.erase(newResources.begin() + index);
+            updateResource(lastClientInfo, resources, newResources, newTrackedResources);
+        }
+
+        // Now update the resources by removing one resource at a time until it exhausts.
+        std::vector<MediaResourceParcel> newResources = resources;
+        for (size_t index = 1; index < newResources.size(); ++index) {
+            std::vector<MediaResourceParcel> newTrackedResources = trackedResources;
+            newResources.pop_back();
+            updateResource(lastClientInfo, resources, newResources, newTrackedResources);
+        }
+    }
 };
 
 class ResourceManagerServiceNewTest : public ResourceManagerServiceTest {
@@ -2019,6 +2263,10 @@ TEST_F(ResourceManagerServiceNewTest, concurrentCodecs) {
 
 TEST_F(ResourceManagerServiceNewTest, reclaimPolicies) {
     testReclaimPolicies();
+}
+
+TEST_F(ResourceManagerServiceNewTest, resourceUsage) {
+    testResourceUsage();
 }
 
 } // namespace android

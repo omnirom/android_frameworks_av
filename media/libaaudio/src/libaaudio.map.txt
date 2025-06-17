@@ -82,7 +82,7 @@ LIBAAUDIO {
     AAudioStreamBuilder_addTag; # systemapi
     AAudioStreamBuilder_clearTags; # systemapi
     AAudioStream_obtainTags; # systemapi
-    AAudioStream_releaseTags; #systemapi
+    AAudioStream_destroyTags; #systemapi
   local:
     *;
 };

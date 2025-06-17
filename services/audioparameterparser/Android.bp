@@ -41,6 +41,9 @@ cc_defaults {
         "av-audio-types-aidl-ndk",
         "libbase",
         "libbinder_ndk",
+        "libmedia_helper",
+        "libmediautils",
+        "libutils",
     ],
 
     cflags: [

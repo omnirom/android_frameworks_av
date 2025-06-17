@@ -55,6 +55,8 @@ static const std::vector<Feature> DECODER_FEATURES = {
     Feature(FEATURE_MultipleFrames,   (1 << 5), false),
     Feature(FEATURE_DynamicTimestamp, (1 << 6), false),
     Feature(FEATURE_LowLatency,       (1 << 7), true),
+    Feature(FEATURE_DynamicColorAspects, (1 << 8), true),
+    Feature(FEATURE_DetachedSurface,     (1 << 9), true),
     // feature to exclude codec from REGULAR codec list
     Feature(FEATURE_SpecialCodec,     (1 << 30), false, true),
 };
@@ -65,6 +67,8 @@ static const std::vector<Feature> ENCODER_FEATURES = {
     Feature(FEATURE_QpBounds, (1 << 3), false),
     Feature(FEATURE_EncodingStatistics, (1 << 4), false),
     Feature(FEATURE_HdrEditing, (1 << 5), false),
+    Feature(FEATURE_HlgEditing, (1 << 6), true),
+    Feature(FEATURE_Roi, (1 << 7), true),
     // feature to exclude codec from REGULAR codec list
     Feature(FEATURE_SpecialCodec,     (1 << 30), false, true),
 };
@@ -149,7 +153,7 @@ bool CodecCapabilities::isFormatSupported(const sp<AMessage> &format) const {
         int32_t yesNo;
         std::string key = KEY_FEATURE_;
         key = key + feat.mName;
-        if (format->findInt32(key.c_str(), &yesNo)) {
+        if (!format->findInt32(key.c_str(), &yesNo)) {
             continue;
         }
         if ((yesNo == 1 && !isFeatureSupported(feat.mName)) ||
@@ -405,9 +409,11 @@ void CodecCapabilities::init(std::vector<ProfileLevel> profLevs, std::vector<uin
 
     mMaxSupportedInstances = maxConcurrentInstances > 0
             ? maxConcurrentInstances : DEFAULT_MAX_SUPPORTED_INSTANCES;
-
-    int32_t maxInstances = mMaxSupportedInstances;
-    capabilitiesInfo->findInt32("max-concurrent-instances", &maxInstances);
+    AString maxConcurrentInstancesStr;
+    int32_t maxInstances
+            = capabilitiesInfo->findString("max-concurrent-instances", &maxConcurrentInstancesStr)
+            ? (int32_t)strtol(maxConcurrentInstancesStr.c_str(), NULL, 10)
+            : mMaxSupportedInstances;
     mMaxSupportedInstances =
             Range(1, MAX_SUPPORTED_INSTANCES_LIMIT).clamp(maxInstances);
 

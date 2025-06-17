@@ -43,9 +43,7 @@
                 }
             ],
             "file_patterns": ["(?i)drm|crypto"]
-        }
-    ],
-    "postsubmit": [
+        },
         {
             "name": "MctsMediaCodecTestCases",
             "options": [

@@ -85,6 +85,8 @@ public:
 
     wp<IAfThreadBase> thread() const final { return mThread; }
 
+    void signal() final;
+
     const sp<ServerProxy>& serverProxy() const final { return mServerProxy; }
 
 #ifdef TEE_SINK

@@ -237,15 +237,6 @@ def parseAndroidAudioFile(androidaudiobaseheaderFile, androidaudiocommonbasehead
                         # Append AUDIO_DEVICE_IN for android type tag
                         input_devices_type_value[criterion_literal] = hex(string_int | 2147483648)
 
-                        num_bits = bin(string_int).count("1")
-                        if num_bits > 1:
-                            logging.info("The value {}:{} is for criterion {} binary rep {} has {} bits sets"
-                                .format(criterion_numerical_value, criterion_literal, criterion_name, bin(string_int), num_bits))
-                            string_int = 2**multi_bit_inputdevice_shift
-                            logging.info("new val assigned is {} {}" .format(string_int, bin(string_int)))
-                            multi_bit_inputdevice_shift += 1
-                            criterion_numerical_value = str(string_int)
-
                     except ValueError:
                         # Handle the exception
                         logging.info("value {}:{} for criterion {} is not a number, ignoring"
@@ -260,15 +251,6 @@ def parseAndroidAudioFile(androidaudiobaseheaderFile, androidaudiocommonbasehead
                     try:
                         string_int = int(criterion_numerical_value, 0)
                         output_devices_type_value[criterion_literal] = criterion_numerical_value
-
-                        num_bits = bin(string_int).count("1")
-                        if num_bits > 1:
-                            logging.info("The value {}:{} is for criterion {} binary rep {} has {} bits sets"
-                                .format(criterion_numerical_value, criterion_literal, criterion_name, bin(string_int), num_bits))
-                            string_int = 2**multi_bit_outputdevice_shift
-                            logging.info("new val assigned is {} {}" .format(string_int, bin(string_int)))
-                            multi_bit_outputdevice_shift += 1
-                            criterion_numerical_value = str(string_int)
 
                     except ValueError:
                         # Handle the exception

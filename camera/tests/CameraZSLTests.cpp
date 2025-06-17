@@ -93,7 +93,7 @@ void CameraZSLTests::SetUp() {
             &numCameras);
     EXPECT_TRUE(rc.isOk());
 
-    mComposerClient = new SurfaceComposerClient;
+    mComposerClient = sp<SurfaceComposerClient>::make();
     ASSERT_EQ(NO_ERROR, mComposerClient->initCheck());
 }
 
@@ -176,15 +176,6 @@ TEST_F(CameraZSLTests, TestAllPictureSizes) {
         sp<ICamera> cameraDevice;
 
         std::string cameraIdStr = std::to_string(cameraId);
-        bool isSupported = false;
-        rc = mCameraService->supportsCameraApi(cameraIdStr,
-                hardware::ICameraService::API_VERSION_1, &isSupported);
-        EXPECT_TRUE(rc.isOk());
-
-        // We only care about camera Camera1 ZSL support.
-        if (!isSupported) {
-            continue;
-        }
 
         CameraMetadata metadata;
         AttributionSourceState clientAttribution;

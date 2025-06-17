@@ -101,6 +101,11 @@ C2SoftOpusDec::C2SoftOpusDec(const char *name, c2_node_id_t id,
       mDecoder(nullptr) {
 }
 
+C2SoftOpusDec::C2SoftOpusDec(const char *name, c2_node_id_t id,
+                       const std::shared_ptr<C2ReflectorHelper>& helper)
+    : C2SoftOpusDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftOpusDec::~C2SoftOpusDec() {
     onRelease();
 }

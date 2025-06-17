@@ -106,6 +106,10 @@ filegroup {
         "res/bbb_vp9_640x360_1600kbps_30fps_chksm.md5",
         "res/bbb_av1_640_360_chksum.md5",
         "res/bbb_av1_176_144_chksm.md5",
+        "res/trim_pattern_640x480_30fps_16mbps_apv_10bit.apv",
+        "res/trim_pattern_1280x720_30fps_30mbps_apv_10bit.apv",
+        "res/trim_pattern_640x480_30fps_16mbps_apv_10bit.info",
+        "res/trim_pattern_1280x720_30fps_30mbps_apv_10bit.info",
     ],
 }
 

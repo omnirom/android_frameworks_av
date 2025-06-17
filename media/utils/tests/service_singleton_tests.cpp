@@ -251,8 +251,34 @@ TEST(service_singleton_tests, one_and_only) {
         auto service = mediautils::getService<IServiceSingletonTest>();
         EXPECT_TRUE(service);
 
+        // mediautils::getService<> is a cached service.
+        // pointer equality is preserved for subsequent requests.
+        auto service_equal = mediautils::getService<IServiceSingletonTest>();
+        EXPECT_EQ(service, service_equal);
+        EXPECT_TRUE(mediautils::isSameInterface(service, service_equal));
+
+        // we can create an alias to the service by requesting it outside of the cache.
+        // this is a different pointer, but same underlying binder object.
+        auto service_equivalent =
+                mediautils::checkServicePassThrough<IServiceSingletonTest>();
+        EXPECT_NE(service, service_equivalent);
+        EXPECT_TRUE(mediautils::isSameInterface(service, service_equivalent));
+
         auto service2 = mediautils::getService<aidl::IServiceSingletonTest>();
         EXPECT_TRUE(service2);
+
+        // mediautils::getService<> is a cached service.
+        // pointer equality is preserved for subsequent requests.
+        auto service2_equal = mediautils::getService<aidl::IServiceSingletonTest>();
+        EXPECT_EQ(service2, service2_equal);
+        EXPECT_TRUE(mediautils::isSameInterface(service2, service2_equal));
+
+        // we can create an alias to the service by requesting it outside of the cache.
+        // this is a different pointer, but same underlying binder object.
+        auto service2_equivalent =
+                mediautils::checkServicePassThrough<aidl::IServiceSingletonTest>();
+        EXPECT_NE(service2, service2_equivalent);
+        EXPECT_TRUE(mediautils::isSameInterface(service2, service2_equivalent));
 
         keepAlive = service2;
 

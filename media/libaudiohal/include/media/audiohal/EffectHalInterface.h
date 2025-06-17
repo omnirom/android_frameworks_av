@@ -18,6 +18,7 @@
 #define ANDROID_HARDWARE_EFFECT_HAL_INTERFACE_H
 
 #include <media/audiohal/EffectBufferHalInterface.h>
+#include <media/AudioDeviceTypeAddr.h>
 #include <system/audio_effect.h>
 #include <utils/Errors.h>
 #include <utils/RefBase.h>
@@ -53,6 +54,9 @@ class EffectHalInterface : public RefBase
     virtual status_t close() = 0;
 
     virtual status_t dump(int fd) = 0;
+
+    // Only implemented in AIDL effect HAL: set a vector of AudioDeviceTypeAddr
+    virtual status_t setDevices(const AudioDeviceTypeAddrVector& deviceTypes) = 0;
 
   protected:
     // Subclasses can not be constructed directly by clients.

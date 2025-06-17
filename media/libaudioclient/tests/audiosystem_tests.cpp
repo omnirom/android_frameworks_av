@@ -412,6 +412,9 @@ TEST_F(AudioSystemTest, DevicesForRoleAndStrategy) {
                 outputDevices.push_back(outputDevice);
             }
         }
+        if (outputDevices.empty()) {
+            GTEST_SKIP() << "No speaker device found";
+        }
         EXPECT_EQ(OK, AudioSystem::setDevicesRoleForStrategy(mediaStrategy.getId(),
                                                              DEVICE_ROLE_PREFERRED, outputDevices));
         EXPECT_EQ(OK, AudioSystem::getDevicesForRoleAndStrategy(mediaStrategy.getId(),
@@ -425,8 +428,13 @@ TEST_F(AudioSystemTest, DevicesForRoleAndStrategy) {
 }
 
 TEST_F(AudioSystemTest, VolumeIndexForAttributes) {
+    std::optional<audio_port_v7> speakerPort = audio_port_v7{};
+    if (getPortByAttributes(AUDIO_PORT_ROLE_SINK, AUDIO_PORT_TYPE_DEVICE, AUDIO_DEVICE_OUT_SPEAKER,
+                            "", *speakerPort) != OK) {
+        speakerPort.reset();
+    }
     AudioVolumeGroupVector groups;
-    EXPECT_EQ(OK, AudioSystem::listAudioVolumeGroups(groups));
+    ASSERT_EQ(OK, AudioSystem::listAudioVolumeGroups(groups));
     for (const auto& group : groups) {
         if (group.getAudioAttributes().empty()) continue;
         const audio_attributes_t attr = group.getAudioAttributes()[0];
@@ -438,14 +446,15 @@ TEST_F(AudioSystemTest, VolumeIndexForAttributes) {
         EXPECT_EQ(OK, AudioSystem::getVolumeGroupFromAudioAttributes(attr, vg));
         EXPECT_EQ(group.getId(), vg);
 
-        int index;
-        EXPECT_EQ(OK,
-                  AudioSystem::getVolumeIndexForAttributes(attr, index, AUDIO_DEVICE_OUT_SPEAKER));
-
-        int indexTest;
-        EXPECT_EQ(OK, AudioSystem::getStreamVolumeIndex(streamType, &indexTest,
-                                                        AUDIO_DEVICE_OUT_SPEAKER));
-        EXPECT_EQ(index, indexTest);
+        if (speakerPort.has_value()) {
+            int index;
+            EXPECT_EQ(OK, AudioSystem::getVolumeIndexForAttributes(attr, index,
+                                                                   speakerPort->ext.device.type));
+            int indexTest;
+            EXPECT_EQ(OK, AudioSystem::getStreamVolumeIndex(streamType, &indexTest,
+                                                            speakerPort->ext.device.type));
+            EXPECT_EQ(index, indexTest);
+        }
     }
 }
 
@@ -562,11 +571,14 @@ TEST_F(AudioSystemTest, UidDeviceAffinities) {
     AudioDeviceTypeAddrVector inputDevices = {inputDevice};
     EXPECT_EQ(BAD_VALUE, AudioSystem::setUidDeviceAffinities(uid, inputDevices));
 
-    // Test valid device for example audio_is_output_device
-    AudioDeviceTypeAddr outputDevice(AUDIO_DEVICE_OUT_SPEAKER, "");
-    AudioDeviceTypeAddrVector outputDevices = {outputDevice};
-    EXPECT_EQ(NO_ERROR, AudioSystem::setUidDeviceAffinities(uid, outputDevices));
-    EXPECT_EQ(NO_ERROR, AudioSystem::removeUidDeviceAffinities(uid));
+    audio_port_v7 port;
+    if (OK == getAnyPort(AUDIO_PORT_ROLE_SINK, AUDIO_PORT_TYPE_DEVICE, port)) {
+        // Test valid device for example audio_is_output_device
+        AudioDeviceTypeAddr outputDevice(port.ext.device.type, port.ext.device.address);
+        AudioDeviceTypeAddrVector outputDevices = {outputDevice};
+        EXPECT_EQ(NO_ERROR, AudioSystem::setUidDeviceAffinities(uid, outputDevices));
+        EXPECT_EQ(NO_ERROR, AudioSystem::removeUidDeviceAffinities(uid));
+    }
 }
 
 TEST_F(AudioSystemTest, UserIdDeviceAffinities) {
@@ -577,11 +589,14 @@ TEST_F(AudioSystemTest, UserIdDeviceAffinities) {
     AudioDeviceTypeAddrVector inputDevices = {inputDevice};
     EXPECT_EQ(BAD_VALUE, AudioSystem::setUserIdDeviceAffinities(userId, inputDevices));
 
-    // Test valid device for ezample audio_is_output_device
-    AudioDeviceTypeAddr outputDevice(AUDIO_DEVICE_OUT_SPEAKER, "");
-    AudioDeviceTypeAddrVector outputDevices = {outputDevice};
-    EXPECT_EQ(NO_ERROR, AudioSystem::setUserIdDeviceAffinities(userId, outputDevices));
-    EXPECT_EQ(NO_ERROR, AudioSystem::removeUserIdDeviceAffinities(userId));
+    audio_port_v7 port;
+    if (OK == getAnyPort(AUDIO_PORT_ROLE_SINK, AUDIO_PORT_TYPE_DEVICE, port)) {
+        // Test valid device for example audio_is_output_device
+        AudioDeviceTypeAddr outputDevice(port.ext.device.type, port.ext.device.address);
+        AudioDeviceTypeAddrVector outputDevices = {outputDevice};
+        EXPECT_EQ(NO_ERROR, AudioSystem::setUserIdDeviceAffinities(userId, outputDevices));
+        EXPECT_EQ(NO_ERROR, AudioSystem::removeUserIdDeviceAffinities(userId));
+    }
 }
 
 namespace {
@@ -683,13 +698,13 @@ TEST_F(AudioSystemTest, SetDeviceConnectedState) {
         // !!! Instead of the default format, use each format from 'ext.encodedFormats'
         // !!! if they are not empty
         status = AudioSystem::setDeviceConnectionState(AUDIO_POLICY_DEVICE_STATE_AVAILABLE,
-                                                       aidlPort, AUDIO_FORMAT_DEFAULT);
+                                                       aidlPort, AUDIO_FORMAT_DEFAULT, false);
         EXPECT_EQ(OK, status);
         if (status != OK) continue;
         deviceState = AudioSystem::getDeviceConnectionState(type, address);
         EXPECT_EQ(AUDIO_POLICY_DEVICE_STATE_AVAILABLE, deviceState);
         status = AudioSystem::setDeviceConnectionState(AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE,
-                                                       aidlPort, AUDIO_FORMAT_DEFAULT);
+                                                       aidlPort, AUDIO_FORMAT_DEFAULT, false);
         EXPECT_EQ(OK, status);
         deviceState = AudioSystem::getDeviceConnectionState(type, address);
         EXPECT_EQ(AUDIO_POLICY_DEVICE_STATE_UNAVAILABLE, deviceState);

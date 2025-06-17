@@ -551,4 +551,18 @@ std::string CameraServiceProxyWrapper::updateExtensionStats(
     }
 }
 
+void CameraServiceProxyWrapper::notifyWatchdog(pid_t clientPid, bool isNativePid) {
+    sp<ICameraServiceProxy> proxyBinder = getCameraServiceProxy();
+    if (proxyBinder == nullptr) {
+        ALOGW("%s: ICameraServiceProxy is null!", __FUNCTION__);
+        return;
+    }
+
+    auto status = proxyBinder->notifyWatchdog(clientPid, isNativePid);
+    if (!status.isOk()) {
+        ALOGE("%s: Failed calling notifyWatchdog: %s", __FUNCTION__,
+                status.exceptionMessage().c_str());
+    }
+}
+
 }  // namespace android

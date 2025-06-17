@@ -29,6 +29,8 @@ namespace android {
 struct C2SoftVp8Enc : public C2SoftVpxEnc {
     C2SoftVp8Enc(const char* name, c2_node_id_t id,
                  const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftVp8Enc(const char* name, c2_node_id_t id,
+                 const std::shared_ptr<C2ReflectorHelper>& helper);
 
  protected:
     // Populates |mCodecInterface| with codec specific settings.

@@ -447,6 +447,11 @@ C2SoftDav1dDec::C2SoftDav1dDec(const char* name, c2_node_id_t id,
     mTimeStart = mTimeEnd = systemTime();
 }
 
+C2SoftDav1dDec::C2SoftDav1dDec(const char* name, c2_node_id_t id,
+                               const std::shared_ptr<C2ReflectorHelper>& helper)
+    : C2SoftDav1dDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftDav1dDec::~C2SoftDav1dDec() {
     onRelease();
 }

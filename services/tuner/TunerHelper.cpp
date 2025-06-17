@@ -101,7 +101,7 @@ void TunerHelper::updateTunerResources(const vector<TunerFrontendInfo>& feInfos,
 }
 
 // TODO: create a map between resource id and handles.
-int TunerHelper::getResourceIdFromHandle(long resourceHandle, int /*type*/) {
+int TunerHelper::getResourceIdFromHandle(int64_t resourceHandle, int /*type*/) {
     return (int)((resourceHandle >> RESOURCE_ID_SHIFT) & RESOURCE_ID_MASK);
 }
 
@@ -112,7 +112,7 @@ int TunerHelper::getResourceIdFromHandle(long resourceHandle, int /*type*/) {
  *   32 bits - id
  *   24 bits - resourceRequestCount
  */
-long TunerHelper::getResourceHandleFromId(int id, int resourceType) {
+int64_t TunerHelper::getResourceHandleFromId(int id, int resourceType) {
     // TODO: build up randomly generated id to handle mapping
     return static_cast<int64_t>(resourceType & RESOURCE_TYPE_MASK) << RESOURCE_TYPE_SHIFT |
            static_cast<int64_t>(id & RESOURCE_ID_MASK) << RESOURCE_ID_SHIFT |

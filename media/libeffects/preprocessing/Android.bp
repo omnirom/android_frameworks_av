@@ -83,7 +83,6 @@ cc_library_shared {
     header_libs: [
         "libaudioeffects",
         "libhardware_headers",
-        "libwebrtc_absl_headers",
     ],
     cflags: [
         "-Wno-unused-parameter",

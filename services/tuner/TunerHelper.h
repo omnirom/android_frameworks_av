@@ -62,8 +62,8 @@ public:
                                      const vector<TunerDemuxInfo>& demuxInfos,
                                      const vector<int64_t>& lnbHandles);
     // TODO: create a map between resource id and handles.
-    static int getResourceIdFromHandle(long resourceHandle, int type);
-    static long getResourceHandleFromId(int id, int resourceType);
+    static int getResourceIdFromHandle(int64_t resourceHandle, int type);
+    static int64_t getResourceHandleFromId(int id, int resourceType);
 
 private:
     static int32_t sResourceRequestCount;

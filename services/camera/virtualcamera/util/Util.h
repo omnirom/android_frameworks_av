@@ -35,6 +35,10 @@ namespace android {
 namespace companion {
 namespace virtualcamera {
 
+constexpr int kHardwareBufferUsage = AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER |
+                                     AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN;
+constexpr int kHardwareBufferFormat = AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420;
+
 // RAII utility class to safely lock AHardwareBuffer and obtain android_ycbcr
 // structure describing YUV plane layout.
 //

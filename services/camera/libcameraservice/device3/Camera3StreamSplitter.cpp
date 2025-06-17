@@ -95,18 +95,8 @@ status_t Camera3StreamSplitter::connect(const std::unordered_map<size_t, sp<Surf
     // the output's attachBuffer().
     mMaxConsumerBuffers++;
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mBufferItemConsumer = sp<BufferItemConsumer>::make(consumerUsage, mMaxConsumerBuffers);
-    mSurface = mBufferItemConsumer->getSurface();
-#else
-    // Create BufferQueue for input
-    sp<IGraphicBufferProducer> bqProducer;
-    sp<IGraphicBufferConsumer> bqConsumer;
-    BufferQueue::createBufferQueue(&bqProducer, &bqConsumer);
-
-    mBufferItemConsumer = new BufferItemConsumer(bqConsumer, consumerUsage, mMaxConsumerBuffers);
-    mSurface = new Surface(bqProducer);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+    std::tie(mBufferItemConsumer, mSurface) =
+            BufferItemConsumer::create(consumerUsage, mMaxConsumerBuffers);
 
     if (mBufferItemConsumer == nullptr) {
         return NO_MEMORY;
@@ -474,16 +464,17 @@ status_t Camera3StreamSplitter::attachBufferToOutputs(ANativeWindowBuffer* anb,
         mMutex.unlock();
         res = surface->attachBuffer(anb);
         mMutex.lock();
+        //During buffer attach 'mMutex' is not held which makes the removal of
+        //"surface" possible. Check whether this is the case and continue.
+        if (surface.get() == nullptr) {
+            res = OK;
+            continue;
+        }
         if (res != OK) {
             SP_LOGE("%s: Cannot attachBuffer from GraphicBufferProducer %p: %s (%d)", __FUNCTION__,
                     surface.get(), strerror(-res), res);
             // TODO: might need to detach/cleanup the already attached buffers before return?
             return res;
-        }
-        //During buffer attach 'mMutex' is not held which makes the removal of
-        //"gbp" possible. Check whether this is the case and continue.
-        if (mHeldBuffers[surface] == nullptr) {
-            continue;
         }
         mHeldBuffers[surface]->insert(gb);
         SP_LOGV("%s: Attached buffer %p on output %p.", __FUNCTION__, gb.get(), surface.get());

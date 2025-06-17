@@ -34,6 +34,8 @@ struct C2SoftAomEnc : public SimpleC2Component {
     class IntfImpl;
 
     C2SoftAomEnc(const char* name, c2_node_id_t id, const std::shared_ptr<IntfImpl>& intfImpl);
+    C2SoftAomEnc(const char* name, c2_node_id_t id,
+                 const std::shared_ptr<C2ReflectorHelper>& helper);
 
     // From SimpleC2Component
     c2_status_t onInit() override final;

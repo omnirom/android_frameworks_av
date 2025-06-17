@@ -157,7 +157,8 @@ static inline bool apm_audio_out_device_distinguishes_on_address(audio_devices_t
 static inline bool apm_audio_in_device_distinguishes_on_address(audio_devices_t device)
 {
     return device == AUDIO_DEVICE_IN_REMOTE_SUBMIX ||
-           device == AUDIO_DEVICE_IN_BUS;
+           device == AUDIO_DEVICE_IN_BUS ||
+           device == AUDIO_DEVICE_IN_ECHO_REFERENCE;
 }
 
 /**
@@ -288,8 +289,8 @@ static inline audio_devices_t apm_extract_one_audio_device(
         // Multiple device selection is either:
         //  - dock + one other device: give priority to dock in this case.
         //  - speaker + one other device: give priority to speaker in this case.
-        //  - one A2DP device + another device: happens with duplicated output. In this case
-        // retain the device on the A2DP output as the other must not correspond to an active
+        //  - one removable device + another device: happens with duplicated output. In this case
+        // retain the removable device as the other must not correspond to an active
         // selection if not the speaker.
         //  - HDMI-CEC system audio mode only output: give priority to available item in order.
         if (deviceTypes.count(AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET) != 0) {
@@ -307,13 +308,13 @@ static inline audio_devices_t apm_extract_one_audio_device(
         } else if (deviceTypes.count(AUDIO_DEVICE_OUT_SPDIF) != 0) {
             return AUDIO_DEVICE_OUT_SPDIF;
         } else {
-            std::vector<audio_devices_t> a2dpDevices = android::Intersection(
-                    deviceTypes, android::getAudioDeviceOutAllA2dpSet());
-            if (a2dpDevices.empty() || a2dpDevices.size() > 1) {
+            std::vector<audio_devices_t> volumeDevices = android::Intersection(
+                    deviceTypes, android::getAudioDeviceOutPickForVolumeSet());
+            if (volumeDevices.empty() || volumeDevices.size() > 1) {
                 ALOGW("%s invalid device combination: %s",
                       __func__, android::dumpDeviceTypes(deviceTypes).c_str());
             }
-            return a2dpDevices.empty() ? AUDIO_DEVICE_NONE : a2dpDevices[0];
+            return volumeDevices.empty() ? AUDIO_DEVICE_NONE : volumeDevices[0];
         }
     }
 }

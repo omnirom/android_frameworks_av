@@ -31,6 +31,7 @@ cc_library_shared {
 
     shared_libs: [
         "audioclient-types-aidl-cpp",
+        "libaudiofoundation",
         "libbinder_ndk",
         "libdl",
         "libhidlbase",
@@ -75,6 +76,7 @@ cc_library_headers {
     name: "libaudiohal_headers",
 
     header_libs: [
+        "libaudiofoundation_headers",
         "libeffectsconfig_headers",
     ],
 

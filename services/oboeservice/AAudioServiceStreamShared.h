@@ -104,7 +104,9 @@ protected:
      * @return capacity or negative error
      */
     static int32_t calculateBufferCapacity(int32_t requestedCapacityFrames,
-                                            int32_t framesPerBurst);
+                                           int32_t framesPerBurst,
+                                           int32_t requestedSampleRate,
+                                           int32_t deviceSampleRate);
 
 private:
 

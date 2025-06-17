@@ -418,6 +418,12 @@ public:
     std::vector<int32_t> getAllOwners() const;
 
     /**
+     * Return the ClientDescriptor for a client which has opened the camera in
+     * shared mode corresponding to the given pid.
+     */
+    std::shared_ptr<ClientDescriptor<KEY, VALUE>> getSharedClient(int pid) const;
+
+    /**
      * Return the ClientDescriptor corresponding to the given key, or an empty shared pointer
      * if none exists.
      */
@@ -682,6 +688,20 @@ std::vector<int32_t> ClientManager<KEY, VALUE, LISTENER>::getAllOwners() const {
         owners.emplace(i->getOwnerId());
     }
     return std::vector<int32_t>(owners.begin(), owners.end());
+}
+
+template<class KEY, class VALUE, class LISTENER>
+std::shared_ptr<ClientDescriptor<KEY, VALUE>> ClientManager<KEY, VALUE, LISTENER>::getSharedClient(
+        int pid) const {
+    Mutex::Autolock lock(mLock);
+    if (flags::camera_multi_client()) {
+        for (const auto& i : mClients) {
+            if ((i->getOwnerId() == pid) && (i->getSharedMode())) {
+                return i;
+            }
+        }
+    }
+    return std::shared_ptr<ClientDescriptor<KEY, VALUE>>(nullptr);
 }
 
 template<class KEY, class VALUE, class LISTENER>

@@ -44,6 +44,8 @@
 #include <binder/IServiceManager.h>
 #include <camera/VendorTagDescriptor.h>
 
+#include "config/SharedSessionConfigUtils.h"
+
 namespace android {
 
 using hardware::camera2::utils::CameraIdAndSessionConfiguration;
@@ -88,7 +90,6 @@ enum SystemCameraKind {
 #define CAMERA_DEVICE_API_VERSION_1_0 HARDWARE_DEVICE_API_VERSION(1, 0)
 #define CAMERA_DEVICE_API_VERSION_1_2 HARDWARE_DEVICE_API_VERSION(1, 2)
 #define CAMERA_DEVICE_API_VERSION_1_3 HARDWARE_DEVICE_API_VERSION(1, 3)
-#define CAMERA_DEVICE_API_VERSION_1_4 HARDWARE_DEVICE_API_VERSION(1, 4)
 #define CAMERA_DEVICE_API_VERSION_3_0 HARDWARE_DEVICE_API_VERSION(3, 0)
 #define CAMERA_DEVICE_API_VERSION_3_1 HARDWARE_DEVICE_API_VERSION(3, 1)
 #define CAMERA_DEVICE_API_VERSION_3_2 HARDWARE_DEVICE_API_VERSION(3, 2)
@@ -282,6 +283,16 @@ public:
      * Return true if the camera device has no composite Jpeg/R support.
      */
     bool isCompositeJpegRDisabled(const std::string &id) const;
+
+    /**
+     * Return true if the camera device has no composite HEIC support.
+     */
+    bool isCompositeHeicDisabled(const std::string &id) const;
+
+    /**
+     * Return true if the camera device has no composite HEIC Ultra HDR support.
+     */
+    bool isCompositeHeicUltraHDRDisabled(const std::string &id) const;
 
     /**
      * Return the resource cost of this camera device
@@ -633,6 +644,7 @@ private:
             bool hasFlashUnit() const { return mHasFlashUnit; }
             bool supportNativeZoomRatio() const { return mSupportNativeZoomRatio; }
             bool isCompositeJpegRDisabled() const { return mCompositeJpegRDisabled; }
+            bool isCompositeHeicDisabled() const { return mCompositeHeicDisabled; }
             bool isCompositeHeicUltraHDRDisabled() const { return mCompositeHeicUltraHDRDisabled; }
             virtual status_t setTorchMode(bool enabled) = 0;
             virtual status_t turnOnTorchWithStrengthLevel(int32_t torchStrength) = 0;
@@ -691,14 +703,16 @@ private:
                     mTorchMaximumStrengthLevel(0), mTorchDefaultStrengthLevel(0),
                     mHasFlashUnit(false), mSupportNativeZoomRatio(false),
                     mPublicCameraIds(publicCameraIds), mCompositeJpegRDisabled(false),
-                    mCompositeHeicUltraHDRDisabled(false) {}
+                    mCompositeHeicDisabled(false), mCompositeHeicUltraHDRDisabled(false) {}
             virtual ~DeviceInfo() {}
         protected:
 
             bool mHasFlashUnit; // const after constructor
             bool mSupportNativeZoomRatio; // const after constructor
             const std::vector<std::string>& mPublicCameraIds;
-            bool mCompositeJpegRDisabled, mCompositeHeicUltraHDRDisabled;
+            bool mCompositeJpegRDisabled;
+            bool mCompositeHeicDisabled;
+            bool mCompositeHeicUltraHDRDisabled;
         };
         std::vector<std::unique_ptr<DeviceInfo>> mDevices;
         std::unordered_set<std::string> mUniqueCameraIds;
@@ -782,7 +796,7 @@ private:
             status_t addColorCorrectionAvailableModesTag(CameraMetadata& ch);
             status_t addAePriorityModeTags();
             status_t addSessionConfigQueryVersionTag();
-            status_t addSharedSessionConfigurationTags();
+            status_t addSharedSessionConfigurationTags(const std::string &cameraId);
             bool isAutomotiveDevice();
 
             static void getSupportedSizes(const CameraMetadata& ch, uint32_t tag,
@@ -907,6 +921,8 @@ private:
     ProviderInfo::DeviceInfo* findDeviceInfoLocked(const std::string& id) const;
 
     bool isCompositeJpegRDisabledLocked(const std::string &id) const;
+    bool isCompositeHeicDisabledLocked(const std::string &id) const;
+    bool isCompositeHeicUltraHDRDisabledLocked(const std::string &id) const;
 
     // Map external providers to USB devices in order to handle USB hotplug
     // events for lazy HALs

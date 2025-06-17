@@ -96,7 +96,10 @@ public:
     virtual const sp<IAfPatchPanel>& getPatchPanel() const = 0;
     virtual const sp<MelReporter>& getMelReporter() const = 0;
     virtual const sp<EffectsFactoryHalInterface>& getEffectsFactoryHal() const = 0;
-    virtual sp<IAudioManager> getOrCreateAudioManager() = 0;  // Tracks
+    // AudioService interfaces
+    virtual sp<IAudioManager> getOrCreateAudioManager() = 0;
+    // Populated after getOrCreateAudioManager
+    virtual sp<media::IAudioManagerNative> getAudioManagerNative() const = 0;
 
     virtual bool updateOrphanEffectChains(const sp<IAfEffectModule>& effect)
             EXCLUDES_AudioFlinger_Mutex = 0;
@@ -104,11 +107,6 @@ public:
             IAfPlaybackThread* srcThread, IAfPlaybackThread* dstThread,
             IAfEffectChain* srcChain = nullptr)
             REQUIRES(mutex(), audio_utils::ThreadBase_Mutex) = 0;
-
-    virtual void requestLogMerge() = 0;
-    virtual sp<NBLog::Writer> newWriter_l(size_t size, const char *name)
-            REQUIRES(mutex()) = 0;
-    virtual void unregisterWriter(const sp<NBLog::Writer>& writer) = 0;
 
     virtual sp<audioflinger::SyncEvent> createSyncEvent(AudioSystem::sync_event_t type,
             audio_session_t triggerSession,
@@ -130,6 +128,10 @@ public:
 
     virtual const ::com::android::media::permission::IPermissionProvider&
             getPermissionProvider() = 0;
+
+    virtual bool isHardeningOverrideEnabled() const = 0;
+
+    virtual bool hasAlreadyCaptured(uid_t uid) const = 0;
 };
 
 class IAfThreadBase : public virtual RefBase {
@@ -144,6 +146,7 @@ public:
         MMAP_CAPTURE,   // Thread class for MMAP capture stream
         SPATIALIZER,    //
         BIT_PERFECT,    // Thread class for BitPerfectThread
+        DIRECT_RECORD,  // Thread class for DirectRecordThread
         // When adding a value, also update IAfThreadBase::threadTypeToString()
     };
 
@@ -538,6 +541,8 @@ public:
 
     virtual IAfTrack* getTrackById_l(audio_port_handle_t trackId) REQUIRES(mutex()) = 0;
 
+    virtual std::vector<sp<IAfTrack>> getTracks_l() REQUIRES(mutex()) = 0;
+
     virtual bool hasMixer() const = 0;
 
     virtual status_t setRequestedLatencyMode(audio_latency_mode_t mode) = 0;
@@ -562,6 +567,7 @@ public:
 
     virtual status_t setPortsVolume(const std::vector<audio_port_handle_t> &portIds, float volume,
                                     bool muted) EXCLUDES_ThreadBase_Mutex = 0;
+    virtual void checkUpdateTrackMetadataForUid(uid_t uid) EXCLUDES_ThreadBase_Mutex = 0;
 };
 
 class IAfDirectOutputThread : public virtual IAfPlaybackThread {
@@ -686,6 +692,9 @@ public:
     virtual void invalidateTracks(std::set<audio_port_handle_t>& portIds)
             EXCLUDES_ThreadBase_Mutex = 0;
 
+    virtual void invalidateTracks(audio_stream_type_t streamType)
+            EXCLUDES_ThreadBase_Mutex = 0;
+
     // Sets the UID records silence - TODO(b/291317898)  move to IAfMmapCaptureThread
     virtual void setRecordSilenced(audio_port_handle_t portId, bool silenced)
             EXCLUDES_ThreadBase_Mutex = 0;
@@ -704,6 +713,7 @@ public:
 
     virtual status_t setPortsVolume(const std::vector<audio_port_handle_t>& portIds, float volume,
                                     bool muted) EXCLUDES_ThreadBase_Mutex = 0;
+    virtual void checkUpdateTrackMetadataForUid(uid_t uid) EXCLUDES_ThreadBase_Mutex = 0;
 };
 
 class IAfMmapCaptureThread : public virtual IAfMmapThread {

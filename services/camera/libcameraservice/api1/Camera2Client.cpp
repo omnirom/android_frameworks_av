@@ -71,7 +71,7 @@ Camera2Client::Camera2Client(
                         false /*systemNativeClient - since no ndk for api1*/, cameraDeviceId,
                         api1CameraId, cameraFacing, sensorOrientation, servicePid,
                         overrideForPerfClass, rotationOverride, sharedMode,
-                        /*legacyClient*/ true),
+                        /*isVendorClient*/ false, /*legacyClient*/ true),
       mParameters(api1CameraId, cameraFacing),
       mInitialized(false),
       mLatestRequestIds(kMaxRequestIds),
@@ -452,7 +452,7 @@ binder::Status Camera2Client::disconnect() {
     int callingPid = getCallingPid();
     if (callingPid != mCallingPid && callingPid != mServicePid) return res;
 
-    if (mDevice == 0) return res;
+    if (mDevice == nullptr) return res;
 
     ALOGV("Camera %d: Shutting down", mCameraId);
 
@@ -470,11 +470,11 @@ binder::Status Camera2Client::disconnect() {
         l.mParameters.state = Parameters::DISCONNECTED;
     }
 
-    mFrameProcessor->requestExit();
-    mCaptureSequencer->requestExit();
-    mJpegProcessor->requestExit();
-    mZslProcessor->requestExit();
-    mCallbackProcessor->requestExit();
+    if (mFrameProcessor != nullptr) mFrameProcessor->requestExit();
+    if (mCaptureSequencer != nullptr) mCaptureSequencer->requestExit();
+    if (mJpegProcessor != nullptr) mJpegProcessor->requestExit();
+    if (mZslProcessor != nullptr) mZslProcessor->requestExit();
+    if (mCallbackProcessor != nullptr) mCallbackProcessor->requestExit();
 
     ALOGV("Camera %d: Waiting for threads", mCameraId);
 
@@ -483,22 +483,24 @@ binder::Status Camera2Client::disconnect() {
         // complete callbacks that re-enter Camera2Client
         mBinderSerializationLock.unlock();
 
-        mFrameProcessor->join();
-        mCaptureSequencer->join();
-        mJpegProcessor->join();
-        mZslProcessor->join();
-        mCallbackProcessor->join();
+        if (mFrameProcessor != nullptr) mFrameProcessor->join();
+        if (mCaptureSequencer != nullptr) mCaptureSequencer->join();
+        if (mJpegProcessor != nullptr) mJpegProcessor->join();
+        if (mZslProcessor != nullptr) mZslProcessor->join();
+        if (mCallbackProcessor != nullptr) mCallbackProcessor->join();
 
         mBinderSerializationLock.lock();
     }
 
     ALOGV("Camera %d: Deleting streams", mCameraId);
 
-    mStreamingProcessor->deletePreviewStream();
-    mStreamingProcessor->deleteRecordingStream();
-    mJpegProcessor->deleteStream();
-    mCallbackProcessor->deleteStream();
-    mZslProcessor->deleteStream();
+    if (mStreamingProcessor != nullptr) {
+        mStreamingProcessor->deletePreviewStream();
+        mStreamingProcessor->deleteRecordingStream();
+    }
+    if (mJpegProcessor != nullptr) mJpegProcessor->deleteStream();
+    if (mCallbackProcessor != nullptr) mCallbackProcessor->deleteStream();
+    if (mZslProcessor != nullptr) mZslProcessor->deleteStream();
 
     ALOGV("Camera %d: Disconnecting device", mCameraId);
 

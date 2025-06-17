@@ -30,10 +30,13 @@
 #include "hardware/camera2.h"
 #include "camera/CameraMetadata.h"
 #include "camera/CaptureResult.h"
+#if not WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
 #include "gui/IGraphicBufferProducer.h"
+#endif
 #include "device3/Camera3StreamInterface.h"
 #include "device3/StatusTracker.h"
 #include "binder/Status.h"
+#include "FrameProcessorBase.h"
 #include "FrameProducer.h"
 #include "utils/IPCTransport.h"
 #include "utils/SessionConfigurationUtils.h"
@@ -47,7 +50,6 @@ namespace camera3 {
 typedef enum camera_stream_configuration_mode {
     CAMERA_STREAM_CONFIGURATION_NORMAL_MODE = 0,
     CAMERA_STREAM_CONFIGURATION_CONSTRAINED_HIGH_SPEED_MODE = 1,
-    CAMERA_STREAM_CONFIGURATION_SHARED_MODE = 2,
     CAMERA_VENDOR_STREAM_CONFIGURATION_MODE_START = 0x8000
 } camera_stream_configuration_mode_t;
 
@@ -108,6 +110,8 @@ class CameraDeviceBase : public virtual FrameProducer {
     virtual const CameraMetadata& infoPhysical(const std::string& physicalId) const = 0;
 
     virtual bool isCompositeJpegRDisabled() const { return false; };
+    virtual bool isCompositeHeicDisabled() const { return false; }
+    virtual bool isCompositeHeicUltraHDRDisabled() const { return false; }
 
     struct PhysicalCameraSettings {
         std::string cameraId;
@@ -301,7 +305,8 @@ class CameraDeviceBase : public virtual FrameProducer {
      * In shared session mode, this function retrieves the stream ID associated with a specific
      * output configuration.
      */
-    virtual status_t getSharedStreamId(const OutputConfiguration &config, int *streamId) = 0;
+    virtual status_t getSharedStreamId(const android::camera3::OutputStreamInfo &config,
+            int *streamId) = 0;
 
     /**
      * In shared session mode, this function add surfaces to an existing shared stream ID.
@@ -314,6 +319,49 @@ class CameraDeviceBase : public virtual FrameProducer {
      * In shared session mode, this function remove surfaces from an existing shared stream ID.
      */
     virtual status_t removeSharedSurfaces(int streamId, const std::vector<size_t> &surfaceIds) = 0;
+
+    /**
+     * In shared session mode, this function retrieves the frame processor.
+     */
+    virtual sp<camera2::FrameProcessorBase> getSharedFrameProcessor() = 0;
+
+    /**
+     * Submit a shared streaming request for streaming.
+     * Output lastFrameNumber is the last frame number of the previous streaming request.
+     */
+    virtual status_t setSharedStreamingRequest(
+            const PhysicalCameraSettingsList &request,
+            const SurfaceMap &surfaceMap, int32_t *sharedReqID,
+            int64_t *lastFrameNumber = NULL) = 0;
+
+    /**
+     * Clear the shared streaming request slot.
+     * Output lastFrameNumber is the last frame number of the previous streaming request.
+     */
+    virtual status_t clearSharedStreamingRequest(int64_t *lastFrameNumber = NULL) = 0;
+
+    /**
+     * In shared session mode, only primary clients can change the capture
+     * parameters through capture request or repeating request. When the primary
+     * client sends the capture request to the camera device, the request ID is
+     * overridden by the camera device to maintain unique ID. This API is
+     * similar to captureList API, with only difference that the request ID is
+     * changed by the device before submitting the request to HAL.
+     * Output sharedReqID is the request ID actually used.
+     * Output lastFrameNumber is the expected last frame number of the list of requests.
+     */
+    virtual status_t setSharedCaptureRequest(const PhysicalCameraSettingsList &request,
+                                 const SurfaceMap &surfaceMap, int32_t *sharedReqID,
+                                 int64_t *lastFrameNumber = NULL) = 0;
+
+    /**
+     * Submit a start streaming request.
+     * Output lastFrameNumber is the last frame number of the previous streaming request.
+     */
+    virtual status_t startStreaming(const int32_t reqId, const SurfaceMap &surfaceMap,
+            int32_t *sharedReqID, int64_t *lastFrameNumber = NULL) = 0;
+
+    virtual int32_t getCaptureResultFMQSize() = 0;
 
     /**
      * Take the currently-defined set of streams and configure the HAL to use
@@ -548,6 +596,9 @@ class CameraDeviceBase : public virtual FrameProducer {
     virtual status_t injectSessionParams(
         const CameraMetadata& sessionParams) = 0;
 
+    // Lock to synchronize onDeviceActive and onDeviceIdle callbacks when camera
+    // has been opened in shared mode.
+    mutable Mutex mSharedDeviceActiveLock;
 protected:
     bool mImageDumpMask = 0;
     std::vector<int64_t> mStreamUseCaseOverrides;

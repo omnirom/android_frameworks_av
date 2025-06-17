@@ -83,7 +83,9 @@ bool statsd_mediaparser(const std::shared_ptr<const mediametrics::Item>& item,
     item->getString("android.media.mediaparser.logSessionId", &logSessionId);
     logSessionId = mediametrics::ValidateId::get()->validateId(logSessionId);
 
-    const int result = stats::media_metrics::stats_write(
+    int result = 0;
+    if (__builtin_available(android 33, *)) {
+        result = stats::media_metrics::stats_write(
                                stats::media_metrics::MEDIAMETRICS_MEDIAPARSER_REPORTED,
                                timestamp_nanos,
                                package_name.c_str(),
@@ -100,6 +102,7 @@ bool statsd_mediaparser(const std::shared_ptr<const mediametrics::Item>& item,
                                videoWidth,
                                videoHeight,
                                logSessionId.c_str());
+    }
 
     std::stringstream log;
     log << "result:" << result << " {"

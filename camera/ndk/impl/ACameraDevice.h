@@ -127,6 +127,7 @@ class CameraDevice final : public RefBase {
 
     void setPrimaryClient(bool isPrimary) {mIsPrimaryClient = isPrimary;};
     bool isPrimaryClient() {return mIsPrimaryClient;};
+    bool isSharedMode() {return mSharedMode;};
 
   private:
     friend ACameraCaptureSession;
@@ -143,6 +144,15 @@ class CameraDevice final : public RefBase {
 
     camera_status_t waitUntilIdleLocked();
 
+    camera_status_t stopStreamingLocked();
+
+    template<class T>
+    camera_status_t startStreamingLocked(ACameraCaptureSession* session,
+            /*optional*/T* callbacks,
+            int numOutputWindows, ANativeWindow** windows, /*optional*/int* captureSequenceId);
+
+    ACaptureRequest* mPreviewRequest = nullptr;
+    std::vector<ACameraOutputTarget*> mPreviewRequestOutputs;
 
     template<class T>
     camera_status_t captureLocked(sp<ACameraCaptureSession> session,
@@ -476,11 +486,15 @@ struct ACameraDevice {
         mDevice->setPrimaryClient(isPrimary);
     }
 
-    inline bool isPrimaryClient() {
+    inline bool isPrimaryClient() const {
         return mDevice->isPrimaryClient();
     }
 
-  private:
+    inline bool isSharedMode() const{
+        return mDevice->isSharedMode();
+    }
+
+ private:
     android::sp<android::acam::CameraDevice> mDevice;
 };
 

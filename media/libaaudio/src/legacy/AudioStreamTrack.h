@@ -112,6 +112,8 @@ public:
     }
 
     void maybeCallPresentationEndCallback();
+
+    bool shouldStopStream() const final { return !mOffloadEosPending; }
     // Offload end ----------------------------------------
 
 #if AAUDIO_USE_VOLUME_SHAPER

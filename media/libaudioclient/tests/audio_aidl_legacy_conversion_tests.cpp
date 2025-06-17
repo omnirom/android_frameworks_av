@@ -188,6 +188,11 @@ AudioDeviceDescription make_ADD_UsbHeadset() {
                                        AudioDeviceDescription::CONNECTION_USB());
 }
 
+AudioDeviceDescription make_ADD_MultichannelGroup() {
+    return make_AudioDeviceDescription(AudioDeviceType::OUT_MULTICHANNEL_GROUP,
+                                       AudioDeviceDescription::CONNECTION_VIRTUAL());
+}
+
 AudioDevice make_AudioDevice(const AudioDeviceDescription& type,
                              const AudioDeviceAddress& address) {
     AudioDevice result;
@@ -481,7 +486,9 @@ INSTANTIATE_TEST_SUITE_P(
                                          std::vector<uint8_t>{192, 168, 0, 1})),
                 make_AudioDevice(make_ADD_UsbHeadset(),
                                  AudioDeviceAddress::make<AudioDeviceAddress::Tag::alsa>(
-                                         std::vector<int32_t>{1, 2}))));
+                                         std::vector<int32_t>{1, 2})),
+                make_AudioDevice(make_ADD_MultichannelGroup(),
+                                 AudioDeviceAddress::make<AudioDeviceAddress::Tag::id>("id"))));
 
 TEST(AnonymizedBluetoothAddressRoundTripTest, Legacy2Aidl2Legacy) {
     const std::vector<uint8_t> sAnonymizedAidlAddress {0xFD, 0xFF, 0xFF, 0xFF, 0xAB, 0xCD};

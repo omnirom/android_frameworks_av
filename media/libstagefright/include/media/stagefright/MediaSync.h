@@ -17,7 +17,13 @@
 #ifndef MEDIA_SYNC_H
 #define MEDIA_SYNC_H
 
+#include <com_android_graphics_libgui_flags.h>
+
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+#include <gui/BufferItemConsumer.h>
+#else
 #include <gui/IConsumerListener.h>
+#endif
 #include <gui/IProducerListener.h>
 
 #include <media/AudioResamplerPublic.h>
@@ -34,7 +40,9 @@ class AudioTrack;
 class BufferItem;
 class Fence;
 class GraphicBuffer;
+#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
 class IGraphicBufferConsumer;
+#endif
 class IGraphicBufferProducer;
 struct MediaClock;
 struct VideoFrameScheduler;
@@ -140,14 +148,19 @@ private:
 
     // This is a thin wrapper class that lets us listen to
     // IConsumerListener::onFrameAvailable from mInput.
-    class InputListener : public BnConsumerListener,
-                          public IBinder::DeathRecipient {
-    public:
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    class InputListener : public BufferItemConsumer::FrameAvailableListener {
+#else
+    class InputListener : public IConsumerListener, public IBinder::DeathRecipient {
+#endif
+      public:
         InputListener(const sp<MediaSync> &sync);
         virtual ~InputListener();
 
-        // From IConsumerListener
-        virtual void onFrameAvailable(const BufferItem &item);
+        // From FrameAvailableListener
+        virtual void onFrameAvailable(const BufferItem&) override;
+
+#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
 
         // From IConsumerListener
         // We don't care about released buffers because we detach each buffer as
@@ -161,8 +174,9 @@ private:
 
         // From IBinder::DeathRecipient
         virtual void binderDied(const wp<IBinder> &who);
+#endif
 
-    private:
+      private:
         sp<MediaSync> mSync;
     };
 
@@ -193,7 +207,12 @@ private:
     mutable Mutex mMutex;
     Condition mReleaseCondition;
     size_t mNumOutstandingBuffers;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    sp<BufferItemConsumer> mInput;
+    sp<InputListener> mListener;  // listener for mInput, so the reference isn't dropped.
+#else
     sp<IGraphicBufferConsumer> mInput;
+#endif
     sp<IGraphicBufferProducer> mOutput;
     int mUsageFlagsFromOutput;
     uint32_t mMaxAcquiredBufferCount; // max acquired buffer count

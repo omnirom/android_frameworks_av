@@ -15,6 +15,7 @@ cc_test {
     static_libs: [
         "libresourcemanagerservice",
         "aconfig_mediacodec_flags_c_lib",
+        "android.media.codec-aconfig-cc",
     ],
     shared_libs: [
         "libbinder",
@@ -27,6 +28,7 @@ cc_test {
         "libstatspull",
         "libstatssocket",
         "libactivitymanager_aidl",
+        "libaconfig_storage_read_api_cc",
         "server_configurable_flags",
     ],
     defaults: [
@@ -70,6 +72,7 @@ cc_test {
         "libresourcemanagerservice",
         "resourceobserver_aidl_interface-V1-ndk",
         "aconfig_mediacodec_flags_c_lib",
+        "android.media.codec-aconfig-cc",
     ],
     shared_libs: [
         "libbinder",
@@ -82,6 +85,7 @@ cc_test {
         "libstatspull",
         "libstatssocket",
         "libactivitymanager_aidl",
+        "libaconfig_storage_read_api_cc",
         "server_configurable_flags",
     ],
     defaults: [

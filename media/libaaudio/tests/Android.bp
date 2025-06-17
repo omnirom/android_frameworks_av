@@ -276,3 +276,19 @@ cc_test {
         ],
     },
 }
+
+cc_binary {
+    name: "test_pcm_offload",
+    defaults: ["libaaudio_tests_defaults"],
+    srcs: ["test_pcm_offload.cpp"],
+    header_libs: ["libaaudio_example_utils"],
+    shared_libs: ["libaaudio"],
+}
+
+cc_binary {
+    name: "test_compress_offload",
+    defaults: ["libaaudio_tests_defaults"],
+    srcs: ["test_compress_offload.cpp"],
+    header_libs: ["libaaudio_example_utils"],
+    shared_libs: ["libaaudio"],
+}

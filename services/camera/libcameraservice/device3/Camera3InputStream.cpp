@@ -257,15 +257,8 @@ status_t Camera3InputStream::configureQueueLocked() {
     mLastTimestamp = 0;
 
     if (mConsumer.get() == 0) {
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-        sp<BufferItemConsumer> bufferItemConsumer = new BufferItemConsumer(mUsage);
-        sp<IGraphicBufferProducer> producer =
-                bufferItemConsumer->getSurface()->getIGraphicBufferProducer();
-#else
-        sp<IGraphicBufferProducer> producer;
-        sp<IGraphicBufferConsumer> consumer;
-        BufferQueue::createBufferQueue(&producer, &consumer);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
+        auto [bufferItemConsumer, surface] = BufferItemConsumer::create(mUsage);
+        sp<IGraphicBufferProducer> producer = surface->getIGraphicBufferProducer();
 
         int minUndequeuedBuffers = 0;
         res = producer->query(NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS, &minUndequeuedBuffers);
@@ -301,17 +294,15 @@ status_t Camera3InputStream::configureQueueLocked() {
         mConsumer->setMaxAcquiredBufferCount(mTotalBufferCount);
 
 #if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
-        mSurface = mConsumer->getSurface();
+        mSurface = surface;
 #else
-        mProducer = mConsumer->getSurface()->getIGraphicBufferProducer();
+        mProducer = producer;
 #endif // WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
 
 #else
-        mConsumer = new BufferItemConsumer(consumer, mUsage,
-                                           mTotalBufferCount);
+        std::tie(mConsumer, surface) = BufferItemConsumer::create(mUsage, mTotalBufferCount);
+        mProducer = surface->getIGraphicBufferProducer();
         mConsumer->setName(String8::format("Camera3-InputStream-%d", mId));
-
-        mProducer = producer;
 #endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
         mConsumer->setBufferFreedListener(this);

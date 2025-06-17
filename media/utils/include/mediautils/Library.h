@@ -17,6 +17,7 @@
 #pragma once
 
 #include <dlfcn.h>
+#include <memory>
 #include <string>
 #include <unistd.h>
 

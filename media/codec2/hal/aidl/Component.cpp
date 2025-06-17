@@ -209,6 +209,22 @@ Component::Component(
     mInterface = SharedRefBase::make<ComponentInterface>(
             component->intf(), mMultiAccessUnitIntf, store->getParameterCache());
     mInit = mInterface->status();
+    mBlockFenceSupport = false;
+    if (mInit != C2_OK) {
+        return;
+    }
+    std::shared_ptr<C2ComponentInterface> intf = component->intf();
+    if (!intf) {
+        return;
+    }
+    c2_status_t err = C2_OK;
+    std::vector<std::unique_ptr<C2Param>> heapParams;
+    C2ApiFeaturesSetting features = (C2Config::api_feature_t)0;
+    err = intf->query_vb({&features}, {}, C2_MAY_BLOCK, &heapParams);
+    if (err == C2_OK &&
+            ((features.value & C2Config::API_BLOCK_FENCES) != 0)) {
+        mBlockFenceSupport = true;
+    }
 }
 
 c2_status_t Component::status() const {
@@ -363,6 +379,7 @@ ScopedAStatus Component::createBlockPool(
             allocatorParam.igba = allocator.gbAllocator->igba;
             allocatorParam.waitableFd.reset(
                     allocator.gbAllocator->waitableFd.dup().release());
+            allocatorParam.blockFenceSupport = mBlockFenceSupport;
         }
         break;
         default: {

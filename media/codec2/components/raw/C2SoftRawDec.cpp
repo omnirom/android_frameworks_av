@@ -112,6 +112,13 @@ C2SoftRawDec::C2SoftRawDec(
       mIntf(intfImpl) {
 }
 
+C2SoftRawDec::C2SoftRawDec(
+        const char *name,
+        c2_node_id_t id,
+        const std::shared_ptr<C2ReflectorHelper> &helper)
+    : C2SoftRawDec(name, id, std::make_shared<IntfImpl>(helper)) {
+}
+
 C2SoftRawDec::~C2SoftRawDec() {
     onRelease();
 }

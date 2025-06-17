@@ -247,14 +247,14 @@ void AsyncCodecHandler::onMessageReceived(const sp<AMessage>& msg) {
         case FrameDecoder::kWhatCallbackNotify:
             int32_t callbackId;
             if (!msg->findInt32("callbackID", &callbackId)) {
-                ALOGE("kWhatCallbackNotify: callbackID is expected.");
+                ALOGD("kWhatCallbackNotify: callbackID is expected.");
                 break;
             }
             switch (callbackId) {
                 case MediaCodec::CB_INPUT_AVAILABLE: {
                     int32_t index;
                     if (!msg->findInt32("index", &index)) {
-                        ALOGE("CB_INPUT_AVAILABLE: index is expected.");
+                        ALOGD("CB_INPUT_AVAILABLE: index is expected.");
                         break;
                     }
                     ALOGD("CB_INPUT_AVAILABLE received, index is %d", index);
@@ -269,7 +269,7 @@ void AsyncCodecHandler::onMessageReceived(const sp<AMessage>& msg) {
                     int64_t timeUs;
                     CHECK(msg->findInt32("index", &index));
                     CHECK(msg->findInt64("timeUs", &timeUs));
-                    ALOGD("CB_OUTPUT_AVAILABLE received, index is %d", index);
+                    ALOGV("CB_OUTPUT_AVAILABLE received, index is %d", index);
                     sp<FrameDecoder> frameDecoder = mFrameDecoder.promote();
                     if (frameDecoder != nullptr) {
                         frameDecoder->handleOutputBufferAsync(index, timeUs);
@@ -277,10 +277,10 @@ void AsyncCodecHandler::onMessageReceived(const sp<AMessage>& msg) {
                     break;
                 }
                 case MediaCodec::CB_OUTPUT_FORMAT_CHANGED: {
-                    ALOGD("CB_OUTPUT_FORMAT_CHANGED received");
+                    ALOGV("CB_OUTPUT_FORMAT_CHANGED received");
                     sp<AMessage> format;
                     if (!msg->findMessage("format", &format) || format == nullptr) {
-                        ALOGE("CB_OUTPUT_FORMAT_CHANGED: format is expected.");
+                        ALOGD("CB_OUTPUT_FORMAT_CHANGED: format is expected.");
                         break;
                     }
                     sp<FrameDecoder> frameDecoder = mFrameDecoder.promote();
@@ -294,25 +294,38 @@ void AsyncCodecHandler::onMessageReceived(const sp<AMessage>& msg) {
                     int32_t actionCode;
                     AString detail;
                     if (!msg->findInt32("err", &err)) {
-                        ALOGE("CB_ERROR: err is expected.");
+                        ALOGD("CB_ERROR: err is expected.");
                         break;
                     }
                     if (!msg->findInt32("actionCode", &actionCode)) {
-                        ALOGE("CB_ERROR: actionCode is expected.");
+                        ALOGD("CB_ERROR: actionCode is expected.");
                         break;
                     }
                     msg->findString("detail", &detail);
-                    ALOGE("Codec reported error(0x%x/%s), actionCode(%d), detail(%s)", err,
+                    ALOGI("Codec reported error(0x%x/%s), actionCode(%d), detail(%s)", err,
                           StrMediaError(err).c_str(), actionCode, detail.c_str());
                     break;
                 }
-                default:
-                    ALOGE("kWhatCallbackNotify: callbackID(%d) is unexpected.", callbackId);
+                case MediaCodec::CB_REQUIRED_RESOURCES_CHANGED:
+                case MediaCodec::CB_METRICS_FLUSHED:
+                {
+                    // Nothing to do. Informational. Safe to ignore.
                     break;
+                }
+
+                case MediaCodec::CB_LARGE_FRAME_OUTPUT_AVAILABLE:
+                // unexpected as we are not using large frames
+                case MediaCodec::CB_CRYPTO_ERROR:
+                // unexpected as we are not using crypto
+                default:
+                {
+                    ALOGD("kWhatCallbackNotify: callbackID(%d) is unexpected.", callbackId);
+                    break;
+                }
             }
             break;
         default:
-            ALOGE("unexpected message received: %s", msg->debugString().c_str());
+            ALOGD("unexpected message received: %s", msg->debugString().c_str());
             break;
     }
 }
@@ -391,7 +404,8 @@ FrameDecoder::FrameDecoder(
       mDstFormat(OMX_COLOR_Format16bitRGB565),
       mDstBpp(2),
       mHaveMoreInputs(true),
-      mFirstSample(true) {
+      mFirstSample(true),
+      mSourceStopped(false) {
 }
 
 FrameDecoder::~FrameDecoder() {
@@ -401,7 +415,9 @@ FrameDecoder::~FrameDecoder() {
     }
     if (mDecoder != NULL) {
         mDecoder->release();
-        mSource->stop();
+        if (!mSourceStopped) {
+            mSource->stop();
+        }
     }
 }
 
@@ -706,8 +722,12 @@ status_t FrameDecoder::extractInternalUsingBlockModel() {
 
     // wait for handleOutputBufferAsync() to finish
     std::unique_lock _lk(mMutex);
-    mOutputFramePending.wait_for(_lk, std::chrono::microseconds(kAsyncBufferTimeOutUs),
-                                 [this] { return mHandleOutputBufferAsyncDone; });
+    if (!mOutputFramePending.wait_for(_lk, std::chrono::microseconds(kAsyncBufferTimeOutUs),
+                                 [this] { return mHandleOutputBufferAsyncDone; })) {
+        ALOGE("%s timed out waiting for handleOutputBufferAsync() to complete.", __func__);
+        mSource->stop();
+        mSourceStopped = true;
+    }
     return mHandleOutputBufferAsyncDone ? OK : TIMED_OUT;
 }
 

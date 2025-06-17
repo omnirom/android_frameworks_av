@@ -21,6 +21,8 @@
 #include <audio_utils/mutex.h>
 #include <audiomanager/IAudioManager.h>
 #include <binder/IMemory.h>
+#include <media/AppOpsSession.h>
+#include <mediautils/SingleThreadExecutor.h>
 #include <datapath/VolumePortInterface.h>
 #include <fastpath/FastMixerDumpState.h>
 #include <media/AudioSystem.h>
@@ -45,6 +47,7 @@ class IAfPatchTrack;
 class IAfPlaybackThread;
 class IAfRecordThread;
 class IAfThreadBase;
+class IAfThreadCallback;
 
 struct TeePatch {
     sp<IAfPatchRecord> patchRecord;
@@ -131,6 +134,7 @@ public:
     virtual status_t getNextBuffer(AudioBufferProvider::Buffer* buffer) = 0;
     virtual void releaseBuffer(AudioBufferProvider::Buffer* buffer) = 0;
 
+    virtual void signal() = 0;
     // Added for RecordTrack and OutputTrack
     virtual wp<IAfThreadBase> thread() const = 0;
     virtual const sp<ServerProxy>& serverProxy() const = 0;
@@ -258,8 +262,100 @@ public:
     virtual bool isStopping_2() const = 0;
 };
 
-// Common interface for Playback tracks.
-class IAfTrack : public virtual IAfTrackBase, public virtual VolumePortInterface {
+// Functionality shared between MMAP and audioflinger datapath playback tracks. Note that MMAP
+// tracks don't implement the IAfTrack, just IAfTrackBase
+// Not a pure interface since no forward declaration necessary.
+class AfPlaybackCommon : public virtual VolumePortInterface {
+    using AppOpsSession = media::permission::AppOpsSession<media::permission::DefaultAppOpsFacade>;
+
+  public:
+    enum class EnforcementLevel {
+        NONE, // no enforcement
+        PARTIAL, // enforcement for CONTROL_PARTIAL
+        FULL, // enforcement for CONTROL
+    };
+
+    AfPlaybackCommon(IAfTrackBase& self, IAfThreadBase& thread, float volume, bool muted,
+                     const audio_attributes_t& attr,
+                     const AttributionSourceState& attributionSource,
+                     bool isOffloadOrMmap,
+                     bool shouldPlaybackHarden = true);
+
+    /**
+     * Updates the mute state and notifies the audio service.
+     */
+    void processMuteEvent(media::IAudioManagerNative& am, mute_state_t muteState);
+
+    void maybeLogPlaybackHardening(media::IAudioManagerNative& am) const;
+
+    // Restricted due to OP_AUDIO_CONTROL_PARTIAL
+    bool hasOpControlPartial() const {
+        return mOpControlPartialSession ? mHasOpControlPartial.load(std::memory_order_acquire)
+                                        : true;
+    }
+
+    // Restricted due to OP_AUDIO_CONTROL
+    bool hasOpControlFull() const {
+        return mOpControlFullSession ? mHasOpControlFull.load(std::memory_order_acquire) : true;
+    }
+
+    bool isPlaybackRestrictedControl() const {
+        using enum EnforcementLevel;
+        switch (mEnforcementLevel) {
+            case NONE:
+                return false;
+            case PARTIAL:
+                return !hasOpControlPartial();
+            case FULL:
+                return !hasOpControlFull();
+        }
+    }
+
+    // VolumePortInterface implementation
+    // for now the secondary patch tracks will always be not muted
+    // TODO(b/388241142): use volume capture rules to forward the vol/mute to patch tracks
+
+    void setPortVolume(float volume) final { mVolume = volume; }
+
+    void setPortMute(bool muted) final {
+        mMutedFromPort = muted;
+    }
+
+    float getPortVolume() const final { return mVolume; }
+
+    bool getPortMute() const final { return mMutedFromPort; }
+
+  protected:
+    // The following methods are for notifying that sonifying playback intends to begin/end
+    // for playback hardening purposes.
+    // TODO(b/385417236) once mute logic is centralized, the delivery request session should be
+    // tied to sonifying playback instead of track start->pause
+    void startPlaybackDelivery();
+    void endPlaybackDelivery();
+
+  private:
+    const IAfTrackBase& mSelf;
+
+    std::optional<mediautils::SingleThreadExecutor> mExecutor;
+    // TODO: atomic necessary if underneath thread lock?
+    std::atomic<mute_state_t> mMuteState;
+    std::atomic<bool> mMutedFromPort;
+    // associated with port
+    std::atomic<float> mVolume = 0.0f;
+
+    const EnforcementLevel mEnforcementLevel;
+
+    std::atomic<bool> mHasOpControlPartial {true};
+    std::atomic<bool> mHasOpControlFull {true};
+    mutable std::atomic<bool> mPlaybackHardeningLogged {false};
+    // the ref behind the optional is const
+    // these members are last in decl order to ensure it is destroyed first
+    std::optional<AppOpsSession> mOpControlPartialSession;
+    std::optional<AppOpsSession> mOpControlFullSession;
+};
+
+// Common interface for audioflinger Playback tracks.
+class IAfTrack : public virtual IAfTrackBase, public virtual AfPlaybackCommon {
 public:
     // FillingStatus is used for suppressing volume ramp at begin of playing
     enum FillingStatus { FS_INVALID, FS_FILLING, FS_FILLED, FS_ACTIVE };
@@ -323,7 +419,6 @@ public:
     virtual float* mainBuffer() const = 0;
     virtual int auxEffectId() const = 0;
     virtual status_t getTimestamp(AudioTimestamp& timestamp) = 0;
-    virtual void signal() = 0;
     virtual status_t getDualMonoMode(audio_dual_mono_mode_t* mode) const = 0;
     virtual status_t setDualMonoMode(audio_dual_mono_mode_t mode) = 0;
     virtual status_t getAudioDescriptionMixLevel(float* leveldB) const = 0;
@@ -382,19 +477,16 @@ public:
     virtual audio_output_flags_t getOutputFlags() const = 0;
     virtual float getSpeed() const = 0;
 
-    /**
-     * Updates the mute state and notifies the audio service. Call this only when holding player
-     * thread lock.
-     */
-    virtual void processMuteEvent_l(
-            const sp<IAudioManager>& audioManager, mute_state_t muteState) = 0;
-
     virtual void triggerEvents(AudioSystem::sync_event_t type) = 0;
 
     virtual void disable() = 0;
     virtual bool isDisabled() const = 0;
 
     virtual int& fastIndex() = 0;
+
+    // Restricted due to OP_PLAY_AUDIO
+    virtual bool isPlaybackRestrictedOp() const = 0;
+
     virtual bool isPlaybackRestricted() const = 0;
 
     // Used by thread only
@@ -469,7 +561,7 @@ public:
     virtual ExtendedTimestamp getClientProxyTimestamp() const = 0;
 };
 
-class IAfMmapTrack : public virtual IAfTrackBase, public virtual VolumePortInterface {
+class IAfMmapTrack : public virtual IAfTrackBase, public virtual AfPlaybackCommon {
 public:
     static sp<IAfMmapTrack> create(IAfThreadBase* thread,
             const audio_attributes_t& attr,
@@ -496,13 +588,6 @@ public:
     virtual bool isSilenced_l() const = 0;
     // protected by MMapThread::mLock
     virtual bool getAndSetSilencedNotified_l() = 0;
-
-    /**
-     * Updates the mute state and notifies the audio service. Call this only when holding player
-     * thread lock.
-     */
-    virtual void processMuteEvent_l(  // see IAfTrack
-            const sp<IAudioManager>& audioManager, mute_state_t muteState) = 0;
 };
 
 class RecordBufferConverter;
@@ -560,6 +645,7 @@ public:
     virtual status_t setPreferredMicrophoneFieldDimension(float zoom) = 0;
     virtual status_t shareAudioHistory(
             const std::string& sharedAudioPackageName, int64_t sharedAudioStartMs) = 0;
+    virtual status_t setParameters(const String8& keyValuePairs) = 0;
     virtual int32_t startFrames() const = 0;
 
     static bool checkServerLatencySupported(audio_format_t format, audio_input_flags_t flags) {
