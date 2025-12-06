@@ -239,7 +239,7 @@ cc_library {
         "-Werror",
         "-Wno-ignored-qualifiers",
     ] + select(soong_config_variable("camera", "camera_needs_client_info"), {
-        "true": ["-DTARGET_CAMERA_NEEDS_CLIENT_INFO"],
+        true: ["-DTARGET_CAMERA_NEEDS_CLIENT_INFO"],
         default: [],
     }),
 }
