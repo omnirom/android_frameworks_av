@@ -61,6 +61,7 @@ cc_library {
         "latest_android_media_audio_common_types_cpp_export_shared",
     ],
     shared_libs: [
+        "android.media.audiopolicy-aconfig-cc",
         "audioclient-types-aidl-cpp",
         "audioflinger-aidl-cpp",
         "audiopolicy-aidl-cpp",
@@ -100,7 +101,7 @@ cc_library {
         export_aidl_headers: true,
         local_include_dirs: ["aidl"],
         include_dirs: [
-            "frameworks/av/aidl",
+            "frameworks/av/media/aidl",
         ],
     },
 
@@ -116,6 +117,7 @@ cc_library {
         "AudioTrack.cpp",
         "AudioTrackShared.cpp",
         "IAudioFlinger.cpp",
+        "MmapStreamInterface.cpp",
         "PlayerBase.cpp",
         "RecordingActivityTracker.cpp",
         "ToneGenerator.cpp",
@@ -175,6 +177,7 @@ cc_library {
     ],
     header_libs: [
         "libaudioclient_headers",
+        "libaudioutils_headers",
         "libbase_headers",
         "libmedia_headers",
     ],
@@ -217,9 +220,11 @@ cc_library {
     export_include_dirs: ["include"],
     header_libs: [
         "libaudio_aidl_conversion_common_util_cpp",
+        "libaudioutils_headers",
     ],
     export_header_lib_headers: [
         "libaudio_aidl_conversion_common_util_cpp",
+        "libaudioutils_headers",
     ],
     export_shared_lib_headers: [
         "audioclient-types-aidl-cpp",
@@ -320,6 +325,7 @@ aidl_interface {
         "aidl/android/media/DeviceConnectedState.aidl",
         "aidl/android/media/EffectDescriptor.aidl",
         "aidl/android/media/SurroundSoundConfig.aidl",
+        "aidl/android/media/TimerQueueHandle.aidl",
         "aidl/android/media/TrackInternalMuteInfo.aidl",
         "aidl/android/media/TrackSecondaryOutputInfo.aidl",
     ],
@@ -423,6 +429,12 @@ aidl_interface {
         "aidl/android/media/IAudioTrack.aidl",
         "aidl/android/media/IAudioTrackCallback.aidl",
 
+        "aidl/android/media/IMmapStream.aidl",
+        "aidl/android/media/IMmapStreamCallback.aidl",
+        "aidl/android/media/MmapBufferInfo.aidl",
+        "aidl/android/media/OpenMmapRequest.aidl",
+        "aidl/android/media/OpenMmapResponse.aidl",
+
         "aidl/android/media/ISoundDose.aidl",
         "aidl/android/media/ISoundDoseCallback.aidl",
         "aidl/android/media/SoundDoseRecord.aidl",
@@ -465,6 +477,7 @@ aidl_interface {
         "aidl/android/media/IAudioPolicyService.aidl",
         "aidl/android/media/IAudioPolicyServiceClient.aidl",
         "aidl/android/media/RecordClientInfo.aidl",
+        "aidl/android/media/StartOutputResponse.aidl",
     ],
     defaults: [
         "latest_android_media_audio_common_types_import_interface",

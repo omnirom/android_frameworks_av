@@ -101,10 +101,6 @@ cc_defaults {
         "libutils",
         "packagemanager_aidl-cpp",
     ],
-
-    static_libs: [
-        "libaudioflinger",
-    ],
 }
 
 cc_library_static {

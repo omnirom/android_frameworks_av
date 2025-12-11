@@ -29,88 +29,56 @@ using aidl::android::media::audio::IHalAdapterVendorExtension;
 
 namespace android {
 
-status_t parseAndGetVendorParameters(
-        std::shared_ptr<IHalAdapterVendorExtension> vendorExt,
-        const VendorParametersRecipient& recipient,
-        const AudioParameter& parameterKeys,
-        String8* values) {
-    using ParameterScope = IHalAdapterVendorExtension::ParameterScope;
-    if (parameterKeys.size() == 0) return OK;
-    const String8 rawKeys = parameterKeys.keysToString();
-
-    std::vector<std::string> parameterIds;
-    RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(vendorExt->parseVendorParameterIds(
-                            ParameterScope(recipient.index()),
-                            std::string(rawKeys.c_str()), &parameterIds)));
-    if (parameterIds.empty()) return OK;
-
-    std::vector<VendorParameter> parameters;
-    if (recipient.index() == static_cast<int>(ParameterScope::MODULE)) {
-        auto module = std::get<static_cast<int>(ParameterScope::MODULE)>(recipient);
-        RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(module->getVendorParameters(
-                                parameterIds, &parameters)));
-    } else if (recipient.index() == static_cast<int>(ParameterScope::STREAM)) {
-        auto stream = std::get<static_cast<int>(ParameterScope::STREAM)>(recipient);
-        RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(stream->getVendorParameters(
-                                parameterIds, &parameters)));
-    } else {
-        LOG_ALWAYS_FATAL("%s: unexpected recipient variant index: %zu",
-                __func__, recipient.index());
-    }
-    if (!parameters.empty()) {
-        std::string vendorParameters;
-        RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(vendorExt->processVendorParameters(
-                                ParameterScope(recipient.index()),
-                                parameters, &vendorParameters)));
-        // Re-parse the vendor-provided string to ensure that it is correct.
-        AudioParameter reparse(String8(vendorParameters.c_str()));
-        if (reparse.size() != 0) {
-            if (values->length() > 0) {
-                values->append(";");
-            }
-            values->append(reparse.toString().c_str());
+status_t reparseVendorParameters(const std::string& vendorParameters, String8* values) {
+    // Re-parse the vendor-provided string to ensure that it is correct.
+    AudioParameter reparse(String8(vendorParameters.c_str()));
+    if (reparse.size() != 0) {
+        if (values->length() > 0) {
+            values->append(";");
         }
+        values->append(reparse.toString().c_str());
     }
     return OK;
 }
 
-status_t parseAndSetVendorParameters(
-        std::shared_ptr<IHalAdapterVendorExtension> vendorExt,
-        const VendorParametersRecipient& recipient,
-        const AudioParameter& parameters) {
-    using ParameterScope = IHalAdapterVendorExtension::ParameterScope;
-    if (parameters.size() == 0) return OK;
-    const String8 rawKeysAndValues = parameters.toString();
+status_t fillVendorParameterIds(std::shared_ptr<IHalAdapterVendorExtension> vendorExt,
+                                IHalAdapterVendorExtension::ParameterScope scope,
+                                const AudioParameter& parameterKeys,
+                                std::vector<std::string>& vendorParametersIds) {
+    if (parameterKeys.size() == 0) return OK;
+    const String8 rawKeys = parameterKeys.keysToString();
+    assert(vendorParametersIds.size() == 0);
+    RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(vendorExt->parseVendorParameterIds(
+            scope, std::string(rawKeys.c_str()), &vendorParametersIds)));
+    return OK;
+}
 
-    std::vector<VendorParameter> syncParameters, asyncParameters;
-    RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(vendorExt->parseVendorParameters(
-                            ParameterScope(recipient.index()),
-                            std::string(rawKeysAndValues.c_str()),
-                            &syncParameters, &asyncParameters)));
-    if (recipient.index() == static_cast<int>(ParameterScope::MODULE)) {
-        auto module = std::get<static_cast<int>(ParameterScope::MODULE)>(recipient);
-        if (!syncParameters.empty()) {
-            RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(module->setVendorParameters(
-                                    syncParameters, false /*async*/)));
-        }
-        if (!asyncParameters.empty()) {
-            RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(module->setVendorParameters(
-                                    asyncParameters, true /*async*/)));
-        }
-    } else if (recipient.index() == static_cast<int>(ParameterScope::STREAM)) {
-        auto stream = std::get<static_cast<int>(ParameterScope::STREAM)>(recipient);
-        if (!syncParameters.empty()) {
-            RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(stream->setVendorParameters(
-                                    syncParameters, false /*async*/)));
-        }
-        if (!asyncParameters.empty()) {
-            RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(stream->setVendorParameters(
-                                    asyncParameters, true /*async*/)));
-        }
-    } else {
-        LOG_ALWAYS_FATAL("%s: unexpected recipient variant index: %zu",
-                __func__, recipient.index());
+status_t fillKeyValuePairsFromVendorParameters(
+        std::shared_ptr<IHalAdapterVendorExtension> vendorExt,
+        IHalAdapterVendorExtension::ParameterScope scope,
+        const std::vector<VendorParameter>& vendorParameters, String8* values) {
+    if (vendorParameters.empty()) {
+        return OK;
     }
+    std::string keyValuePairs;
+    RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(
+            vendorExt->processVendorParameters(scope, vendorParameters, &keyValuePairs)));
+    RETURN_STATUS_IF_ERROR(reparseVendorParameters(keyValuePairs, values));
+    return OK;
+}
+
+status_t fillVendorParameters(std::shared_ptr<IHalAdapterVendorExtension> vendorExt,
+                              IHalAdapterVendorExtension::ParameterScope scope,
+                              const AudioParameter& parameters,
+                              std::vector<VendorParameter>& syncParameters,
+                              std::vector<VendorParameter>& asyncParameters) {
+    if (parameters.size() == 0) return OK;
+
+    assert(syncParameters.empty() && asyncParameters.empty());
+
+    const String8 rawKeysAndValues = parameters.toString();
+    RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(vendorExt->parseVendorParameters(
+            scope, std::string(rawKeysAndValues.c_str()), &syncParameters, &asyncParameters)));
     return OK;
 }
 

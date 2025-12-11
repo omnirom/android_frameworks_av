@@ -31,6 +31,8 @@
 
 namespace aidl::android::hardware::media::c2::utils {
 
+using implementation::InputSurfaceSource;
+
 using ImageConfig = InputSurface::ImageConfig;
 using StreamConfig = InputSurface::StreamConfig;
 using WorkStatusConfig = InputSurface::WorkStatusConfig;
@@ -169,8 +171,8 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mInputDone, C2_PARAMKEY_LAYER_INDEX)
-                .withDefault(new C2StreamLayerIndexInfo::output(0u, UINT32_MAX))
+                DefineParam(mInputDone, C2_PARAMKEY_OUTPUT_COUNTER)
+                .withDefault(new C2PortConfigCounterTuning::output(UINT64_MAX))
                 .withFields({C2F(mInputDone, value).any()})
                 .withSetter(BasicSetter<decltype(mInputDone)::element_type>)
                 .build());
@@ -178,13 +180,13 @@ public:
                 DefineParam(mInputDoneCount, C2_PARAMKEY_LAYER_INDEX)
                 .withDefault(new C2StreamLayerCountInfo::input(0u, 0))
                 .withFields({C2F(mInputDoneCount, value).any()})
-                .withSetter(InputDoneCountSetter)
+                .withSetter(BasicSetter<decltype(mInputDoneCount)::element_type>)
                 .build());
         addParameter(
                 DefineParam(mEmptyCount, C2_PARAMKEY_LAYER_COUNT)
                 .withDefault(new C2StreamLayerCountInfo::output(0u, 0))
                 .withFields({C2F(mEmptyCount, value).any()})
-                .withSetter(EmptyCountSetter)
+                .withSetter(BasicSetter<decltype(mEmptyCount)::element_type>)
                 .build());
     }
 
@@ -222,11 +224,7 @@ public:
     }
 
     void getWorkStatusConfig(WorkStatusConfig* _Nonnull config) {
-        if (mInputDone->value == UINT32_MAX) {
-            config->mLastDoneIndex = -1;
-        } else {
-            config->mLastDoneIndex = mInputDone->value;
-        }
+        config->mLastDoneIndex = mInputDone->value;
         config->mLastDoneCount = mInputDoneCount->value;
         config->mEmptyCount = mEmptyCount->value;
     }
@@ -248,20 +246,6 @@ private:
             C2InterfaceHelper::C2P<C2StreamBlockCountInfo::output> &me) {
         (void)mayBlock;
         me.set().value = c2_min(me.v.value, kDefaultImageBufferCount);
-        return C2R::Ok();
-    }
-
-    static C2R InputDoneCountSetter(bool mayBlock,
-            C2InterfaceHelper::C2P<C2StreamLayerCountInfo::input> &me) {
-        (void)mayBlock;
-        me.set().value = me.v.value + 1;
-        return C2R::Ok();
-    }
-
-    static C2R EmptyCountSetter(bool mayBlock,
-            C2InterfaceHelper::C2P<C2StreamLayerCountInfo::output> &me) {
-        (void)mayBlock;
-        me.set().value = me.v.value + 1;
         return C2R::Ok();
     }
 
@@ -289,7 +273,7 @@ private:
 
     // current work status configuration
     // TODO: remove this and move this to onWorkDone()
-    std::shared_ptr<C2StreamLayerIndexInfo::output> mInputDone;
+    std::shared_ptr<C2PortConfigCounterTuning::output> mInputDone;
     std::shared_ptr<C2StreamLayerCountInfo::input> mInputDoneCount;
     std::shared_ptr<C2StreamLayerCountInfo::output> mEmptyCount;
 };
@@ -325,6 +309,12 @@ public:
             return C2_CORRUPTED;
         }
 
+        if (params.size() == 1 &&
+                params[0]->index() == C2InputSurfaceStartTuning::PARAM_TYPE) {
+            c2_status_t res = surface->start();
+            ALOGD("InputSurface started: res(%d)", res);
+            return res;
+        }
         c2_status_t err;
         {
             ImageConfig imageConfig;
@@ -369,20 +359,46 @@ private:
     mutable std::mutex mConfigLock;
 };
 
+struct InputSurface::SourceEventCallback : public InputSurfaceSource::EventCallback {
+    explicit SourceEventCallback(std::shared_ptr<InputSurface> surface) : mSurface{surface} {}
+
+    virtual ~SourceEventCallback() override {}
+
+    void onDataspaceChanged(int32_t dataspace, int32_t pixelFormat) override {
+        // TODO, tricky since this might be called with a lock being held.
+        (void) dataspace;
+        (void) pixelFormat;
+    }
+
+    void onComponentReleased() override {
+        // TODO
+    }
+
+    std::weak_ptr<InputSurface> mSurface;
+};
+
 InputSurface::InputSurface() {
     mIntf = std::make_shared<Interface>(
             std::make_shared<C2ReflectorHelper>());
-
-    // mConfigurable is initialized lazily.
-    // mInit indicates the initialization status of mConfigurable.
-    mInit = C2_NO_INIT;
+    mSource = new InputSurfaceSource();
+    // mConfigurable, mSourceEventcallback are initialized lazily.
 }
 
 InputSurface::~InputSurface() {
     release();
 }
 
+void InputSurface::init() {
+    std::call_once(mInit, [this]() {
+        mConfigurable = SharedRefBase::make<CachedConfigurable>(
+                std::make_unique<ConfigurableIntf>(mIntf, this->ref<InputSurface>()));
+        mSourceEventCallback = std::make_shared<SourceEventCallback>(this->ref<InputSurface>());
+        mSource->setEventCallback(mSourceEventCallback);
+    });
+}
+
 ::ndk::ScopedAStatus InputSurface::getSurface(::aidl::android::view::Surface* surface) {
+    init();
     std::lock_guard<std::mutex> l(mLock);
     ANativeWindow *window = mSource->getNativeWindow();
     if (window) {
@@ -394,11 +410,7 @@ InputSurface::~InputSurface() {
 
 ::ndk::ScopedAStatus InputSurface::getConfigurable(
         std::shared_ptr<IConfigurable>* configurable) {
-    if (mInit == C2_NO_INIT) {
-        mConfigurable = SharedRefBase::make<CachedConfigurable>(
-                std::make_unique<ConfigurableIntf>(mIntf, this->ref<InputSurface>()));
-        mInit = C2_OK;
-    }
+    init();
     if (mConfigurable) {
         *configurable = mConfigurable;
         return ::ndk::ScopedAStatus::ok();
@@ -409,9 +421,34 @@ InputSurface::~InputSurface() {
 ::ndk::ScopedAStatus InputSurface::connect(
         const std::shared_ptr<IInputSink>& sink,
         std::shared_ptr<IInputSurfaceConnection>* connection) {
+    std::unique_lock<std::mutex> l(mLock);
     mConnection = SharedRefBase::make<InputSurfaceConnection>(sink, mSource);
     *connection = mConnection;
+    c2_status_t c2Res = mSource->configure(
+            mConnection,
+            mImageConfig.mDataspace,
+            mImageConfig.mNumBuffers,
+            mImageConfig.mWidth,
+            mImageConfig.mHeight,
+            mImageConfig.mUsage);
+    if (c2Res != C2_OK) {
+        ALOGE("InputSurface connect: configuring source failed(%d)", c2Res);
+        return ::ndk::ScopedAStatus::fromServiceSpecificError(c2Res);
+    }
+    int numSlots = mImageConfig.mNumBuffers;
+    for (size_t i = 0; i < numSlots; ++i) {
+        mSource->onInputBufferAdded(i);
+    }
     return ::ndk::ScopedAStatus::ok();
+}
+
+c2_status_t InputSurface::start() {
+    std::unique_lock<std::mutex> l(mLock);
+    c2_status_t c2Res = mSource->start();
+    if (c2Res != C2_OK) {
+        ALOGE("InputSurface connect: starting source failed(%d)", c2Res);
+    }
+    return c2Res;
 }
 
 void InputSurface::updateImageConfig(ImageConfig &config) {
@@ -459,12 +496,12 @@ bool InputSurface::updateStreamConfig(
     if (config.mAdjustedFpsMode != C2TimestampGapAdjustmentStruct::NONE && (
             config.mAdjustedFpsMode != mStreamConfig.mAdjustedFpsMode ||
             config.mAdjustedGapUs != mStreamConfig.mAdjustedGapUs)) {
-        // TODO: configure GapUs to connection
-        // The original codes do not update config, figure out why.
         mStreamConfig.mAdjustedFpsMode = config.mAdjustedFpsMode;
         mStreamConfig.mAdjustedGapUs = config.mAdjustedGapUs;
         fixedModeUpdate = (config.mAdjustedFpsMode == C2TimestampGapAdjustmentStruct::FIXED_GAP);
-        // TODO: update Gap to Connection.
+        if (mConnection) {
+            mConnection->setAdjustTimestampGapUs(mStreamConfig.mAdjustedGapUs);
+        }
     }
     // TRICKY: we do not unset max fps to 0 unless using fixed fps
     if ((config.mMaxFps > 0 || (fixedModeUpdate && config.mMaxFps == -1))
@@ -499,8 +536,9 @@ bool InputSurface::updateStreamConfig(
         mStreamConfig.mCaptureFps = config.mCaptureFps;
         mStreamConfig.mCodedFps = config.mCodedFps;
     }
-    if (config.mStartAtUs != mStreamConfig.mStartAtUs ||
-            (config.mStopped != mStreamConfig.mStopped && !config.mStopped)) {
+    if ((config.mStartAtUs != mStreamConfig.mStartAtUs ||
+            config.mStopped != mStreamConfig.mStopped) &&
+                !config.mStopped) {
         c2_status_t res = mSource->setStartTimeUs(config.mStartAtUs);
         status << " start at " << config.mStartAtUs << "us";
         if (res != C2_OK) {
@@ -511,15 +549,20 @@ bool InputSurface::updateStreamConfig(
         mStreamConfig.mStopped = config.mStopped;
     }
     if (config.mSuspended != mStreamConfig.mSuspended) {
-        c2_status_t res = mSource->setSuspend(config.mSuspended, config.mSuspendAtUs);
+        int64_t atUs = config.mSuspended ? config.mSuspendAtUs : config.mResumeAtUs;
+        c2_status_t res = mSource->setSuspend(config.mSuspended, atUs);
         status << " " << (config.mSuspended ? "suspend" : "resume")
-                << " at " << config.mSuspendAtUs << "us";
+                << " at " << atUs << "us";
         if (res != C2_OK) {
             status << " (=> " << asString(res) << ")";
             err = res;
         }
         mStreamConfig.mSuspended = config.mSuspended;
-        mStreamConfig.mSuspendAtUs = config.mSuspendAtUs;
+        if (config.mSuspended) {
+            mStreamConfig.mSuspendAtUs = atUs;
+        } else {
+            mStreamConfig.mResumeAtUs = atUs;
+        }
     }
     if (config.mStopped != mStreamConfig.mStopped && config.mStopped) {
         // start time has changed or started from stop.
@@ -542,7 +585,7 @@ bool InputSurface::updateStreamConfig(
         mStreamConfig.mStopped = config.mStopped;
     }
     if (status.str().empty()) {
-        ALOGD("StreamConfig not changed");
+        ALOGV("StreamConfig not changed");
     } else {
         ALOGD("StreamConfig%s", status.str().c_str());
     }
@@ -550,8 +593,22 @@ bool InputSurface::updateStreamConfig(
 }
 
 void InputSurface::updateWorkStatusConfig(WorkStatusConfig &config) {
-    (void)config;
-    // TODO
+    std::unique_lock<std::mutex> l(mLock);
+    if (!mConnection) {
+        ALOGE("work status is updated though there is no connection.");
+        return;
+    }
+    if (mWorkStatusConfig.mLastDoneIndex != config.mLastDoneIndex) {
+        mWorkStatusConfig.mLastDoneIndex = config.mLastDoneIndex;
+        mConnection->onInputBufferDone(mWorkStatusConfig.mLastDoneIndex);
+    }
+    if (mWorkStatusConfig.mLastDoneCount != config.mLastDoneCount) {
+        mWorkStatusConfig.mLastDoneCount = config.mLastDoneCount;
+    }
+    if (mWorkStatusConfig.mEmptyCount != config.mEmptyCount) {
+        mWorkStatusConfig.mEmptyCount = config.mEmptyCount;
+        mConnection->onInputBufferEmptied();
+    }
 }
 
 bool InputSurface::updateConfig(

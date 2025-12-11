@@ -82,7 +82,6 @@ sp<IAAudioService> getAAudioService(const sp<IBinder::DeathRecipient>& recipient
 
 void openAndMultipleClose(const sp<IAAudioService>& aaudioService) {
     auto start = std::chrono::system_clock::now();
-    bool hasFailedOpening = false;
     while (sTestPassed && std::chrono::system_clock::now() - start < TEST_DURATION) {
         StreamRequest inRequest;
         StreamParameters outParams;
@@ -104,7 +103,6 @@ void openAndMultipleClose(const sp<IAAudioService>& aaudioService) {
             sTestPassed = false;
             break;
         }
-        hasFailedOpening = false;
 
         Signal isReady;
         Signal startWork;

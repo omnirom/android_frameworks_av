@@ -497,8 +497,10 @@ status_t TimestretchBufferProvider::getNextBuffer(
     const size_t outputDesired = pBuffer->frameCount - mRemaining;
     size_t dstAvailable;
     do {
-        mBuffer.frameCount = mPlaybackRate.mSpeed == AUDIO_TIMESTRETCH_SPEED_NORMAL
-                ? outputDesired : outputDesired * mPlaybackRate.mSpeed + 1;
+        const size_t completeFrameCount = mPlaybackRate.mSpeed == AUDIO_TIMESTRETCH_SPEED_NORMAL
+                                                  ? outputDesired
+                                                  : outputDesired * mPlaybackRate.mSpeed + 1;
+        mBuffer.frameCount = std::min(completeFrameCount, mLocalBufferFrameCount);
 
         status_t res = mTrackBufferProvider->getNextBuffer(&mBuffer);
 

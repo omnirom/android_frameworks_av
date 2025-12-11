@@ -468,10 +468,6 @@ AttributionSourceState getCallingAttributionSource() {
   return attributionSource;
 }
 
-void purgePermissionCache() {
-    PermissionCache::purgeCache();
-}
-
 status_t checkIMemory(const sp<IMemory>& iMemory)
 {
     if (iMemory == 0) {
@@ -497,92 +493,6 @@ status_t checkIMemory(const sp<IMemory>& iMemory)
     return NO_ERROR;
 }
 
-// TODO(b/285588444), clean this up on main, but soak it for backporting purposes for now
-namespace {
-class BluetoothPermissionCache {
-    static constexpr auto SYSPROP_NAME = "cache_key.system_server.package_info";
-    const String16 BLUETOOTH_PERM {"android.permission.BLUETOOTH_CONNECT"};
-    mutable std::mutex mLock;
-    // Cached property conditionally defined, since only avail on bionic. On host, don't inval cache
-#if defined(__BIONIC__)
-    // Unlocked, but only accessed from mListenerThread
-    base::CachedProperty mCachedProperty;
-#endif
-    // This thread is designed to never join/terminate, so no signal is fine
-    const std::thread mListenerThread;
-    GUARDED_BY(mLock)
-    std::string mPropValue;
-    GUARDED_BY(mLock)
-    std::unordered_map<uid_t, bool> mCache;
-    PermissionController mPc{};
-public:
-    BluetoothPermissionCache()
-#if defined(__BIONIC__)
-            : mCachedProperty{SYSPROP_NAME},
-            mListenerThread([this]() mutable {
-                    while (true) {
-                        std::string newVal = mCachedProperty.WaitForChange() ?: "";
-                        std::lock_guard l{mLock};
-                        if (newVal != mPropValue) {
-                            ALOGV("Bluetooth permission update");
-                            mPropValue = newVal;
-                            mCache.clear();
-                        }
-                    }
-                })
-#endif
-            {}
-
-    bool checkPermission(uid_t uid, pid_t pid) {
-        std::lock_guard l{mLock};
-        auto it = mCache.find(uid);
-        if (it == mCache.end()) {
-            it = mCache.insert({uid, mPc.checkPermission(BLUETOOTH_PERM, pid, uid)}).first;
-        }
-        return it->second;
-    }
-};
-
-// Don't call this from locks, since it potentially calls up to system server!
-// Check for non-app UIDs above this method!
-bool checkBluetoothPermission(const AttributionSourceState& attr) {
-    [[clang::no_destroy]]  static BluetoothPermissionCache impl{};
-    return impl.checkPermission(attr.uid, attr.pid);
-}
-} // anonymous
-
-/**
- * Determines if the MAC address in Bluetooth device descriptors returned by APIs of
- * a native audio service (audio flinger, audio policy) must be anonymized.
- * MAC addresses returned to system server or apps with BLUETOOTH_CONNECT permission
- * are not anonymized.
- *
- * @param attributionSource The attribution source of the calling app.
- * @param caller string identifying the caller for logging.
- * @return true if the MAC addresses must be anonymized, false otherwise.
- */
-bool mustAnonymizeBluetoothAddressLegacy(
-        const AttributionSourceState& attributionSource, const String16&) {
-    uid_t uid = VALUE_OR_FATAL(aidl2legacy_int32_t_uid_t(attributionSource.uid));
-    bool res;
-    switch(multiuser_get_app_id(uid)) {
-        case AID_ROOT:
-        case AID_SYSTEM:
-        case AID_RADIO:
-        case AID_BLUETOOTH:
-        case AID_MEDIA:
-        case AID_AUDIOSERVER:
-            // Don't anonymize for privileged clients
-            res = false;
-            break;
-        default:
-            res = !checkBluetoothPermission(attributionSource);
-            break;
-    }
-    ALOGV("%s uid: %d, result: %d", __func__, uid, res);
-    return res;
-}
-
 /**
  * Modifies the passed MAC address string in place for consumption by unprivileged clients.
  * the string is assumed to have a valid MAC address format.
@@ -595,87 +505,6 @@ void anonymizeBluetoothAddress(char *address) {
         return;
     }
     memcpy(address, "XX:XX:XX:XX", strlen("XX:XX:XX:XX"));
-}
-
-sp<content::pm::IPackageManagerNative> MediaPackageManager::retrievePackageManager() {
-    const sp<IServiceManager> sm = defaultServiceManager();
-    if (sm == nullptr) {
-        ALOGW("%s: failed to retrieve defaultServiceManager", __func__);
-        return nullptr;
-    }
-    sp<IBinder> packageManager = sm->checkService(String16(nativePackageManagerName));
-    if (packageManager == nullptr) {
-        ALOGW("%s: failed to retrieve native package manager", __func__);
-        return nullptr;
-    }
-    return interface_cast<content::pm::IPackageManagerNative>(packageManager);
-}
-
-std::optional<bool> MediaPackageManager::doIsAllowed(uid_t uid) {
-    if (mPackageManager == nullptr) {
-        /** Can not fetch package manager at construction it may not yet be registered. */
-        mPackageManager = retrievePackageManager();
-        if (mPackageManager == nullptr) {
-            ALOGW("%s: Playback capture is denied as package manager is not reachable", __func__);
-            return std::nullopt;
-        }
-    }
-
-    // Retrieve package names for the UID and transform to a std::vector<std::string>.
-    Vector<String16> str16PackageNames;
-    PermissionController{}.getPackagesForUid(uid, str16PackageNames);
-    std::vector<std::string> packageNames;
-    for (const auto& str16PackageName : str16PackageNames) {
-        packageNames.emplace_back(String8(str16PackageName).c_str());
-    }
-    if (packageNames.empty()) {
-        ALOGW("%s: Playback capture for uid %u is denied as no package name could be retrieved "
-              "from the package manager.", __func__, uid);
-        return std::nullopt;
-    }
-    std::vector<bool> isAllowed;
-    auto status = mPackageManager->isAudioPlaybackCaptureAllowed(packageNames, &isAllowed);
-    if (!status.isOk()) {
-        ALOGW("%s: Playback capture is denied for uid %u as the manifest property could not be "
-              "retrieved from the package manager: %s", __func__, uid, status.toString8().c_str());
-        return std::nullopt;
-    }
-    if (packageNames.size() != isAllowed.size()) {
-        ALOGW("%s: Playback capture is denied for uid %u as the package manager returned incoherent"
-              " response size: %zu != %zu", __func__, uid, packageNames.size(), isAllowed.size());
-        return std::nullopt;
-    }
-
-    // Zip together packageNames and isAllowed for debug logs
-    Packages& packages = mDebugLog[uid];
-    packages.resize(packageNames.size()); // Reuse all objects
-    std::transform(begin(packageNames), end(packageNames), begin(isAllowed),
-                   begin(packages), [] (auto& name, bool isAllowed) -> Package {
-                       return {std::move(name), isAllowed};
-                   });
-
-    // Only allow playback record if all packages in this UID allow it
-    bool playbackCaptureAllowed = std::all_of(begin(isAllowed), end(isAllowed),
-                                                  [](bool b) { return b; });
-
-    return playbackCaptureAllowed;
-}
-
-void MediaPackageManager::dump(int fd, int spaces) const {
-    dprintf(fd, "%*sAllow playback capture log:\n", spaces, "");
-    if (mPackageManager == nullptr) {
-        dprintf(fd, "%*sNo package manager\n", spaces + 2, "");
-    }
-    dprintf(fd, "%*sPackage manager errors: %u\n", spaces + 2, "", mPackageManagerErrors);
-
-    for (const auto& uidCache : mDebugLog) {
-        for (const auto& package : std::get<Packages>(uidCache)) {
-            dprintf(fd, "%*s- uid=%5u, allowPlaybackCapture=%s, packageName=%s\n", spaces + 2, "",
-                    std::get<const uid_t>(uidCache),
-                    package.playbackCaptureAllowed ? "true " : "false",
-                    package.name.c_str());
-        }
-    }
 }
 
 namespace mediautils {

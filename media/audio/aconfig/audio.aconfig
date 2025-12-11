@@ -6,18 +6,25 @@ package: "com.android.media.audio"
 container: "system"
 
 flag {
-    name: "abs_volume_index_fix"
-    namespace: "media_audio"
-    description:
-        "Fix double attenuation and index jumps in absolute volume mode"
-    bug: "340693050"
-}
-
-flag {
     name: "alarm_min_volume_zero"
     namespace: "media_audio"
     description: "Support configuring alarm min vol to zero"
     bug: "296884402"
+}
+
+flag {
+    name: "abs_volume_prioritizes_abs_device"
+    namespace: "media_audio"
+    description: "When receiving a volume command from an absolute volume device we "
+                 "prioritize selecting the available absolute device for volume change"
+    bug: "399307939"
+}
+
+flag {
+    name: "abs_volume_stream_always_max"
+    namespace: "media_audio"
+    description: "The stream that drives the absolute volume should always have the highest index"
+    bug: "439668753"
 }
 
 flag {
@@ -28,10 +35,10 @@ flag {
 }
 
 flag {
-    name: "audioserver_permissions"
+    name: "audio_stream_bt_sco_cleanup"
     namespace: "media_audio"
-    description: "Refactoring permission management in audioserver"
-    bug: "338089555"
+    description: "Remove any usages of AUDIO_STREAM_BLUETOOTH_SCO from the audioserver."
+    bug: "441152611"
 }
 
 flag {
@@ -41,14 +48,13 @@ flag {
     bug: "367667349"
 }
 
-# unused
 flag {
-    name: "bluetooth_mac_address_anonymization"
+    name: "check_route_in_get_audio_mix_port"
     namespace: "media_audio"
-    description:
-        "Enable Bluetooth MAC address anonymization when reporting "
-        "audio device descriptors to non privileged apps."
-    bug: "285588444"
+    description: "Checks routing in the API getAudioMixPort to respect"
+                 "connectivity between mix ports and device ports as"
+                 "indicated by getAudioRoutes."
+    bug: "367117623"
 }
 
 flag {
@@ -69,14 +75,6 @@ flag {
 }
 
 flag {
-    name: "dsa_over_bt_le_audio"
-    namespace: "media_audio"
-    description:
-        "Enable dynamic spatial audio over Bluetooth LE Audio."
-    bug: "307588546"
-}
-
-flag {
     name: "equal_sco_lea_vc_index_range"
     namespace: "media_audio"
     description:
@@ -86,11 +84,12 @@ flag {
 }
 
 flag {
-    name: "hardening_impl"
-    is_exported: true
+    name: "equal_sco_ha_vc_index_range"
     namespace: "media_audio"
-    description: "Flag for overall implementation of hardening"
-    bug: "376480814"
+    description:
+        "Introduce the same index range for voice calls over SCO and "
+        "hearing aids"
+    bug: "416418971"
 }
 
 flag {
@@ -117,25 +116,10 @@ flag {
 }
 
 flag {
-    name: "music_fx_edge_to_edge"
-    namespace: "media_audio"
-    description: "Enable Edge-to-edge feature for MusicFx and handle insets"
-    bug: "336204940"
-}
-
-flag {
     name: "optimize_bt_device_switch"
     namespace: "media_audio"
     description: "Optimize the Bluetooth active device switch sequence"
     bug: "373867402"
-}
-
-flag {
-    name: "port_to_piid_simplification"
-    namespace: "media_audio"
-    description: "PAM only needs for each piid the last portId mapping"
-    bug: "335747248"
-
 }
 
 flag {
@@ -163,15 +147,6 @@ flag {
 }
 
 flag {
-    name: "set_stream_volume_order"
-    namespace: "media_audio"
-    description:
-        "Fix race condition by adjusting the order when"
-        "setStreamVolume is calling into the BT stack"
-    bug: "329202581"
-}
-
-flag {
     name: "spatializer_offload"
     namespace: "media_audio"
     description: "Enable spatializer offload"
@@ -193,12 +168,17 @@ flag {
 }
 
 flag {
-    name: "vgs_vss_sync_mute_order"
+    name: "stereo_spatialization_binaural_transaural"
     namespace: "media_audio"
-    description:
-        "When syncing the VGS to VSS we need to first adjust the"
-        "mute state before the index."
-    bug: "331849188"
+    description: "Allows selective stereo spatialization enablement for binaural or transaural"
+    bug: "417494541"
+}
+
+flag {
+    name: "update_preferred_devices_for_strategy"
+    namespace: "media_audio"
+    description: "Use AudioDeviceInventory cache for getPreferredDevicesForStrategy"
+    bug: "417481226"
 }
 
 flag {

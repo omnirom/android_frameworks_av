@@ -21,6 +21,8 @@
 #include <hidl/MQDescriptor.h>
 #include <hidl/Status.h>
 #include <memory>
+#include <mutex>
+#include <vector>
 #include "BufferPoolTypes.h"
 
 namespace android {

@@ -38,6 +38,7 @@
 #include <media/convert.h>
 #include <system/audio_config.h>
 #include <utils/Log.h>
+#include <EngineConfig.h>
 
 namespace android {
 
@@ -61,7 +62,6 @@ static constexpr const char *gLegacyForcePrefix = "AUDIO_POLICY_FORCE_";
 static constexpr const char *gLegacyStreamPrefix = "AUDIO_STREAM_";
 static constexpr const char *gLegacySourcePrefix = "AUDIO_SOURCE_";
 static constexpr const char *gPolicyParamPrefix = "/Policy/policy/";
-static constexpr const char *gVendorStrategyPrefix = "vx_";
 
 namespace {
 
@@ -368,21 +368,6 @@ ConversionResult<CapConfiguration> aidl2legacy_AudioHalCapConfiguration_CapConfi
     return legacy;
 }
 
-ConversionResult<std::string> aidl2legacy_AudioHalProductStrategyId_StrategyParamName(
-        int id) {
-    std::string strategyName;
-    if (id < media::audio::common::AudioHalProductStrategy::VENDOR_STRATEGY_ID_START) {
-        strategyName = legacy_strategy_to_string(static_cast<legacy_strategy>(id));
-        if (strategyName.empty()) {
-            ALOGE("%s Invalid legacy strategy id %d", __func__, id);
-            return unexpected(BAD_VALUE);
-        }
-    } else {
-        strategyName = gVendorStrategyPrefix + std::to_string(id);
-    }
-    return strategyName;
-}
-
 ConversionResult<ConfigurableElementValue> aidl2legacy_ParameterSetting_ConfigurableElementValue(
         const AudioHalCapParameter& aidl) {
     ConfigurableElementValue legacy;
@@ -405,7 +390,7 @@ ConversionResult<ConfigurableElementValue> aidl2legacy_ParameterSetting_Configur
             }
             legacy.configurableElement.path = std::string(gPolicyParamPrefix)
                     + "product_strategies/"
-                    + VALUE_OR_RETURN(aidl2legacy_AudioHalProductStrategyId_StrategyParamName(
+                    + VALUE_OR_RETURN(engineConfig::aidlAudioHalProductStrategyIdToName(
                             strategyDevice.id))
                     + "/selected_output_devices/mask/" + deviceLiteral;
             break;
@@ -414,7 +399,7 @@ ConversionResult<ConfigurableElementValue> aidl2legacy_ParameterSetting_Configur
             auto strategyAddress = aidl.get<AudioHalCapParameter::strategyDeviceAddress>();
             legacy.configurableElement.path = std::string(gPolicyParamPrefix)
                     + "product_strategies/"
-                    + VALUE_OR_RETURN(aidl2legacy_AudioHalProductStrategyId_StrategyParamName(
+                    + VALUE_OR_RETURN(engineConfig::aidlAudioHalProductStrategyIdToName(
                             strategyAddress.id))
                     + "/device_address";
             literalValue = strategyAddress.deviceAddress.get<AudioDeviceAddress::id>();

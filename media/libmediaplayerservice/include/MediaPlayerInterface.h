@@ -32,6 +32,7 @@
 #include <media/AVSyncSettings.h>
 #include <media/BufferingSettings.h>
 #include <media/Metadata.h>
+#include <gui/Flags.h> // Remove with MediaSurfaceType
 
 // Fwd decl to make sure everyone agrees that the scope of struct sockaddr_in is
 // global, and not in android::
@@ -42,7 +43,6 @@ namespace android {
 class DataSource;
 class Parcel;
 class Surface;
-class IGraphicBufferProducer;
 
 template<typename T> class SortedVector;
 
@@ -218,9 +218,8 @@ public:
         return INVALID_OPERATION;
     }
 
-    // pass the buffered IGraphicBufferProducer to the media player service
-    virtual status_t    setVideoSurfaceTexture(
-                                const sp<IGraphicBufferProducer>& bufferProducer) = 0;
+    // pass the buffered Surface to the media player service
+    virtual status_t    setVideoSurfaceTexture(const sp<MediaSurfaceType>& surface) = 0;
 
     virtual status_t    getBufferingSettings(
                                 BufferingSettings* buffering /* nonnull */) {

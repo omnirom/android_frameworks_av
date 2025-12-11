@@ -196,6 +196,7 @@ cc_aconfig_library {
     name: "android.media.audio-aconfig-cc",
     aconfig_declarations: "android.media.audio-aconfig",
     defaults: ["audio-aconfig-cc-defaults"],
+    vendor_available: true,
 }
 
 cc_aconfig_library {

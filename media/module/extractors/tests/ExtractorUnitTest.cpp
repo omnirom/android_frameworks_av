@@ -312,7 +312,6 @@ void ConfigParamTest::getFileProperties(inputID inputId, string &inputFile,
 }
 
 void randomSeekTest(MediaTrackHelper *track, int64_t clipDuration) {
-    int32_t status = 0;
     int32_t seekCount = 0;
     bool hasTimestamp = false;
     vector<int64_t> seekToTimeStamp;
@@ -333,7 +332,7 @@ void randomSeekTest(MediaTrackHelper *track, int64_t clipDuration) {
         ASSERT_NE(options, nullptr) << "Cannot create read option";
 
         MediaBufferHelper *buffer = nullptr;
-        status = track->read(&buffer, options);
+        (void)track->read(&buffer, options);
         if (buffer) {
             AMediaFormat *metaData = buffer->meta_data();
             int64_t timeStamp = 0;

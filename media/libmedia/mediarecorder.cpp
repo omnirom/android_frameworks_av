@@ -29,7 +29,7 @@
 #include <media/IMediaRecorder.h>
 #include <media/mediaplayer.h>  // for MEDIA_ERROR_SERVER_DIED
 #include <media/stagefright/PersistentSurface.h>
-#include <gui/IGraphicBufferProducer.h>
+#include <gui/view/Surface.h>
 
 namespace android {
 
@@ -57,9 +57,14 @@ status_t MediaRecorder::setCamera(const sp<hardware::ICamera>& camera,
     return ret;
 }
 
-status_t MediaRecorder::setPreviewSurface(const sp<IGraphicBufferProducer>& surface)
+status_t MediaRecorder::setPreviewSurface(const sp<MediaSurfaceType>& surface)
 {
-    ALOGV("setPreviewSurface(%p)", surface.get());
+    if (surface != nullptr) {
+        ALOGV("setPreviewSurface(%p), consumerName: %s", surface.get(),
+            surface->getConsumerName().c_str());
+    } else {
+        ALOGV("setPreviewSurface(NULL)");
+    }
     if (mMediaRecorder == NULL) {
         ALOGE("media recorder is not initialized yet");
         return INVALID_OPERATION;
@@ -413,20 +418,16 @@ status_t MediaRecorder::setVideoSize(int width, int height)
 
 // Query a SurfaceMediaSurface through the Mediaserver, over the
 // binder interface. This is used by the Filter Framework (MediaEncoder)
-// to get an <IGraphicBufferProducer> object to hook up to ANativeWindow.
-sp<IGraphicBufferProducer> MediaRecorder::
-        querySurfaceMediaSourceFromMediaServer()
+// to get an <Surface> object to hook up to ANativeWindow.
+sp<MediaSurfaceType> MediaRecorder::querySurfaceMediaSourceFromMediaServer()
 {
     Mutex::Autolock _l(mLock);
-    mSurfaceMediaSource =
-            mMediaRecorder->querySurfaceMediaSource();
-    if (mSurfaceMediaSource == NULL) {
+    mSurfaceMediaSource = mMediaRecorder->querySurfaceMediaSource();
+    if (mSurfaceMediaSource == nullptr) {
         ALOGE("SurfaceMediaSource could not be initialized!");
     }
     return mSurfaceMediaSource;
 }
-
-
 
 status_t MediaRecorder::setInputSurface(const sp<PersistentSurface>& surface)
 {
@@ -772,7 +773,6 @@ MediaRecorder::MediaRecorder(const AttributionSourceState &attributionSource)
     if (mMediaRecorder != NULL) {
         mCurrentState = MEDIA_RECORDER_IDLE;
     }
-
 
     doCleanUp();
 }

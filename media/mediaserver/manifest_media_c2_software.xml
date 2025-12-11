@@ -8,7 +8,20 @@
             <instance>software</instance>
         </interface>
     </hal>
-    <hal format="aidl">
+
+    <!--
+        This (and above) are actually served as part of the swcodec APEX.
+        However, this was one of the first APEXEes, so they were created
+        before APEX supported VINTF manifest. So, devices have old manifest
+        entries, and the manifest is not in the APEX. The manifest also
+        does not contain updatable-via-apex until Android 16 (B). Because of
+        this, if the version is updated, vts_treble_vintf_vendor_test may
+        fail on old devices which have the updated mainline module. If the
+        manifest entry is conditionally added to the APEX, so that it is only
+        read on new devices, we could move this entry from the platform into
+        the APEX.
+    -->
+    <hal format="aidl" updatable-via-apex="com.android.media.swcodec">
         <name>android.hardware.media.c2</name>
         <version>1</version>
         <fqname>IComponentStore/software</fqname>

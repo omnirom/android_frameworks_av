@@ -261,8 +261,6 @@ bool AudioPolicyManagerFuzzer::getOutputForAttr(
     AudioPolicyInterface::output_type_t outputType;
     bool isSpatialized;
     bool isBitPerfect;
-    float volume;
-    bool muted;
 
     // TODO b/182392769: use attribution source util
     AttributionSourceState attributionSource;
@@ -270,7 +268,7 @@ bool AudioPolicyManagerFuzzer::getOutputForAttr(
     attributionSource.token = sp<BBinder>::make();
     if (mManager->getOutputForAttr(&attr, output, AUDIO_SESSION_NONE, &stream, attributionSource,
             &config, &flags, selectedDeviceIds, portId, {}, &outputType, &isSpatialized,
-            &isBitPerfect, &volume, &muted) != OK) {
+            &isBitPerfect) != OK) {
         return false;
     }
     if (*output == AUDIO_IO_HANDLE_NONE || *portId == AUDIO_PORT_HANDLE_NONE) {
@@ -541,7 +539,7 @@ class AudioPolicyManagerFuzzerDynamicPolicy : public AudioPolicyManagerFuzzerWit
     void registerPolicyMixes();
     void unregisterPolicyMixes();
 
-    Vector<AudioMix> mAudioMixes;
+    std::vector<AudioMix> mAudioMixes;
     const std::string mMixAddress = "remote_submix_media";
 };
 
@@ -565,7 +563,7 @@ status_t AudioPolicyManagerFuzzerDynamicPolicy::addPolicyMix(
     myAudioMix.mDeviceType = deviceType;
     // Clear mAudioMix before add new one to make sure we don't add already existing mixes.
     mAudioMixes.clear();
-    mAudioMixes.add(myAudioMix);
+    mAudioMixes.push_back(myAudioMix);
 
     // As the policy mixes registration may fail at some case,
     // caller need to check the returned status.
@@ -811,7 +809,9 @@ bool AudioPolicyManagerFuzzerDPMixRecordInjection::initialize() {
     getOutputForAttr(&selectedDeviceIds, mAudioConfig.format, mAudioConfig.channel_mask,
                      mAudioConfig.sample_rate /*sampleRate*/, AUDIO_OUTPUT_FLAG_NONE,
                      nullptr /*output*/, &mPortId, attr);
-    ret = mManager->startOutput(mPortId);
+    bool muted;
+    float volume;
+    ret = mManager->startOutput(mPortId, &volume, &muted);
     if (ret != NO_ERROR) {
         return false;
     }

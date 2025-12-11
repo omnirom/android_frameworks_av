@@ -50,33 +50,32 @@ static constexpr const char *gVersionAttribute = "version";
 static const char *const gReferenceElementName = "reference";
 static const char *const gReferenceAttributeName = "name";
 
+static constexpr const char *gVendorStrategyPrefix = "vx_";
+
 namespace {
 
 static bool gIsConfigurableEngine = false;
 
-ConversionResult<std::string> aidl2legacy_AudioHalProductStrategy_ProductStrategyType(int id) {
-    using AudioProductStrategyType = media::audio::common::AudioProductStrategyType;
+#define STRATEGY_ENTRY(id, name) {static_cast<int>(id), "STRATEGY_" #name}
 
-#define STRATEGY_ENTRY(name) {static_cast<int>(AudioProductStrategyType::name), "STRATEGY_" #name}
-    static const std::unordered_map<int, std::string> productStrategyMap = {STRATEGY_ENTRY(MEDIA),
-                            STRATEGY_ENTRY(PHONE),
-                            STRATEGY_ENTRY(SONIFICATION),
-                            STRATEGY_ENTRY(SONIFICATION_RESPECTFUL),
-                            STRATEGY_ENTRY(DTMF),
-                            STRATEGY_ENTRY(ENFORCED_AUDIBLE),
-                            STRATEGY_ENTRY(TRANSMITTED_THROUGH_SPEAKER),
-                            STRATEGY_ENTRY(ACCESSIBILITY)};
+using AudioProductStrategyType = media::audio::common::AudioProductStrategyType;
+
+static const std::unordered_map<int, std::string> gProductStrategyMap = {
+        STRATEGY_ENTRY(AudioProductStrategyType::MEDIA, MEDIA),
+        STRATEGY_ENTRY(AudioProductStrategyType::PHONE, PHONE),
+        STRATEGY_ENTRY(AudioProductStrategyType::SONIFICATION, SONIFICATION),
+        STRATEGY_ENTRY(AudioProductStrategyType::SONIFICATION_RESPECTFUL,
+                       SONIFICATION_RESPECTFUL),
+        STRATEGY_ENTRY(AudioProductStrategyType::DTMF, DTMF),
+        STRATEGY_ENTRY(AudioProductStrategyType::ENFORCED_AUDIBLE, ENFORCED_AUDIBLE),
+        STRATEGY_ENTRY(AudioProductStrategyType::TRANSMITTED_THROUGH_SPEAKER,
+                       TRANSMITTED_THROUGH_SPEAKER),
+        STRATEGY_ENTRY(AudioProductStrategyType::ACCESSIBILITY, ACCESSIBILITY),
+        STRATEGY_ENTRY(AudioProductStrategyType::SYS_RESERVED_REROUTING, REROUTING),
+        STRATEGY_ENTRY(AudioProductStrategyType::SYS_RESERVED_CALL_ASSISTANT, CALL_ASSISTANT),
+        STRATEGY_ENTRY(10, PATCH), //TODO b/416445424: define in AudioProductStrategyType.aidl
+    };
 #undef STRATEGY_ENTRY
-
-    if (id >= media::audio::common::AudioHalProductStrategy::VENDOR_STRATEGY_ID_START) {
-        return std::to_string(id);
-    }
-    auto it = productStrategyMap.find(id);
-    if (it == productStrategyMap.end()) {
-        return base::unexpected(BAD_VALUE);
-    }
-    return it->second;
-}
 
 ConversionResult<AttributesGroup> aidl2legacy_AudioHalAttributeGroup_AttributesGroup(
         const media::audio::common::AudioHalAttributesGroup& aidl) {
@@ -95,14 +94,13 @@ ConversionResult<AttributesGroup> aidl2legacy_AudioHalAttributeGroup_AttributesG
 
 ConversionResult<ProductStrategy> aidl2legacy_AudioHalProductStrategy_ProductStrategy(
         const media::audio::common::AudioHalProductStrategy& aidl) {
-    ProductStrategy legacy;
-    legacy.name = aidl.name.value_or(VALUE_OR_RETURN(
-                    aidl2legacy_AudioHalProductStrategy_ProductStrategyType(aidl.id)));
-    legacy.id = aidl.id;
-    legacy.attributesGroups = VALUE_OR_RETURN(convertContainer<AttributesGroups>(
-                    aidl.attributesGroups,
-                    aidl2legacy_AudioHalAttributeGroup_AttributesGroup));
-    return legacy;
+    ProductStrategy ps;
+    ps.name = aidl.name.value_or(VALUE_OR_RETURN(aidlAudioHalProductStrategyIdToName(aidl.id)));
+    ps.id = aidl.id;
+    ps.attributesGroups = VALUE_OR_RETURN(convertContainer<AttributesGroups>(
+                    aidl.attributesGroups,aidl2legacy_AudioHalAttributeGroup_AttributesGroup));
+    ps.zoneId = aidl.zoneId;
+    return ps;
 }
 
 ConversionResult<std::string> legacy_device_category_to_string(device_category legacy) {
@@ -185,6 +183,7 @@ struct ProductStrategyTraits : public BaseSerializerTraits<ProductStrategy, Prod
     struct Attributes {
         static constexpr const char *name = "name";
         static constexpr const char *id = "id";
+        static constexpr const char *zoneId = "zoneId";
     };
     static android::status_t deserialize(_xmlDoc *doc, const _xmlNode *root, Collection &ps);
 };
@@ -550,9 +549,9 @@ status_t ProductStrategyTraits::deserialize(_xmlDoc *doc, const _xmlNode *child,
             return BAD_VALUE;
         }
     } else {
-        legacy_strategy legacyId;
-        if (legacy_strategy_from_string(name.c_str(), &legacyId)) {
-            id = legacyId;
+        const auto& res = aidlAudioHalProductStrategyNameToId(name);
+        if (res.ok()) {
+            id = res.value();
         } else if (!gIsConfigurableEngine) {
             return BAD_VALUE;
         }
@@ -560,11 +559,21 @@ status_t ProductStrategyTraits::deserialize(_xmlDoc *doc, const _xmlNode *child,
     }
     ALOGV("%s: %s, %s = %d", __FUNCTION__, name.c_str(), Attributes::id, id);
 
+    int zoneId = 0;
+    std::string zoneIdLiteral = getXmlAttribute(child, Attributes::zoneId);
+    if (!zoneIdLiteral.empty()) {
+        if (!convertTo(zoneIdLiteral, zoneId)) {
+            return BAD_VALUE;
+        }
+        ALOGV("%s: %s, %s = %d", __FUNCTION__, name.c_str(), Attributes::zoneId, zoneId);
+    }
+    ALOGV("%s: %s = %s", __FUNCTION__, Attributes::name, name.c_str());
+
     size_t skipped = 0;
     AttributesGroups attrGroups;
     deserializeCollection<AttributesGroupTraits>(doc, child, attrGroups, skipped);
 
-    strategies.push_back({name, id, attrGroups});
+    strategies.push_back({name, id, zoneId, attrGroups});
     return NO_ERROR;
 }
 
@@ -874,7 +883,32 @@ ParsingResult convert(const ::android::media::audio::common::AudioHalEngineConfi
         return ParsingResult{};
     }
     return {.parsedConfig=std::move(config), .nbSkippedElement=0};
- }
+}
+
+ConversionResult<std::string> aidlAudioHalProductStrategyIdToName(int id) {
+    if (id >= media::audio::common::AudioHalProductStrategy::VENDOR_STRATEGY_ID_START) {
+        return gVendorStrategyPrefix + std::to_string(id);
+    }
+    auto it = gProductStrategyMap.find(id);
+    if (it == gProductStrategyMap.end()) {
+        ALOGE("%s Invalid legacy strategy id %d", __func__, id);
+        return base::unexpected(BAD_VALUE);
+    }
+    return it->second;
+}
+
+ConversionResult<int> aidlAudioHalProductStrategyNameToId(const std::string& name) {
+
+    const auto iter = std::find_if(begin(gProductStrategyMap), end(gProductStrategyMap),
+                                    [&name](const auto &strategy) {
+                                        return name == strategy.second; });
+
+    if (iter == end(gProductStrategyMap)) {
+        ALOGE("%s Invalid legacy strategy name %s", __func__, name.c_str());
+        return base::unexpected(BAD_VALUE);
+    }
+    return iter->first;
+}
 
 } // namespace engineConfig
 } // namespace android

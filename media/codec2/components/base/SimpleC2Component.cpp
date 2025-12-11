@@ -944,7 +944,7 @@ void SimpleC2Component::WorkHandler::onMessageReceived(const sp<AMessage> &msg) 
         case kWhatProcess: {
             if (mRunning) {
                 if (thiz->processQueue()) {
-                    (new AMessage(kWhatProcess, this))->post();
+                    sp<AMessage>::make(kWhatProcess, this)->post();
                 }
             } else {
                 ALOGV("Ignore process message as we're not running");
@@ -1099,7 +1099,7 @@ c2_status_t SimpleC2Component::queue_nb(std::list<std::unique_ptr<C2Work>> * con
         }
     }
     if (queueWasEmpty) {
-        (new AMessage(WorkHandler::kWhatProcess, mHandler))->post();
+        sp<AMessage>::make(WorkHandler::kWhatProcess, mHandler)->post();
     }
     return C2_OK;
 }
@@ -1154,7 +1154,7 @@ c2_status_t SimpleC2Component::drain_nb(drain_mode_t drainMode) {
         queue->markDrain(drainMode);
     }
     if (queueWasEmpty) {
-        (new AMessage(WorkHandler::kWhatProcess, mHandler))->post();
+        sp<AMessage>::make(WorkHandler::kWhatProcess, mHandler)->post();
     }
 
     return C2_OK;
@@ -1169,14 +1169,14 @@ c2_status_t SimpleC2Component::start() {
     state.unlock();
     if (needsInit) {
         sp<AMessage> reply;
-        (new AMessage(WorkHandler::kWhatInit, mHandler))->postAndAwaitResponse(&reply);
+        sp<AMessage>::make(WorkHandler::kWhatInit, mHandler)->postAndAwaitResponse(&reply);
         int32_t err;
         CHECK(reply->findInt32("err", &err));
         if (err != C2_OK) {
             return (c2_status_t)err;
         }
     } else {
-        (new AMessage(WorkHandler::kWhatStart, mHandler))->post();
+        sp<AMessage>::make(WorkHandler::kWhatStart, mHandler)->post();
     }
     state.lock();
     state->mState = RUNNING;
@@ -1198,7 +1198,7 @@ c2_status_t SimpleC2Component::stop() {
         queue->pending().clear();
     }
     sp<AMessage> reply;
-    (new AMessage(WorkHandler::kWhatStop, mHandler))->postAndAwaitResponse(&reply);
+    sp<AMessage>::make(WorkHandler::kWhatStop, mHandler)->postAndAwaitResponse(&reply);
     int32_t err;
     CHECK(reply->findInt32("err", &err));
     if (err != C2_OK) {
@@ -1219,14 +1219,14 @@ c2_status_t SimpleC2Component::reset() {
         queue->pending().clear();
     }
     sp<AMessage> reply;
-    (new AMessage(WorkHandler::kWhatReset, mHandler))->postAndAwaitResponse(&reply);
+    sp<AMessage>::make(WorkHandler::kWhatReset, mHandler)->postAndAwaitResponse(&reply);
     return C2_OK;
 }
 
 c2_status_t SimpleC2Component::release() {
     ALOGV("release");
     sp<AMessage> reply;
-    (new AMessage(WorkHandler::kWhatRelease, mHandler))->postAndAwaitResponse(&reply);
+    sp<AMessage>::make(WorkHandler::kWhatRelease, mHandler)->postAndAwaitResponse(&reply);
     return C2_OK;
 }
 

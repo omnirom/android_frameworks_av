@@ -182,7 +182,6 @@ status_t Camera3InputStream::returnInputBufferLocked(
                                  /*output*/false, /*transform*/ -1);
 }
 
-#if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
 status_t Camera3InputStream::getInputSurfaceLocked(sp<Surface> *surface) {
     ATRACE_CALL();
 
@@ -196,22 +195,6 @@ status_t Camera3InputStream::getInputSurfaceLocked(sp<Surface> *surface) {
     *surface = mSurface;
     return OK;
 }
-#else
-status_t Camera3InputStream::getInputBufferProducerLocked(
-            sp<IGraphicBufferProducer> *producer) {
-    ATRACE_CALL();
-
-    if (producer == NULL) {
-        return BAD_VALUE;
-    } else if (mProducer == NULL) {
-        ALOGE("%s: No input stream is configured", __FUNCTION__);
-        return INVALID_OPERATION;
-    }
-
-    *producer = mProducer;
-    return OK;
-}
-#endif
 
 status_t Camera3InputStream::disconnectLocked() {
 
@@ -288,22 +271,11 @@ status_t Camera3InputStream::configureQueueLocked() {
             camera_stream::max_buffers : minBufs;
         // TODO: somehow set the total buffer count when producer connects?
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
         mConsumer = bufferItemConsumer;
         mConsumer->setName(String8::format("Camera3-InputStream-%d", mId));
         mConsumer->setMaxAcquiredBufferCount(mTotalBufferCount);
 
-#if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
         mSurface = surface;
-#else
-        mProducer = producer;
-#endif // WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
-
-#else
-        std::tie(mConsumer, surface) = BufferItemConsumer::create(mUsage, mTotalBufferCount);
-        mProducer = surface->getIGraphicBufferProducer();
-        mConsumer->setName(String8::format("Camera3-InputStream-%d", mId));
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
         mConsumer->setBufferFreedListener(this);
     }

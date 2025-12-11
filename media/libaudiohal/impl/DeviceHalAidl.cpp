@@ -23,6 +23,7 @@
 #include <aidl/android/hardware/audio/core/BnStreamOutEventCallback.h>
 #include <aidl/android/hardware/audio/core/StreamDescriptor.h>
 #include <android/binder_ibinder_platform.h>
+#include <com_android_media_audio.h>
 #include <error/expected_utils.h>
 #include <media/AidlConversionCppNdk.h>
 #include <media/AidlConversionNdk.h>
@@ -94,9 +95,12 @@ namespace android {
 
 namespace {
 
-static constexpr int32_t kAidlVersion1 = 1;
-static constexpr int32_t kAidlVersion2 = 2;
-static constexpr int32_t kAidlVersion3 = 3;
+enum AidlVersion : int32_t {
+    kAidlVersion1 = 1,
+    kAidlVersion2 = 2,
+    kAidlVersion3 = 3,
+    kAidlVersion4 = 4,
+};
 
 // Note: these converters are for types defined in different AIDL files. Although these
 // AIDL files are copies of each other, however formally these are different types
@@ -178,18 +182,21 @@ status_t DeviceHalAidl::initCheck() {
     AUGMENT_LOG(D);
     TIME_CHECK();
     RETURN_IF_MODULE_NOT_INIT(NO_INIT);
-    std::lock_guard l(mLock);
     int32_t aidlVersion = 0;
-    RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(mModule->getInterfaceVersion(&aidlVersion)));
-    if (aidlVersion > kAidlVersion3) {
+    {
+        std::lock_guard l(mLock);
+        RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(mModule->getInterfaceVersion(&aidlVersion)));
+    }
+    if (aidlVersion > kAidlVersion4) {
         mHasClipTransitionSupport = true;
     } else {
         AudioParameter parameterKeys;
         parameterKeys.addKey(String8(AudioParameter::keyClipTransitionSupport));
         String8 values;
-        auto status = parseAndGetVendorParameters(mVendorExt, mModule, parameterKeys, &values);
+        auto status = parseAndGetVendorParameters(parameterKeys, &values);
         mHasClipTransitionSupport = status == OK && !values.empty();
     }
+    std::lock_guard l(mLock);
     return mMapper.initialize();
 }
 
@@ -314,8 +321,7 @@ status_t DeviceHalAidl::setParameters(const String8& kvPairs) {
     if (status_t status = filterAndUpdateTelephonyParameters(parameters); status != OK) {
         AUGMENT_LOG(W, "filterAndUpdateTelephonyParameters failed: %d", status);
     }
-    std::lock_guard l(mLock);
-    return parseAndSetVendorParameters(mVendorExt, mModule, parameters);
+    return parseAndSetVendorParameters(parameters);
 }
 
 status_t DeviceHalAidl::getParameters(const String8& keys, String8 *values) {
@@ -335,8 +341,7 @@ status_t DeviceHalAidl::getParameters(const String8& keys, String8 *values) {
         AUGMENT_LOG(W, "filterAndRetrieveBtLeParameters failed: %d", status);
     }
     *values = result.toString();
-    std::lock_guard l(mLock);
-    return parseAndGetVendorParameters(mVendorExt, mModule, parameterKeys, values);
+    return parseAndGetVendorParameters(parameterKeys, values);
 }
 
 status_t DeviceHalAidl::getInputBufferSize(struct audio_config* config, size_t* size) {
@@ -361,7 +366,7 @@ status_t DeviceHalAidl::getInputBufferSize(struct audio_config* config, size_t* 
     {
         std::lock_guard l(mLock);
         RETURN_STATUS_IF_ERROR(mMapper.prepareToOpenStream(
-                        0 /*handle*/, aidlDevice, aidlFlags, aidlSource,
+                        0 /*handle*/, 0 /*mixPortHalId*/, aidlDevice, aidlFlags, aidlSource,
                         &cleanups, &aidlConfig, &mixPortConfig, &aidlPatch));
     }
     *config = VALUE_OR_RETURN_STATUS(
@@ -370,6 +375,42 @@ status_t DeviceHalAidl::getInputBufferSize(struct audio_config* config, size_t* 
     *size = aidlConfig.frameCount *
             getFrameSizeInBytes(aidlConfig.base.format, aidlConfig.base.channelMask);
     // Do not disarm cleanups to release temporary port configs.
+    return OK;
+}
+
+status_t DeviceHalAidl::parseAndGetVendorParameters(const AudioParameter& parameterKeys,
+                                                    String8* values) {
+    std::vector<std::string> vendorParameterIds;
+    RETURN_STATUS_IF_ERROR(
+            fillVendorParameterIds(mVendorExt, IHalAdapterVendorExtension::ParameterScope::MODULE,
+                                   parameterKeys, vendorParameterIds));
+    if (vendorParameterIds.empty()) {
+        return OK;
+    }
+    std::vector<VendorParameter> vendorParameters;
+    {
+        std::lock_guard l(mLock);
+        RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(
+                mModule->getVendorParameters(vendorParameterIds, &vendorParameters)));
+    }
+    RETURN_STATUS_IF_ERROR(fillKeyValuePairsFromVendorParameters(
+            mVendorExt, IHalAdapterVendorExtension::ParameterScope::MODULE, vendorParameters,
+            values));
+    return OK;
+}
+
+status_t DeviceHalAidl::parseAndSetVendorParameters(const AudioParameter& parameters) {
+    std::vector<VendorParameter> syncParameters, asyncParameters;
+    RETURN_STATUS_IF_ERROR(fillVendorParameters(mVendorExt,
+                                                IHalAdapterVendorExtension::ParameterScope::MODULE,
+                                                parameters, syncParameters, asyncParameters));
+    std::lock_guard l(mLock);
+    if (!syncParameters.empty())
+        RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(
+                mModule->setVendorParameters(syncParameters, false /*async*/)));
+    if (!asyncParameters.empty())
+        RETURN_STATUS_IF_ERROR(statusTFromBinderStatus(
+                mModule->setVendorParameters(asyncParameters, true /*async*/)));
     return OK;
 }
 
@@ -494,8 +535,10 @@ status_t DeviceHalAidl::openOutputStream(
         audio_output_flags_t flags, struct audio_config* config,
         const char* address,
         sp<StreamOutHalInterface>* outStream,
-        const std::vector<playback_track_metadata_v7_t>& sourceMetadata) {
-    AUGMENT_LOG(D, "handle: %d devices %0x flags %0x", handle, devices, flags);
+        const std::vector<playback_track_metadata_v7_t>& sourceMetadata,
+        int32_t mixPortHalId) {
+    AUGMENT_LOG(D, "handle: %d devices %0x flags %0x mixPortHalId %d",
+                handle, devices, flags, mixPortHalId);
 
     TIME_CHECK();
     RETURN_IF_MODULE_NOT_INIT(NO_INIT);
@@ -521,8 +564,8 @@ status_t DeviceHalAidl::openOutputStream(
     Hal2AidlMapper::Cleanups cleanups(mMapperAccessor);
     {
         std::lock_guard l(mLock);
-        RETURN_STATUS_IF_ERROR(mMapper.prepareToOpenStream(aidlHandle, aidlDevice, aidlFlags,
-                        AudioSource::SYS_RESERVED_INVALID /*only needed for input*/,
+        RETURN_STATUS_IF_ERROR(mMapper.prepareToOpenStream(aidlHandle, mixPortHalId, aidlDevice,
+                        aidlFlags, AudioSource::SYS_RESERVED_INVALID /*only needed for input*/,
                         &cleanups, &aidlConfig, &mixPortConfig, &aidlPatch));
     }
     *config = VALUE_OR_RETURN_STATUS(
@@ -594,8 +637,10 @@ status_t DeviceHalAidl::openInputStream(
         struct audio_config* config, audio_input_flags_t flags,
         const char* address, audio_source_t source,
         audio_devices_t outputDevice, const char* outputDeviceAddress,
-        sp<StreamInHalInterface>* inStream) {
-    AUGMENT_LOG(D, "handle: %d devices %0x flags %0x", handle, devices, flags);
+        sp<StreamInHalInterface>* inStream,
+        int32_t mixPortHalId) {
+    AUGMENT_LOG(D, "handle: %d devices %0x flags %0x mixPortHalId %d",
+                handle, devices, flags, mixPortHalId);
     TIME_CHECK();
     RETURN_IF_MODULE_NOT_INIT(NO_INIT);
     if (inStream == nullptr || config == nullptr) {
@@ -620,7 +665,7 @@ status_t DeviceHalAidl::openInputStream(
     {
         std::lock_guard l(mLock);
         RETURN_STATUS_IF_ERROR(mMapper.prepareToOpenStream(
-                        aidlHandle, aidlDevice, aidlFlags, aidlSource,
+                        aidlHandle, mixPortHalId, aidlDevice, aidlFlags, aidlSource,
                         &cleanups, &aidlConfig, &mixPortConfig, &aidlPatch));
     }
     *config = VALUE_OR_RETURN_STATUS(
@@ -657,6 +702,13 @@ status_t DeviceHalAidl::openInputStream(
     }
     cleanups.disarmAll();
     return OK;
+}
+
+void DeviceHalAidl::streamClosed(const sp<StreamHalInterface>& stream) {
+    AUGMENT_LOG(D);
+    TIME_CHECK();
+    std::lock_guard l(mLock);
+    mMapper.onStreamClosed(stream);
 }
 
 status_t DeviceHalAidl::supportsAudioPatches(bool* supportsPatches) {
@@ -820,7 +872,8 @@ status_t DeviceHalAidl::getAudioPort(struct audio_port_v7 *port) {
 }
 
 status_t DeviceHalAidl::getAudioMixPort(const struct audio_port_v7 *devicePort,
-                                        struct audio_port_v7 *mixPort) {
+                                        struct audio_port_v7 *mixPort,
+                                        int32_t mixPortHalId) {
     AUGMENT_LOG(D);
     TIME_CHECK();
     RETURN_IF_MODULE_NOT_INIT(NO_INIT);
@@ -830,6 +883,43 @@ status_t DeviceHalAidl::getAudioMixPort(const struct audio_port_v7 *devicePort,
         AUGMENT_LOG(E, "invalid device or mix port");
         return BAD_VALUE;
     }
+
+    if (com::android::media::audio::check_route_in_get_audio_mix_port()) {
+        std::lock_guard l(mLock);
+
+        const bool isInput = VALUE_OR_RETURN_STATUS(
+                ::aidl::android::portDirection(devicePort->role, devicePort->type)) ==
+                ::aidl::android::AudioPortDirection::INPUT;
+
+        AudioPort aidlDevicePort;
+        auto aidlPort = VALUE_OR_RETURN_STATUS(
+                ::aidl::android::legacy2aidl_audio_port_v7_AudioPort(*devicePort, isInput));
+        const auto& matchDevice = aidlPort.ext.get<AudioPortExt::device>().device;
+        RETURN_STATUS_IF_ERROR(mMapper.getAudioPortCached(matchDevice, &aidlDevicePort));
+
+        AudioPort aidlMixPort;
+        if (mixPortHalId != AUDIO_PORT_HANDLE_NONE) {
+            RETURN_STATUS_IF_ERROR(mMapper.updateAudioPort(mixPortHalId, &aidlMixPort));
+        } else {
+            const int32_t aidlHandle = VALUE_OR_RETURN_STATUS(
+                  ::aidl::android::legacy2aidl_audio_io_handle_t_int32_t(mixPort->ext.mix.handle));
+            if (aidlHandle == AUDIO_IO_HANDLE_NONE) {
+                AUGMENT_LOG(E, "mix port has neither handle nor port ID");
+                return BAD_VALUE;
+            }
+            RETURN_STATUS_IF_ERROR(mMapper.getAudioMixPort(aidlHandle, &aidlMixPort));
+        }
+
+        if (!mMapper.isRoutable(aidlDevicePort.id, aidlMixPort.id)) {
+            return INVALID_OPERATION;
+        }
+
+        *mixPort = VALUE_OR_RETURN_STATUS(::aidl::android::aidl2legacy_AudioPort_audio_port_v7(
+                aidlMixPort, isInput));
+
+        return OK;
+    }
+
     const int32_t aidlHandle = VALUE_OR_RETURN_STATUS(
             ::aidl::android::legacy2aidl_audio_io_handle_t_int32_t(mixPort->ext.mix.handle));
     AudioPort port;

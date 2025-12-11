@@ -42,7 +42,9 @@ enum class DevicePolicy {
   DEVICE_POLICY_DEFAULT =
     ::android::companion::virtualnative::IVirtualDeviceManagerNative::DEVICE_POLICY_DEFAULT,
   DEVICE_POLICY_CUSTOM =
-    ::android::companion::virtualnative::IVirtualDeviceManagerNative::DEVICE_POLICY_CUSTOM
+    ::android::companion::virtualnative::IVirtualDeviceManagerNative::DEVICE_POLICY_CUSTOM,
+  DEVICE_POLICY_INVALID =
+    ::android::companion::virtualnative::IVirtualDeviceManagerNative::DEVICE_POLICY_INVALID
 };
 
 /**

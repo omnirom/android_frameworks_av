@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
+#include <algorithm>
 #include <getopt.h>
+#include <memory>
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>

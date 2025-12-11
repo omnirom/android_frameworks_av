@@ -720,6 +720,11 @@ status_t DepthCompositeStream::configureStream() {
         return res;
     }
 
+    if ((res = setSWUsage(mBlobStreamId, anwConsumer)) != OK ) {
+        return res;
+    }
+
+
     if ((res = native_window_set_buffer_count(
                     anwConsumer, maxProducerBuffers + maxConsumerBuffers)) != OK) {
         ALOGE("%s: Unable to set buffer count for stream %d", __FUNCTION__, mBlobStreamId);

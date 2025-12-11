@@ -76,7 +76,7 @@ public:
     uint32_t getMaxEffectsCpuLoad() const;
     uint32_t getMaxEffectsMemory() const;
     bool isNonOffloadableEffectEnabled(
-            const std::optional<const effect_uuid_t>& uuid = std::nullopt) const;
+            const audio_session_t sessionId = AUDIO_SESSION_NONE) const;
 
     void moveEffects(audio_session_t session,
                      audio_io_handle_t srcOutput,

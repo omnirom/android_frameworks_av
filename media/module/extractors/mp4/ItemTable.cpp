@@ -17,6 +17,7 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "ItemTable"
 
+#include <algorithm>
 #include <unordered_set>
 
 #include <HeifCleanAperture.h>

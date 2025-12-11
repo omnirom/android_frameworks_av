@@ -53,6 +53,9 @@
             ]
         },
         {
+            "name": "vts_treble_vintf_framework_test"
+        },
+        {
             "name": "MctsMediaCodecTestCases",
             "options": [
                 {
@@ -76,6 +79,23 @@
             "options": [
                 {
                     "include-filter": "android.media.decoder.cts.DecoderRenderTest"
+                }
+            ]
+        }
+    ],
+    // Presubmit tests for Wear devices
+    "wear-cts-presubmit": [
+        {
+            "name": "MctsMediaV2TestCases",
+            "options": [
+                {
+                    "include-filter": "android.mediav2.cts.CodecEncoderSurfaceTest"
+                },
+                {
+                    "include-filter": "android.mediav2.cts.AdaptivePlaybackTest"
+                },
+                {
+                    "include-filter": "android.mediav2.cts.CodecEncoderTest"
                 }
             ]
         }

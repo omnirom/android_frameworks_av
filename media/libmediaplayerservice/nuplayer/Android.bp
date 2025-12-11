@@ -76,6 +76,7 @@ cc_library_static {
         }
     },
 
+    defaults: ["android.hardware.drm-media_drm-ndk-shared"],
     shared_libs: [
         "libbinder",
         "libdatasource",
@@ -84,7 +85,6 @@ cc_library_static {
         "libmedia",
         "libmediadrm",
         "libpowermanager",
-        "android.hardware.drm-V1-ndk",
     ],
 
     static_libs: [

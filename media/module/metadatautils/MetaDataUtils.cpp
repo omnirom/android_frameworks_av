@@ -267,10 +267,6 @@ bool MakeVP9CodecSpecificDataFromFirstFrame(AMediaFormat* meta, const uint8_t* d
             chromaSubsampling = 3;
         }
     }
-    int32_t csdSize = 6;
-    if (chromaSubsampling != -1) {
-        csdSize += 3;
-    }
     // As level is not present in first frame build CodecPrivate without it.
     return MakeVP9CodecPrivate(meta, profile, -1, bitDepth, chromaSubsampling);
 }

@@ -1142,22 +1142,36 @@ void MediaPlayerService::Client::disconnectNativeWindow_l() {
     mConnectedWindow.clear();
 }
 
-status_t MediaPlayerService::Client::setVideoSurfaceTexture(
-        const sp<IGraphicBufferProducer>& bufferProducer)
+status_t MediaPlayerService::Client::setVideoSurfaceTexture(const sp<MediaSurfaceType>& surface)
 {
-    ALOGV("[%d] setVideoSurfaceTexture(%p)", mConnId, bufferProducer.get());
+    ALOGV("[%d] setVideoSurfaceTexture(%p)", mConnId, surface.get());
     sp<MediaPlayerBase> p = getPlayer();
     if (p == 0) return UNKNOWN_ERROR;
+    status_t err;
 
-    sp<IBinder> binder(IInterface::asBinder(bufferProducer));
+    // TODO: confirm we can use Surface Unique ID as an identifier here.
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    uint64_t id = 0;
+    err = surface->getUniqueId(&id);
+    if(err != OK) {
+        ALOGE("setVideoSurfaceTexture could not get surface(%p) unique ID: %d", surface.get(), err);
+        return err;
+    }
+    if (mConnectedWindowSurfaceID == id) {
+        return OK;
+    }
+#else
+    sp<IBinder> binder(IInterface::asBinder(surface));
     if (mConnectedWindowBinder == binder) {
         return OK;
     }
+#endif
 
     sp<ANativeWindow> anw;
-    if (bufferProducer != NULL) {
-        anw = new Surface(bufferProducer, true /* controlledByApp */);
-        status_t err = nativeWindowConnect(anw.get(), "setVideoSurfaceTexture");
+    if (surface != NULL) {
+        anw = mediaflagtools::surfaceTypeToSurface(surface, true);
+         /// new Surface(bufferProducer, true /* controlledByApp */);
+        err = nativeWindowConnect(anw.get(), "setVideoSurfaceTexture");
 
         if (err != OK) {
             ALOGE("setVideoSurfaceTexture failed: %d", err);
@@ -1173,17 +1187,21 @@ status_t MediaPlayerService::Client::setVideoSurfaceTexture(
         }
     }
 
-    // Note that we must set the player's new GraphicBufferProducer before
+    // Note that we must set the player's new Surface before
     // disconnecting the old one.  Otherwise queue/dequeue calls could be made
     // on the disconnected ANW, which may result in errors.
-    status_t err = p->setVideoSurfaceTexture(bufferProducer);
+    err = p->setVideoSurfaceTexture(surface);
 
     mLock.lock();
     disconnectNativeWindow_l();
 
     if (err == OK) {
         mConnectedWindow = anw;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        mConnectedWindowSurfaceID = id;
+#else
         mConnectedWindowBinder = binder;
+#endif
         mLock.unlock();
     } else {
         mLock.unlock();
@@ -1854,7 +1872,7 @@ MediaPlayerService::AudioOutput::AudioOutput(audio_session_t sessionId,
         mAttributes = (audio_attributes_t *) calloc(1, sizeof(audio_attributes_t));
         if (mAttributes != NULL) {
             memcpy(mAttributes, attr, sizeof(audio_attributes_t));
-            mStreamType = AudioSystem::attributesToStreamType(*attr);
+            AudioSystem::getStreamTypeForAttributes(*attr, mStreamType);
         }
     } else {
         mAttributes = NULL;
@@ -2040,7 +2058,7 @@ void MediaPlayerService::AudioOutput::setAudioAttributes(const audio_attributes_
             mAttributes = (audio_attributes_t *) calloc(1, sizeof(audio_attributes_t));
         }
         memcpy(mAttributes, attributes, sizeof(audio_attributes_t));
-        mStreamType = AudioSystem::attributesToStreamType(*attributes);
+        AudioSystem::getStreamTypeForAttributes(*attributes, mStreamType);
     }
 }
 

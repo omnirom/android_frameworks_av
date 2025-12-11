@@ -29,6 +29,7 @@
 
 #include <aaudio/AAudio.h>
 #include <media/AudioContainers.h>
+#include <media/AudioResamplerPublic.h>
 #include <media/AudioSystem.h>
 #include <media/PlayerBase.h>
 #include <media/VolumeShaper.h>
@@ -82,19 +83,36 @@ protected:
     /* Asynchronous requests.
      * Use waitForStateChange() to wait for completion.
      */
-    virtual aaudio_result_t requestStart_l() REQUIRES(mStreamLock) = 0;
+    virtual aaudio_result_t requestStart_l() REQUIRES(mStreamMutex) = 0;
 
-    virtual aaudio_result_t requestPause_l() REQUIRES(mStreamLock) {
+    virtual aaudio_result_t requestPause_l() REQUIRES(mStreamMutex) {
         // Only implement this for OUTPUT streams.
         return AAUDIO_ERROR_UNIMPLEMENTED;
     }
 
-    virtual aaudio_result_t requestFlush_l() REQUIRES(mStreamLock) {
+    virtual aaudio_result_t requestFlush_l() REQUIRES(mStreamMutex) {
         // Only implement this for OUTPUT streams.
         return AAUDIO_ERROR_UNIMPLEMENTED;
     }
 
-    virtual aaudio_result_t requestStop_l() REQUIRES(mStreamLock) = 0;
+    virtual aaudio_result_t requestStop_l() REQUIRES(mStreamMutex) = 0;
+
+    virtual aaudio_result_t flushFromFrame_l(AAudio_FlushFromAccuracy accuracy [[maybe_unused]],
+                                             int64_t* position [[maybe_unused]])
+                                             REQUIRES(mStreamMutex) {
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
+
+    virtual aaudio_result_t setPlaybackParameters_l(
+            const AAudioPlaybackParameters* parameters [[maybe_unused]])
+            REQUIRES(mStreamMutex) {
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
+    virtual aaudio_result_t getPlaybackParameters_l(
+            AAudioPlaybackParameters* parameters [[maybe_unused]])
+            REQUIRES(mStreamMutex) {
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
 
 public:
     virtual aaudio_result_t getTimestamp(clockid_t clockId,
@@ -146,7 +164,7 @@ protected:
      * Free any hardware or system resources from the open() call.
      * It is safe to call release_l() multiple times.
      */
-    virtual aaudio_result_t release_l() REQUIRES(mStreamLock) {
+    virtual aaudio_result_t release_l() REQUIRES(mStreamMutex) {
         setState(AAUDIO_STREAM_STATE_CLOSING);
         return AAUDIO_OK;
     }
@@ -155,7 +173,7 @@ protected:
      * Free any resources not already freed by release_l().
      * Assume release_l() already called.
      */
-    virtual void close_l() REQUIRES(mStreamLock);
+    virtual void close_l() REQUIRES(mStreamMutex);
 
 public:
     // This is only used to identify a stream in the logs without
@@ -169,12 +187,12 @@ public:
     aaudio_result_t createThread(int64_t periodNanoseconds,
                                  aaudio_audio_thread_proc_t threadProc,
                                  void *threadArg)
-                                 EXCLUDES(mStreamLock) {
-        std::lock_guard<std::mutex> lock(mStreamLock);
+                                 EXCLUDES(mStreamMutex) {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
         return createThread_l(periodNanoseconds, threadProc, threadArg);
     }
 
-    aaudio_result_t joinThread(void **returnArg) EXCLUDES(mStreamLock);
+    aaudio_result_t joinThread(void **returnArg) EXCLUDES(mStreamMutex);
 
     virtual aaudio_result_t registerThread() {
         return AAUDIO_OK;
@@ -282,6 +300,10 @@ public:
         return mSharingModeMatchRequired;
     }
 
+    void setSharingModeMatchRequired(bool sharingModeMatchRequired) {
+        mSharingModeMatchRequired = sharingModeMatchRequired;
+    }
+
     virtual aaudio_direction_t getDirection() const = 0;
 
     aaudio_usage_t getUsage() const {
@@ -354,15 +376,16 @@ public:
 
     virtual int64_t getFramesRead() = 0;
 
-    AAudioStream_dataCallback getDataCallbackProc() const {
-        return mDataCallbackProc;
+    typedef int (AudioStream::*DataCallbackWrapper)(void* audioData, int32_t numFrames);
+    DataCallbackWrapper getDataCallbackWrapper() const {
+        return mDataCallbackWrapper;
     }
 
     AAudioStream_errorCallback getErrorCallbackProc() const {
         return mErrorCallbackProc;
     }
 
-    aaudio_data_callback_result_t maybeCallDataCallback(void *audioData, int32_t numFrames);
+    int32_t maybeCallDataCallback(void *audioData, int32_t numFrames);
 
     void maybeCallErrorCallback(aaudio_result_t result);
 
@@ -403,7 +426,7 @@ public:
         return AAUDIO_ERROR_UNIMPLEMENTED;
     }
 
-    virtual aaudio_result_t setOffloadEndOfStream() EXCLUDES(mStreamLock) {
+    virtual aaudio_result_t setOffloadEndOfStream() EXCLUDES(mStreamMutex) {
         return AAUDIO_ERROR_UNIMPLEMENTED;
     }
 
@@ -414,7 +437,7 @@ public:
      * @return true if data callback has been specified
      */
     bool isDataCallbackSet() const {
-        return mDataCallbackProc != nullptr;
+        return mDataCallbackWrapper != nullptr;
     }
 
     /**
@@ -437,7 +460,7 @@ public:
     // A Stream will only implement read() or write() depending on its direction.
     virtual aaudio_result_t write(const void *buffer __unused,
                              int32_t numFrames __unused,
-                             int64_t timeoutNanoseconds __unused) {
+                             int64_t timeoutNanoseconds __unused) EXCLUDES(mStreamMutex) {
         return AAUDIO_ERROR_UNIMPLEMENTED;
     }
 
@@ -448,7 +471,7 @@ public:
     }
 
     // This is used by the AudioManager to duck and mute the stream when changing audio focus.
-    void setDuckAndMuteVolume(float duckAndMuteVolume) EXCLUDES(mStreamLock);
+    void setDuckAndMuteVolume(float duckAndMuteVolume) EXCLUDES(mStreamMutex);
 
     float getDuckAndMuteVolume() const {
         return mDuckAndMuteVolume;
@@ -483,11 +506,11 @@ public:
         mPlayerBase->unregisterWithAudioManager();
     }
 
-    aaudio_result_t systemStart() EXCLUDES(mStreamLock);
+    aaudio_result_t systemStart() EXCLUDES(mStreamMutex);
 
-    aaudio_result_t systemPause() EXCLUDES(mStreamLock);
+    aaudio_result_t systemPause() EXCLUDES(mStreamMutex);
 
-    aaudio_result_t safeFlush() EXCLUDES(mStreamLock);
+    aaudio_result_t safeFlush() EXCLUDES(mStreamMutex);
 
     /**
      * This is called when an app calls AAudioStream_requestStop();
@@ -498,23 +521,31 @@ public:
     /**
      * This is called internally when an app callback returns AAUDIO_CALLBACK_RESULT_STOP.
      */
-    aaudio_result_t systemStopInternal() EXCLUDES(mStreamLock);
+    aaudio_result_t systemStopInternal() EXCLUDES(mStreamMutex);
 
     /**
-     * Safely RELEASE a stream after taking mStreamLock and checking
+     * Safely RELEASE a stream after taking mStreamMutex and checking
      * to make sure we are not being called from a callback.
      * @return AAUDIO_OK or a negative error
      */
-    aaudio_result_t safeRelease() EXCLUDES(mStreamLock);
+    aaudio_result_t safeRelease() EXCLUDES(mStreamMutex);
 
     /**
-     * Safely RELEASE and CLOSE a stream after taking mStreamLock and checking
+     * Safely RELEASE and CLOSE a stream after taking mStreamMutex and checking
      * to make sure we are not being called from a callback.
      * @return AAUDIO_OK or a negative error
      */
     aaudio_result_t safeReleaseClose();
 
-    aaudio_result_t safeReleaseCloseInternal() EXCLUDES(mStreamLock);
+    aaudio_result_t safeReleaseCloseInternal() EXCLUDES(mStreamMutex);
+
+    aaudio_result_t flushFromFrame(AAudio_FlushFromAccuracy accuracy, int64_t* position)
+            EXCLUDES(mStreamMutex);
+
+    aaudio_result_t setPlaybackParameters(const AAudioPlaybackParameters* parameters)
+            EXCLUDES(mStreamMutex);
+    aaudio_result_t getPlaybackParameters(struct AAudioPlaybackParameters* parameters)
+            EXCLUDES(mStreamMutex);
 
 protected:
 
@@ -664,11 +695,11 @@ protected:
     aaudio_result_t createThread_l(int64_t periodNanoseconds,
                                            aaudio_audio_thread_proc_t threadProc,
                                            void *threadArg)
-                                           REQUIRES(mStreamLock);
+                                           REQUIRES(mStreamMutex);
 
-    aaudio_result_t joinThread_l(void **returnArg) REQUIRES(mStreamLock);
+    aaudio_result_t joinThread_l(void **returnArg) REQUIRES(mStreamMutex);
 
-    virtual aaudio_result_t systemStopInternal_l() REQUIRES(mStreamLock);
+    virtual aaudio_result_t systemStopInternal_l() REQUIRES(mStreamMutex);
 
     std::atomic<bool>    mCallbackEnabled{false};
 
@@ -765,11 +796,11 @@ protected:
         mAudioBalance = audioBalance;
     }
 
-    aaudio_result_t safeStop_l() REQUIRES(mStreamLock);
+    aaudio_result_t safeStop_l() REQUIRES(mStreamMutex);
 
     std::string mMetricsId; // set once during open()
 
-    std::mutex                 mStreamLock;
+    std::mutex                 mStreamMutex;
 
     const android::sp<MyPlayerBase>   mPlayerBase;
 
@@ -778,13 +809,16 @@ private:
     /**
      * Release then close the stream.
      */
-    void releaseCloseFinal_l() REQUIRES(mStreamLock) {
+    void releaseCloseFinal_l() REQUIRES(mStreamMutex) {
         if (getState() != AAUDIO_STREAM_STATE_CLOSING) { // not already released?
             // Ignore result and keep closing.
             (void) release_l();
         }
         close_l();
     }
+
+    int dataCallbackInternal(void* audioData, int32_t numFrames);
+    int partialDataCallbackInternal(void* audioData, int32_t numFrames);
 
     std::atomic<aaudio_stream_state_t>          mState{AAUDIO_STREAM_STATE_UNINITIALIZED};
 
@@ -832,6 +866,8 @@ private:
     void                       *mDataCallbackUserData = nullptr;
     int32_t                     mFramesPerDataCallback = AAUDIO_UNSPECIFIED; // frames
     std::atomic<pid_t>          mDataCallbackThread{CALLBACK_THREAD_NONE};
+    AAudioStream_partialDataCallback mPartialDataCallbackProc = nullptr;
+    DataCallbackWrapper         mDataCallbackWrapper = nullptr;
 
     AAudioStream_errorCallback  mErrorCallbackProc = nullptr;
     void                       *mErrorCallbackUserData = nullptr;
@@ -839,8 +875,8 @@ private:
 
     // background thread ----------------------------------
     // Use mHasThread to prevent joining twice, which has undefined behavior.
-    bool                        mHasThread GUARDED_BY(mStreamLock) = false;
-    pthread_t                   mThread  GUARDED_BY(mStreamLock) = {};
+    bool                        mHasThread GUARDED_BY(mStreamMutex) = false;
+    pthread_t                   mThread  GUARDED_BY(mStreamMutex) = {};
 
     // These are set by the application thread and then read by the audio pthread.
     std::atomic<int64_t>        mPeriodNanoseconds; // for tuning SCHED_FIFO threads

@@ -104,6 +104,11 @@ protected:
 
     aaudio_result_t stopClient_l(audio_port_handle_t clientHandle) REQUIRES(mLock) override;
 
+    void changeSoundDose_l(bool active, int64_t* nextDataReportTime) REQUIRES(mLock) final {
+        mSoundDoseActive = active;
+        *nextDataReportTime = nextDataReportTime_l();
+    }
+
 private:
 
     bool                     mInService = false;

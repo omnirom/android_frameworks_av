@@ -128,7 +128,6 @@ C2SoftOpusEnc::C2SoftOpusEnc(const char* name, c2_node_id_t id,
     : SimpleC2Component(
           std::make_shared<SimpleInterface<IntfImpl>>(name, id, intfImpl)),
       mIntf(intfImpl),
-      mOutputBlock(nullptr),
       mEncoder(nullptr),
       mInputBufferPcm16(nullptr),
       mOutIndex(0u) {
@@ -246,8 +245,6 @@ c2_status_t C2SoftOpusEnc::initEncoder() {
     mSignalledError = false;
     mHeaderGenerated = false;
     mIsFirstFrame = true;
-    mEncoderFlushed = false;
-    mBufferAvailable = false;
     mAnchorTimeStamp = 0;
     mProcessedSamples = 0;
     mFilledLen = 0;
@@ -267,11 +264,10 @@ c2_status_t C2SoftOpusEnc::initEncoder() {
 c2_status_t C2SoftOpusEnc::onStop() {
     mSignalledEos = false;
     mSignalledError = false;
+    mHeaderGenerated = false;
     mIsFirstFrame = true;
-    mEncoderFlushed = false;
-    mBufferAvailable = false;
     mAnchorTimeStamp = 0;
-    mProcessedSamples = 0u;
+    mProcessedSamples = 0;
     mFilledLen = 0;
     if (mEncoder) {
         int status = opus_multistream_encoder_ctl(mEncoder, OPUS_RESET_STATE);
@@ -281,8 +277,6 @@ c2_status_t C2SoftOpusEnc::onStop() {
             return C2_CORRUPTED;
         }
     }
-    if (mOutputBlock) mOutputBlock.reset();
-    mOutputBlock = nullptr;
 
     return C2_OK;
 }
@@ -308,20 +302,20 @@ c2_status_t C2SoftOpusEnc::onFlush_sm() {
 }
 
 // Drain the encoder to get last frames (if any)
-int C2SoftOpusEnc::drainEncoder(uint8_t* outPtr) {
+int C2SoftOpusEnc::drainEncoder(uint8_t* outPtr, int outCapacity) {
+    if (mFilledLen == 0) return 0;
     memset((uint8_t *)mInputBufferPcm16 + mFilledLen, 0,
         (mNumPcmBytesPerInputFrame - mFilledLen));
     int encodedBytes = opus_multistream_encode(
-        mEncoder, mInputBufferPcm16, mNumSamplesPerFrame, outPtr, kMaxPayload);
-    if (encodedBytes > mOutputBlock->capacity()) {
+        mEncoder, mInputBufferPcm16, mNumSamplesPerFrame, outPtr, outCapacity);
+    if (encodedBytes > outCapacity) {
         ALOGE("not enough space left to write encoded data, dropping %d bytes",
-              mBytesEncoded);
+              encodedBytes);
         // a fatal error would stop the encoding
         return -1;
     }
     ALOGV("encoded %i Opus bytes from %zu PCM bytes", encodedBytes,
           mNumPcmBytesPerInputFrame);
-    mEncoderFlushed = true;
     mFilledLen = 0;
     return encodedBytes;
 }
@@ -371,28 +365,28 @@ void C2SoftOpusEnc::process(const std::unique_ptr<C2Work>& work,
         mIsFirstFrame = false;
     }
 
+    std::shared_ptr<C2LinearBlock> outputBlock;
     C2MemoryUsage usage = {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE};
     int outCapacity =
         kMaxPayload * ((inSize + mNumPcmBytesPerInputFrame) / mNumPcmBytesPerInputFrame);
-    err = pool->fetchLinearBlock(outCapacity, usage, &mOutputBlock);
+    err = pool->fetchLinearBlock(outCapacity, usage, &outputBlock);
     if (err != C2_OK) {
         ALOGE("fetchLinearBlock for Output failed with status %d", err);
         work->result = C2_NO_MEMORY;
         return;
     }
 
-    C2WriteView wView = mOutputBlock->map().get();
+    C2WriteView wView = outputBlock->map().get();
     if (wView.error()) {
         ALOGE("write view map failed %d", wView.error());
         work->result = C2_CORRUPTED;
-        mOutputBlock.reset();
+        outputBlock.reset();
         return;
     }
 
     size_t inPos = 0;
     size_t processSize = 0;
-    mBytesEncoded = 0;
-    int64_t outTimeStamp = 0;
+    int outOffset = 0;
     std::shared_ptr<C2Buffer> buffer;
     uint64_t inputIndex = work->input.ordinal.frameIndex.peeku();
     const uint8_t* inPtr = rView.data() + inOffset;
@@ -475,19 +469,22 @@ void C2SoftOpusEnc::process(const std::unique_ptr<C2Work>& work,
      * to be processed. The next call will fill mNumPcmBytesPerInputFrame - mFilledLen
      * bytes to input and send it to the encoder.
      */
-    while (inPos < inSize) {
+    int64_t currentOutputPts;
+    int64_t prevOutputPts;
+    bool bufferAvailable;
+    while ((inPos < inSize) || eos) {
         const uint8_t* pcmBytes = inPtr + inPos;
         int filledSamples = mFilledLen / sizeof(int16_t);
         if ((inPos + (mNumPcmBytesPerInputFrame - mFilledLen)) <= inSize) {
             processSize = mNumPcmBytesPerInputFrame - mFilledLen;
-            mBufferAvailable = true;
+            bufferAvailable = true;
         } else {
             processSize = inSize - inPos;
-            mBufferAvailable = false;
-            if (eos) {
+            bufferAvailable = false;
+            if (eos && ((processSize + filledSamples) != 0)) {
                 memset(mInputBufferPcm16 + filledSamples, 0,
                        (mNumPcmBytesPerInputFrame - mFilledLen));
-                mBufferAvailable = true;
+                bufferAvailable = true;
             }
         }
         const unsigned nInputSamples = processSize / sizeof(int16_t);
@@ -499,15 +496,18 @@ void C2SoftOpusEnc::process(const std::unique_ptr<C2Work>& work,
         }
         inPos += processSize;
         mFilledLen += processSize;
-        if (!mBufferAvailable) break;
-        uint8_t* outPtr = wView.data() + mBytesEncoded;
+        if (!bufferAvailable) {
+            break;
+        }
+        uint8_t* outPtr = wView.data() + outOffset;
         int encodedBytes =
             opus_multistream_encode(mEncoder, mInputBufferPcm16,
-                                    mNumSamplesPerFrame, outPtr, outCapacity - mBytesEncoded);
+                                    mNumSamplesPerFrame, outPtr, outCapacity - outOffset);
         ALOGV("encoded %i Opus bytes from %zu PCM bytes", encodedBytes,
               processSize);
 
-        if (encodedBytes < 0 || encodedBytes > (outCapacity - mBytesEncoded)) {
+        // A well-formed Opus packet MUST contain at least one byte
+        if (encodedBytes <= 0 || encodedBytes > (outCapacity - outOffset)) {
             ALOGE("opus_encode failed, encodedBytes : %d", encodedBytes);
             mSignalledError = true;
             work->result = C2_CORRUPTED;
@@ -515,83 +515,62 @@ void C2SoftOpusEnc::process(const std::unique_ptr<C2Work>& work,
         }
         if (buffer) {
             outOrdinal.frameIndex = mOutIndex++;
-            outOrdinal.timestamp = mAnchorTimeStamp + outTimeStamp;
+            outOrdinal.timestamp = prevOutputPts;
             cloneAndSend(
                 inputIndex, work,
                 FillWork(C2FrameData::FLAG_INCOMPLETE, outOrdinal, buffer));
             buffer.reset();
         }
-        if (encodedBytes > 0) {
-            buffer =
-                createLinearBuffer(mOutputBlock, mBytesEncoded, encodedBytes);
-        }
-        mBytesEncoded += encodedBytes;
+        buffer = createLinearBuffer(outputBlock, outOffset, encodedBytes);
+        currentOutputPts =
+                mAnchorTimeStamp + mProcessedSamples * 1000000ll / mChannelCount / mSampleRate;
+        outOffset += encodedBytes;
         mProcessedSamples += (filledSamples + nInputSamples);
-        outTimeStamp =
-            mProcessedSamples * 1000000ll / mChannelCount / mSampleRate;
-        if ((processSize + mFilledLen) < mNumPcmBytesPerInputFrame)
-            mEncoderFlushed = true;
+        prevOutputPts = currentOutputPts;
         mFilledLen = 0;
     }
 
-    uint32_t flags = 0;
+    outOrdinal.frameIndex = mOutIndex++;
+    outOrdinal.timestamp = currentOutputPts;
+    FillWork((C2FrameData::flags_t)(eos ? C2FrameData::FLAG_END_OF_STREAM : 0),
+             outOrdinal, buffer)(work);
     if (eos) {
         ALOGV("signalled eos");
         mSignalledEos = true;
-        if (!mEncoderFlushed) {
-            if (buffer) {
-                outOrdinal.frameIndex = mOutIndex++;
-                outOrdinal.timestamp = mAnchorTimeStamp + outTimeStamp;
-                cloneAndSend(
-                    inputIndex, work,
-                    FillWork(C2FrameData::FLAG_INCOMPLETE, outOrdinal, buffer));
-                buffer.reset();
-            }
-            // drain the encoder for last buffer
-            drainInternal(pool, work);
-        }
-        flags = C2FrameData::FLAG_END_OF_STREAM;
     }
-    if (buffer) {
-        outOrdinal.frameIndex = mOutIndex++;
-        outOrdinal.timestamp = mAnchorTimeStamp + outTimeStamp;
-        FillWork((C2FrameData::flags_t)(flags), outOrdinal, buffer)(work);
-        buffer.reset();
-    }
-    mOutputBlock = nullptr;
+    buffer.reset();
+    outputBlock.reset();
 }
 
 c2_status_t C2SoftOpusEnc::drainInternal(
         const std::shared_ptr<C2BlockPool>& pool,
         const std::unique_ptr<C2Work>& work) {
-    mBytesEncoded = 0;
-    std::shared_ptr<C2Buffer> buffer = nullptr;
+    std::shared_ptr<C2Buffer> buffer;
     C2WorkOrdinalStruct outOrdinal = work->input.ordinal;
     bool eos = (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0;
 
+    std::shared_ptr<C2LinearBlock> outputBlock;
     C2MemoryUsage usage = {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE};
-    c2_status_t err = pool->fetchLinearBlock(kMaxPayload, usage, &mOutputBlock);
+    c2_status_t err = pool->fetchLinearBlock(kMaxPayload, usage, &outputBlock);
     if (err != C2_OK) {
         ALOGE("fetchLinearBlock for Output failed with status %d", err);
         return C2_NO_MEMORY;
     }
 
-    C2WriteView wView = mOutputBlock->map().get();
+    C2WriteView wView = outputBlock->map().get();
     if (wView.error()) {
         ALOGE("write view map failed %d", wView.error());
-        mOutputBlock.reset();
+        outputBlock.reset();
         return C2_CORRUPTED;
     }
 
-    int encBytes = drainEncoder(wView.data());
-    if (encBytes > 0) mBytesEncoded += encBytes;
-    if (mBytesEncoded > 0) {
-        buffer = createLinearBuffer(mOutputBlock, 0, mBytesEncoded);
-        mOutputBlock.reset();
+    int encBytes = drainEncoder(wView.data(), outputBlock->capacity());
+    if (encBytes > 0) {
+        buffer = createLinearBuffer(outputBlock, 0, encBytes);
     }
-    mProcessedSamples += (mNumPcmBytesPerInputFrame / sizeof(int16_t));
     int64_t outTimeStamp =
         mProcessedSamples * 1000000ll / mChannelCount / mSampleRate;
+    mProcessedSamples += (mNumPcmBytesPerInputFrame / sizeof(int16_t));
     outOrdinal.frameIndex = mOutIndex++;
     outOrdinal.timestamp = mAnchorTimeStamp + outTimeStamp;
     work->worklets.front()->output.flags =
@@ -603,7 +582,9 @@ c2_status_t C2SoftOpusEnc::drainInternal(
     if (buffer) {
         work->worklets.front()->output.buffers.push_back(buffer);
     }
-    mOutputBlock = nullptr;
+    buffer.reset();
+    outputBlock.reset();
+
     return C2_OK;
 }
 
@@ -617,9 +598,6 @@ c2_status_t C2SoftOpusEnc::drain(uint32_t drainMode,
         ALOGW("DRAIN_CHAIN not supported");
         return C2_OMITTED;
     }
-    mIsFirstFrame = true;
-    mAnchorTimeStamp = 0;
-    mProcessedSamples = 0u;
     return drainInternal(pool, nullptr);
 }
 

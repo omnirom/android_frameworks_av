@@ -44,7 +44,8 @@ status_t AudioHwDevice::openOutputStream(
         audio_output_flags_t *flags,
         struct audio_config *config,
         const char *address,
-        const std::vector<playback_track_metadata_v7_t>& sourceMetadata)
+        const std::vector<playback_track_metadata_v7_t>& sourceMetadata,
+        int32_t mixPortHalId)
 {
 
     struct audio_config originalConfig = *config;
@@ -54,7 +55,7 @@ status_t AudioHwDevice::openOutputStream(
     ALOGV("openOutputStream(), try sampleRate %d, format %#x, channelMask %#x", config->sample_rate,
             config->format, config->channel_mask);
     status_t status = outputStream->open(handle, deviceType, config, flags, address,
-                                        sourceMetadata);
+                                         sourceMetadata, mixPortHalId);
 
     if (status != NO_ERROR) {
         delete outputStream;
@@ -75,7 +76,7 @@ status_t AudioHwDevice::openOutputStream(
             if (SPDIFEncoder::isFormatSupported(originalConfig.format)) {
                 outputStream = new SpdifStreamOut(this, originalConfig.format);
                 status = outputStream->open(handle, deviceType, &originalConfig, flags, address,
-                                            sourceMetadata);
+                                            sourceMetadata, mixPortHalId);
                 if (status != NO_ERROR) {
                     ALOGE("ERROR - openOutputStream(), SPDIF open returned %d",
                         status);
@@ -108,7 +109,8 @@ status_t AudioHwDevice::openInputStream(
         const char *address,
         audio_source_t source,
         audio_devices_t outputDevice,
-        const char *outputDeviceAddress) {
+        const char *outputDeviceAddress,
+        int32_t mixPortHalId) {
 
     struct audio_config originalConfig = *config;
     auto inputStream = new AudioStreamIn(this, flags);
@@ -117,7 +119,7 @@ status_t AudioHwDevice::openInputStream(
     ALOGV("openInputStream(), try sampleRate %d, format %#x, channelMask %#x", config->sample_rate,
             config->format, config->channel_mask);
     status_t status = inputStream->open(handle, deviceType, config, address, source, outputDevice,
-                                        outputDeviceAddress);
+                                        outputDeviceAddress, mixPortHalId);
 
     // If the input could not be opened with the requested parameters and we can handle the
     // conversion internally, try to open again with the proposed parameters.
@@ -130,7 +132,7 @@ status_t AudioHwDevice::openInputStream(
         // FIXME describe the change proposed by HAL (save old values so we can log them here)
         ALOGV("openInputStream() reopening with proposed sampling rate and channel mask");
         status = inputStream->open(handle, deviceType, config, address, source,
-                outputDevice, outputDeviceAddress);
+                outputDevice, outputDeviceAddress, mixPortHalId);
         // FIXME log this new status; HAL should not propose any further changes
         if (status != NO_ERROR) {
             delete inputStream;
@@ -154,7 +156,7 @@ status_t AudioHwDevice::openInputStream(
             if (SPDIFDecoder::isFormatSupported(originalConfig.format)) {
                 inputStream = new SpdifStreamIn(this, flags, originalConfig.format);
                 status = inputStream->open(handle, deviceType, &originalConfig, address, source,
-                        outputDevice, outputDeviceAddress);
+                        outputDevice, outputDeviceAddress, mixPortHalId);
                 if (status != NO_ERROR) {
                     ALOGE("ERROR - openInputStream(), SPDIF open returned %d",
                         status);
@@ -201,8 +203,9 @@ int32_t AudioHwDevice::getAAudioHardwareBurstMinUsec() const {
 }
 
 status_t AudioHwDevice::getAudioMixPort(const struct audio_port_v7 *devicePort,
-                                        struct audio_port_v7 *mixPort) const {
-    return mHwDevice->getAudioMixPort(devicePort, mixPort);
+                                        struct audio_port_v7 *mixPort,
+                                        int32_t mixPortHalId) const {
+    return mHwDevice->getAudioMixPort(devicePort, mixPort, mixPortHalId);
 }
 
 

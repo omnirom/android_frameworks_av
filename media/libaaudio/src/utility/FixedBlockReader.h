@@ -42,6 +42,8 @@ public:
      * Read into a variable sized block.
      */
     AdapterProcessResult processVariableBlock(uint8_t *buffer, int32_t numBytes) override;
+
+    void flush();
 };
 
 

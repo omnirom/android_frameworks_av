@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <aaudio/AAudio.h>
+#include <aaudio/IAAudioClientCallback.h>
 #include <aaudio/StreamRequest.h>
 
 #include "binding/AAudioStreamConfiguration.h"
@@ -68,6 +69,14 @@ public:
         mInService = inService;
     }
 
+    void setCallback(const android::sp<IAAudioClientCallback>& callback) {
+        mCallback = callback;
+    }
+
+    const android::sp<IAAudioClientCallback>& getCallback() const {
+        return mCallback;
+    }
+
     aaudio_result_t validate() const;
 
     void dump() const;
@@ -78,6 +87,7 @@ public:
 private:
     AAudioStreamConfiguration  mConfiguration;
     AttributionSourceState mAttributionSource;
+    android::sp<IAAudioClientCallback> mCallback;
     bool                       mSharingModeMatchRequired = false;
     bool                       mInService = false; // Stream opened by AAudioservice
 };

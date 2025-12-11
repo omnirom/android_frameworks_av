@@ -134,6 +134,7 @@ private:
         BIND_SYMBOL(ApexCodec_Buffer_getGraphicBuffer);
         BIND_SYMBOL(ApexCodec_Buffer_getLinearBuffer);
         BIND_SYMBOL(ApexCodec_Buffer_getType);
+        BIND_SYMBOL(ApexCodec_Buffer_setBufferInfo);
         BIND_SYMBOL(ApexCodec_Buffer_setConfigUpdates);
         BIND_SYMBOL(ApexCodec_Buffer_setGraphicBuffer);
         BIND_SYMBOL(ApexCodec_Buffer_setLinearBuffer);
@@ -168,6 +169,7 @@ private:
             }
         }
         mInit = true;
+        ALOGI("ApexCodecs loaded");
         return true;
     }
 

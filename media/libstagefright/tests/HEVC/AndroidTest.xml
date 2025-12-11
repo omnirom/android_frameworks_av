@@ -27,13 +27,13 @@
     </target_preparer>
     <target_preparer class="com.android.compatibility.common.tradefed.targetprep.MediaPreparer">
         <option name="push-all" value="true" />
-        <option name="media-folder-name" value="HEVCUtilsUnitTest-1.0" />
+        <option name="media-folder-name" value="/data/local/tmp/HEVCUtilsUnitTest-1.0" />
         <option name="dynamic-config-module" value="HEVCUtilsUnitTest" />
     </target_preparer>
 
     <test class="com.android.tradefed.testtype.GTest" >
         <option name="native-test-device-path" value="/data/local/tmp" />
         <option name="module-name" value="HEVCUtilsUnitTest" />
-        <option name="native-test-flag" value="-P /sdcard/test/HEVCUtilsUnitTest-1.0/" />
+        <option name="native-test-flag" value="-P /data/local/tmp/HEVCUtilsUnitTest-1.0/" />
     </test>
 </configuration>

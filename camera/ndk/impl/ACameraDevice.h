@@ -123,6 +123,8 @@ class CameraDevice final : public RefBase {
     inline ACameraDevice* getWrapper() const { return mWrapper; };
 
     // Stop the looper thread and unregister the handler
+    // Must only be called from ~ACameraDevice()
+    // For details see b/135641415.
     void stopLooperAndDisconnect();
 
     void setPrimaryClient(bool isPrimary) {mIsPrimaryClient = isPrimary;};
@@ -179,7 +181,8 @@ class CameraDevice final : public RefBase {
     camera_status_t prepareLocked(ANativeWindow *window);
 
     camera_status_t allocateCaptureRequest(
-            const ACaptureRequest* request, sp<CaptureRequest>& outReq);
+            const ACaptureRequest* request, sp<CaptureRequest>& outReq,
+            bool *isZsl = nullptr/*out*/);
 
     static ACaptureRequest* allocateACaptureRequest(sp<CaptureRequest>& req,
             const std::string& deviceId);
@@ -314,6 +317,8 @@ class CameraDevice final : public RefBase {
         // set to true, but not removed from the map yet if the capture results
         // haven't been delivered to the app yet.
         bool isInflightCompleted = false;
+        // Whether the inflight request is of type ZSL
+        bool isZsl = false;
         RequestLastFrameNumberHolder(int64_t lastFN) :
                 lastFrameNumber(lastFN) {}
     };
@@ -400,13 +405,15 @@ class CameraDevice final : public RefBase {
     class FrameNumberTracker {
       public:
         // TODO: Called in onResultReceived and onCaptureErrorLocked
-        void updateTracker(int64_t frameNumber, bool isError);
+        void updateTracker(int64_t frameNumber, bool isError, bool isZsl);
         inline int64_t getCompletedFrameNumber() { return mCompletedFrameNumber; }
+        inline int64_t getCompletedZslFrameNumber() { return mZslCompletedFrameNumber; }
       private:
         void update();
         void updateCompletedFrameNumber(int64_t frameNumber);
 
         int64_t mCompletedFrameNumber = NO_FRAMES_CAPTURED;
+        int64_t mZslCompletedFrameNumber = NO_FRAMES_CAPTURED;
         List<int64_t> mSkippedFrameNumbers;
         std::set<int64_t> mFutureErrorSet;
     };

@@ -124,7 +124,10 @@ c2_status_t C2SoftOpusDec::onStop() {
     mCodecDelay = 0;
     mSeekPreRoll = 0;
     mSamplesToDiscard = 0;
+    mAnchorTimeUs = 0;
+    mNumFramesOutput = 0;
     mInputBufferCount = 0;
+    mIsFirst = true;
     mSignalledError = false;
     mSignalledOutputEos = false;
 
@@ -147,7 +150,10 @@ status_t C2SoftOpusDec::initDecoder() {
     mCodecDelay = 0;
     mSeekPreRoll = 0;
     mSamplesToDiscard = 0;
+    mAnchorTimeUs = 0;
+    mNumFramesOutput = 0;
     mInputBufferCount = 0;
+    mIsFirst = true;
     mSignalledError = false;
     mSignalledOutputEos = false;
 
@@ -158,6 +164,9 @@ c2_status_t C2SoftOpusDec::onFlush_sm() {
     if (mDecoder) {
         opus_multistream_decoder_ctl(mDecoder, OPUS_RESET_STATE);
         mSamplesToDiscard = mSeekPreRoll;
+        mAnchorTimeUs = 0;
+        mNumFramesOutput = 0;
+        mIsFirst = true;
         mSignalledOutputEos = false;
     }
     return C2_OK;
@@ -421,6 +430,10 @@ void C2SoftOpusDec::process(
             mSamplesToDiscard = 0;
         }
     }
+    if (mIsFirst) {
+        mAnchorTimeUs = work->input.ordinal.timestamp.peekull();
+        mIsFirst = false;
+    }
 
     if (numSamples) {
         int outSize = numSamples * sizeof(int16_t) * mHeader.channels;
@@ -430,7 +443,10 @@ void C2SoftOpusDec::process(
         work->worklets.front()->output.buffers.clear();
         work->worklets.front()->output.buffers.push_back(createLinearBuffer(block, outOffset, outSize));
         work->worklets.front()->output.ordinal = work->input.ordinal;
+        work->worklets.front()->output.ordinal.timestamp =
+                mAnchorTimeUs + (mNumFramesOutput * 1000000ll) / kRate;
         work->workletsProcessed = 1u;
+        mNumFramesOutput += numSamples;
     } else {
         fillEmptyWork(work);
         block.reset();

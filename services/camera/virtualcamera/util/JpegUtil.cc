@@ -95,6 +95,10 @@ class LibJpegContext {
     mCompressStruct.comp_info[2].v_samp_factor = 1;
   }
 
+  ~LibJpegContext() {
+    jpeg_destroy_compress(&mCompressStruct);
+  }
+
   LibJpegContext& setApp1Data(const uint8_t* app1Data, const size_t size) {
     mApp1Data = app1Data;
     mApp1DataSize = size;

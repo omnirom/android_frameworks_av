@@ -22,6 +22,7 @@
 #include <android/os/BnExternalVibrationController.h>
 #include <audio_utils/mutex.h>
 #include <audio_utils/LinearMap.h>
+#include <com_android_media_audio.h>
 #include <binder/AppOpsManager.h>
 #include <utils/RWLock.h>
 
@@ -96,15 +97,14 @@ public:
                                 size_t frameCountToBeReady = SIZE_MAX,
                                 float speed = 1.0f,
                                 bool isSpatialized = false,
-                                bool isBitPerfect = false,
-                                float volume = 0.0f,
-                                bool muted = false);
+                                bool isBitPerfect = false);
     ~Track() override;
     status_t initCheck() const final;
     void appendDumpHeader(String8& result) const final;
     void appendDump(String8& result, bool active) const final;
     status_t start(AudioSystem::sync_event_t event = AudioSystem::SYNC_EVENT_NONE,
-            audio_session_t triggerSession = AUDIO_SESSION_NONE) override;
+            audio_session_t triggerSession = AUDIO_SESSION_NONE) override
+            EXCLUDES_ThreadBase_Mutex;
     void stop() override;
     void pause() final;
     void flush() final;
@@ -290,6 +290,13 @@ protected:
         return isPlaybackRestrictedOp() || isPlaybackRestrictedControl();
     }
 
+    bool canBypassMute() const final {
+        if (com_android_media_audio_ring_my_car()) {
+            return ((attributes().flags & AUDIO_FLAG_BYPASS_MUTE) == AUDIO_FLAG_BYPASS_MUTE);
+        }
+        return false;
+    }
+
     const sp<AudioTrackServerProxy>& audioTrackServerProxy() const final {
         return mAudioTrackServerProxy;
     }
@@ -314,6 +321,12 @@ protected:
     int8_t& retryCount() final { return mRetryCount; }
     FastTrackUnderruns& fastTrackUnderruns() final { return mObservedUnderruns; }
 
+    void setTeePatchesPlaybackRate_l(const AudioPlaybackRate& playbackRate) override
+            REQUIRES(audio_utils::ThreadBase_Mutex) {
+        forEachTeePatchTrack_l([playbackRate](const auto& patchTrack) {
+            patchTrack->setPlaybackRate(playbackRate);
+        });
+    }
 protected:
     mutable FillingStatus mFillingStatus;
     int8_t              mRetryCount;
@@ -429,9 +442,10 @@ public:
                                 const AttributionSourceState& attributionSource);
     ~OutputTrack() override;
 
-    status_t start(AudioSystem::sync_event_t event =
-                                    AudioSystem::SYNC_EVENT_NONE,
-                             audio_session_t triggerSession = AUDIO_SESSION_NONE) final;
+    status_t start(
+            AudioSystem::sync_event_t event = AudioSystem::SYNC_EVENT_NONE,
+            audio_session_t triggerSession = AUDIO_SESSION_NONE) final
+            EXCLUDES_ThreadBase_Mutex;
     void stop() final;
     ssize_t write(void* data, uint32_t frames) final;
     bool bufferQueueEmpty() const final { return mBufferQueue.size() == 0; }
@@ -463,7 +477,7 @@ private:
     // Maximum number of pending buffers allocated by OutputTrack::write()
     static const uint8_t kMaxOverFlowBuffers = 10;
 
-    Vector < Buffer* >          mBufferQueue;
+    std::deque<Buffer*> mBufferQueue;
     AudioBufferProvider::Buffer mOutBuffer;
     bool                        mActive;
     IAfDuplicatingThread* const mSourceThread; // for waitTimeMs() in write()
@@ -504,16 +518,15 @@ public:
                                                                     *  as soon as possible to have
                                                                     *  the lowest possible latency
                                                                     *  even if it might glitch. */
-                                   float speed = 1.0f,
-                                   float volume = 1.0f,
-                                   bool muted = false);
+                                   float speed = 1.0f);
     ~PatchTrack() override;
 
     size_t framesReady() const final;
 
-    status_t start(AudioSystem::sync_event_t event =
-                                    AudioSystem::SYNC_EVENT_NONE,
-                             audio_session_t triggerSession = AUDIO_SESSION_NONE) final;
+    status_t start(
+            AudioSystem::sync_event_t event = AudioSystem::SYNC_EVENT_NONE,
+            audio_session_t triggerSession = AUDIO_SESSION_NONE) final
+            EXCLUDES_ThreadBase_Mutex;
 
     // AudioBufferProvider interface
     status_t getNextBuffer(AudioBufferProvider::Buffer* buffer) final;
@@ -522,6 +535,8 @@ public:
     // PatchProxyBufferProvider interface
     status_t obtainBuffer(Proxy::Buffer* buffer, const struct timespec* timeOut = nullptr) final;
     void releaseBuffer(Proxy::Buffer* buffer) final;
+
+    void setPlaybackRate (const AudioPlaybackRate &playbackRate) override;
 
 private:
     void restartIfDisabled() override;

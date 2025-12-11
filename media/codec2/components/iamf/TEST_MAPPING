@@ -1,0 +1,7 @@
+{
+  "presubmit": [
+    {
+      "name": "libcodec2_soft_iamfdec_LayoutTranslationTest"
+    }
+  ]
+}

@@ -26,7 +26,10 @@ public:
     std::vector<std::shared_ptr<const C2Component::Traits>> listComponents() const override {
         return {};
     }
-    virtual std::unique_ptr<ApexComponentIntf> createComponent(const char *name [[maybe_unused]]) {
+    std::unique_ptr<ApexComponentIntf> createComponent(const char *name [[maybe_unused]]) override {
+        return nullptr;
+    }
+    std::shared_ptr<C2ParamReflector> getParamReflector() const override {
         return nullptr;
     }
 };

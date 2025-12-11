@@ -25,6 +25,7 @@
 
 #define STRINGIFY_ENUMS
 
+#include <com_android_graphics_libgui_flags.h> // remove with WB_MEDIA_MIGRATION
 #include <media/hardware/CryptoAPI.h>
 #include <media/hardware/HardwareAPI.h>
 #include <media/MediaCodecInfo.h>
@@ -161,10 +162,17 @@ struct CodecBase : public AHandler, /* static */ ColorUtils {
          * @param outputFormat  an output format at surface creation.
          * @param inputSurface  the created surface.
          */
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        virtual void onInputSurfaceCreated(
+                const sp<AMessage> &inputFormat,
+                const sp<AMessage> &outputFormat,
+                const sp<Surface> &inputSurface) = 0;
+#else
         virtual void onInputSurfaceCreated(
                 const sp<AMessage> &inputFormat,
                 const sp<AMessage> &outputFormat,
                 const sp<BufferProducerWrapper> &inputSurface) = 0;
+#endif
         /**
          * Notify MediaCodec that the input surface creation is failed.
          *

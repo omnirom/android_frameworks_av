@@ -33,6 +33,9 @@ public:
     virtual bool parse() = 0;
 
     struct AC4Presentation {
+        bool mChannelCoded = false;
+        int32_t mNumOfUmxObjects = -1;
+        int32_t mLevel = 0;
         int32_t mChannelMode = -1;
         int32_t mProgramID = -1;
         int32_t mGroupIndex = -1;

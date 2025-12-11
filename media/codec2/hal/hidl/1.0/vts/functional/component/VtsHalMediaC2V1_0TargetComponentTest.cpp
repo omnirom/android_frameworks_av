@@ -18,6 +18,7 @@
 #define LOG_TAG "codec2_hidl_hal_component_test"
 
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android/binder_process.h>
 #include <gtest/gtest.h>
 #include <hidl/GtestPrinter.h>
@@ -64,6 +65,7 @@ class Codec2ComponentHidlTestBase : public ::testing::Test {
         getParams();
         mDisableTest = false;
         mEos = false;
+        mSdkLevel = ::android::base::GetIntProperty("ro.build.version.sdk", -1);
         mClient = android::Codec2Client::CreateFromService(mInstanceName.c_str());
         ASSERT_NE(mClient, nullptr);
         mListener.reset(new CodecListener([this](std::list<std::unique_ptr<C2Work>>& workItems) {
@@ -112,10 +114,28 @@ class Codec2ComponentHidlTestBase : public ::testing::Test {
         }
     }
 
+    void configureComponent() {
+        // Query Component Domain Type
+        std::vector<std::unique_ptr<C2Param>> queried;
+        c2_status_t err = mComponent->query({}, {C2PortMediaTypeSetting::input::PARAM_TYPE},
+                                            C2_DONT_BLOCK, &queried);
+        ASSERT_EQ(err, C2_OK) << "query call failed";
+        ASSERT_NE(queried.size(), 0u) << "queried.size() is empty";
+
+        // Configure Component Domain
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+        C2PortMediaTypeSetting::input* portMediaType =
+                C2PortMediaTypeSetting::input::From(queried[0].get());
+        err = mComponent->config({portMediaType}, C2_DONT_BLOCK, &failures);
+        ASSERT_EQ(err, C2_OK) << "config call failed";
+        ASSERT_EQ(failures.size(), 0u);
+    }
+
     std::string mInstanceName;
     std::string mComponentName;
     bool mEos;
     bool mDisableTest;
+    int mSdkLevel;
     std::mutex mQueueLock;
     std::condition_variable mQueueCondition;
     std::list<std::unique_ptr<C2Work>> mWorkQueue;
@@ -197,6 +217,22 @@ TEST_P(Codec2ComponentHidlTest, Config) {
     }
 }
 
+// Test create -> reset -> config
+TEST_P(Codec2ComponentHidlTest, CreateResetConfig) {
+    if (mSdkLevel <= 36) GTEST_SKIP() << "Test is disabled";
+    ALOGV("Create reset config Test");
+    mComponent->reset();
+    ASSERT_NO_FATAL_FAILURE(configureComponent());
+}
+
+// Test create -> stop -> config
+TEST_P(Codec2ComponentHidlTest, CreateStopConfig) {
+    if (mSdkLevel <= 36) GTEST_SKIP() << "Test is disabled";
+    ALOGV("Create stop config Test");
+    mComponent->stop();
+    ASSERT_NO_FATAL_FAILURE(configureComponent());
+}
+
 // Test Multiple Start Stop Reset Test
 TEST_P(Codec2ComponentHidlTest, MultipleStartStopReset) {
     ALOGV("Multiple Start Stop and Reset Test");
@@ -225,20 +261,7 @@ TEST_P(Codec2ComponentHidlTest, MultipleRelease) {
     c2_status_t err = mComponent->start();
     ASSERT_EQ(err, C2_OK);
 
-    // Query Component Domain Type
-    std::vector<std::unique_ptr<C2Param>> queried;
-    err = mComponent->query({}, {C2PortMediaTypeSetting::input::PARAM_TYPE}, C2_DONT_BLOCK,
-                            &queried);
-    EXPECT_NE(queried.size(), 0u);
-
-    // Configure Component Domain
-    std::vector<std::unique_ptr<C2SettingResult>> failures;
-    C2PortMediaTypeSetting::input* portMediaType =
-            C2PortMediaTypeSetting::input::From(queried[0].get());
-    err = mComponent->config({portMediaType}, C2_DONT_BLOCK, &failures);
-    ASSERT_EQ(err, C2_OK);
-    ASSERT_EQ(failures.size(), 0u);
-
+    ASSERT_NO_FATAL_FAILURE(configureComponent());
     for (size_t i = 0; i < MAX_RETRY; i++) {
         mComponent->release();
     }

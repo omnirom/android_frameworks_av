@@ -105,7 +105,7 @@ aaudio_result_t AudioStreamRecord::open(const AudioStreamBuilder& builder)
     // Setup the callback if there is one.
     sp<AudioRecord::IAudioRecordCallback> callback;
     AudioRecord::transfer_type streamTransferType = AudioRecord::transfer_type::TRANSFER_SYNC;
-    if (builder.getDataCallbackProc() != nullptr) {
+    if (builder.isDataCallbackSet()) {
         streamTransferType = AudioRecord::transfer_type::TRANSFER_CALLBACK;
         callback = sp<AudioRecord::IAudioRecordCallback>::fromExisting(this);
     }
@@ -233,7 +233,7 @@ aaudio_result_t AudioStreamRecord::open(const AudioStreamBuilder& builder)
     if (getDeviceFormat() == AUDIO_FORMAT_PCM_16_BIT
         && getFormat() == AUDIO_FORMAT_PCM_FLOAT) {
 
-        if (builder.getDataCallbackProc() != nullptr) {
+        if (builder.isDataCallbackSet()) {
             // If we have a callback then we need to convert the data into an internal float
             // array and then pass that entire array to the app.
             mFormatConversionBufferSizeInFrames =
@@ -307,9 +307,9 @@ void AudioStreamRecord::close_l() {
     // So we should join callbacks explicitly before returning.
     // Unlock around the join to avoid deadlocks if the callback tries to lock.
     // This can happen if the callback returns AAUDIO_CALLBACK_RESULT_STOP
-    mStreamLock.unlock();
+    mStreamMutex.unlock();
     mAudioRecord->stopAndJoinCallbacks();
-    mStreamLock.lock();
+    mStreamMutex.lock();
 
     mAudioRecord.clear();
     // Do not close mFixedBlockReader. It has a unique_ptr to its buffer

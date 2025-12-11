@@ -126,7 +126,9 @@ protected:
      */
     virtual int32_t getBufferCapacityFromDevice() const = 0;
 
-    virtual bool shouldStopStream() const { return true; }
+    virtual bool shouldStopStream() EXCLUDES(mStreamMutex) {
+        return true;
+    }
 
     // This is used for exact matching by MediaMetrics. So do not change it.
     // MediaMetricsConstants.h: AMEDIAMETRICS_PROP_CALLERNAME_VALUE_AAUDIO

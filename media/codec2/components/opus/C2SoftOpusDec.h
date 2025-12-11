@@ -58,7 +58,10 @@ private:
     int64_t mCodecDelay;
     int64_t mSeekPreRoll;
     int64_t mSamplesToDiscard;
+    int64_t mAnchorTimeUs;
+    int64_t mNumFramesOutput;
     size_t mInputBufferCount;
+    bool mIsFirst;
     bool mSignalledError;
     bool mSignalledOutputEos;
 

@@ -28,7 +28,8 @@
 using namespace android;
 using namespace aaudio;
 
-#define RIDICULOUSLY_LARGE_BUFFER_CAPACITY   (256 * 1024)
+// TODO(411490458): put all aaudio constants at same place
+#define RIDICULOUSLY_LARGE_BUFFER_CAPACITY   (256 * 1024 * 1024)
 #define RIDICULOUSLY_LARGE_FRAME_SIZE        4096
 
 // TODO Consider moving to a method in RingBufferDescriptor

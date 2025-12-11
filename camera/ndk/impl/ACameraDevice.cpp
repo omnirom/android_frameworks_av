@@ -243,7 +243,7 @@ camera_status_t CameraDevice::isSessionConfigurationSupported(
 
         ParcelableSurfaceType pSurface = flagtools::convertSurfaceTypeToParcelable(surface);
         OutputConfiguration outConfig(pSurface, output.mRotation, output.mPhysicalCameraId,
-                OutputConfiguration::INVALID_SET_ID, true);
+                OutputConfiguration::INVALID_SET_ID, output.mIsShared);
 
         for (auto& anw : output.mSharedWindows) {
             ret = getSurfacefromAnw(anw, surface);
@@ -331,7 +331,7 @@ camera_status_t CameraDevice::updateOutputConfigurationLocked(ACaptureSessionOut
 
     ParcelableSurfaceType pSurface = flagtools::convertSurfaceTypeToParcelable(surface);
     OutputConfiguration outConfig(pSurface, output->mRotation, output->mPhysicalCameraId,
-                                  OutputConfiguration::INVALID_SET_ID, true);
+                                  OutputConfiguration::INVALID_SET_ID, output->mIsShared);
 
     for (auto& anw : output->mSharedWindows) {
         ret = getSurfacefromAnw(anw, surface);
@@ -427,7 +427,7 @@ camera_status_t CameraDevice::prepareLocked(ANativeWindow *window) {
 
 camera_status_t
 CameraDevice::allocateCaptureRequest(
-        const ACaptureRequest* request, /*out*/sp<CaptureRequest>& outReq) {
+        const ACaptureRequest* request, /*out*/sp<CaptureRequest>& outReq, bool *isZsl) {
     camera_status_t ret;
     sp<CaptureRequest> req(new CaptureRequest());
     req->mPhysicalCameraSettings.push_back({getId(),
@@ -435,6 +435,13 @@ CameraDevice::allocateCaptureRequest(
     for (auto& entry : request->physicalSettings) {
         req->mPhysicalCameraSettings.push_back({entry.first,
                 entry.second->getInternalData()});
+    }
+    if (isZsl != nullptr) {
+        auto meta = request->settings->getInternalData();
+        auto entry = meta.find(ANDROID_CONTROL_ENABLE_ZSL);
+        if (entry.count > 0 && (entry.data.u8[0] == ACAMERA_CONTROL_ENABLE_ZSL_TRUE)) {
+            *isZsl = true;
+        }
     }
     req->mIsReprocess = false; // NDK does not support reprocessing yet
     req->mContext = request->context;
@@ -575,7 +582,7 @@ CameraDevice::stopRepeatingLocked() {
         binder::Status remoteRet = mRemote->cancelRequest(repeatingSequenceId, &lastFrameNumber);
         if (remoteRet.serviceSpecificErrorCode() ==
                 hardware::ICameraService::ERROR_ILLEGAL_ARGUMENT) {
-            ALOGV("Repeating request is already stopped.");
+            ALOGD("Repeating request is already stopped.");
             return ACAMERA_OK;
         } else if (!remoteRet.isOk()) {
             ALOGE("Stop repeating request fails in remote: %s", remoteRet.toString8().c_str());
@@ -866,14 +873,32 @@ CameraDevice::setCameraDeviceErrorLocked(camera_status_t error) {
 }
 
 void
-CameraDevice::FrameNumberTracker::updateTracker(int64_t frameNumber, bool isError) {
-    ALOGV("updateTracker frame %" PRId64 " isError %d", frameNumber, isError);
+CameraDevice::FrameNumberTracker::updateTracker(int64_t frameNumber, bool isError,
+        bool isZsl) {
+    ALOGV("updateTracker frame %" PRId64 " isError %d isZsl %d", frameNumber, isError, isZsl);
     if (isError) {
         mFutureErrorSet.insert(frameNumber);
-    } else if (frameNumber <= mCompletedFrameNumber) {
+        update();
+        return;
+    }
+
+    if (isZsl && (frameNumber < mZslCompletedFrameNumber)) {
+        ALOGE("ZSL Frame number %" PRId64 " decreased! current fn %" PRId64,
+                frameNumber, mZslCompletedFrameNumber);
+        return;
+    }
+
+    if (!isZsl && (frameNumber < mCompletedFrameNumber)) {
         ALOGE("Frame number %" PRId64 " decreased! current fn %" PRId64,
                 frameNumber, mCompletedFrameNumber);
         return;
+    }
+
+    if (isZsl) {
+        mZslCompletedFrameNumber = frameNumber;
+        if (mZslCompletedFrameNumber == (mCompletedFrameNumber + 1)) {
+            mCompletedFrameNumber++;
+        }
     } else {
         if (frameNumber != mCompletedFrameNumber + 1) {
             ALOGE("Frame number out of order. Expect %" PRId64 " but get %" PRId64,
@@ -994,14 +1019,16 @@ CameraDevice::onCaptureErrorLocked(
         postSessionMsgAndCleanup(msg);
 
         // Update tracker
-        mFrameNumberTracker.updateTracker(frameNumber, /*isError*/true);
+        mFrameNumberTracker.updateTracker(frameNumber, /*isError*/true, false);
         checkAndFireSequenceCompleteLocked();
     }
     return;
 }
 
 void CameraDevice::stopLooperAndDisconnect() {
-    Mutex::Autolock _l(mDeviceLock);
+    // This method must only be called from ~ACameraDevice()
+    // For details see b/135641415.
+    mDeviceLock.lock();
     sp<ACameraCaptureSession> session = mCurrentSession.promote();
     if (!isClosed()) {
         disconnectLocked(session);
@@ -1010,10 +1037,19 @@ void CameraDevice::stopLooperAndDisconnect() {
 
     if (mCbLooper != nullptr) {
       mCbLooper->unregisterHandler(mHandler->id());
+      // Unlock device lock before stopping looper
+      // since its possible that ~ACameraCaptureSession()
+      // or other such methods run on the Looper thread which need
+      // the device lock. This would result in a deadlock.
+      // The Looper thread methods don't (and shouldn't) assume they
+      // already have the device lock.
+      mDeviceLock.unlock();
       mCbLooper->stop();
+      mDeviceLock.lock();
     }
     mCbLooper.clear();
     mHandler.clear();
+    mDeviceLock.unlock();
 }
 
 CameraDevice::CallbackHandler::CallbackHandler(const char* id) : mId(id) {
@@ -1574,17 +1610,20 @@ CameraDevice::checkRepeatingSequenceCompleteLocked(
 void
 CameraDevice::checkAndFireSequenceCompleteLocked() {
     int64_t completedFrameNumber = mFrameNumberTracker.getCompletedFrameNumber();
+    int64_t completedZslFrameNumber = mFrameNumberTracker.getCompletedZslFrameNumber();
     auto it = mSequenceLastFrameNumberMap.begin();
     while (it != mSequenceLastFrameNumberMap.end()) {
         int sequenceId = it->first;
         int64_t lastFrameNumber = it->second.lastFrameNumber;
+        bool isZsl = it->second.isZsl;
 
         if (mRemote == nullptr) {
             ALOGW("Camera %s closed while checking sequence complete", getId());
             return;
         }
-        ALOGV("%s: seq %d's last frame number %" PRId64 ", completed %" PRId64,
-                __FUNCTION__, sequenceId, lastFrameNumber, completedFrameNumber);
+        ALOGV("%s: seq %d's isZsl: %d last frame number %" PRId64 " completed %" PRId64
+                " completedZslFrameNumber %" PRId64, __FUNCTION__, sequenceId, isZsl,
+                lastFrameNumber, completedFrameNumber, completedZslFrameNumber);
         if (!it->second.isSequenceCompleted) {
             // Check if there is callback for this sequence
             // This should not happen because we always register callback (with nullptr inside)
@@ -1592,7 +1631,12 @@ CameraDevice::checkAndFireSequenceCompleteLocked() {
                 ALOGW("No callback found for sequenceId %d", sequenceId);
             }
 
-            if (lastFrameNumber <= completedFrameNumber) {
+            if (isZsl) {
+                if(lastFrameNumber <= completedZslFrameNumber) {
+                    ALOGV("Mark ZSL sequenceId %d as sequence completed", sequenceId);
+                    it->second.isSequenceCompleted = true;
+                }
+            } else if (lastFrameNumber <= completedFrameNumber) {
                 ALOGV("Mark sequenceId %d as sequence completed", sequenceId);
                 it->second.isSequenceCompleted = true;
             }
@@ -1601,7 +1645,6 @@ CameraDevice::checkAndFireSequenceCompleteLocked() {
 
         if (it->second.isSequenceCompleted && it->second.isInflightCompleted) {
             sendCaptureSequenceCompletedLocked(sequenceId, lastFrameNumber);
-
             it = mSequenceLastFrameNumberMap.erase(it);
             ALOGV("%s: Remove holder for sequenceId %d", __FUNCTION__, sequenceId);
         } else {
@@ -1863,9 +1906,16 @@ CameraDevice::ServiceCallback::onResultReceived(
         return ret; // device has been disconnected
     }
 
+    bool isZsl = false;
+    auto itt = dev->mSequenceLastFrameNumberMap.find(sequenceId);
+    if (itt != dev->mSequenceLastFrameNumberMap.end()) {
+        isZsl = itt->second.isZsl;
+    }
+
     if (dev->isClosed()) {
         if (!isPartialResult) {
-            dev->mFrameNumberTracker.updateTracker(frameNumber, /*isError*/false);
+            dev->mFrameNumberTracker.updateTracker(frameNumber, /*isError*/false,
+                    isZsl);
         }
         // early return to avoid callback sent to closed devices
         return ret;
@@ -1934,7 +1984,8 @@ CameraDevice::ServiceCallback::onResultReceived(
     }
 
     if (!isPartialResult) {
-        dev->mFrameNumberTracker.updateTracker(frameNumber, /*isError*/false);
+        dev->mFrameNumberTracker.updateTracker(frameNumber, /*isError*/false,
+                isZsl);
         dev->checkAndFireSequenceCompleteLocked();
     }
 

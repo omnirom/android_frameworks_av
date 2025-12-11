@@ -21,3 +21,10 @@ flag {
     description: "Enable APV support in mp4 extractor."
     bug: "370061501"
 }
+
+flag {
+    name: "extractor_mp4_enable_iamf"
+    namespace: "media_solutions"
+    description: "Enable IAMF in mp4 extractor."
+    bug: "411204259"
+}

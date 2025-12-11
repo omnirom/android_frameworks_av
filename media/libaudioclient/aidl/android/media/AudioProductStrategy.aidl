@@ -19,11 +19,12 @@ package android.media;
 import android.media.AudioAttributesEx;
 
 /**
- * {@hide}
+ * @hide
  */
 parcelable AudioProductStrategy {
     /** Interpreted as product_strategy_t. */
     int id;
+    int zoneId;
     @utf8InCpp String name;
     AudioAttributesEx[] audioAttributes;
 }

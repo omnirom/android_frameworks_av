@@ -58,7 +58,7 @@ private:
     NBAIO_Format        mFormat = Format_Invalid;
     unsigned            mSampleRate = 0;
     FastCaptureDumpState mDummyFastCaptureDumpState;
-    uint32_t            mTotalNativeFramesRead = 0; // copied to dumpState->mFramesRead
+    int64_t             mTotalNativeFramesRead = 0; // copied to dumpState->mFramesRead
 
 };  // class FastCapture
 

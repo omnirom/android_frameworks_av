@@ -34,6 +34,7 @@ cc_test {
     ],
 
     static_libs: [
+        "android.media.mediarecorder-aconfig-cc",
         "libmediaplayerservice",
         "libstagefright_httplive",
         "libstagefright_rtsp",
@@ -42,6 +43,7 @@ cc_test {
     shared_libs: [
         "android.hardware.media.c2@1.0",
         "android.hardware.media.omx@1.0",
+        "libaconfig_storage_read_api_cc",
         "libbase",
         "libandroid_net",
         "libaudioclient",
@@ -71,6 +73,7 @@ cc_test {
         "libutils",
         "framework-permission-aidl-cpp",
         "libaudioclient_aidl_conversion",
+        "server_configurable_flags",
     ],
 
     cflags: [

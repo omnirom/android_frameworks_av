@@ -33,12 +33,12 @@
 #include <audio_utils/mutex.h>
 #include <audio_utils/FdToString.h>
 #include <audio_utils/SimpleLog.h>
+#include <audio_utils/TimerQueue.h>
 #include <com/android/media/permission/PermissionEnum.h>
 #include <media/IAudioFlinger.h>
 #include <media/IAudioPolicyServiceLocal.h>
 #include <media/MediaMetricsItem.h>
 #include <media/audiohal/DevicesFactoryHalInterface.h>
-#include <mediautils/ServiceUtilities.h>
 #include <mediautils/Synchronization.h>
 #include <psh_utils/AudioPowerManager.h>
 
@@ -100,11 +100,6 @@ private:
     status_t setMasterBalance(float balance) final EXCLUDES_AudioFlinger_Mutex;
     status_t getMasterBalance(float* balance) const final EXCLUDES_AudioFlinger_Mutex;
 
-    status_t setStreamVolume(audio_stream_type_t stream, float value,
-            bool muted, audio_io_handle_t output) final EXCLUDES_AudioFlinger_Mutex;
-    status_t setStreamMute(audio_stream_type_t stream, bool muted) final
-            EXCLUDES_AudioFlinger_Mutex;
-
     status_t setPortsVolume(const std::vector<audio_port_handle_t>& portIds, float volume,
                             bool muted, audio_io_handle_t output) final EXCLUDES_AudioFlinger_Mutex;
 
@@ -128,6 +123,9 @@ private:
 
     status_t openOutput(const media::OpenOutputRequest& request,
             media::OpenOutputResponse* response) final EXCLUDES_AudioFlinger_Mutex;
+
+    status_t openMmapStream(const media::OpenMmapRequest& request,
+            media::OpenMmapResponse* response) final EXCLUDES_AudioFlinger_Mutex;
 
     audio_io_handle_t openDuplicateOutput(audio_io_handle_t output1,
             audio_io_handle_t output2) final EXCLUDES_AudioFlinger_Mutex;
@@ -267,8 +265,11 @@ private:
             EXCLUDES_AudioFlinger_Mutex;
 
     // Get the attributes of the mix port when connecting to the given device port.
+    // If `mixPortHalId` is not `AUDIO_PORT_HANDLE_NONE`, it will be used to determine
+    // the mix port. Otherwise, `mixPort->ext.mix.handle` will be used.
     status_t getAudioMixPort(const struct audio_port_v7* devicePort,
-                             struct audio_port_v7* mixPort) const final EXCLUDES_AudioFlinger_Mutex;
+                             struct audio_port_v7* mixPort,
+                             int32_t mixPortHalId) const final EXCLUDES_AudioFlinger_Mutex;
 
     status_t setTracksInternalMute(
             const std::vector<media::TrackInternalMuteInfo>& tracksInternalMute) final
@@ -338,7 +339,8 @@ private:
             audio_source_t source,
             audio_input_flags_t flags,
             audio_devices_t outputDevice,
-            const String8& outputDeviceAddress) final REQUIRES(mutex());
+            const String8& outputDeviceAddress,
+            int32_t mixPortHalId) final REQUIRES(mutex());
     sp<IAfThreadBase> openOutput_l(audio_module_handle_t module,
             audio_io_handle_t* output,
             audio_config_t* halConfig,
@@ -346,8 +348,9 @@ private:
             audio_devices_t deviceType,
             const String8& address,
             audio_output_flags_t* flags,
-            audio_attributes_t attributes) final REQUIRES(mutex());
-    const DefaultKeyedVector<audio_module_handle_t, AudioHwDevice*>&
+            audio_attributes_t attributes,
+            int32_t mixPortHalId) final REQUIRES(mutex());
+    const std::map<audio_module_handle_t, AudioHwDevice*>&
             getAudioHwDevs_l() const final REQUIRES(mutex(), hardwareMutex()) {
               return mAudioHwDevs;
             }
@@ -367,9 +370,6 @@ private:
     bool masterMute_l() const final REQUIRES(mutex());
     float getMasterBalance_l() const REQUIRES(mutex());
     // no range check, AudioFlinger::mutex() held
-    bool streamMute_l(audio_stream_type_t stream) const final REQUIRES(mutex()) {
-        return mStreamTypes[stream].mute;
-    }
     audio_mode_t getMode() const final { return mMode; }
     bool isLowRamDevice() const final { return mIsLowRamDevice; }
     uint32_t getScreenState() const final { return mScreenState; }
@@ -378,6 +378,9 @@ private:
             REQUIRES(mutex());
     const sp<IAfPatchPanel>& getPatchPanel() const final { return mPatchPanel; }
     const sp<MelReporter>& getMelReporter() const final { return mMelReporter; }
+    const std::shared_ptr<audio_utils::TimerQueue>& getTimerQueue() const final {
+        return mTimerQueue;
+    }
     const sp<EffectsFactoryHalInterface>& getEffectsFactoryHal() const final {
         return mEffectsFactoryHal;
     }
@@ -392,9 +395,13 @@ private:
             EXCLUDES_AudioFlinger_Mutex;
 
     status_t moveEffectChain_ll(audio_session_t sessionId,
-            IAfPlaybackThread* srcThread, IAfPlaybackThread* dstThread,
+            IAfThreadBase* srcThread, IAfThreadBase* dstThread,
             IAfEffectChain* srcChain = nullptr) final
             REQUIRES(mutex(), audio_utils::ThreadBase_Mutex);
+
+    status_t tryMoveEffectChain(
+            audio_session_t sessionId, const sp<IAfThreadBase>& dstThread) final
+            EXCLUDES_AudioFlinger_Mutex EXCLUDES_ThreadBase_Mutex;
 
     sp<audioflinger::SyncEvent> createSyncEvent(AudioSystem::sync_event_t type,
             audio_session_t triggerSession,
@@ -402,16 +409,14 @@ private:
             const audioflinger::SyncEventCallback& callBack,
             const wp<IAfTrackBase>& cookie) final EXCLUDES_AudioFlinger_Mutex;
 
-    // Hold either AudioFlinger::mutex or ThreadBase::mutex
-    void ioConfigChanged_l(audio_io_config_event_t event,
+    void ioConfigChanged(audio_io_config_event_t event,
             const sp<AudioIoDescriptor>& ioDesc,
             pid_t pid = 0) final EXCLUDES_AudioFlinger_ClientMutex;
     void onNonOffloadableGlobalEffectEnable() final EXCLUDES_AudioFlinger_Mutex;
     void onSupportedLatencyModesChanged(
             audio_io_handle_t output, const std::vector<audio_latency_mode_t>& modes) final
             EXCLUDES_AudioFlinger_ClientMutex;
-    void onHardError(std::set<audio_port_handle_t>& trackPortIds) final
-            EXCLUDES_AudioFlinger_ClientMutex;
+    void onHardError(audio_io_handle_t output) final EXCLUDES_AudioFlinger_ClientMutex;
 
     const ::com::android::media::permission::IPermissionProvider& getPermissionProvider() final;
 
@@ -436,20 +441,18 @@ private:
         return mStartupFinishedTime.load(std::memory_order_acquire);
     }
 
-public:
-    // TODO(b/292281786): Remove this when Oboeservice can get access to
-    // openMmapStream through an IAudioFlinger handle directly.
-    static inline std::atomic<AudioFlinger*> gAudioFlinger = nullptr;
+    status_t openMmapStreamImpl(bool isOutput,
+                                const audio_attributes_t& attr,
+                                audio_config_base_t* config,
+                                const AudioClient& client,
+                                DeviceIdVector* deviceIds,
+                                audio_session_t* sessionId,
+                                const sp<media::IMmapStreamCallback>& callback,
+                                const audio_offload_info_t* offloadInfo,
+                                sp<media::IMmapStream>& interface,
+                                audio_port_handle_t* handle) EXCLUDES_AudioFlinger_Mutex;
 
-    status_t openMmapStream(MmapStreamInterface::stream_direction_t direction,
-                            const audio_attributes_t *attr,
-                            audio_config_base_t *config,
-                            const AudioClient& client,
-                            DeviceIdVector *deviceIds,
-                            audio_session_t *sessionId,
-                            const sp<MmapStreamCallback>& callback,
-                            sp<MmapStreamInterface>& interface,
-            audio_port_handle_t *handle) EXCLUDES_AudioFlinger_Mutex;
+public:
 
     void initAudioPolicyLocal(sp<media::IAudioPolicyServiceLocal> audioPolicyLocal) {
         if (mAudioPolicyServiceLocal.load() == nullptr) {
@@ -458,16 +461,6 @@ public:
     }
 
 private:
-    // FIXME The 400 is temporarily too high until a leak of writers in media.log is fixed.
-    static const size_t kLogMemorySize = 400 * 1024;
-    sp<MemoryDealer>    mLogMemoryDealer;   // == 0 when NBLog is disabled
-    // When a log writer is unregistered, it is done lazily so that media.log can continue to see it
-    // for as long as possible.  The memory is only freed when it is needed for another log writer.
-    Vector< sp<NBLog::Writer> > mUnregisteredWriters;
-    audio_utils::mutex& unregisteredWritersMutex() const { return mUnregisteredWritersMutex; }
-    mutable audio_utils::mutex mUnregisteredWritersMutex{
-            audio_utils::MutexOrder::kAudioFlinger_UnregisteredWritersMutex};
-
                             AudioFlinger() ANDROID_API;
     ~AudioFlinger() override;
 
@@ -496,6 +489,10 @@ private:
     SimpleLog mThreadLog{16}; // 16 Thread history limit
 
     void dumpToThreadLog_l(const sp<IAfThreadBase>& thread) REQUIRES(mutex());
+
+    // Internally locked timer queue for suspend / wakeup activity.
+    const std::shared_ptr<audio_utils::TimerQueue> mTimerQueue{
+        std::make_shared<audio_utils::TimerQueue>(true /* alarm */)};
 
     // --- Notification Client ---
     class NotificationClient : public IBinder::DeathRecipient {
@@ -532,10 +529,10 @@ private:
             REQUIRES(audio_utils::AudioFlinger_Mutex) {
         audio_io_handle_t io = AUDIO_IO_HANDLE_NONE;
 
-        for (size_t i = 0; i < threads.size(); i++) {
-            const uint32_t sessionType = threads.valueAt(i)->hasAudioSession(sessionId);
+        for (const auto& [ioHandle, thread] : threads) {
+            const uint32_t sessionType = thread->hasAudioSession(sessionId);
             if (sessionType != 0) {
-                io = threads.keyAt(i);
+                io = ioHandle;
                 if ((sessionType & IAfThreadBase::EFFECT_SESSION) != 0) {
                     break; // effect chain here.
                 }
@@ -585,7 +582,7 @@ private:
     IAfThreadBase* hapticPlaybackThread_l() const REQUIRES(mutex());
 
               void updateSecondaryOutputsForTrack_l(
-                      IAfTrack* track,
+            const sp<IAfTrack>& track,
                       IAfPlaybackThread* thread,
             const std::vector<audio_io_handle_t>& secondaryOutputs) const REQUIRES(mutex());
 
@@ -631,7 +628,7 @@ private:
 
     mutable audio_utils::mutex mClientMutex{audio_utils::MutexOrder::kAudioFlinger_ClientMutex};
 
-    DefaultKeyedVector<pid_t, wp<Client>> mClients GUARDED_BY(clientMutex());   // see ~Client()
+    std::map<pid_t, wp<Client>> mClients GUARDED_BY(clientMutex());   // see ~Client()
 
     audio_utils::mutex& hardwareMutex() const { return mHardwareMutex; }
 
@@ -641,8 +638,7 @@ private:
     // always take mMutex before mHardwareMutex
 
     std::atomic<AudioHwDevice*> mPrimaryHardwareDev = nullptr;
-    DefaultKeyedVector<audio_module_handle_t, AudioHwDevice*> mAudioHwDevs
-            GUARDED_BY(hardwareMutex()) {nullptr /* defValue */};
+    std::map<audio_module_handle_t, AudioHwDevice*> mAudioHwDevs GUARDED_BY(hardwareMutex());
 
     static bool inputBufferSizeDevsCmp(const AudioHwDevice* lhs, const AudioHwDevice* rhs);
     std::set<AudioHwDevice*, decltype(&inputBufferSizeDevsCmp)>
@@ -681,25 +677,24 @@ private:
     };
 
     mutable hardware_call_state mHardwareStatus = AUDIO_HW_IDLE;  // for dump only
-    DefaultKeyedVector<audio_io_handle_t, sp<IAfPlaybackThread>> mPlaybackThreads
+    std::map<audio_io_handle_t, sp<IAfPlaybackThread>> mPlaybackThreads
             GUARDED_BY(mutex());
-    stream_type_t mStreamTypes[AUDIO_STREAM_CNT] GUARDED_BY(mutex());
 
     float mMasterVolume GUARDED_BY(mutex()) = 1.f;
     bool mMasterMute GUARDED_BY(mutex()) = false;
     float mMasterBalance GUARDED_BY(mutex()) = 0.f;
 
-    DefaultKeyedVector<audio_io_handle_t, sp<IAfRecordThread>> mRecordThreads GUARDED_BY(mutex());
+    std::map<audio_io_handle_t, sp<IAfRecordThread>> mRecordThreads GUARDED_BY(mutex());
 
     std::map<pid_t, sp<NotificationClient>> mNotificationClients GUARDED_BY(clientMutex());
 
                 // updated by atomic_fetch_add_explicit
-    volatile atomic_uint_fast32_t mNextUniqueIds[AUDIO_UNIQUE_ID_USE_MAX];  // ctor init
+    std::atomic<uint_fast32_t> mNextUniqueIds[AUDIO_UNIQUE_ID_USE_MAX];  // ctor init
 
     std::atomic<audio_mode_t> mMode = AUDIO_MODE_INVALID;
     std::atomic<bool> mBtNrecIsOff = false;
 
-    Vector<AudioSessionRef*> mAudioSessionRefs GUARDED_BY(mutex());
+    std::vector<AudioSessionRef*> mAudioSessionRefs GUARDED_BY(mutex());
 
     AudioHwDevice* loadHwModule_ll(const char *name) REQUIRES(mutex(), hardwareMutex());
 
@@ -707,16 +702,15 @@ private:
     std::list<sp<audioflinger::SyncEvent>> mPendingSyncEvents GUARDED_BY(mutex());
 
                 // Effect chains without a valid thread
-    DefaultKeyedVector<audio_session_t, sp<IAfEffectChain>> mOrphanEffectChains
-            GUARDED_BY(mutex());
+    std::map<audio_session_t, sp<IAfEffectChain>> mOrphanEffectChains GUARDED_BY(mutex());
 
                 // list of sessions for which a valid HW A/V sync ID was retrieved from the HAL
-    DefaultKeyedVector<audio_session_t, audio_hw_sync_t> mHwAvSyncIds GUARDED_BY(mutex());
+    std::map<audio_session_t, audio_hw_sync_t> mHwAvSyncIds GUARDED_BY(mutex());
 
                 // list of MMAP stream control threads. Those threads allow for wake lock, routing
                 // and volume control for activity on the associated MMAP stream at the HAL.
                 // Audio data transfer is directly handled by the client creating the MMAP stream
-    DefaultKeyedVector<audio_io_handle_t, sp<IAfMmapThread>> mMmapThreads GUARDED_BY(mutex());
+    std::map<audio_io_handle_t, sp<IAfMmapThread>> mMmapThreads GUARDED_BY(mutex());
 
     // always returns non-null
     sp<Client> registerClient(pid_t pid, uid_t uid) EXCLUDES_AudioFlinger_ClientMutex;

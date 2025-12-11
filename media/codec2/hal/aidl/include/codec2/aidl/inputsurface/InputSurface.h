@@ -46,6 +46,8 @@ struct InputSurface : public BnInputSurface {
             const std::shared_ptr<IInputSink>& sink,
             std::shared_ptr<IInputSurfaceConnection>* connection) override;
 
+    c2_status_t start();
+
     // Constant definitions.
     // Default image size for AImageReader
     constexpr static uint32_t kDefaultImageWidth = 1280;
@@ -95,7 +97,7 @@ struct InputSurface : public BnInputSurface {
     //
     // Config for current work status w.r.t input buffers
     struct WorkStatusConfig {
-        int32_t mLastDoneIndex = -1;      // Last work done input buffer index
+        uint64_t mLastDoneIndex = UINT64_MAX;      // Last work done buffer frame index
         uint32_t mLastDoneCount = 0;      // # of work done count
         uint64_t mEmptyCount = 0;         // # of input buffers being emptied
     };
@@ -105,7 +107,7 @@ protected:
     class Interface;
     class ConfigurableIntf;
 
-    c2_status_t mInit;
+    std::once_flag mInit;
     std::shared_ptr<Interface> mIntf;
     std::shared_ptr<CachedConfigurable> mConfigurable;
 
@@ -121,6 +123,9 @@ private:
 
     std::mutex mLock;
 
+    struct SourceEventCallback;
+    std::shared_ptr<SourceEventCallback> mSourceEventCallback;
+
     friend class ConfigurableIntf;
 
     bool updateConfig(
@@ -133,6 +138,7 @@ private:
     bool updateStreamConfig(StreamConfig &config, int64_t *inputDelayUs);
     void updateWorkStatusConfig(WorkStatusConfig &config);
 
+    void init();
     void release();
 };
 

@@ -21,7 +21,9 @@
 #include <utils/Errors.h>
 
 #include <map>
+#include <memory>
 #include <mutex>
+#include <utility>
 #include <set>
 #include <string>
 #include <vector>

@@ -41,19 +41,16 @@ typedef android::RingBufferConsumer::PinnedBufferItem PinnedBufferItem;
 
 namespace android {
 
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 RingBufferConsumer::RingBufferConsumer(uint64_t consumerUsage, int bufferCount)
     :
-    ConsumerBase(), mBufferCount(bufferCount), mLatestTimestamp(0) {
-#else
-RingBufferConsumer::RingBufferConsumer(const sp<IGraphicBufferConsumer>& consumer,
-                                       uint64_t consumerUsage, int bufferCount)
-    :
-    ConsumerBase(consumer), mBufferCount(bufferCount), mLatestTimestamp(0) {
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mConsumer->setConsumerUsageBits(consumerUsage);
-    mConsumer->setMaxAcquiredBufferCount(bufferCount);
+    ConsumerBase(), mConsumerUsage(consumerUsage), mBufferCount(bufferCount), mLatestTimestamp(0) {
     assert(bufferCount > 0);
+}
+
+void RingBufferConsumer::onFirstRef() {
+    ConsumerBase::onFirstRef();
+    mConsumer->setConsumerUsageBits(mConsumerUsage);
+    mConsumer->setMaxAcquiredBufferCount(mBufferCount);
 }
 
 RingBufferConsumer::~RingBufferConsumer() {

@@ -19,10 +19,13 @@
 
 #include <sys/stat.h>
 #include <inttypes.h>
+
+#include <functional>
+#include <iostream>
 #include <mutex>
 #include <queue>
 #include <thread>
-#include <iostream>
+#include <utility>
 
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaError.h>

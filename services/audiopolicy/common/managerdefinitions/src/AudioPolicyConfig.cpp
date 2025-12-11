@@ -326,13 +326,13 @@ void AudioPolicyConfig::setDefault() {
     sp<OutputProfile> outProfile = new OutputProfile("primary");
     outProfile->addAudioProfile(
             new AudioProfile(AUDIO_FORMAT_PCM_16_BIT, AUDIO_CHANNEL_OUT_STEREO, 44100));
-    outProfile->addSupportedDevice(mDefaultOutputDevice);
+    outProfile->addSupportedRoutableDevice(mDefaultOutputDevice);
     outProfile->setFlags(AUDIO_OUTPUT_FLAG_PRIMARY);
     module->addOutputProfile(outProfile);
 
     sp<InputProfile> inProfile = new InputProfile("primary");
     inProfile->addAudioProfile(micProfile);
-    inProfile->addSupportedDevice(defaultInputDevice);
+    inProfile->addSupportedRoutableDevice(defaultInputDevice);
     module->addInputProfile(inProfile);
 
     setDefaultSurroundFormats();

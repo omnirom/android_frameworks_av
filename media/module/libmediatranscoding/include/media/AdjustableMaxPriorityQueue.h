@@ -19,8 +19,10 @@
 
 #include <utils/Log.h>
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 namespace android {

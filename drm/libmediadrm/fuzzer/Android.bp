@@ -43,6 +43,7 @@ cc_fuzz {
         "libmedia_headers",
         "libmediadrm_headers",
     ],
+    defaults: ["android.hardware.drm-media_drm-ndk-shared"],
     shared_libs: [
         "libbinder",
         "libutils",
@@ -61,7 +62,6 @@ cc_fuzz {
         "android.hardware.drm@1.4",
         "libhidlallocatorutils",
         "libhidlbase",
-        "android.hardware.drm-V1-ndk",
     ],
     fuzz_config: {
         cc: [

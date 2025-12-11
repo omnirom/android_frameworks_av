@@ -18,9 +18,11 @@
 
 #include <android/media/IAudioTrackCallback.h>
 #include <android/media/IEffectClient.h>
+#include <android/media/audio/common/AudioPlaybackRate.h>
 #include <audiomanager/IAudioManager.h>
 #include <audio_utils/DeferredExecutor.h>
 #include <audio_utils/MelProcessor.h>
+#include <audio_utils/TimerQueue.h>
 #include <audio_utils/mutex.h>
 #include <binder/MemoryDealer.h>
 #include <datapath/AudioStreamIn.h>
@@ -46,10 +48,9 @@ namespace android {
 
 class IAfDirectOutputThread;
 class IAfDuplicatingThread;
-class IAfMmapCaptureThread;
-class IAfMmapPlaybackThread;
 class IAfPlaybackThread;
 class IAfRecordThread;
+class IAfThreadBase;
 
 class IAfEffectChain;
 class IAfEffectHandle;
@@ -62,12 +63,6 @@ class IAfTrack;
 class IAfTrackBase;
 class Client;
 class MelReporter;
-
-// Used internally for Threads.cpp and AudioFlinger.cpp
-struct stream_type_t {
-    float volume = 1.f;
-    bool mute = false;
-};
 
 // Note this is exposed through IAfThreadBase::afThreadCallback()
 // and hence may be used by the Effect / Track framework.
@@ -85,8 +80,6 @@ public:
             REQUIRES(mutex()) = 0;
     virtual float getMasterBalance_l() const
             REQUIRES(mutex()) = 0;
-    virtual bool streamMute_l(audio_stream_type_t stream) const
-            REQUIRES(mutex()) = 0;
     virtual audio_mode_t getMode() const = 0;
     virtual bool isLowRamDevice() const = 0;
     virtual bool isAudioPolicyReady() const = 0;  // Effects
@@ -95,6 +88,7 @@ public:
             REQUIRES(mutex()) = 0;
     virtual const sp<IAfPatchPanel>& getPatchPanel() const = 0;
     virtual const sp<MelReporter>& getMelReporter() const = 0;
+    virtual const std::shared_ptr<audio_utils::TimerQueue>& getTimerQueue() const = 0;
     virtual const sp<EffectsFactoryHalInterface>& getEffectsFactoryHal() const = 0;
     // AudioService interfaces
     virtual sp<IAudioManager> getOrCreateAudioManager() = 0;
@@ -104,9 +98,12 @@ public:
     virtual bool updateOrphanEffectChains(const sp<IAfEffectModule>& effect)
             EXCLUDES_AudioFlinger_Mutex = 0;
     virtual status_t moveEffectChain_ll(audio_session_t sessionId,
-            IAfPlaybackThread* srcThread, IAfPlaybackThread* dstThread,
+            IAfThreadBase* srcThread, IAfThreadBase* dstThread,
             IAfEffectChain* srcChain = nullptr)
             REQUIRES(mutex(), audio_utils::ThreadBase_Mutex) = 0;
+    virtual status_t tryMoveEffectChain(
+            audio_session_t sessionId, const sp<IAfThreadBase>& dstThread)
+            EXCLUDES_AudioFlinger_Mutex EXCLUDES_ThreadBase_Mutex = 0;
 
     virtual sp<audioflinger::SyncEvent> createSyncEvent(AudioSystem::sync_event_t type,
             audio_session_t triggerSession,
@@ -115,8 +112,7 @@ public:
             const wp<IAfTrackBase>& cookie)
             EXCLUDES_AudioFlinger_Mutex = 0;
 
-    // Hold either AudioFlinger::mutex or ThreadBase::mutex
-    virtual void ioConfigChanged_l(audio_io_config_event_t event,
+    virtual void ioConfigChanged(audio_io_config_event_t event,
             const sp<AudioIoDescriptor>& ioDesc,
             pid_t pid = 0) EXCLUDES_AudioFlinger_ClientMutex = 0;
     virtual void onNonOffloadableGlobalEffectEnable() EXCLUDES_AudioFlinger_Mutex = 0;
@@ -124,7 +120,7 @@ public:
                                                 const std::vector<audio_latency_mode_t>& modes)
             EXCLUDES_AudioFlinger_ClientMutex = 0;
 
-    virtual void onHardError(std::set<audio_port_handle_t>& trackPortIds) = 0;
+    virtual void onHardError(audio_io_handle_t output) = 0;
 
     virtual const ::com::android::media::permission::IPermissionProvider&
             getPermissionProvider() = 0;
@@ -157,7 +153,8 @@ public:
 
     virtual status_t readyToRun() = 0;
     virtual void clearPowerManager() EXCLUDES_ThreadBase_Mutex = 0;
-    virtual status_t initCheck() const = 0;
+    virtual status_t initCheck_l() const REQUIRES(mutex()) = 0;
+    virtual status_t initCheck() const EXCLUDES_ThreadBase_Mutex = 0;
     virtual type_t type() const = 0;
     virtual bool isDuplicating() const = 0;
     virtual audio_io_handle_t id() const = 0;
@@ -189,12 +186,8 @@ public:
     virtual void ioConfigChanged_l(
             audio_io_config_event_t event, pid_t pid = 0,
             audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE)
-            /* holds either AF::mutex or TB::mutex */ = 0;
+            REQUIRES(mutex()) = 0;
 
-    // sendConfigEvent_l() must be called with ThreadBase::mLock held
-    // Can temporarily release the lock if waiting for a reply from
-    // processConfigEvents_l().
-    // status_t sendConfigEvent_l(sp<ConfigEvent>& event);
     virtual void sendIoConfigEvent(
             audio_io_config_event_t event, pid_t pid = 0,
             audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE) EXCLUDES_ThreadBase_Mutex = 0;
@@ -247,6 +240,8 @@ public:
     virtual const AudioDeviceTypeAddrVector& outDeviceTypeAddrs() const = 0;
     virtual const AudioDeviceTypeAddr& inDeviceTypeAddr() const = 0;
     virtual bool isOutput() const = 0;
+    virtual bool isOffload() const = 0;
+    virtual bool isOffloadOrDirect() const = 0;
     virtual bool isOffloadOrMmap() const = 0;
     virtual sp<StreamHalInterface> stream() const = 0;
     virtual sp<IAfEffectHandle> createEffect_l(
@@ -294,13 +289,13 @@ public:
     // ThreadBase mutex before processing the mixer and effects. This guarantees the
     // integrity of the chains during the process.
     // Also sets the parameter 'effectChains' to current value of mEffectChains.
-    virtual void lockEffectChains_l(Vector<sp<IAfEffectChain>>& effectChains)
+    virtual void lockEffectChains_l(std::vector<sp<IAfEffectChain>>& effectChains)
             REQUIRES(mutex()) EXCLUDES_EffectChain_Mutex = 0;
     // unlock effect chains after process
-    virtual void unlockEffectChains(const Vector<sp<IAfEffectChain>>& effectChains)
+    virtual void unlockEffectChains(const std::vector<sp<IAfEffectChain>>& effectChains)
             EXCLUDES_ThreadBase_Mutex = 0;
     // get a copy of mEffectChains vector
-    virtual Vector<sp<IAfEffectChain>> getEffectChains_l() const
+    virtual const std::vector<sp<IAfEffectChain>>& getEffectChains_l() const
             REQUIRES(mutex()) = 0;
     // set audio mode to all effect chains
     virtual void setMode(audio_mode_t mode)
@@ -380,16 +375,17 @@ public:
             RETURN_CAPABILITY(audio_utils::ThreadBase_Mutex) = 0;
 
     virtual void onEffectEnable(const sp<IAfEffectModule>& effect) EXCLUDES_ThreadBase_Mutex = 0;
-    virtual void onEffectDisable() EXCLUDES_ThreadBase_Mutex = 0;
+    virtual void onEffectDisable(const sp<IAfEffectModule>& effect) EXCLUDES_ThreadBase_Mutex = 0;
 
     // invalidateTracksForAudioSession_l must be called with holding mLock.
-    virtual void invalidateTracksForAudioSession_l(audio_session_t sessionId) const
+    virtual bool invalidateTracksForAudioSession_l(audio_session_t sessionId) const
             REQUIRES(mutex()) = 0;
     // Invalidate all the tracks with the given audio session.
-    virtual void invalidateTracksForAudioSession(audio_session_t sessionId) const
+    virtual bool invalidateTracksForAudioSession(audio_session_t sessionId) const
             EXCLUDES_ThreadBase_Mutex = 0;
 
-    virtual bool isStreamInitialized() const = 0;
+    virtual bool isStreamInitialized_l() const REQUIRES(mutex()) = 0;
+    virtual bool isStreamInitialized() const EXCLUDES_ThreadBase_Mutex = 0;
     virtual void startMelComputation_l(const sp<audio_utils::MelProcessor>& processor)
             REQUIRES(audio_utils::AudioFlinger_Mutex) = 0;
     virtual void stopMelComputation_l()
@@ -414,6 +410,41 @@ public:
     // processing period cycle).
     virtual audio_utils::DeferredExecutor& getThreadloopExecutor() = 0;
 
+    virtual sp<IAfTrackBase> getTrackById_l(audio_port_handle_t trackId) REQUIRES(mutex()) = 0;
+
+    virtual std::vector<sp<IAfTrackBase>> getTracks_l() REQUIRES(mutex()) = 0;
+
+    // Invalidate tracks by a set of port ids. The port id will be removed from
+    // the given set if the corresponding track is found and invalidated.
+    //
+    // If portIds == nullptr, all tracks, including internal tracks are invalidated.
+    virtual bool invalidateTracks_l(std::set<audio_port_handle_t>* portIds = {})
+            REQUIRES(mutex()) = 0;
+
+    virtual bool invalidateTracks(std::set<audio_port_handle_t>* portIds = {})
+            EXCLUDES_ThreadBase_Mutex = 0;
+
+    virtual status_t setPortsVolume(const std::vector<audio_port_handle_t> &portIds, float volume,
+            bool muted) EXCLUDES_ThreadBase_Mutex = 0;
+
+    virtual void checkUpdateTrackMetadataForUid(uid_t uid) EXCLUDES_ThreadBase_Mutex = 0;
+
+    virtual AudioStreamOut* getOutput_l() const REQUIRES(mutex()) = 0;
+    virtual AudioStreamOut* getOutput() const EXCLUDES_ThreadBase_Mutex = 0;
+    virtual AudioStreamOut* clearOutput_l() REQUIRES(mutex()) = 0;
+    virtual AudioStreamOut* clearOutput() EXCLUDES_ThreadBase_Mutex = 0;
+
+    virtual AudioStreamIn* getInput_l() const REQUIRES(mutex()) = 0;
+    virtual AudioStreamIn* getInput() const EXCLUDES_ThreadBase_Mutex = 0;
+    virtual AudioStreamIn* clearInput_l() REQUIRES(mutex()) = 0;
+    virtual AudioStreamIn* clearInput() EXCLUDES_ThreadBase_Mutex = 0;
+
+    virtual bool hasFastMixer() const = 0;
+    virtual bool hasFastCapture() const = 0;
+
+    // we use "asVolumeInterface" as the Thread has an isa relationship with VolumeInterface.
+    virtual sp<VolumeInterface> asVolumeInterface() { return nullptr; }
+
     // Dynamic cast to derived interface
     virtual sp<IAfDirectOutputThread> asIAfDirectOutputThread() { return nullptr; }
     virtual sp<IAfDuplicatingThread> asIAfDuplicatingThread() { return nullptr; }
@@ -422,7 +453,7 @@ public:
     virtual IAfThreadCallback* afThreadCallback() const = 0;
 };
 
-class IAfPlaybackThread : public virtual IAfThreadBase, public virtual VolumeInterface {
+class IAfPlaybackThread : public virtual IAfThreadBase {
 public:
     static sp<IAfPlaybackThread> createBitPerfectThread(
             const sp<IAfThreadCallback>& afThreadCallback, AudioStreamOut* output,
@@ -484,19 +515,13 @@ public:
             const sp<media::IAudioTrackCallback>& callback,
             bool isSpatialized,
             bool isBitPerfect,
-            audio_output_flags_t* afTrackFlags,
-            float volume,
-            bool muted)
+            audio_output_flags_t* afTrackFlags)
             REQUIRES(audio_utils::AudioFlinger_Mutex) = 0;
 
     virtual status_t addTrack_l(const sp<IAfTrack>& track) REQUIRES(mutex()) = 0;
     virtual bool destroyTrack_l(const sp<IAfTrack>& track) REQUIRES(mutex()) = 0;
-    virtual bool isTrackActive(const sp<IAfTrack>& track) const REQUIRES(mutex()) = 0;
+    virtual bool isTrackActive_l(const sp<IAfTrack>& track) const REQUIRES(mutex()) = 0;
     virtual void addOutputTrack_l(const sp<IAfTrack>& track) REQUIRES(mutex()) = 0;
-
-    virtual AudioStreamOut* getOutput_l() const REQUIRES(mutex()) = 0;
-    virtual AudioStreamOut* getOutput() const EXCLUDES_ThreadBase_Mutex = 0;
-    virtual AudioStreamOut* clearOutput() EXCLUDES_ThreadBase_Mutex = 0;
 
     // a very large number of suspend() will eventually wraparound, but unlikely
     virtual void suspend() = 0;
@@ -512,16 +537,6 @@ public:
             EXCLUDES_ThreadBase_Mutex = 0;
     virtual status_t attachAuxEffect_l(const sp<IAfTrack>& track, int EffectId)
             REQUIRES(mutex()) = 0;
-
-    // called with AudioFlinger lock held
-    virtual bool invalidateTracks_l(audio_stream_type_t streamType) REQUIRES(mutex()) = 0;
-    virtual bool invalidateTracks_l(std::set<audio_port_handle_t>& portIds) REQUIRES(mutex()) = 0;
-    virtual void invalidateTracks(audio_stream_type_t streamType)
-            EXCLUDES_ThreadBase_Mutex = 0;
-    // Invalidate tracks by a set of port ids. The port id will be removed from
-    // the given set if the corresponding track is found and invalidated.
-    virtual void invalidateTracks(std::set<audio_port_handle_t>& portIds)
-            EXCLUDES_ThreadBase_Mutex = 0;
 
     virtual status_t getTimestamp_l(AudioTimestamp& timestamp) REQUIRES(mutex()) = 0;
     virtual void addPatchTrack(const sp<IAfPatchTrack>& track) EXCLUDES_ThreadBase_Mutex = 0;
@@ -539,10 +554,6 @@ public:
     virtual void setDownStreamPatch(const struct audio_patch* patch)
             EXCLUDES_ThreadBase_Mutex = 0;
 
-    virtual IAfTrack* getTrackById_l(audio_port_handle_t trackId) REQUIRES(mutex()) = 0;
-
-    virtual std::vector<sp<IAfTrack>> getTracks_l() REQUIRES(mutex()) = 0;
-
     virtual bool hasMixer() const = 0;
 
     virtual status_t setRequestedLatencyMode(audio_latency_mode_t mode) = 0;
@@ -550,13 +561,17 @@ public:
     virtual status_t getSupportedLatencyModes(std::vector<audio_latency_mode_t>* modes)
            EXCLUDES_ThreadBase_Mutex = 0;
 
+    virtual bool supportsBluetoothVariableLatency() const = 0;
+
     virtual status_t setBluetoothVariableLatencyEnabled(bool enabled) = 0;
 
     virtual void setStandby() EXCLUDES_ThreadBase_Mutex = 0;
     virtual void setStandby_l() REQUIRES(mutex()) = 0;
-    virtual bool waitForHalStart() EXCLUDES_ThreadBase_Mutex = 0;
 
-    virtual bool hasFastMixer() const = 0;
+    static constexpr uint32_t kWaitHalTimeoutMs = 2'000;
+    virtual bool waitForHalStart(uint32_t timeoutMs = kWaitHalTimeoutMs)
+            EXCLUDES_ThreadBase_Mutex = 0;
+
     virtual FastTrackUnderruns getFastTrackUnderruns(size_t fastIndex) const = 0;
     virtual const std::atomic<int64_t>& framesWritten() const = 0;
 
@@ -565,9 +580,6 @@ public:
     virtual void setTracksInternalMute(std::map<audio_port_handle_t, bool>* tracksInternalMute)
             EXCLUDES_ThreadBase_Mutex = 0;
 
-    virtual status_t setPortsVolume(const std::vector<audio_port_handle_t> &portIds, float volume,
-                                    bool muted) EXCLUDES_ThreadBase_Mutex = 0;
-    virtual void checkUpdateTrackMetadataForUid(uid_t uid) EXCLUDES_ThreadBase_Mutex = 0;
 };
 
 class IAfDirectOutputThread : public virtual IAfPlaybackThread {
@@ -620,10 +632,6 @@ public:
     // return true if the caller should then do it's part of the stopping process
     virtual bool stop(IAfRecordTrack* recordTrack) EXCLUDES_ThreadBase_Mutex = 0;
 
-    // NO_THREAD_SAFETY_ANALYSIS: consider atomics
-    virtual AudioStreamIn* getInput() const = 0;
-    virtual AudioStreamIn* clearInput() = 0;
-
     virtual status_t getActiveMicrophones(
             std::vector<media::MicrophoneInfoFw>* activeMicrophones)
             const EXCLUDES_ThreadBase_Mutex = 0;
@@ -641,7 +649,6 @@ public:
 
     virtual void setRecordSilenced(audio_port_handle_t portId, bool silenced)
             EXCLUDES_ThreadBase_Mutex = 0;
-    virtual bool hasFastCapture() const = 0;
 
     virtual void checkBtNrec() EXCLUDES_ThreadBase_Mutex = 0;
     virtual uint32_t getInputFramesLost() const EXCLUDES_ThreadBase_Mutex = 0;
@@ -660,16 +667,28 @@ public:
     // may be passed back to the client.
     //
     // Only one AIDL MmapStreamInterface interface adapter should be created per MmapThread.
-    static sp<MmapStreamInterface> createMmapStreamInterfaceAdapter(
+  static sp<media::IMmapStream> createMmapStreamInterfaceAdapter(
             const sp<IAfMmapThread>& mmapThread);
+
+    // Creates a Mmap playback thread from an AudioStreamOut ptr.
+    static sp<IAfMmapThread> create(
+            const sp<IAfThreadCallback>& afThreadCallback, audio_io_handle_t id,
+            AudioHwDevice* hwDev, AudioStreamOut* output, bool systemReady,
+            const std::shared_ptr<audio_utils::TimerQueue>& timerQueue);
+
+    // Creates a Mmap capture thread from an AudioStreamIn ptr.
+    static sp<IAfMmapThread> create(
+            const sp<IAfThreadCallback>& afThreadCallback, audio_io_handle_t id,
+            AudioHwDevice* hwDev, AudioStreamIn* input, bool systemReady);
 
     virtual void configure(
             const audio_attributes_t* attr,
             audio_stream_type_t streamType,
             audio_session_t sessionId,
-            const sp<MmapStreamCallback>& callback,
+            const sp<media::IMmapStreamCallback>& callback,
             const DeviceIdVector& deviceIds,
-            audio_port_handle_t portId) EXCLUDES_ThreadBase_Mutex = 0;
+            audio_port_handle_t portId,
+            const audio_offload_info_t* offloadInfo) EXCLUDES_ThreadBase_Mutex = 0;
     virtual void disconnect() EXCLUDES_ThreadBase_Mutex = 0;
 
     // MmapStreamInterface handling (see adapter)
@@ -683,46 +702,23 @@ public:
             audio_port_handle_t* handle) EXCLUDES_ThreadBase_Mutex = 0;
     virtual status_t stop(audio_port_handle_t handle) EXCLUDES_ThreadBase_Mutex = 0;
     virtual status_t standby() EXCLUDES_ThreadBase_Mutex = 0;
-    virtual status_t getExternalPosition(uint64_t* position, int64_t* timeNanos) const
+    virtual status_t getObservablePosition(uint64_t* position, int64_t* timeNanos) const
             EXCLUDES_ThreadBase_Mutex = 0;
     virtual status_t reportData(const void* buffer, size_t frameCount)
             EXCLUDES_ThreadBase_Mutex = 0;
-
-    // TODO(b/291317898)  move to IAfThreadBase?
-    virtual void invalidateTracks(std::set<audio_port_handle_t>& portIds)
+    virtual status_t drain(int64_t wakeUpNanos, bool allowSoftWakeUp,
+                           audio_utils::TimerQueue::handle_t* handle) EXCLUDES_ThreadBase_Mutex = 0;
+    virtual status_t activate(audio_utils::TimerQueue::handle_t handle)
             EXCLUDES_ThreadBase_Mutex = 0;
-
-    virtual void invalidateTracks(audio_stream_type_t streamType)
-            EXCLUDES_ThreadBase_Mutex = 0;
+    virtual status_t setPlaybackParameters(
+            const media::audio::common::AudioPlaybackRate& rate) EXCLUDES_ThreadBase_Mutex = 0;
+    virtual status_t getPlaybackParameters(
+            media::audio::common::AudioPlaybackRate* rate) EXCLUDES_ThreadBase_Mutex = 0;
 
     // Sets the UID records silence - TODO(b/291317898)  move to IAfMmapCaptureThread
     virtual void setRecordSilenced(audio_port_handle_t portId, bool silenced)
             EXCLUDES_ThreadBase_Mutex = 0;
-
-    virtual sp<IAfMmapPlaybackThread> asIAfMmapPlaybackThread() { return nullptr; }
-    virtual sp<IAfMmapCaptureThread> asIAfMmapCaptureThread() { return nullptr; }
 };
 
-class IAfMmapPlaybackThread : public virtual IAfMmapThread, public virtual VolumeInterface {
-public:
-    static sp<IAfMmapPlaybackThread> create(
-            const sp<IAfThreadCallback>& afThreadCallback, audio_io_handle_t id,
-            AudioHwDevice* hwDev, AudioStreamOut* output, bool systemReady);
-
-    virtual AudioStreamOut* clearOutput() EXCLUDES_ThreadBase_Mutex = 0;
-
-    virtual status_t setPortsVolume(const std::vector<audio_port_handle_t>& portIds, float volume,
-                                    bool muted) EXCLUDES_ThreadBase_Mutex = 0;
-    virtual void checkUpdateTrackMetadataForUid(uid_t uid) EXCLUDES_ThreadBase_Mutex = 0;
-};
-
-class IAfMmapCaptureThread : public virtual IAfMmapThread {
-public:
-    static sp<IAfMmapCaptureThread> create(
-            const sp<IAfThreadCallback>& afThreadCallback, audio_io_handle_t id,
-            AudioHwDevice* hwDev, AudioStreamIn* input, bool systemReady);
-
-    virtual AudioStreamIn* clearInput() EXCLUDES_ThreadBase_Mutex = 0;
-};
 
 }  // namespace android

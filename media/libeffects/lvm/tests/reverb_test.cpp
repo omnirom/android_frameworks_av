@@ -13,11 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <algorithm>
 #include <assert.h>
 #include <getopt.h>
 #include <inttypes.h>
 #include <iterator>
 #include <math.h>
+#include <memory>
 #include <stdlib.h>
 #include <string.h>
 #include <vector>

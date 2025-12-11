@@ -126,6 +126,7 @@ cc_library_shared {
         "libmediametrics_headers",
     ],
 
+    defaults: ["android.hardware.drm-media_drm-ndk-shared"],
     shared_libs: [
         "android.hardware.graphics.bufferqueue@1.0",
         "android.hidl.token@1.0-utils",
@@ -148,7 +149,6 @@ cc_library_shared {
         "libgui",
         "libui",
         "libmediandk_utils",
-        "android.hardware.drm-V1-ndk",
     ],
 
     export_header_lib_headers: ["jni_headers"],

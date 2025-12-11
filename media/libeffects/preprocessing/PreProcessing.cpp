@@ -17,19 +17,19 @@
 #include <stdlib.h>
 #include <string.h>
 #define LOG_TAG "PreProcessing"
-//#define LOG_NDEBUG 0
+// #define LOG_NDEBUG 0
 #include <audio_effects/effect_aec.h>
 #include <audio_effects/effect_agc.h>
-#include <hardware/audio_effect.h>
-#include <utils/Log.h>
-#include <utils/Timers.h>
 #include <audio_effects/effect_agc2.h>
 #include <audio_effects/effect_ns.h>
 #include <audio_processing.h>
+#include <hardware/audio_effect.h>
 #include <module_common_types.h>
+#include <utils/Log.h>
+#include <utils/Timers.h>
 
 // undefine to perform multi channels API functional tests
-//#define DUAL_MIC_TEST
+// #define DUAL_MIC_TEST
 
 //------------------------------------------------------------------------------
 // local definitions
@@ -40,10 +40,10 @@
 
 // types of pre processing modules
 enum preproc_id {
-    PREPROC_AGC,  // Automatic Gain Control
+    PREPROC_AGC,   // Automatic Gain Control
     PREPROC_AGC2,  // Automatic Gain Control 2
-    PREPROC_AEC,  // Acoustic Echo Canceler
-    PREPROC_NS,   // Noise Suppressor
+    PREPROC_AEC,   // Acoustic Echo Canceler
+    PREPROC_NS,    // Noise Suppressor
     PREPROC_NUM_EFFECTS
 };
 
@@ -99,9 +99,9 @@ struct preproc_effect_s {
 // Session context
 struct preproc_session_s {
     struct preproc_effect_s effects[PREPROC_NUM_EFFECTS];  // effects in this session
-    uint32_t state;                // current state (enum preproc_session_state)
-    int id;                        // audio session ID
-    int io;                        // handle of input stream this session is on
+    uint32_t state;  // current state (enum preproc_session_state)
+    int id;          // audio session ID
+    int io;          // handle of input stream this session is on
     rtc::scoped_refptr<webrtc::AudioProcessing>
             apm;  // handle on webRTC audio processing module (APM)
     // Audio Processing module builder
@@ -119,11 +119,11 @@ struct preproc_session_s {
     webrtc::AudioProcessing::Config config;
     webrtc::StreamConfig inputConfig;   // input stream configuration
     webrtc::StreamConfig outputConfig;  // output stream configuration
-    uint32_t revChannelCount;  // number of channels on reverse stream
-    uint32_t revEnabledMsk;    // bit field containing IDs of enabled pre processors
-                               // with reverse channel
-    uint32_t revProcessedMsk;  // bit field containing IDs of pre processors with reverse
-                               // channel already processed in current round
+    uint32_t revChannelCount;           // number of channels on reverse stream
+    uint32_t revEnabledMsk;             // bit field containing IDs of enabled pre processors
+                                        // with reverse channel
+    uint32_t revProcessedMsk;           // bit field containing IDs of pre processors with reverse
+                                        // channel already processed in current round
     webrtc::StreamConfig revConfig;     // reverse stream configuration.
 };
 
@@ -212,17 +212,14 @@ static const effect_descriptor_t sNsDescriptor = {
         "Noise Suppression",
         "The Android Open Source Project"};
 
-static const effect_descriptor_t* sDescriptors[PREPROC_NUM_EFFECTS] = {&sAgcDescriptor,
-                                                                       &sAgc2Descriptor,
-                                                                       &sAecDescriptor,
-                                                                       &sNsDescriptor};
+static const effect_descriptor_t* sDescriptors[PREPROC_NUM_EFFECTS] = {
+        &sAgcDescriptor, &sAgc2Descriptor, &sAecDescriptor, &sNsDescriptor};
 
 //------------------------------------------------------------------------------
 // Helper functions
 //------------------------------------------------------------------------------
 
-const effect_uuid_t* const sUuidToPreProcTable[PREPROC_NUM_EFFECTS] = {FX_IID_AGC,
-                                                                       FX_IID_AGC2,
+const effect_uuid_t* const sUuidToPreProcTable[PREPROC_NUM_EFFECTS] = {FX_IID_AGC, FX_IID_AGC2,
                                                                        FX_IID_AEC, FX_IID_NS};
 
 const effect_uuid_t* ProcIdToUuid(int procId) {
@@ -433,16 +430,16 @@ int Agc2SetParameter(preproc_effect_t* effect, void* pParam, void* pValue) {
         case AGC2_PARAM_ADAPT_DIGI_LEVEL_ESTIMATOR:
             ALOGV("Agc2SetParameter() level estimator %d", *(uint32_t*)pValue);
             if (*(uint32_t*)pValue != 0) {
-              // only RMS is supported
-              status = -EINVAL;
+                // only RMS is supported
+                status = -EINVAL;
             }
             break;
         case AGC2_PARAM_ADAPT_DIGI_EXTRA_SATURATION_MARGIN:
             valueFloat = (float)(*(int32_t*)pValue);
             ALOGV("Agc2SetParameter() extra saturation margin %f dB", valueFloat);
             if (valueFloat != 2.0) {
-              // extra_staturation_margin_db is no longer configurable in webrtc
-              status = -EINVAL;
+                // extra_staturation_margin_db is no longer configurable in webrtc
+                status = -EINVAL;
             }
             break;
         case AGC2_PARAM_PROPERTIES:
@@ -452,7 +449,7 @@ int Agc2SetParameter(preproc_effect_t* effect, void* pParam, void* pValue) {
             effect->session->config.gain_controller2.fixed_digital.gain_db =
                     pProperties->fixedDigitalGain;
             if (pProperties->level_estimator != 0 || pProperties->extraSaturationMargin != 2.0) {
-              status = -EINVAL;
+                status = -EINVAL;
             }
             break;
         default:
@@ -543,11 +540,9 @@ static const preproc_ops_t sAgc2Ops = {Agc2Create,       Agc2Init,    NULL,
 // Acoustic Echo Canceler (AEC)
 //------------------------------------------------------------------------------
 
-
 int AecInit(preproc_effect_t* effect) {
     ALOGV("AecInit");
     effect->session->config = effect->session->apm->GetConfig();
-    effect->session->config.echo_canceller.mobile_mode = true;
     effect->session->apm->ApplyConfig(effect->session->config);
     return 0;
 }
@@ -571,9 +566,8 @@ int AecGetParameter(preproc_effect_t* effect, void* pParam, uint32_t* pValueSize
             ALOGV("AecGetParameter() echo delay %d us", *(uint32_t*)pValue);
             break;
         case AEC_PARAM_MOBILE_MODE:
-            effect->session->config = effect->session->apm->GetConfig();
-            *(uint32_t*)pValue = effect->session->config.echo_canceller.mobile_mode;
-            ALOGV("AecGetParameter() mobile mode %d us", *(uint32_t*)pValue);
+            *(uint32_t*)pValue = false;
+            ALOGI("%s: AEC_PARAM_MOBILE_MODE ignored", __func__);
             break;
         default:
             ALOGW("AecGetParameter() unknown param %08x value %08x", param, *(uint32_t*)pValue);
@@ -595,10 +589,8 @@ int AecSetParameter(preproc_effect_t* effect, void* pParam, void* pValue) {
             ALOGV("AecSetParameter() echo delay %d us, status %d", value, status);
             break;
         case AEC_PARAM_MOBILE_MODE:
-            effect->session->config = effect->session->apm->GetConfig();
-            effect->session->config.echo_canceller.mobile_mode = value;
-            ALOGV("AecSetParameter() mobile mode %d us", value);
-            effect->session->apm->ApplyConfig(effect->session->config);
+            ALOGI("%s: AEC_PARAM_MOBILE_MODE ignored", __func__);
+            status = (value != 0) ? -EINVAL : 0;
             break;
         default:
             ALOGW("AecSetParameter() unknown param %08x value %08x", param, *(uint32_t*)pValue);
@@ -697,9 +689,8 @@ void NsDisable(preproc_effect_t* effect) {
 static const preproc_ops_t sNsOps = {NsCreate,  NsInit,         NULL,           NsEnable,
                                      NsDisable, NsSetParameter, NsGetParameter, NULL};
 
-static const preproc_ops_t* sPreProcOps[PREPROC_NUM_EFFECTS] = {&sAgcOps,
-                                                                &sAgc2Ops,
-                                                                &sAecOps, &sNsOps};
+static const preproc_ops_t* sPreProcOps[PREPROC_NUM_EFFECTS] = {&sAgcOps, &sAgc2Ops, &sAecOps,
+                                                                &sNsOps};
 
 //------------------------------------------------------------------------------
 // Effect functions

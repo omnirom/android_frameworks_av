@@ -144,6 +144,8 @@ void AudioPolicyMix::dump(String8 *dst, int spaces, int index) const
 
     dst->appendFormat("%*s- device address: %s\n", spaces, "", mDeviceAddress.c_str());
 
+    dst->appendFormat("%*s- virtual device id: %d\n", spaces, "", mVirtualDeviceId);
+
     dst->appendFormat("%*s- output: %d\n", spaces, "",
             mOutput == nullptr ? 0 : mOutput->mIoHandle);
 
@@ -193,11 +195,9 @@ status_t AudioPolicyMixCollection::registerMix(const AudioMix& mix,
                     mix.mDeviceType, mix.mDeviceAddress.c_str());
             return BAD_VALUE;
         }
-        if (audiopolicy_flags::audio_mix_ownership()) {
-            if (mix.mToken == registeredMix->mToken) {
-                ALOGE("registerMix(): same mix already registered - skipping");
-                return BAD_VALUE;
-            }
+        if (mix.mToken == registeredMix->mToken) {
+            ALOGE("registerMix(): same mix already registered - skipping");
+            return BAD_VALUE;
         }
     }
     if (!areMixCriteriaConsistent(mix.mCriteria)) {
@@ -221,21 +221,11 @@ status_t AudioPolicyMixCollection::unregisterMix(const AudioMix& mix)
 {
     for (size_t i = 0; i < size(); i++) {
         const sp<AudioPolicyMix>& registeredMix = itemAt(i);
-        if (audiopolicy_flags::audio_mix_ownership()) {
-            if (mix.mToken == registeredMix->mToken) {
-                ALOGD("unregisterMix(): removing mix for dev=0x%x addr=%s",
-                      mix.mDeviceType, mix.mDeviceAddress.c_str());
-                removeAt(i);
-                return NO_ERROR;
-            }
-        } else {
-            if (mix.mDeviceType == registeredMix->mDeviceType
-                && mix.mDeviceAddress.compare(registeredMix->mDeviceAddress) == 0) {
-                ALOGD("unregisterMix(): removing mix for dev=0x%x addr=%s",
-                      mix.mDeviceType, mix.mDeviceAddress.c_str());
-                removeAt(i);
-                return NO_ERROR;
-            }
+        if (mix.mToken == registeredMix->mToken) {
+            ALOGD("unregisterMix(): removing mix for dev=0x%x addr=%s",
+                  mix.mDeviceType, mix.mDeviceAddress.c_str());
+            removeAt(i);
+            return NO_ERROR;
         }
     }
 
@@ -312,9 +302,9 @@ void AudioPolicyMixCollection::closeOutput(sp<SwAudioOutputDescriptor> &desc,
         // Restore the policy mix mix output to the first opened output supporting a route to
         // the mix device. This is because the current mix output can be changed to a direct output.
         for (size_t j = 0; j < allOutputs.size(); ++j) {
-            if (allOutputs[i] != desc && !allOutputs[i]->isDuplicated() &&
-                allOutputs[i]->supportedDevices().contains(device)) {
-                policyMix->setOutput(allOutputs[i]);
+            if (allOutputs[j] != desc && !allOutputs[j]->isDuplicated() &&
+                allOutputs[j]->supportedDevices().contains(device)) {
+                policyMix->setOutput(allOutputs[j]);
                 break;
             }
         }

@@ -20,6 +20,8 @@ import aaudio.Endpoint;
 import aaudio.IAAudioClient;
 import aaudio.StreamParameters;
 import aaudio.StreamRequest;
+import android.media.TimerQueueHandle;
+import android.media.audio.common.AudioPlaybackRate;
 
 interface IAAudioService {
     /**
@@ -80,4 +82,25 @@ interface IAAudioService {
                               int clientThreadId);
 
     int exitStandby(int streamHandle, out Endpoint endpoint);
+
+    int updateTimestamp(int streamHandle);
+
+    /**
+     * This is currently only used for offload playback.
+     *
+     * Notify the service that there are enough data in the mmap buffer. The client is suspended
+     * to wait for draining written data.
+     */
+    int drainStream(int streamHandle, long wakeUpNanos, boolean allowSoftWakeUp,
+                    out TimerQueueHandle handle);
+
+    /**
+     * This is called when the client is no longer suspended to drain data. It may happen when
+     * all data is drained or the client want to flush from a given position and rewrite the data.
+     */
+    int activateStream(int streamHandle, in TimerQueueHandle handle);
+
+    int setPlaybackParameters(int streamHandle, in AudioPlaybackRate rate);
+
+    int getPlaybackParameters(int streamHandle, out AudioPlaybackRate rate);
 }

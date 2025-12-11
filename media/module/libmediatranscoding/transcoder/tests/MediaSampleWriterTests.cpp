@@ -26,9 +26,14 @@
 #include <media/MediaSampleWriter.h>
 #include <media/NdkMediaExtractor.h>
 
+#include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <list>
+#include <memory>
 #include <mutex>
+#include <utility>
+#include <vector>
 
 namespace android {
 

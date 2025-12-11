@@ -30,9 +30,6 @@
 #include "hardware/camera2.h"
 #include "camera/CameraMetadata.h"
 #include "camera/CaptureResult.h"
-#if not WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
-#include "gui/IGraphicBufferProducer.h"
-#endif
 #include "device3/Camera3StreamInterface.h"
 #include "device3/StatusTracker.h"
 #include "binder/Status.h"
@@ -77,6 +74,13 @@ class CameraProviderManager;
 
 // Mapping of output stream index to surface ids
 typedef std::unordered_map<int, std::vector<size_t> > SurfaceMap;
+
+typedef struct TransformMapValue {
+    int mirrorMode;
+    int32_t transform;
+} TransfromMapValue_t;
+// Mapping of output stream index to mirror mode and transformation entry
+typedef std::unordered_map<int, TransformMapValue> TransformationMap;
 
 /**
  * Base interface for version >= 2 camera device classes, which interface to
@@ -302,11 +306,11 @@ class CameraDeviceBase : public virtual FrameProducer {
     virtual status_t beginConfigure() = 0;
 
     /**
-     * In shared session mode, this function retrieves the stream ID associated with a specific
+     * In shared session mode, this function retrieves the stream IDs associated with a specific
      * output configuration.
      */
-    virtual status_t getSharedStreamId(const android::camera3::OutputStreamInfo &config,
-            int *streamId) = 0;
+    virtual status_t getSharedStreamIds(const android::camera3::OutputStreamInfo &config,
+            std::vector<int>& streamIds) = 0;
 
     /**
      * In shared session mode, this function add surfaces to an existing shared stream ID.
@@ -361,6 +365,9 @@ class CameraDeviceBase : public virtual FrameProducer {
     virtual status_t startStreaming(const int32_t reqId, const SurfaceMap &surfaceMap,
             int32_t *sharedReqID, int64_t *lastFrameNumber = NULL) = 0;
 
+    /**
+     * Get the HAL's CaptureResult FMQ Size.
+     */
     virtual int32_t getCaptureResultFMQSize() = 0;
 
     /**
@@ -383,14 +390,8 @@ class CameraDeviceBase : public virtual FrameProducer {
      */
     virtual void getOfflineStreamIds(std::vector<int> *offlineStreamIds) = 0;
 
-#if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
     // get the surface of the input stream
     virtual status_t getInputSurface(sp<Surface> *surface) = 0;
-#else
-    // get the buffer producer of the input stream
-    virtual status_t getInputBufferProducer(
-            sp<IGraphicBufferProducer> *producer) = 0;
-#endif
 
     /**
      * Create a metadata buffer with fields that the HAL device believes are

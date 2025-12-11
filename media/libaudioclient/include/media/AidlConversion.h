@@ -29,12 +29,14 @@
 #include <android/media/AudioPortConfigFw.h>
 #include <android/media/AudioPortDeviceExtSys.h>
 #include <android/media/AudioTimestampInternal.h>
+#include <android/media/TimerQueueHandle.h>
 #include <android/media/AudioUniqueIdUse.h>
 #include <android/media/EffectDescriptor.h>
 #include <android/media/MicrophoneInfoFw.h>
 #include <android/media/TrackSecondaryOutputInfo.h>
 
 #include <android/media/SharedFileRegion.h>
+#include <audio_utils/TimerQueue.h>
 #include <binder/IMemory.h>
 #include <media/AidlConversionCppNdk.h>
 #include <media/AidlConversionUtil.h>
@@ -183,5 +185,11 @@ aidl2legacy_MicrophoneInfoFw_audio_microphone_characteristic_t(
 ConversionResult<media::MicrophoneInfoFw>
 legacy2aidl_audio_microphone_characteristic_t_MicrophoneInfoFw(
         const audio_microphone_characteristic_t& legacy);
+
+ConversionResult<audio_utils::TimerQueue::handle_t>
+aidl2legacy_TimerQueueHandle_timer_queue_handle_t(media::TimerQueueHandle aidl);
+
+ConversionResult<media::TimerQueueHandle>
+legacy2aidl_timer_queue_handle_t_TimerQueueHandle(audio_utils::TimerQueue::handle_t legacy);
 
 }  // namespace android

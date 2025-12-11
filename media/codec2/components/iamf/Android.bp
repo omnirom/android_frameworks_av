@@ -4,10 +4,22 @@ package {
 
 cc_library {
     name: "libcodec2_soft_iamfdec",
-
-    srcs: [],
-
+    defaults: [
+        "libcodec2_soft-defaults",
+        "libcodec2_soft_sanitize_all-defaults",
+    ],
+    srcs: [
+        "C2SoftIamfDec.cpp",
+        "LayoutTranslation.cpp",
+    ],
+    static_libs: [
+        "android.media.swcodec.flags-aconfig-cc",
+        "iamf_tools",
+    ],
     shared_libs: [
-        // iamf_tools library will need to go here.
+        "libFLAC",
+        "libFraunhoferAAC",
+        "liblog",
+        "libopus",
     ],
 }

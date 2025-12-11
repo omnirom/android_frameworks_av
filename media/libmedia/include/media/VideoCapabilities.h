@@ -389,6 +389,16 @@ struct VideoCapabilities {
      */
     Range<Rational> getAspectRatioRange(bool blocks) const;
 
+    /**
+     * Query if the given video size and frame rate combination is supported.
+     *
+     * with, height and framerate are optional.
+     *
+     * Not a public API to developers.
+     */
+    bool supports(std::optional<int32_t> width, std::optional<int32_t> height,
+            std::optional<double> rate) const;
+
 private:
     std::string mMediaType;
     std::vector<ProfileLevel> mProfileLevels;
@@ -418,8 +428,7 @@ private:
     int32_t getBlockCount(int32_t width, int32_t height) const;
     std::optional<VideoSize> findClosestSize(int32_t width, int32_t height) const;
     std::optional<Range<double>> estimateFrameRatesFor(int32_t width, int32_t height) const;
-    bool supports(std::optional<int32_t> width, std::optional<int32_t> height,
-                std::optional<double> rate) const;
+
     /* no public constructor */
     VideoCapabilities() {}
     void init(std::string mediaType, std::vector<ProfileLevel> profLevs,

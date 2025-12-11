@@ -17,6 +17,8 @@
 package com.android.media.benchmark.library;
 import android.media.MediaCodec;
 
+import androidx.annotation.NonNull;
+
 import java.util.ArrayDeque;
 import java.nio.ByteBuffer;
 /**
@@ -35,20 +37,23 @@ public class IBufferXfer {
       public long presentationTimeUs;
   }
 
-  public interface IReceiveBuffer {
-      // Implemented by sender to get buffers back
-      boolean receiveBuffer(BufferXferInfo info);
-      // Establishes a connection between the buffer sender and receiver.
-      // Implemented by the entity that sends the buffers to receiver.
-      // the receiverInterface is the interface of the receiver.
-      // The sender uses this interface to send buffers.
-      boolean connect(IBufferXfer.ISendBuffer receiverInterface);
-  }
-  // Implemented by an entity that does not own the buffers and only
-  // wants to manage the buffers. ( Usually the receiver)
-  // The receiver uses returnIface to return the buffers to sender
-  public interface ISendBuffer {
-      boolean sendBuffer(IBufferXfer.IReceiveBuffer returnIface,
-                              BufferXferInfo info);
-  }
+    public interface IProducerData {
+          ByteBuffer getBuffer();
+          ArrayDeque<MediaCodec.BufferInfo> getInfo();
+    }
+    public interface IProducer {
+        // sets the consumer for sending buffers using 'consume'
+        boolean setConsumer(@NonNull IConsumer consumer);
+        // to enable consumers to send set of buffers back after consumption
+        boolean returnBuffers(@NonNull ArrayDeque<IProducerData> buffers);
+    }
+
+    public interface IConsumer {
+        // To let consumer know that if will receive buffers from here
+        // also to return buffers using 'returnBuffers'
+        boolean setProducer(@NonNull IProducer producer);
+
+        // Called by producer to send buffers to consumer.
+        boolean consume(final ArrayDeque<IProducerData> buffers);
+    }
 }

@@ -2088,11 +2088,14 @@ status_t CCodecBufferChannel::start(
         }
 
         if (oStreamFormat.value == C2BufferData::LINEAR) {
-            if (buffersBoundToCodec) {
-                // WORKAROUND: if we're using early CSD workaround we convert to
-                //             array mode, to appease apps assuming the output
-                //             buffers to be of the same size.
-                output->buffers = output->buffers->toArrayMode(numOutputSlots);
+            if (android::media::codec::provider_->remove_arraymode_for_linear_output_buffers() ==
+                    false) {
+                if (buffersBoundToCodec) {
+                    // WORKAROUND: if we're using early CSD workaround we convert to
+                    //             array mode, to appease apps assuming the output
+                    //             buffers to be of the same size.
+                    output->buffers = output->buffers->toArrayMode(numOutputSlots);
+                }
             }
 
             int32_t channelCount;

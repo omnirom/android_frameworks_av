@@ -151,34 +151,11 @@ aaudio_result_t AAudioServiceStreamMMAP::exitStandby_l(AudioEndpointParcelable* 
 aaudio_result_t AAudioServiceStreamMMAP::startClient(const android::AudioClient& client,
                                                      const audio_attributes_t *attr,
                                                      audio_port_handle_t *portHandlePtr) {
-    if (com::android::media::aaudio::start_stop_client_from_command_thread()) {
-        return sendStartClientCommand(client, attr, portHandlePtr);
-    } else {
-        sp<AAudioServiceEndpoint> endpoint = mServiceEndpointWeak.promote();
-        if (endpoint == nullptr) {
-            ALOGE("%s() has no endpoint", __func__);
-            return AAUDIO_ERROR_INVALID_STATE;
-        }
-        // Start the client on behalf of the application. Generate a new porthandle.
-        aaudio_result_t result = endpoint->startClient(client, attr, portHandlePtr);
-        ALOGD("%s() flag off, got port %d", __func__,
-              ((portHandlePtr == nullptr) ? -1 : *portHandlePtr));
-        return result;
-    }
+    return sendStartClientCommand(client, attr, portHandlePtr);
 }
 
 aaudio_result_t AAudioServiceStreamMMAP::stopClient(audio_port_handle_t clientHandle) {
-    if (com::android::media::aaudio::start_stop_client_from_command_thread()) {
-        return sendStopClientCommand(clientHandle);
-    } else {
-        sp<AAudioServiceEndpoint> endpoint = mServiceEndpointWeak.promote();
-        if (endpoint == nullptr) {
-            ALOGE("%s() has no endpoint", __func__);
-            return AAUDIO_ERROR_INVALID_STATE;
-        }
-        aaudio_result_t result = endpoint->stopClient(clientHandle);
-        return result;
-    }
+    return sendStopClientCommand(clientHandle);
 }
 
 aaudio_result_t AAudioServiceStreamMMAP::startClient_l(const android::AudioClient& client,
@@ -240,14 +217,14 @@ aaudio_result_t AAudioServiceStreamMMAP::getHardwareTimestamp_l(int64_t *positio
             static_cast<AAudioServiceEndpointMMAP *>(endpoint.get());
 
     uint64_t position;
-    aaudio_result_t result = serviceEndpointMMAP->getExternalPosition(&position, timeNanos);
+    aaudio_result_t result = serviceEndpointMMAP->getObservablePosition(&position, timeNanos);
     if (result == AAUDIO_OK) {
-        ALOGV("%s() getExternalPosition() says pos = %" PRIi64 ", time = %" PRIi64,
+        ALOGV("%s() getObservablePosition() says pos = %" PRIi64 ", time = %" PRIi64,
                 __func__, position, *timeNanos);
         *positionFrames = (int64_t) position;
         return AAUDIO_OK;
     } else {
-        ALOGV("%s() getExternalPosition() returns error %d", __func__, result);
+        ALOGV("%s() getObservablePosition() returns error %d", __func__, result);
     }
 
     if (mAtomicStreamTimestamp.isValid()) {
@@ -275,6 +252,10 @@ aaudio_result_t AAudioServiceStreamMMAP::getAudioDataDescription_l(
 }
 
 int64_t AAudioServiceStreamMMAP::nextDataReportTime_l() {
+    // check if audio data needs to be reported for sound dose.
+    ALOGV("%s() mSoundDoseActive: %s", __func__, (mSoundDoseActive ? "true" : "false"));
+    if (!mSoundDoseActive) return std::numeric_limits<int64_t>::max();
+
     sp<AAudioServiceEndpoint> endpoint = mServiceEndpointWeak.promote();
     if (endpoint == nullptr) {
         ALOGE("%s() has no endpoint", __func__);
@@ -286,6 +267,9 @@ int64_t AAudioServiceStreamMMAP::nextDataReportTime_l() {
 }
 
 void AAudioServiceStreamMMAP::reportData_l() {
+    ALOGV("%s() mSoundDoseActive: %s", __func__, (mSoundDoseActive ? "true" : "false"));
+    if (!mSoundDoseActive) return;  // prevent reporting if called in from drain.
+
     sp<AAudioServiceEndpoint> endpoint = mServiceEndpointWeak.promote();
     if (endpoint == nullptr) {
         ALOGE("%s() has no endpoint", __func__);

@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include <initializer_list>
+#include <memory>
 #include <string>
+#include <utility>
 
 namespace android::media::psh_utils {
 

@@ -77,6 +77,7 @@ cc_library {
         "ComponentStore.cpp",
         "Configurable.cpp",
         "InputBufferManager.cpp",
+        "InputSink.cpp",
         "ParamTypes.cpp",
     ],
 
@@ -135,6 +136,10 @@ cc_library {
         "libstagefright_bufferpool@2.0.1",
         "libui",
     ],
+
+    cflags: [
+        "-DNO_C2_INPUT_SURFACE",
+    ],
 }
 
 // DO NOT DEPEND ON THIS DIRECTLY
@@ -160,8 +165,10 @@ cc_library {
         "ComponentStore.cpp",
         "Configurable.cpp",
         "InputBufferManager.cpp",
+        "InputSink.cpp",
         "ParamTypes.cpp",
         "inputsurface/FrameDropper.cpp",
+        "inputsurface/FrameQueueThread.cpp",
         "inputsurface/InputSurface.cpp",
         "inputsurface/InputSurfaceConnection.cpp",
         "inputsurface/InputSurfaceSource.cpp",
@@ -186,6 +193,7 @@ cc_library {
         "liblog",
         "libnativewindow",
         "libmediandk",
+        "libsfplugin_ccodec_utils",
         "libstagefright_aidl_bufferpool2",
         "libstagefright_bufferpool@2.0.1",
         "libstagefright_foundation",

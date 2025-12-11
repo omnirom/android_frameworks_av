@@ -19,7 +19,6 @@
 
 #include "Configuration.h"
 #include <time.h>
-#include <cutils/atomic.h>
 #include <utils/Log.h>
 #include "StateQueue.h"
 
@@ -42,7 +41,7 @@ void StateQueueMutatorDump::dump(int fd)
 
 template<typename T> const T* StateQueue<T>::poll()
 {
-    const T *next = (const T *) atomic_load_explicit(&mNext, memory_order_acquire);
+    const T *next = (const T *) mNext.load(std::memory_order_acquire);
 
     if (next != mCurrent) {
         mAck = next;    // no additional barrier needed
@@ -125,7 +124,7 @@ template<typename T> bool StateQueue<T>::push(StateQueue<T>::block_t block)
         }
 
         // publish
-        atomic_store_explicit(&mNext, (uintptr_t)mMutating, memory_order_release);
+        mNext.store((uintptr_t)mMutating, std::memory_order_release);
         mExpecting = mMutating;
 
         // copy with circular wraparound

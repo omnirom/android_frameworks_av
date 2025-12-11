@@ -156,8 +156,10 @@ void C2SoftAmrNbEnc::onRelease() {
 }
 
 c2_status_t C2SoftAmrNbEnc::onStop() {
-    if (AMREncodeReset(mEncState, mSidState) != 0)
-        return C2_CORRUPTED;
+    if (mEncState) {
+        if (AMREncodeReset(mEncState, mSidState) != 0)
+            return C2_CORRUPTED;
+    }
     mIsFirst = true;
     mSignalledError = false;
     mSignalledOutputEos = false;

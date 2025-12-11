@@ -41,15 +41,20 @@ public:
 
 
     aaudio_result_t open(const AudioStreamBuilder & builder) override;
-    aaudio_result_t release_l() override;
-    void close_l() override;
+    aaudio_result_t release_l() REQUIRES(mStreamMutex) override;
+    void close_l() REQUIRES(mStreamMutex) override;
 
 protected:
-    aaudio_result_t requestStart_l() REQUIRES(mStreamLock)  override;
-    aaudio_result_t requestPause_l() REQUIRES(mStreamLock) override;
-    aaudio_result_t requestFlush_l() REQUIRES(mStreamLock) override;
-    aaudio_result_t requestStop_l() REQUIRES(mStreamLock) override;
-    aaudio_result_t systemStopInternal_l() REQUIRES(mStreamLock) final;
+    aaudio_result_t requestStart_l() REQUIRES(mStreamMutex)  override;
+    aaudio_result_t requestPause_l() REQUIRES(mStreamMutex) override;
+    aaudio_result_t requestFlush_l() REQUIRES(mStreamMutex) override;
+    aaudio_result_t requestStop_l() REQUIRES(mStreamMutex) override;
+    aaudio_result_t systemStopInternal_l() REQUIRES(mStreamMutex) final;
+
+    aaudio_result_t setPlaybackParameters_l(
+            const AAudioPlaybackParameters* parameters) final REQUIRES(mStreamMutex);
+    aaudio_result_t getPlaybackParameters_l(
+            struct AAudioPlaybackParameters* parameters) final REQUIRES(mStreamMutex);
 
     bool collidesWithCallback() const final;
 
@@ -72,7 +77,7 @@ public:
 
     aaudio_result_t write(const void *buffer,
                              int32_t numFrames,
-                             int64_t timeoutNanoseconds) override;
+                             int64_t timeoutNanoseconds) EXCLUDES(mStreamMutex) override;
 
     aaudio_result_t setBufferSize(int32_t requestedFrames) override;
     int32_t getBufferSize() const override;
@@ -101,7 +106,7 @@ public:
 
     int32_t getOffloadPadding() final;
 
-    aaudio_result_t setOffloadEndOfStream() EXCLUDES(mStreamLock) final;
+    aaudio_result_t setOffloadEndOfStream() EXCLUDES(mStreamMutex) final;
 
     void setPresentationEndCallbackProc(AAudioStream_presentationEndCallback proc) final {
         mPresentationEndCallbackProc = proc;
@@ -113,7 +118,7 @@ public:
 
     void maybeCallPresentationEndCallback();
 
-    bool shouldStopStream() const final { return !mOffloadEosPending; }
+    bool shouldStopStream() final EXCLUDES(mStreamMutex);
     // Offload end ----------------------------------------
 
 #if AAUDIO_USE_VOLUME_SHAPER
@@ -141,7 +146,7 @@ private:
     // Offload --------------------------------------------
     std::atomic<int32_t>        mOffloadDelayFrames = 0;
     std::atomic<int32_t>        mOffloadPaddingFrames = 0;
-    bool                        mOffloadEosPending GUARDED_BY(mStreamLock) = false;
+    bool                        mOffloadEosPending GUARDED_BY(mStreamMutex) = false;
 
     AAudioStream_presentationEndCallback mPresentationEndCallbackProc = nullptr;
     void                                *mPresentationEndCallbackUserData = nullptr;

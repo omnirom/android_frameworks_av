@@ -23,7 +23,7 @@
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
 #include <private/android_filesystem_config.h>
-#include <processinfo/IProcessInfoService.h>
+#include <processinfo/ProcessInfoService.h>
 
 namespace android {
 
@@ -52,17 +52,12 @@ ProcessInfo::ProcessInfo() {}
  */
 bool ProcessInfo::checkProcessExistent(const std::vector<int32_t>& pids,
                                        std::vector<bool>* existent) {
-    sp<IBinder> binder = defaultServiceManager()->waitForService(String16("processinfo"));
-    sp<IProcessInfoService> service = interface_cast<IProcessInfoService>(binder);
-
-    // Get the process state of the applications managed/tracked by the ActivityManagerService.
-    // Don't have to look into the native processes.
-    // If we really need the state of native process, then we can use ==> mOverrideMap
     size_t count = pids.size();
     std::vector<int32_t> states(count, PROCESS_STATE_NONEXISTENT);
-    status_t err = service->getProcessStatesFromPids(count,
-                                                     const_cast<int32_t*>(pids.data()),
-                                                     states.data());
+    status_t err = ProcessInfoService::getProcessStatesFromPids(
+            count,
+            const_cast<int32_t*>(pids.data()),
+            states.data());
     if (err != OK) {
         ALOGE("%s: IProcessInfoService::getProcessStatesFromPids failed with %d",
               __func__, err);
@@ -87,13 +82,10 @@ bool ProcessInfo::checkProcessExistent(const std::vector<int32_t>& pids,
 }
 
 bool ProcessInfo::getPriority(int pid, int* priority) {
-    sp<IBinder> binder = defaultServiceManager()->waitForService(String16("processinfo"));
-    sp<IProcessInfoService> service = interface_cast<IProcessInfoService>(binder);
-
     size_t length = 1;
     int32_t state;
     int32_t score = INVALID_ADJ;
-    status_t err = service->getProcessStatesAndOomScoresFromPids(length, &pid, &state, &score);
+    status_t err = ProcessInfoService::getProcessStatesScoresFromPids(length, &pid, &state, &score);
     ALOGV("%s: pid:%d state:%d score:%d err:%d", __FUNCTION__, pid, state, score, err);
     if (err != OK) {
         ALOGE("getProcessStatesAndOomScoresFromPids failed");

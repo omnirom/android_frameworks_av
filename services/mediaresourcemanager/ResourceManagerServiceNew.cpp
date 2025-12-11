@@ -26,6 +26,7 @@
 #include "DefaultResourceModel.h"
 #include "ClientImportanceReclaimPolicy.h"
 #include "ProcessPriorityReclaimPolicy.h"
+#include "ResourceManagerMetrics.h"
 #include "ResourceManagerServiceNew.h"
 #include "ResourceTracker.h"
 #include "ServiceLog.h"
@@ -132,7 +133,7 @@ Status ResourceManagerServiceNew::removeResource(const ClientInfoParcel& clientI
 
     std::scoped_lock lock{mLock};
     if (mResourceTracker->removeResource(clientInfo, checkValid)) {
-        notifyClientReleased(clientInfo);
+        mResourceManagerMetrics->notifyClientReleased(clientInfo, checkValid);
     }
     return Status::ok();
 }
@@ -204,15 +205,18 @@ Status ResourceManagerServiceNew::reclaimResourcesFromClientsPendingRemoval(int3
 }
 
 Status ResourceManagerServiceNew::notifyClientCreated(const ClientInfoParcel& clientInfo) {
-    return ResourceManagerService::notifyClientCreated(clientInfo);
+    mResourceManagerMetrics->notifyClientCreated(clientInfo);
+    return Status::ok();
 }
 
 Status ResourceManagerServiceNew::notifyClientStarted(const ClientConfigParcel& clientConfig) {
-    return ResourceManagerService::notifyClientStarted(clientConfig);
+    mResourceManagerMetrics->notifyClientStarted(clientConfig);
+    return Status::ok();
 }
 
 Status ResourceManagerServiceNew::notifyClientStopped(const ClientConfigParcel& clientConfig) {
-    return ResourceManagerService::notifyClientStopped(clientConfig);
+    mResourceManagerMetrics->notifyClientStopped(clientConfig);
+    return Status::ok();
 }
 
 Status ResourceManagerServiceNew::notifyClientConfigChanged(
@@ -222,7 +226,8 @@ Status ResourceManagerServiceNew::notifyClientConfigChanged(
         std::scoped_lock lock{mLock};
         mResourceTracker->updateClientImportance(clientConfig.clientInfo);
     }
-    return ResourceManagerService::notifyClientConfigChanged(clientConfig);
+    mResourceManagerMetrics->notifyClientConfigChanged(clientConfig);
+    return Status::ok();
 }
 
 Status ResourceManagerServiceNew::getMediaResourceUsageReport(

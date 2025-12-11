@@ -19,17 +19,23 @@
 #include <android-base/logging.h>
 #include <android/binder_manager.h>
 #include <mediautils/ServiceSingleton.h>
+#include <psh_utils/AudioPowerManager.h>
 
 using ::aidl::android::hardware::health::HealthInfo;
 using ::aidl::android::hardware::health::IHealth;
 
 namespace android::media::psh_utils {
 
-static auto getHealthService() {
+static std::shared_ptr<IHealth> getHealthService() {
+    if (!AudioPowerManager::enabled()) {
+        LOG(ERROR) << __func__ << ": should not be called if not enabled";
+        return {};
+    }
     return mediautils::getService<IHealth>();
 }
 
 status_t HealthStatsDataProvider::fill(PowerStats* stat) const {
+    if (!AudioPowerManager::enabled()) return NO_INIT;
     if (stat == nullptr) return BAD_VALUE;
     HealthStats& stats = stat->health_stats;
     auto healthService = getHealthService();

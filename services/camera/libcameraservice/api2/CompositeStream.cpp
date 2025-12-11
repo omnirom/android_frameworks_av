@@ -224,5 +224,27 @@ void CompositeStream::switchToOffline() {
     mDevice.clear();
 }
 
+status_t CompositeStream::setSWUsage(int streamId, ANativeWindow * anw) {
+    if (anw == nullptr) {
+        return BAD_VALUE;
+    }
+
+    status_t res;
+    uint64_t usage;
+    if ((res = native_window_get_consumer_usage(static_cast<ANativeWindow*>(anw),
+                    &usage)) != OK ) {
+        ALOGE("%s: Unable to query stream buffer usage for stream %d", __FUNCTION__, streamId);
+        return res;
+    }
+
+    usage |= GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN;
+    if ((res = native_window_set_usage(anw, usage)) != OK) {
+        ALOGE("%s: Unable to configure stream buffer usage for stream %d", __FUNCTION__, streamId);
+        return res;
+    }
+
+    return OK;
+}
+
 }; // namespace camera3
 }; // namespace android

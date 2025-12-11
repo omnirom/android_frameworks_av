@@ -53,8 +53,6 @@ void EglSurfaceTexture::FrameAvailableListenerProxy::setCallback(
 
 void EglSurfaceTexture::FrameAvailableListenerProxy::onFrameAvailable(
     const BufferItem&) {
-  long frameNumber = mSurface.mGlConsumer->getFrameNumber();
-  ALOGV("%s: onFrameAvailable frameNumber %ld", __func__, frameNumber);
   mSurface.mFrameAvailableCondition.notify_all();
   if (mOnFrameAvailableCallback) {
     mOnFrameAvailableCallback();

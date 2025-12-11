@@ -20,6 +20,7 @@
 #include <android-base/logging.h>
 #include <android/binder_process.h>
 #include <codec2/common/HalSelection.h>
+#include <cutils/properties.h>
 #include <gtest/gtest.h>
 #include <hidl/GtestPrinter.h>
 #include <stdio.h>
@@ -296,6 +297,11 @@ void Codec2VideoEncHidlTestBase::getFile() {
     mInputFile = sResourceDir + "bbb_352x288_420p_30fps_32frames.yuv";
 }
 
+int32_t getVendorAPILevel() {
+    static int32_t vendorAPILevel = property_get_int32("ro.vendor.api_level", 0);
+    return vendorAPILevel;
+}
+
 void fillByteBuffer(char* inputBuffer, char* mInputData, uint32_t nWidth, int32_t nHeight) {
     int width, height, tileWidth, tileHeight;
     int offset = 0, frmOffset = 0;
@@ -327,6 +333,37 @@ void fillByteBuffer(char* inputBuffer, char* mInputData, uint32_t nWidth, int32_
     }
 }
 
+void fillGraphicView(C2GraphicView& dstView, const std::vector<uint8_t>& src) {
+    const int width = dstView.width();
+    const int height = dstView.height();
+    const size_t planeSize[] = {
+            static_cast<size_t>(width * height),
+            static_cast<size_t>(((width + 1) / 2) * ((height + 1) / 2)),
+            static_cast<size_t>(((width + 1) / 2) * ((height + 1) / 2)),
+    };
+    ASSERT_EQ(src.size(), planeSize[0] + planeSize[1] + planeSize[2]);
+    const uint32_t rootPlanes = dstView.layout().rootPlanes;
+
+    // Note: This way of filling the plane is not accurate. We should convert the source I420 buffer
+    // to the format of the destination buffer and also fill each pixel row by the plane stride.
+    if (rootPlanes == 3) {
+        uint8_t* dstY = dstView.data()[C2PlanarLayout::PLANE_Y];
+        uint8_t* dstU = dstView.data()[C2PlanarLayout::PLANE_U];
+        uint8_t* dstV = dstView.data()[C2PlanarLayout::PLANE_V];
+        memcpy(dstY, src.data(), planeSize[0]);
+        memcpy(dstU, src.data() + planeSize[0], planeSize[1]);
+        memcpy(dstV, src.data() + planeSize[0] + planeSize[1], planeSize[2]);
+    } else if (rootPlanes == 2) {
+        uint8_t* dstY = dstView.data()[C2PlanarLayout::PLANE_Y];
+        uint8_t* dstUV = dstView.data()[C2PlanarLayout::PLANE_U];
+        memcpy(dstY, src.data(), planeSize[0]);
+        memcpy(dstUV, src.data() + planeSize[0], planeSize[1] + planeSize[2]);
+    } else if (rootPlanes == 1) {
+        uint8_t* dst = dstView.data()[C2PlanarLayout::PLANE_Y];
+        memcpy(dst, src.data(), planeSize[0] + planeSize[1] + planeSize[2]);
+    }
+}
+
 void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& component,
                    std::mutex& queueLock, std::condition_variable& queueCondition,
                    std::list<std::unique_ptr<C2Work>>& workQueue,
@@ -336,7 +373,7 @@ void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& comp
     typedef std::unique_lock<std::mutex> ULock;
 
     uint32_t maxRetry = 0;
-    int bytesCount = nWidth * nHeight * 3 >> 1;
+    int bytesCount = nWidth * nHeight + ((nWidth + 1) / 2) * ((nHeight + 1) / 2) * 2;
     int32_t timestampIncr = ENCODER_TIMESTAMP_INCREMENT;
     c2_status_t err = C2_OK;
 
@@ -394,9 +431,12 @@ void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& comp
             }
         }
         std::shared_ptr<C2GraphicBlock> block;
-        err = graphicPool->fetchGraphicBlock(nWidth, nHeight, HAL_PIXEL_FORMAT_YV12,
+        const uint32_t sourcePixelFormat = getVendorAPILevel() >= 202502
+                                                   ? HAL_PIXEL_FORMAT_YCBCR_420_888
+                                                   : HAL_PIXEL_FORMAT_YV12;
+        err = graphicPool->fetchGraphicBlock(nWidth, nHeight, sourcePixelFormat,
                                              {C2MemoryUsage::CPU_READ | compUsage.value,
-                                                 C2MemoryUsage::CPU_WRITE | compUsage.value},
+                                              C2MemoryUsage::CPU_WRITE | compUsage.value},
                                              &block);
         if (err != C2_OK) {
             fprintf(stderr, "fetchGraphicBlock failed : %d\n", err);
@@ -413,13 +453,7 @@ void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& comp
             break;
         }
 
-        uint8_t* pY = view.data()[C2PlanarLayout::PLANE_Y];
-        uint8_t* pU = view.data()[C2PlanarLayout::PLANE_U];
-        uint8_t* pV = view.data()[C2PlanarLayout::PLANE_V];
-
-        memcpy(pY, data, nWidth * nHeight);
-        memcpy(pU, data + nWidth * nHeight, (nWidth * nHeight >> 2));
-        memcpy(pV, data + (nWidth * nHeight * 5 >> 2), nWidth * nHeight >> 2);
+        fillGraphicView(view, buffer);
 
         work->input.buffers.clear();
         work->input.buffers.emplace_back(new GraphicBuffer(block));

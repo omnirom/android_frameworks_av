@@ -35,8 +35,6 @@ namespace {
 
 using android::content::AttributionSourceState;
 
-static const std::string kPermissionServiceName = "permission";
-
 static std::string getAttributionString(const AttributionSourceState& attributionSource) {
     std::ostringstream ret;
     const AttributionSourceState* current = &attributionSource;
@@ -141,12 +139,7 @@ PermissionChecker::PermissionResult AttributionAndPermissionUtils::checkPermissi
         const AttributionSourceState& attributionSource, const std::string& message,
         int32_t attributedOpCode, bool forDataDelivery, bool startDataDelivery,
         bool checkAutomotive) {
-    AttributionSourceState clientAttribution = attributionSource;
-    if (!flags::data_delivery_permission_checks() && !clientAttribution.next.empty()) {
-        clientAttribution.next.clear();
-    }
-
-    if (checkAutomotive && checkAutomotivePrivilegedClient(cameraId, clientAttribution)) {
+    if (checkAutomotive && checkAutomotivePrivilegedClient(cameraId, attributionSource)) {
         return PermissionChecker::PERMISSION_GRANTED;
     }
 
@@ -154,29 +147,29 @@ PermissionChecker::PermissionResult AttributionAndPermissionUtils::checkPermissi
     if (forDataDelivery) {
         if (startDataDelivery) {
             result = mPermissionChecker->checkPermissionForStartDataDeliveryFromDatasource(
-                    toString16(permission), clientAttribution, toString16(message),
+                    toString16(permission), attributionSource, toString16(message),
                     attributedOpCode);
         } else {
             result = mPermissionChecker->checkPermissionForDataDeliveryFromDatasource(
-                    toString16(permission), clientAttribution, toString16(message),
+                    toString16(permission), attributionSource, toString16(message),
                     attributedOpCode);
         }
     } else {
         result = mPermissionChecker->checkPermissionForPreflight(
-                toString16(permission), clientAttribution, toString16(message), attributedOpCode);
+                toString16(permission), attributionSource, toString16(message), attributedOpCode);
     }
 
     if (result == PermissionChecker::PERMISSION_HARD_DENIED) {
-        ALOGI("%s (forDataDelivery %d startDataDelivery %d): Permission hard denied "
+        ALOGV("%s (forDataDelivery %d startDataDelivery %d): %s permission hard denied "
               "for client attribution %s",
-              __FUNCTION__, forDataDelivery, startDataDelivery,
-              getAttributionString(clientAttribution).c_str());
+              __FUNCTION__, forDataDelivery, startDataDelivery, permission.c_str(),
+              getAttributionString(attributionSource).c_str());
     } else if (result == PermissionChecker::PERMISSION_SOFT_DENIED) {
-        ALOGI("%s checkPermission (forDataDelivery %d startDataDelivery %d): Permission soft "
+        ALOGV("%s checkPermission (forDataDelivery %d startDataDelivery %d): %s permission soft "
               "denied "
               "for client attribution %s",
-              __FUNCTION__, forDataDelivery, startDataDelivery,
-              getAttributionString(clientAttribution).c_str());
+              __FUNCTION__, forDataDelivery, startDataDelivery, permission.c_str(),
+              getAttributionString(attributionSource).c_str());
     }
     return result;
 }
@@ -415,10 +408,7 @@ bool AttributionAndPermissionUtils::resolveClientUid(/*inout*/ int& clientUid) {
     if (clientUid == hardware::ICameraService::USE_CALLING_UID) {
         clientUid = callingUid;
     } else {
-        validUid = isTrustedCallingUid(callingUid);
-        if (flags::data_delivery_permission_checks()) {
-            validUid = validUid || (clientUid == callingUid);
-        }
+        validUid = isTrustedCallingUid(callingUid) || (clientUid == callingUid);
     }
 
     return validUid;
@@ -433,10 +423,7 @@ bool AttributionAndPermissionUtils::resolveClientPid(/*inout*/ int& clientPid) {
     if (clientPid == hardware::ICameraService::USE_CALLING_PID) {
         clientPid = callingPid;
     } else {
-        validPid = isTrustedCallingUid(callingUid);
-        if (flags::data_delivery_permission_checks()) {
-            validPid = validPid || (clientPid == callingPid);
-        }
+        validPid = isTrustedCallingUid(callingUid) || (clientPid == callingPid);
     }
 
     return validPid;

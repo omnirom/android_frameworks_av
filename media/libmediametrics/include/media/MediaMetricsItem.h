@@ -203,7 +203,7 @@ static inline size_t commonTimePrefixPosition(const char *time1, const char *tim
         }
     }
 
-    // Go backwards until we find a delimeter or space.
+    // Go backwards until we find a delimiter or space.
     for (; i > 0
            && isdigit(time1[i]) // still a number
            && time1[i - 1] != ' '

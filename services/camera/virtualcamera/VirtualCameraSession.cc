@@ -18,6 +18,8 @@
 #define LOG_TAG "VirtualCameraSession"
 #include "VirtualCameraSession.h"
 
+#include <android_companion_virtualdevice_flags.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -37,10 +39,13 @@
 
 #include "CameraMetadata.h"
 #include "EGL/egl.h"
+#include "VirtualCameraCaptureResultConsumer.h"
 #include "VirtualCameraDevice.h"
 #include "VirtualCameraRenderThread.h"
 #include "VirtualCameraStream.h"
+#include "aidl/android/companion/virtualcamera/ICaptureResultConsumer.h"
 #include "aidl/android/companion/virtualcamera/SupportedStreamConfiguration.h"
+#include "aidl/android/companion/virtualcamera/VirtualCameraMetadata.h"
 #include "aidl/android/hardware/camera/common/Status.h"
 #include "aidl/android/hardware/camera/device/BufferCache.h"
 #include "aidl/android/hardware/camera/device/BufferStatus.h"
@@ -61,6 +66,7 @@
 #include "fmq/AidlMessageQueue.h"
 #include "system/camera_metadata.h"
 #include "ui/GraphicBuffer.h"
+#include "util/AidlUtil.h"
 #include "util/EglDisplayContext.h"
 #include "util/EglFramebuffer.h"
 #include "util/EglProgram.h"
@@ -72,8 +78,10 @@ namespace android {
 namespace companion {
 namespace virtualcamera {
 
+using ::aidl::android::companion::virtualcamera::ICaptureResultConsumer;
 using ::aidl::android::companion::virtualcamera::IVirtualCameraCallback;
 using ::aidl::android::companion::virtualcamera::SupportedStreamConfiguration;
+using ::aidl::android::companion::virtualcamera::VirtualCameraMetadata;
 using ::aidl::android::hardware::camera::common::Status;
 using ::aidl::android::hardware::camera::device::BufferCache;
 using ::aidl::android::hardware::camera::device::CameraMetadata;
@@ -95,6 +103,8 @@ using ::android::base::unique_fd;
 namespace {
 
 using namespace std::chrono_literals;
+
+namespace flags = ::android::companion::virtualdevice::flags;
 
 // Size of request/result metadata fast message queue.
 // Setting to 0 to always disables FMQ.
@@ -188,7 +198,8 @@ HalStream getHalStream(const Stream& stream) {
   halStream.producerUsage = static_cast<BufferUsage>(
       static_cast<int64_t>(stream.usage) |
       static_cast<int64_t>(BufferUsage::CAMERA_OUTPUT) |
-      static_cast<int64_t>(BufferUsage::GPU_RENDER_TARGET));
+      static_cast<int64_t>(BufferUsage::GPU_RENDER_TARGET) |
+      static_cast<int64_t>(BufferUsage::CPU_WRITE_OFTEN));
 
   halStream.supportOffline = false;
   return halStream;
@@ -308,6 +319,15 @@ VirtualCameraSession::VirtualCameraSession(
   if (!mResultMetadataQueue->isValid()) {
     ALOGE("%s: invalid result fmq", __func__);
   }
+
+ std::shared_ptr<VirtualCameraDevice> virtualCamera = mCameraDevice.lock();
+ if (flags::virtual_camera_metadata() && virtualCamera != nullptr &&
+    virtualCamera->isPerFrameCameraMetadataEnabled()) {
+   // create a capture result consumer shared reference and set it in the
+   // session context.
+   mSessionContext.setCaptureResultConsumer(
+       ndk::SharedRefBase::make<VirtualCameraCaptureResultConsumer>());
+  }
 }
 
 ndk::ScopedAStatus VirtualCameraSession::close() {
@@ -391,7 +411,7 @@ ndk::ScopedAStatus VirtualCameraSession::configureStreams(
       // configuration call. If the surface has the same resolution and pixel
       // format as the picked config, we don't need to do anything, the current
       // render thread is capable of serving new set of configuration. However
-      // if it differens, we need to discard the current surface and
+      // if it differs, we need to discard the current surface and
       // reinitialize the render thread.
 
       std::optional<Resolution> currentInputResolution =
@@ -428,6 +448,21 @@ ndk::ScopedAStatus VirtualCameraSession::configureStreams(
     inputSurface = mRenderThread->getInputSurface();
     inputStreamId = mCurrentInputStreamId =
         virtualCamera->allocateInputStreamId();
+  }
+
+  // The onConfigureSession is oneway async, just informs the VD owner of
+  // the session params
+  if (flags::virtual_camera_metadata() &&
+      mVirtualCameraClientCallback != nullptr) {
+    VirtualCameraMetadata sessionParamsMetadata;
+    status_t ret = convertDeviceToVirtualCameraMetadata(
+        in_requestedConfiguration.sessionParams, sessionParamsMetadata);
+    if (ret != OK) {
+      ALOGE("Failed to convert device to virtual session parameters!");
+    }
+
+    mVirtualCameraClientCallback->onConfigureSession(sessionParamsMetadata,
+                                                     mSessionContext.getCaptureResultConsumer());
   }
 
   if (mVirtualCameraClientCallback != nullptr && inputSurface != nullptr) {
@@ -584,7 +619,7 @@ ndk::ScopedAStatus VirtualCameraSession::processCaptureRequest(
   {
     std::lock_guard<std::mutex> lock(mLock);
 
-    // If metadata it empty, last received metadata applies, if  it's non-empty
+    // If metadata is empty, last received metadata applies, if it's non-empty
     // update it.
     if (!request.settings.metadata.empty()) {
       mCurrentRequestMetadata = request.settings;
@@ -636,13 +671,35 @@ ndk::ScopedAStatus VirtualCameraSession::processCaptureRequest(
   }
 
   if (mVirtualCameraClientCallback != nullptr) {
-    auto status = mVirtualCameraClientCallback->onProcessCaptureRequest(
-        currentInputStreamId, request.frameNumber);
+    std::shared_ptr<VirtualCameraDevice> virtualCamera = mCameraDevice.lock();
+    if (virtualCamera == nullptr) {
+      ALOGW("%s: process capture request on unregistered camera", __func__);
+      return cameraStatus(Status::CAMERA_DISCONNECTED);
+    }
+
+    std::optional<VirtualCameraMetadata> captureRequestSettings;
+    if (flags::virtual_camera_metadata() &&
+        virtualCamera->isPerFrameCameraMetadataEnabled()) {
+      VirtualCameraMetadata virtualCameraMetadata;
+      // Send the settings of the CaptureRequest as VirtualCameraMetadata
+      status_t ret = convertDeviceToVirtualCameraMetadata(
+          request.settings, virtualCameraMetadata);
+      if (ret != OK) {
+        ALOGE("Failed to convert device to virtual capture request settings!");
+      }
+      captureRequestSettings = virtualCameraMetadata;
+    }
+    ndk::ScopedAStatus status =
+        mVirtualCameraClientCallback->onProcessCaptureRequest(
+            currentInputStreamId, request.frameNumber, captureRequestSettings);
     if (!status.isOk()) {
       ALOGE(
           "Failed to invoke onProcessCaptureRequest client callback for frame "
-          "%d",
-          request.frameNumber);
+          "%d. Flag virtual_camera_metadata enabled: %s. "
+          "PerFrameCameraMetadataEnabled %s.",
+          request.frameNumber,
+          flags::virtual_camera_metadata() ? "true" : "false",
+          virtualCamera->isPerFrameCameraMetadataEnabled() ? "true" : "false");
     }
   }
 

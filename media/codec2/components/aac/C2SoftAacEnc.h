@@ -61,7 +61,12 @@ private:
     UINT mOutBufferSize;
 
     bool mSentCodecSpecificData;
-    std::optional<c2_cntr64_t> mNextFrameTimestampUs;
+    bool mIsFirstFrame;
+    // Start offset for current output timestamp
+    int64_t mAnchorTimeStampUs;
+    // Tracks the number of processed samples to calculate an accurate current output timestamp.
+    uint64_t mProcessedSamplesSinceAnchorReset;
+
     std::optional<c2_cntr64_t> mLastFrameEndTimestampUs;
 
     bool mSignalledError;

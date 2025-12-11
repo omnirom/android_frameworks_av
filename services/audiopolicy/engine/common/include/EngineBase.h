@@ -80,8 +80,11 @@ public:
                    mVolumeGroups.at(group)->getVolumeCurves() : nullptr;
     }
 
-    VolumeGroupVector getVolumeGroups() const override;
+    bool isValidVolumeGroup(volume_group_t group) const override;
 
+    VolumeGroupVector getVolumeGroups() const override;
+    audio_attributes_t getAttributesForVolumeGroup(
+            volume_group_t group, bool fallbackOnDefault = true) const override;
     volume_group_t getVolumeGroupForAttributes(
             const audio_attributes_t &attr, bool fallbackOnDefault = true) const override;
 
@@ -183,6 +186,8 @@ public:
 protected:
     DeviceVector getPreferredAvailableDevicesForProductStrategy(
         const DeviceVector& availableOutputDevices, product_strategy_t strategy) const;
+    DeviceVector getPreferredAvailableDevicesForInputSource(
+            const DeviceVector& availableInputDevices, audio_source_t inputSource) const;
     DeviceVector getDisabledDevicesForProductStrategy(
         const DeviceVector& availableOutputDevices, product_strategy_t strategy) const;
 
@@ -241,6 +246,16 @@ protected:
             const DeviceVector &availableInputDevices) const;
 
     DeviceStrategyMap mDevicesForStrategies;
+
+    void initializeLegacyStrategyMaps();
+    product_strategy_t getProductStrategyFromLegacy(legacy_strategy legacyStrategy) const;
+    legacy_strategy getLegacyStrategyFromProduct(product_strategy_t productStrategy) const;
+
+    // map between product strategy IDs and legacy strategy Ids
+    std::map<product_strategy_t, legacy_strategy> mLegacyStrategyMap;
+    // Ordered map (by legacy strategy priority) between legacy strategy IDs and Product strategies
+    std::map<legacy_strategy, sp<ProductStrategy>> mOrderedStrategyMap;
+
 };
 
 } // namespace audio_policy

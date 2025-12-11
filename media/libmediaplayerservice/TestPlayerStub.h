@@ -77,8 +77,7 @@ class TestPlayerStub : public MediaPlayerInterface {
 
 
     // All the methods below wrap the mPlayer instance.
-    virtual status_t setVideoSurfaceTexture(
-            const android::sp<android::IGraphicBufferProducer>& st)  {
+    virtual status_t setVideoSurfaceTexture(const android::sp<android::MediaSurfaceType>& st)  {
         return mPlayer->setVideoSurfaceTexture(st);
     }
     virtual status_t prepare() {return mPlayer->prepare();}

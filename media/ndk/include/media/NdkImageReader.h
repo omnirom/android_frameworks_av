@@ -50,6 +50,17 @@ __BEGIN_DECLS
 /**
  * AImage is an opaque type that allows direct application access to image data rendered into a
  * {@link ANativeWindow}.
+ *
+ * <p>
+ * Until API level 36 if format of the acquired image is different than format
+ * of AImageReader, the image is rejected(The error is returned instead).
+ * But this behavior no longer happens from API level 37.
+ * </p>
+ *
+ * <p>
+ * So from API level 37, AImageReader can return an image which has different
+ * format other than format of the AImageReader.
+ * </p>
  */
 typedef struct AImageReader AImageReader;
 
@@ -200,6 +211,13 @@ media_status_t AImageReader_getMaxImages(const AImageReader* reader, /*out*/int3
  * </p>
  *
  * <p>
+ * Note: Until API level 36, an AImage which has different format other than
+ * format of the AImageReader never returns, instead an error is returned.
+ * From API level 37, AImage which has different format than that of
+ * AImageReader can be returned without an error.
+ * </p>
+ *
+ * <p>
  * This method will fail if {@link AImageReader_getMaxImages maxImages} have been acquired with
  * {@link AImageReader_acquireNextImage} or {@link AImageReader_acquireLatestImage}. In particular
  * a sequence of {@link AImageReader_acquireNextImage} or {@link AImageReader_acquireLatestImage}
@@ -235,6 +253,12 @@ media_status_t AImageReader_acquireNextImage(AImageReader* reader, /*out*/AImage
  * {@link AImage_delete} all images that aren't the latest. This function is recommended to use over
  * {@link AImageReader_acquireNextImage} for most use-cases, as it's more suited for real-time
  * processing.
+ * </p>
+  * <p>
+ * Note: Until API level 36, an AImage which has different format other than
+ * format of the AImageReader never returns, instead an error is returned.
+ * From API level 37, AImage which has different format than that of
+ * AImageReader can be returned without an error.
  * </p>
  * <p>
  * Note that {@link AImageReader_getMaxImages maxImages} should be at least 2 for
@@ -430,6 +454,12 @@ media_status_t AImageReader_newWithDataSpace(int32_t width, int32_t height, uint
  * <p>AImageReader acquire method similar to {@link AImageReader_acquireNextImage} that takes an
  * additional parameter for the sync fence. All other parameters and the return values are
  * identical to those passed to {@link AImageReader_acquireNextImage}.</p>
+ * <p>
+ * Note: Until API level 36, an AImage which has different format other than
+ * format of the AImageReader never returns, instead an error is returned.
+ * From API level 37, AImage which has different format than that of
+ * AImageReader can be returned without an error.
+ * </p>
  *
  * Available since API level 26.
  *
@@ -452,6 +482,12 @@ media_status_t AImageReader_acquireNextImageAsync(
  * <p>AImageReader acquire method similar to {@link AImageReader_acquireLatestImage} that takes an
  * additional parameter for the sync fence. All other parameters and the return values are
  * identical to those passed to {@link AImageReader_acquireLatestImage}.</p>
+ * <p>
+ * Note: Until API level 36, an AImage which has different format other than
+ * format of the AImageReader never returns, instead an error is returned.
+ * From API level 37, AImage which has different format than that of
+ * AImageReader can be returned without an error.
+ * </p>
  *
  * Available since API level 26.
  *
@@ -528,6 +564,59 @@ typedef struct AImageReader_BufferRemovedListener {
  */
 media_status_t AImageReader_setBufferRemovedListener(
         AImageReader* reader, AImageReader_BufferRemovedListener* listener) __INTRODUCED_IN(26);
+
+/**
+ * Set the default buffer size of this image reader.
+ *
+ * <p>Note that calling this method will replace the previously set width and height.</p>
+ *
+ * Available since API level 37.
+ *
+ * @param reader the image reader of interest.
+ * @param width the desired image width.
+ * @param height the desired image height.
+ *
+ * @return <ul>
+ *         <li>{@link AMEDIA_OK} if the method call succeeds.</li>
+ *         <li>{@link AMEDIA_ERROR_INVALID_PARAMETER} if reader is NULL.</li>
+ *         <li>{@link AMEDIA_ERROR_UNKNOWN} if the method fails from the consumer.</li></ul>
+ */
+media_status_t AImageReader_setDefaultBufferSize(
+        AImageReader* reader, int32_t width, int32_t height) __INTRODUCED_IN(37);
+
+/**
+ * Set the default dataspace of this image reader.
+ *
+ * Available since API level 37.
+ *
+ * @param reader the image reader of interest.
+ * @param dataSpace specifies default buffer dataspace of the image reader.
+ *
+ * @return <ul>
+ *         <li>{@link AMEDIA_OK} if the method call succeeds.</li>
+ *         <li>{@link AMEDIA_ERROR_INVALID_PARAMETER} if reader is NULL.</li>
+ *         <li>{@link AMEDIA_ERROR_UNKNOWN} if the method fails.</li></ul>
+ */
+media_status_t AImageReader_setDefaultBufferDataSpace(
+        AImageReader* reader, int32_t dataSpace) __INTRODUCED_IN(37);
+
+/**
+ * Set the default AHardwareBuffer_Format of this image reader.
+ *
+ * <p>Note that calling this method can override image format after creation.</p>
+ *
+ * Available since API level 37.
+ *
+ * @param reader the image reader of interest.
+ * @param format specifies default AHardwareBuffer_Format of the image reader.
+ *
+ * @return <ul>
+ *         <li>{@link AMEDIA_OK} if the method call succeeds.</li>
+ *         <li>{@link AMEDIA_ERROR_INVALID_PARAMETER} if reader is NULL.</li>
+ *         <li>{@link AMEDIA_ERROR_UNKNOWN} if the method fails.</li></ul>
+ */
+media_status_t AImageReader_setDefaultAHardwareBufferFormat(
+        AImageReader* reader, int32_t format) __INTRODUCED_IN(37);
 
 #ifdef __ANDROID_VNDK__
 /*

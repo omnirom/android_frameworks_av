@@ -61,7 +61,7 @@ std::string AAudioServiceEndpoint::dump() const NO_THREAD_SAFETY_ANALYSIS {
     result << "    Sample Rate:          " << getSampleRate() << "\n";
     result << "    Channel Count:        " << getSamplesPerFrame() << "\n";
     result << "    Channel Mask:         0x" << std::hex << getChannelMask() << std::dec << "\n";
-    result << "    Format:               " << getFormat()
+    result << "    Format:               0x" << std::hex << getFormat() << std::dec
                                            << " (" << audio_format_to_string(getFormat()) << ")\n";
     result << "    Frames Per Burst:     " << mFramesPerBurst << "\n";
     result << "    Usage:                " << getUsage() << "\n";
@@ -71,7 +71,7 @@ std::string AAudioServiceEndpoint::dump() const NO_THREAD_SAFETY_ANALYSIS {
     result << "    Session Id:           " << getSessionId() << "\n";
     result << "    Privacy Sensitive:    " << isPrivacySensitive() << "\n";
     result << "    Hardware Channel Count:" << getHardwareSamplesPerFrame() << "\n";
-    result << "    Hardware Format:      " << getHardwareFormat() << " ("
+    result << "    Hardware Format:      0x" << std::hex << getHardwareFormat() << std::dec << " ("
                                            << audio_format_to_string(getHardwareFormat()) << ")\n";
     result << "    Hardware Sample Rate: " << getHardwareSampleRate() << "\n";
     result << "    Connected:            " << mConnected.load() << "\n";
@@ -153,6 +153,9 @@ bool AAudioServiceEndpoint::matches(const AAudioStreamConfiguration& configurati
         return false; // Only use an endpoint if it is connected to a device.
     }
     if (configuration.getDirection() != getDirection()) {
+        return false;
+    }
+    if (configuration.getPerformanceMode() != getPerformanceMode()) {
         return false;
     }
     if (!configuration.getDeviceIds().empty() &&

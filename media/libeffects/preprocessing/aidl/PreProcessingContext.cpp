@@ -16,6 +16,8 @@
 
 #include <cstddef>
 #define LOG_TAG "PreProcessingContext"
+#include <audio_utils/clock.h>
+#include <audio_utils/primitives.h>
 #include <Utils.h>
 
 #include "PreProcessingContext.h"
@@ -24,6 +26,9 @@ namespace aidl::android::hardware::audio::effect {
 
 using aidl::android::media::audio::common::AudioDeviceDescription;
 using aidl::android::media::audio::common::AudioDeviceType;
+
+// Webrtc processes and returns 10ms data
+constexpr int WEBRTC_FRAME_LENGTH_MS = 10;
 
 RetCode PreProcessingContext::init(const Parameter::Common& common) {
     webrtc::AudioProcessingBuilder apBuilder;
@@ -36,9 +41,7 @@ RetCode PreProcessingContext::init(const Parameter::Common& common) {
     updateConfigs(common);
 
     mEnabledMsk = 0;
-    mProcessedMsk = 0;
     mRevEnabledMsk = 0;
-    mRevProcessedMsk = 0;
 
     auto config = mAudioProcessingModule->GetConfig();
     switch (mType) {
@@ -84,7 +87,6 @@ RetCode PreProcessingContext::enable() {
             config.echo_canceller.enabled = true;
             // AEC has reverse stream
             mRevEnabledMsk |= typeMsk;
-            mRevProcessedMsk = 0;
             break;
         case PreProcessingEffectType::AUTOMATIC_GAIN_CONTROL_V1:
             config.gain_controller1.enabled = true;
@@ -96,7 +98,6 @@ RetCode PreProcessingContext::enable() {
             config.noise_suppression.enabled = true;
             break;
     }
-    mProcessedMsk = 0;
     mAudioProcessingModule->ApplyConfig(config);
     mState = PRE_PROC_STATE_ACTIVE;
     return RetCode::SUCCESS;
@@ -118,7 +119,6 @@ RetCode PreProcessingContext::disable() {
             config.echo_canceller.enabled = false;
             // AEC has reverse stream
             mRevEnabledMsk &= ~typeMsk;
-            mRevProcessedMsk = 0;
             break;
         case PreProcessingEffectType::AUTOMATIC_GAIN_CONTROL_V1:
             config.gain_controller1.enabled = false;
@@ -130,14 +130,13 @@ RetCode PreProcessingContext::disable() {
             config.noise_suppression.enabled = false;
             break;
     }
-    mProcessedMsk = 0;
     mAudioProcessingModule->ApplyConfig(config);
     mState = PRE_PROC_STATE_INITIALIZED;
     return RetCode::SUCCESS;
 }
 
 RetCode PreProcessingContext::setCommon(const Parameter::Common& common) {
-    if(auto ret = updateIOFrameSize(common); ret != RetCode::SUCCESS) {
+    if (auto ret = updateIOFrameSize(common); ret != RetCode::SUCCESS) {
         return ret;
     }
     mCommon = common;
@@ -148,10 +147,10 @@ RetCode PreProcessingContext::setCommon(const Parameter::Common& common) {
 void PreProcessingContext::updateConfigs(const Parameter::Common& common) {
     mInputConfig.set_sample_rate_hz(common.input.base.sampleRate);
     mInputConfig.set_num_channels(::aidl::android::hardware::audio::common::getChannelCount(
-                    common.input.base.channelMask));
+            common.input.base.channelMask));
     mOutputConfig.set_sample_rate_hz(common.input.base.sampleRate);
     mOutputConfig.set_num_channels(::aidl::android::hardware::audio::common::getChannelCount(
-                    common.output.base.channelMask));
+            common.output.base.channelMask));
 }
 
 RetCode PreProcessingContext::setAcousticEchoCancelerEchoDelay(int echoDelayUs) {
@@ -257,6 +256,12 @@ NoiseSuppression::Level PreProcessingContext::getNoiseSuppressionLevel() const {
     return mLevel;
 }
 
+int PreProcessingContext::calculateWebrtcChunkSizeInSamples() {
+    return getCommon().input.base.sampleRate * WEBRTC_FRAME_LENGTH_MS / MILLIS_PER_SECOND *
+           ::aidl::android::hardware::audio::common::getChannelCount(
+                   mCommon.input.base.channelMask);
+}
+
 IEffect::Status PreProcessingContext::process(float* in, float* out, int samples) {
     IEffect::Status status = {EX_NULL_POINTER, 0, 0};
     RETURN_VALUE_IF(!in, status, "nullInput");
@@ -267,31 +272,41 @@ IEffect::Status PreProcessingContext::process(float* in, float* out, int samples
     RETURN_VALUE_IF(inputFrameCount != outputFrameCount, status, "FrameCountMismatch");
     RETURN_VALUE_IF(0 == getInputFrameSize(), status, "zeroFrameSize");
 
-    mProcessedMsk |= (1 << int(mType));
-
-    // webrtc implementation clear out was_stream_delay_set every time after ProcessStream() call
-    mAudioProcessingModule->set_stream_delay_ms(mEchoDelayUs / 1000);
-
-    if ((mProcessedMsk & mEnabledMsk) == mEnabledMsk) {
-        mProcessedMsk = 0;
-        int processStatus = mAudioProcessingModule->ProcessStream(
-                (const int16_t* const)in, mInputConfig, mOutputConfig, (int16_t* const)out);
-        if (processStatus != 0) {
-            LOG(ERROR) << "Process stream failed with error " << processStatus;
-            return status;
-        }
+    bool processEnable = (1 << int(mType) & mEnabledMsk);
+    bool reverseProcessEnable = (((1 << int(mType)) & mRevEnabledMsk) &&
+                                 (mType == PreProcessingEffectType::ACOUSTIC_ECHO_CANCELLATION));
+    if (!(processEnable || reverseProcessEnable)) {
+        return {STATUS_OK, samples, samples};
     }
+    const int processSamples = calculateWebrtcChunkSizeInSamples();
+    std::vector<int16_t> in16(processSamples, 0);
+    std::vector<int16_t> out16(processSamples, 0);
 
-    mRevProcessedMsk |= (1 << int(mType));
-
-    if ((mRevProcessedMsk & mRevEnabledMsk) == mRevEnabledMsk) {
-        mRevProcessedMsk = 0;
-        int revProcessStatus = mAudioProcessingModule->ProcessReverseStream(
-                (const int16_t* const)in, mInputConfig, mInputConfig, (int16_t* const)out);
-        if (revProcessStatus != 0) {
-            LOG(ERROR) << "Process reverse stream failed with error " << revProcessStatus;
-            return status;
+    int samplesToProcess = std::min(samples, processSamples);
+    for (int processedSamples = 0; processedSamples < samples;
+         processedSamples += samplesToProcess) {
+        samplesToProcess = std::min(samples - processedSamples, processSamples);
+        // webrtc implementation clear out was_stream_delay_set every time after ProcessStream()
+        // call
+        mAudioProcessingModule->set_stream_delay_ms(mEchoDelayUs / 1000);
+        memcpy_to_i16_from_float(in16.data(), in + processedSamples, samplesToProcess);
+        if (processEnable) {
+            int processStatus = mAudioProcessingModule->ProcessStream(in16.data(), mInputConfig,
+                                                                      mOutputConfig, out16.data());
+            if (processStatus != 0) {
+                LOG(ERROR) << "Process stream failed with error " << processStatus;
+                return status;
+            }
         }
+        if (reverseProcessEnable) {
+            int revProcessStatus = mAudioProcessingModule->ProcessReverseStream(
+                    in16.data(), mInputConfig, mInputConfig, out16.data());
+            if (revProcessStatus != 0) {
+                LOG(ERROR) << "Process reverse stream failed with error " << revProcessStatus;
+                return status;
+            }
+        }
+        memcpy_to_float_from_i16(out + processedSamples, out16.data(), samplesToProcess);
     }
 
     return {STATUS_OK, samples, samples};

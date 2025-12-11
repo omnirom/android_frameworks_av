@@ -1131,8 +1131,4 @@ long ResourceManagerService::getCurrentConcurrentPixelCount(int pid) const {
     return mResourceManagerMetrics->getCurrentConcurrentPixelCount(pid);
 }
 
-void ResourceManagerService::notifyClientReleased(const ClientInfoParcel& clientInfo) {
-    mResourceManagerMetrics->notifyClientReleased(clientInfo);
-}
-
 } // namespace android

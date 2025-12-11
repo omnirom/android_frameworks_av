@@ -31,15 +31,20 @@ import android.media.CreateTrackResponse;
 import android.media.DeviceConnectedState;
 import android.media.OpenInputRequest;
 import android.media.OpenInputResponse;
+import android.media.OpenMmapRequest;
+import android.media.OpenMmapResponse;
 import android.media.OpenOutputRequest;
 import android.media.OpenOutputResponse;
 import android.media.EffectDescriptor;
 import android.media.IAudioFlingerClient;
 import android.media.IAudioRecord;
 import android.media.IAudioTrack;
+import android.media.IMmapStream;
+import android.media.IMmapStreamCallback;
 import android.media.ISoundDose;
 import android.media.ISoundDoseCallback;
 import android.media.MicrophoneInfoFw;
+import android.media.MmapBufferInfo;
 import android.media.RenderPosition;
 import android.media.TrackInternalMuteInfo;
 import android.media.TrackSecondaryOutputInfo;
@@ -53,7 +58,7 @@ import android.media.audio.common.AudioStreamType;
 import android.media.audio.common.AudioUuid;
 
 /**
- * {@hide}
+ * @hide
  */
 interface IAudioFlingerService {
     /**
@@ -92,15 +97,6 @@ interface IAudioFlingerService {
 
     void setMasterBalance(float balance);
     float getMasterBalance();
-
-    /*
-     * Set stream type state. This will probably be used by
-     * the preference panel, mostly.
-     * This method is deprecated. Please use the setPortsVolume method instead.
-     */
-    void setStreamVolume(AudioStreamType stream, float value, boolean muted,
-            int /* audio_io_handle_t */ output);
-    void setStreamMute(AudioStreamType stream, boolean muted);
 
     /*
      * Set AudioTrack port ids volume attribute. This is the new way of controlling volume from
@@ -143,6 +139,8 @@ interface IAudioFlingerService {
 
     OpenInputResponse openInput(in OpenInputRequest request);
     void closeInput(int /* audio_io_handle_t */ input);
+
+    OpenMmapResponse openMmapStream(in OpenMmapRequest request);
 
     void setVoiceVolume(float volume);
 
@@ -298,8 +296,12 @@ interface IAudioFlingerService {
 
     /**
      * Get the attributes of the mix port when connecting to the given device port.
+     * If `mixPortHalId` is not `AUDIO_PORT_HANDLE_NONE`, it will be used to determine
+     * the mix port. Otherwise, `mixPort.ext.mix.handle` will be used.
      */
-    AudioPortFw getAudioMixPort(in AudioPortFw devicePort, in AudioPortFw mixPort);
+    AudioPortFw getAudioMixPort(in AudioPortFw devicePort,
+                                in AudioPortFw mixPort,
+                                int mixPortHalId);
 
     /**
      * Set internal mute for a list of tracks.

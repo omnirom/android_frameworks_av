@@ -44,7 +44,8 @@ public:
             struct audio_config *config,
             audio_output_flags_t *flags,
             const char *address,
-            const std::vector<playback_track_metadata_v7_t>& sourceMetadata) override;
+            const std::vector<playback_track_metadata_v7_t>& sourceMetadata,
+            int32_t mixPortHalId) override;
 
     /**
     * Write audio buffer to driver. Returns number of bytes written, or a

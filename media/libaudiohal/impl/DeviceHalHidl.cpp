@@ -260,7 +260,8 @@ status_t DeviceHalHidl::openOutputStream(
         struct audio_config *config,
         const char *address,
         sp<StreamOutHalInterface> *outStream,
-        const std::vector<playback_track_metadata_v7_t>& sourceMetadata) {
+        const std::vector<playback_track_metadata_v7_t>& sourceMetadata,
+        int32_t /* mixPortHalId */) {
     TIME_CHECK();
     if (mDevice == 0) return NO_INIT;
     DeviceAddress hidlDevice;
@@ -332,7 +333,8 @@ status_t DeviceHalHidl::openInputStream(
         audio_source_t source,
         audio_devices_t outputDevice,
         const char *outputDeviceAddress,
-        sp<StreamInHalInterface> *inStream) {
+        sp<StreamInHalInterface> *inStream,
+        int32_t /*mixPortHalId*/) {
     TIME_CHECK();
     if (mDevice == 0) return NO_INIT;
     DeviceAddress hidlDevice;
@@ -763,7 +765,13 @@ status_t getParametersFromStream(
 } // namespace
 
 status_t DeviceHalHidl::getAudioMixPort(const struct audio_port_v7 *devicePort,
-                                        struct audio_port_v7 *mixPort) {
+                                        struct audio_port_v7 *mixPort,
+                                        int32_t mixPortHalId __unused) {
+    if (mixPort->ext.mix.handle == AUDIO_IO_HANDLE_NONE) {
+        ALOGW("%s: ext.mix.handle is not specified", __func__);
+        return BAD_VALUE;
+    }
+
     // For HIDL HAL, querying mix port information is not supported. If the HAL supports
     // `getAudioPort` API to query the device port attributes, use the structured audio profiles
     // that have the same attributes reported by the `getParameters` API. Otherwise, only use

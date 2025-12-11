@@ -69,3 +69,24 @@ cc_aconfig_library {
         "com.android.media.swcodec",
     ],
 }
+
+aconfig_declarations {
+    name: "aconfig_mediarecorder_flags",
+    package: "android.media.mediarecorder",
+    container: "system",
+    srcs: ["mediarecorder.aconfig"],
+}
+
+java_aconfig_library {
+    name: "android.media.mediarecorder-aconfig-java",
+    aconfig_declarations: "aconfig_mediarecorder_flags",
+    defaults: ["framework-minus-apex-aconfig-java-defaults"],
+}
+
+cc_aconfig_library {
+    name: "android.media.mediarecorder-aconfig-cc",
+    min_sdk_version: "30",
+    vendor_available: true,
+    double_loadable: true,
+    aconfig_declarations: "aconfig_mediarecorder_flags",
+}

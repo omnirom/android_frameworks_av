@@ -876,9 +876,16 @@ void NuPlayer::Decoder::handleOutputFormatChange(const sp<AMessage> &format) {
         uint32_t flags;
         int64_t durationUs;
         bool hasVideo = (mSource->getFormat(false /* audio */) != NULL);
+        int32_t numChannels;
+        CHECK(format->findInt32("channel-count", &numChannels));
+        int32_t sampleRate;
+        CHECK(format->findInt32("sample-rate", &sampleRate));
+
         if (getAudioDeepBufferSetting() // override regardless of source duration
-                || (mSource->getDuration(&durationUs) == OK
-                        && durationUs > AUDIO_SINK_MIN_DEEP_BUFFER_DURATION_US)) {
+                || ((mSource->getDuration(&durationUs) == OK)
+                        && (durationUs > AUDIO_SINK_MIN_DEEP_BUFFER_DURATION_US)
+                        && (numChannels == 2)
+                        && (sampleRate <= SAMPLE_RATE_HZ_MAX))) {
             flags = AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
         } else {
             flags = AUDIO_OUTPUT_FLAG_NONE;

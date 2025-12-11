@@ -33,6 +33,7 @@ public class Stats {
     private long mInitTimeNs;
     private long mDeInitTimeNs;
     private long mStartTimeNs;
+    private double mNumFrames;
     private ArrayList<Integer> mFrameSizes;
     /*
      * Array for holding the wallclock time
@@ -53,6 +54,8 @@ public class Stats {
         mOutputTimer = new ArrayList<>();
         mInitTimeNs = 0;
         mDeInitTimeNs = 0;
+        mStartTimeNs = 0;
+        mNumFrames = 0;
     }
 
     public long getCurTime() { return System.nanoTime(); }
@@ -67,7 +70,14 @@ public class Stats {
 
     public void addInputTime() { mInputTimer.add(System.nanoTime()); }
 
-    public void addOutputTime() { mOutputTimer.add(System.nanoTime()); }
+    public void addOutputTime(double nFrames) {
+        mOutputTimer.add(System.nanoTime());
+        mNumFrames += nFrames;
+    }
+    public void addOutputTime() {
+        mOutputTimer.add(System.nanoTime());
+        mNumFrames++;
+    }
 
     public void reset() {
         if (mFrameSizes.size() != 0) {
@@ -90,6 +100,10 @@ public class Stats {
     public long getStartTime() { return mStartTimeNs; }
 
     public List<Long> getOutputTimers() { return mOutputTimer; }
+
+    public long getNumFrames() {
+        return (long)(mNumFrames + 0.5f);
+    }
 
     public List<Long> getInputTimers() { return mInputTimer; }
 

@@ -38,10 +38,6 @@
 
 namespace android::audio_policy {
 
-static const std::vector<legacy_strategy_map>& getLegacyStrategy() {
-    static const std::vector<legacy_strategy_map> legacyStrategy = getLegacyStrategyMap();
-    return legacyStrategy;
-}
 
 status_t Engine::loadFromHalConfigWithFallback(
         const media::audio::common::AudioHalEngineConfig& aidlConfig) {
@@ -58,11 +54,7 @@ status_t Engine::loadWithFallback(const T& configSource) {
     ALOGE_IF(result.nbSkippedElement != 0,
              "Policy Engine configuration is partially invalid, skipped %zu elements",
              result.nbSkippedElement);
-
-    auto legacyStrategy = getLegacyStrategy();
-    for (const auto &strategy : legacyStrategy) {
-        mLegacyStrategyMap[getProductStrategyByName(strategy.name)] = strategy.id;
-    }
+    initializeLegacyStrategyMaps();
 
     return OK;
 }
@@ -255,13 +247,18 @@ void Engine::filterOutputDevicesForStrategy(legacy_strategy strategy,
 
 product_strategy_t Engine::remapStrategyFromContext(product_strategy_t strategy,
                                                  const SwAudioOutputCollection &outputs) const {
-    auto legacyStrategy = mLegacyStrategyMap.find(strategy) != end(mLegacyStrategyMap) ?
-                          mLegacyStrategyMap.at(strategy) : STRATEGY_NONE;
+    auto legacyStrategy = getLegacyStrategyFromProduct(strategy);
+
+    // TODO: b/429390420 remove when ASSISTANT strategy is in use
+    if (legacyStrategy == STRATEGY_ASSISTANT) {
+        legacyStrategy = STRATEGY_MEDIA;
+    }
 
     if (isInCall()) {
         switch (legacyStrategy) {
         case STRATEGY_ACCESSIBILITY:
         case STRATEGY_DTMF:
+        case STRATEGY_ASSISTANT:
         case STRATEGY_MEDIA:
         case STRATEGY_SONIFICATION:
         case STRATEGY_SONIFICATION_RESPECTFUL:
@@ -400,6 +397,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
     case STRATEGY_ACCESSIBILITY:
     case STRATEGY_SONIFICATION_RESPECTFUL:
     case STRATEGY_REROUTING:
+    case STRATEGY_ASSISTANT:
     case STRATEGY_MEDIA: {
         DeviceVector devices2;
         if (strategy != STRATEGY_SONIFICATION) {
@@ -429,8 +427,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
             legacy_strategy topActiveStrategy = STRATEGY_NONE;
             for (const auto &ps : getOrderedProductStrategies()) {
                 if (outputs.isStrategyActive(ps)) {
-                    topActiveStrategy =  mLegacyStrategyMap.find(ps) != end(mLegacyStrategyMap) ?
-                            mLegacyStrategyMap.at(ps) : STRATEGY_NONE;
+                    topActiveStrategy =  getLegacyStrategyFromProduct(ps);
                     break;
                 }
             }
@@ -510,6 +507,7 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
                     SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY);
 
         bool ringActiveLocally = outputs.isActiveLocally(toVolumeSource(AUDIO_STREAM_RING), 0);
+
         // - for STRATEGY_SONIFICATION and ringtone active:
         // if SPEAKER was selected, and SPEAKER_SAFE is available, use SPEAKER_SAFE instead
         // - for STRATEGY_SONIFICATION_RESPECTFUL:
@@ -550,25 +548,6 @@ DeviceVector Engine::getDevicesForStrategyInt(legacy_strategy strategy,
     ALOGVV("%s strategy %d, device %s", __func__,
            strategy, dumpDeviceTypes(devices.types()).c_str());
     return devices;
-}
-
-DeviceVector Engine::getPreferredAvailableDevicesForInputSource(
-            const DeviceVector& availableInputDevices, audio_source_t inputSource) const {
-    DeviceVector preferredAvailableDevVec = {};
-    AudioDeviceTypeAddrVector preferredDevices;
-    const status_t status = getDevicesForRoleAndCapturePreset(
-            inputSource, DEVICE_ROLE_PREFERRED, preferredDevices);
-    if (status == NO_ERROR) {
-        // Only use preferred devices when they are all available.
-        preferredAvailableDevVec =
-                availableInputDevices.getDevicesFromDeviceTypeAddrVec(preferredDevices);
-        if (preferredAvailableDevVec.size() == preferredDevices.size()) {
-            ALOGVV("%s using pref device %s for source %u",
-                   __func__, preferredAvailableDevVec.toString().c_str(), inputSource);
-            return preferredAvailableDevVec;
-        }
-    }
-    return preferredAvailableDevVec;
 }
 
 DeviceVector Engine::getDisabledDevicesForInputSource(
@@ -784,15 +763,6 @@ void Engine::setStrategyDevices(const sp<ProductStrategy>& strategy, const Devic
     strategy->setDeviceAddress(devices.getFirstValidAddress().c_str());
 }
 
-product_strategy_t Engine::getProductStrategyFromLegacy(legacy_strategy legacyStrategy) const {
-    for (const auto& strategyMap : mLegacyStrategyMap) {
-        if (strategyMap.second == legacyStrategy) {
-            return strategyMap.first;
-        }
-    }
-    return PRODUCT_STRATEGY_NONE;
-}
-
 audio_devices_t Engine::getPreferredDeviceTypeForLegacyStrategy(
         const DeviceVector& availableOutputDevices, legacy_strategy legacyStrategy) const {
     product_strategy_t strategy = getProductStrategyFromLegacy(legacyStrategy);
@@ -811,8 +781,7 @@ DeviceVector Engine::getDevicesForProductStrategy(product_strategy_t strategy) c
     // checking preferred device for strategy and applying default routing rules
     strategy = remapStrategyFromContext(strategy, outputs);
 
-    auto legacyStrategy = mLegacyStrategyMap.find(strategy) != end(mLegacyStrategyMap) ?
-                          mLegacyStrategyMap.at(strategy) : STRATEGY_NONE;
+    auto legacyStrategy = getLegacyStrategyFromProduct(strategy);
 
     DeviceVector availableOutputDevices = getApmObserver()->getAvailableOutputDevices();
 

@@ -25,6 +25,11 @@
 #include <mutex>
 #include <utils/Log.h>
 #include <utils/Timers.h>
+#include <variant>
+
+#pragma push_macro("LOG_TAG")
+#undef LOG_TAG
+#define LOG_TAG "ServiceSingleton"
 
 /**
  * ServiceSingleton provides a non-blocking NDK/CPP compatible service cache.
@@ -115,6 +120,14 @@ namespace details {
 
 class ServiceHandler
 {
+    // State of the service interface (mService), determines when to expose service to client.
+    enum class State {
+        kInvalid,  // service invalid.
+        kValid,    // service valid but notification callback not sent,
+                   // at least one client waiting for callback.
+        kNotified, // service valid and notification callback completed (okay to expose).
+    };
+
 public:
     /**
      * Returns a ServiceHandler, templated type T is String16 for the native type
@@ -163,7 +176,9 @@ public:
         auto& service = std::get<BaseInterfaceType<Service>>(mService);
 
         // early check.
-        if (mSkipMode == SkipMode::kImmediate || (service && mValid)) return service;
+        if (mSkipMode == SkipMode::kImmediate || (service && mState == State::kNotified)) {
+            return service;
+        }
 
         // clamp to avoid numeric overflow.  INT64_MAX / 2 is effectively forever for a device.
         std::chrono::nanoseconds kWaitLimitNs(
@@ -171,20 +186,22 @@ public:
         waitNs = std::clamp(waitNs, decltype(waitNs)(0), kWaitLimitNs);
         const auto end = std::chrono::steady_clock::now() + waitNs;
 
-        for (bool first = true; true; first = false) {
+        while (true) {
             // we may have released mMutex, so see if service has been obtained.
-            if (mSkipMode == SkipMode::kImmediate || (service && mValid))  return service;
+            if (mSkipMode == SkipMode::kImmediate || (service && mState == State::kNotified)) {
+                return service;
+            }
 
             int options = 0;
-            if (mSkipMode == SkipMode::kNone) {
+            if (mSkipMode == SkipMode::kNone && mState == State::kInvalid) {
                 const auto traits = getTraits_l<Service>();
 
-                // first time or not using callback, check the service.
-                if (first || !useCallback) {
+                // no service callback handle, check the service.
+                if (!mServiceNotificationHandle) {
                     auto service_new = checkServicePassThrough<Service>(
                             traits->getServiceName());
                     if (service_new) {
-                        mValid = true;
+                        mState = State::kValid;
                         service = std::move(service_new);
                         // service is a reference, so we copy to service_fixed as
                         // we're releasing the mutex.
@@ -192,13 +209,20 @@ public:
                         ul.unlock();
                         traits->onNewService(interfaceFromBase<Service>(service_fixed));
                         ul.lock();
+                        if (mState == State::kValid) {
+                            mState = State::kNotified;  // ok to expose.
+                        } else {
+                            ALOGW("%s: state expected to be State::kValid but was %s",
+                                    __func__, stateToString(mState));
+                        }
                         setDeathNotifier_l<Service>(service_fixed);
                         ul.unlock();
                         mCv.notify_all();
                         return service_fixed;
                     }
                 }
-                // install service callback if needed.
+                // install service callback only if flag set and we need it.
+                // once set, we don't remove it.
                 if (useCallback && !mServiceNotificationHandle) {
                     setServiceNotifier_l<Service>();
                 }
@@ -243,9 +267,22 @@ public:
             traits->onServiceDied(interfaceFromBase<Service>(orig_service));
         }
         service = service_new;
+        if (!service_new) {
+             ALOGW("%s: setting null service override, should use non-null service", __func__);
+             return;  // invalid state already set.
+        }
+        mState = State::kValid;
         ul.unlock();
         // should we set the death notifier?  It could be a local service.
         if (service_new) traits->onNewService(service_new);
+        ul.lock();
+        if (mState != State::kValid) {
+            ALOGW("%s: state expected to be State::kValid but was %s",
+                    __func__, stateToString(mState));
+            return;
+        }
+        mState = State::kNotified;
+        ul.unlock();
         mCv.notify_all();
     }
 
@@ -292,7 +329,7 @@ private:
     void invalidateService_l() REQUIRES(mMutex) {
         mDeathNotificationHandle.reset();
         const auto traits = getTraits_l<Service>();
-        mValid = false;
+        mState = State::kInvalid;
         if (!(static_cast<int>(traits->options()) & static_cast<int>(ServiceOptions::kNonNull))
                 || mSkipMode != SkipMode::kNone) {
             auto &service = std::get<BaseInterfaceType<Service>>(mService);
@@ -325,14 +362,23 @@ private:
                             invalidateService_l<Service>();
                         }
                         mService = service;
-                        mValid = true;
+                        ALOGD_IF(mState != State::kInvalid,
+                                "%s: state expected to be State::kInvalid but was %s",
+                                __func__, stateToString(mState));
+                        mState = State::kValid;
                         ul.unlock();
                         if (originalService != nullptr) {
                             traits->onServiceDied(interfaceFromBase<Service>(originalService));
                         }
                         traits->onNewService(service);
                         ul.lock();
+                        if (mState != State::kValid) {
+                            ALOGW("%s: state expected to be State::kValid but was %s",
+                                    __func__, stateToString(mState));
+                            return;
+                        }
                         setDeathNotifier_l<Service>(service);
+                        mState = State::kNotified;  // ok for other clients to use.
                     } else {
                         ALOGW("%s: ignoring duplicated service: %p",
                                 __func__, originalService.get());
@@ -397,6 +443,15 @@ private:
         mService = sp<::android::IInterface>{};
     }
 
+    static const char *stateToString(State state) {
+        switch (state) {
+            case State::kInvalid: return "kInvalid";
+            case State::kValid: return "kValid";
+            case State::kNotified: return "kNotified";
+            default: return "Unknown";
+        }
+    }
+
     static std::string toString(const std::string& s) { return s; }
     static std::string toString(const String16& s) { return String8(s).c_str(); }
 
@@ -412,8 +467,8 @@ private:
     std::shared_ptr<void> mServiceNotificationHandle GUARDED_BY(mMutex);
     std::shared_ptr<void> mTraits GUARDED_BY(mMutex);
 
-    // mValid is true iff the service is non-null and alive.
-    bool mValid GUARDED_BY(mMutex) = false;
+    // State of the service (mService).
+    State mState GUARDED_BY(mMutex) = State::kInvalid;
 
     // mSkipMode indicates the service cache state:
     //
@@ -517,3 +572,5 @@ void skipService(SkipMode skipMode = SkipMode::kImmediate) {
 }
 
 } // namespace android::mediautils
+
+#pragma pop_macro("LOG_TAG")

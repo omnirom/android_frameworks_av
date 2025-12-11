@@ -26,8 +26,17 @@
 
 namespace com::android::media::permission {
 
+// Interface for permission and package information required by audioserver, which is pushed down
+// from system server to avoid cross deadlocks.
+// With the exception of checkPermission, uids refer to app-ids, since package info is the same
+// across users.
 class IPermissionProvider {
   public:
+    // True iff the uid holds the permission (user aware).
+    // Fails with NO_INIT if cache hasn't been populated.
+    virtual ::android::error::BinderResult<bool> checkPermission(PermissionEnum permission,
+                                                                 uid_t uid) const = 0;
+
     // Get all package names which run under a certain app-id. Returns non-empty.
     // Not user specific, since packages are across users. Special app-ids (system,
     // shell, etc.) are handled.  Fails if the provider does not know about the
@@ -41,10 +50,13 @@ class IPermissionProvider {
     virtual ::android::error::BinderResult<bool> validateUidPackagePair(
             uid_t uid, const std::string& packageName) const = 0;
 
-    // True iff the uid holds the permission (user aware).
-    // Fails with NO_INIT if cache hasn't been populated.
-    virtual ::android::error::BinderResult<bool> checkPermission(PermissionEnum permission,
-                                                                 uid_t uid) const = 0;
+    // Get the highest target sdk of all packages for a given app-id.
+    virtual ::android::error::BinderResult<int32_t> getHighestTargetSdkForUid(uid_t uid) const = 0;
+
+    // True iff all packages associated with the app-id allow playback capture (via manifest flags).
+    virtual ::android::error::BinderResult<bool> doesUidPermitPlaybackCapture(uid_t uid) const = 0;
+
+    virtual std::string dumpString() const = 0;
     virtual ~IPermissionProvider() = default;
 };
 }  // namespace com::android::media::permission

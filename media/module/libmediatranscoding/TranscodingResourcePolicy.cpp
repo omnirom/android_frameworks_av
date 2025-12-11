@@ -163,7 +163,6 @@ void TranscodingResourcePolicy::registerSelf() {
 
     std::unique_ptr<TranscodingResourcePolicyCookie> cookie =
             std::make_unique<TranscodingResourcePolicyCookie>(this);
-    void* cookiePtr = static_cast<void*>(cookie.get());
     uintptr_t cookieKey = sCookieKeyCounter++;
     sCookies.emplace(cookieKey, std::move(cookie));
     {

@@ -25,10 +25,6 @@ public:
     virtual void setMasterVolume(float value) = 0;
     virtual void setMasterBalance(float balance) = 0;
     virtual void setMasterMute(bool muted) = 0;
-    virtual void setStreamVolume(audio_stream_type_t stream, float value, bool muted) = 0;
-    virtual void setStreamMute(audio_stream_type_t stream, bool muted) = 0;
-    // TODO(b/290699744) add "get" prefix for getter below.
-    virtual float streamVolume(audio_stream_type_t stream) const = 0;
 };
 
 }  // namespace android

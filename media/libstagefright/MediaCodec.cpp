@@ -50,12 +50,14 @@
 #include <binder/IMemory.h>
 #include <binder/IServiceManager.h>
 #include <binder/MemoryDealer.h>
+#include <bionic/dlext_namespaces.h>
 #include <com_android_graphics_libgui_flags.h>
 #include <cutils/properties.h>
 #include <gui/BufferItem.h>
 #include <gui/BufferItemConsumer.h>
 #include <gui/BufferQueue.h>
 #include <gui/Surface.h>
+#include <gui/Flags.h> // remove with WB_MEDIA_MIGRATION
 #include <hidlmemory/FrameworkUtils.h>
 #include <mediadrm/ICrypto.h>
 #include <media/IOMX.h>
@@ -78,6 +80,7 @@
 #include <media/stagefright/BatteryChecker.h>
 #include <media/stagefright/BufferProducerWrapper.h>
 #include <media/stagefright/CCodec.h>
+#include <media/stagefright/CodecTrace.h>
 #include <media/stagefright/CryptoAsync.h>
 #include <media/stagefright/MediaCodec.h>
 #include <media/stagefright/MediaCodecConstants.h>
@@ -88,7 +91,6 @@
 #include <media/stagefright/PersistentSurface.h>
 #include <media/stagefright/RenderedFrameInfo.h>
 #include <media/stagefright/SurfaceUtils.h>
-#include <nativeloader/dlext_namespaces.h>
 #include <private/android_filesystem_config.h>
 #include <server_configurable_flags/get_flags.h>
 #include <utils/Singleton.h>
@@ -224,6 +226,9 @@ static const char *kCodecFramesReleased = "android.media.mediacodec.frames-relea
 static const char *kCodecFramesRendered = "android.media.mediacodec.frames-rendered";
 static const char *kCodecFramesDropped = "android.media.mediacodec.frames-dropped";
 static const char *kCodecFramesSkipped = "android.media.mediacodec.frames-skipped";
+static const char *kCodecFramesStagnant = "android.media.mediacodec.frames-stagnant";
+static const char *kCodecFramesBackward = "android.media.mediacodec.frames-backward";
+static const char *kCodecFramesForward = "android.media.mediacodec.frames-forward";
 static const char *kCodecFramerateContent = "android.media.mediacodec.framerate-content";
 static const char *kCodecFramerateDesired = "android.media.mediacodec.framerate-desired";
 static const char *kCodecFramerateActual = "android.media.mediacodec.framerate-actual";
@@ -337,7 +342,6 @@ static const C2MemoryUsage kDefaultReadWriteUsage{
     C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE};
 
 ////////////////////////////////////////////////////////////////////////////////
-
 /*
  * Implementation of IResourceManagerClient interrface that facilitates
  * MediaCodec reclaim for the ResourceManagerService.
@@ -1009,10 +1013,17 @@ public:
     virtual void onComponentAllocated(const char *componentName) override;
     virtual void onComponentConfigured(
             const sp<AMessage> &inputFormat, const sp<AMessage> &outputFormat) override;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    virtual void onInputSurfaceCreated(
+            const sp<AMessage> &inputFormat,
+            const sp<AMessage> &outputFormat,
+            const sp<Surface> &inputSurface) override;
+#else
     virtual void onInputSurfaceCreated(
             const sp<AMessage> &inputFormat,
             const sp<AMessage> &outputFormat,
             const sp<BufferProducerWrapper> &inputSurface) override;
+#endif
     virtual void onInputSurfaceCreationFailed(status_t err) override;
     virtual void onInputSurfaceAccepted(
             const sp<AMessage> &inputFormat,
@@ -1085,10 +1096,17 @@ void CodecCallback::onComponentConfigured(
     notify->post();
 }
 
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+void CodecCallback::onInputSurfaceCreated(
+        const sp<AMessage> &inputFormat,
+        const sp<AMessage> &outputFormat,
+        const sp<Surface> &inputSurface) {
+#else
 void CodecCallback::onInputSurfaceCreated(
         const sp<AMessage> &inputFormat,
         const sp<AMessage> &outputFormat,
         const sp<BufferProducerWrapper> &inputSurface) {
+#endif
     sp<AMessage> notify(mNotify->dup());
     notify->setInt32("what", kWhatInputSurfaceCreated);
     notify->setMessage("input-format", inputFormat);
@@ -1258,17 +1276,19 @@ sp<PersistentSurface> MediaCodec::CreatePersistentInputSurface() {
 
     sp<IOMX> omx = client.interface();
 
-    sp<IGraphicBufferProducer> bufferProducer;
+    sp<MediaSurfaceType> surface;
     sp<hardware::media::omx::V1_0::IGraphicBufferSource> bufferSource;
 
-    status_t err = omx->createInputSurface(&bufferProducer, &bufferSource);
+    // Change IOMX to use Surface too in a follow up CL.
+    sp<IGraphicBufferProducer> igbp = mediaflagtools::surfaceTypeToIGBP(surface);
+    status_t err = omx->createInputSurface(&igbp, &bufferSource);
 
     if (err != OK) {
         ALOGE("Failed to create persistent input surface.");
         return NULL;
     }
 
-    return new PersistentSurface(bufferProducer, bufferSource);
+    return new PersistentSurface(surface, bufferSource);
 }
 
 inline MediaResourceType getResourceType(const std::string& resourceName) {
@@ -1593,6 +1613,12 @@ MediaCodec::MediaCodec(
     // we want an empty metrics record for any early getMetrics() call
     // this should be the *only* initMediametrics() call that's not on the Looper thread
     initMediametrics();
+    // tracer
+    if (android::media::codec::provider_->trace_codec_activity()) {
+        if (ATRACE_ENABLED()) [[unlikely]] {
+            mTracer.reset(new Tracer(uid, pid));
+        }
+    }
 }
 
 MediaCodec::~MediaCodec() {
@@ -1704,6 +1730,9 @@ void MediaCodec::updateMediametrics() {
             mediametrics_setInt64(mMetricsHandle, kCodecFramesRendered, m.frameRenderedCount);
             mediametrics_setInt64(mMetricsHandle, kCodecFramesSkipped, m.frameSkippedCount);
             mediametrics_setInt64(mMetricsHandle, kCodecFramesDropped, m.frameDroppedCount);
+            mediametrics_setInt64(mMetricsHandle, kCodecFramesStagnant, m.frameStagnantCount);
+            mediametrics_setInt64(mMetricsHandle, kCodecFramesBackward, m.frameJumpBackwardCount);
+            mediametrics_setInt64(mMetricsHandle, kCodecFramesForward, m.frameJumpForwardCount);
             mediametrics_setDouble(mMetricsHandle, kCodecFramerateContent, m.contentFrameRate);
             mediametrics_setDouble(mMetricsHandle, kCodecFramerateDesired, m.desiredFrameRate);
             mediametrics_setDouble(mMetricsHandle, kCodecFramerateActual, m.actualFrameRate);
@@ -2097,12 +2126,12 @@ void MediaCodec::updatePictureProfile(const sp<AMessage>& msg, bool applyDefault
         return;
     }
 
-    sp<IMediaQualityManager> mediaQualityMgr =
-            waitForDeclaredService<IMediaQualityManager>(String16("media_quality"));
-    if (mediaQualityMgr == nullptr) {
-        ALOGE("Media Quality Service not found.");
+    sp<IBinder> binder = defaultServiceManager()->checkService(String16("media_quality"));
+    if (binder == nullptr) {
+        ALOGI("media_quality service unavailable, skipping updatePictureProfile");
         return;
     }
+    sp<IMediaQualityManager> mediaQualityMgr = interface_cast<IMediaQualityManager>(binder);
 
     int64_t pictureProfileHandle;
     AString pictureProfileId;
@@ -3482,8 +3511,7 @@ status_t MediaCodec::setSurface(const sp<Surface> &surface) {
     return PostAndAwaitResponse(msg, &response);
 }
 
-status_t MediaCodec::createInputSurface(
-        sp<IGraphicBufferProducer>* bufferProducer) {
+status_t MediaCodec::createInputSurface(sp<MediaSurfaceType>* surface) {
     sp<AMessage> msg = new AMessage(kWhatCreateInputSurface, this);
 
     sp<AMessage> response;
@@ -3493,9 +3521,14 @@ status_t MediaCodec::createInputSurface(
         sp<RefBase> obj;
         bool found = response->findObject("input-surface", &obj);
         CHECK(found);
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        sp<Surface> wrapper(static_cast<Surface*>(obj.get()));
+        *surface = wrapper;
+#else
         sp<BufferProducerWrapper> wrapper(
                 static_cast<BufferProducerWrapper*>(obj.get()));
-        *bufferProducer = wrapper->getBufferProducer();
+        *surface = mediaflagtools::igbpToSurfaceType(wrapper->getBufferProducer());
+#endif
     } else {
         ALOGW("createInputSurface failed, err=%d", err);
     }
@@ -4296,6 +4329,10 @@ void MediaCodec::cancelPendingDequeueOperations() {
 }
 
 bool MediaCodec::handleDequeueInputBuffer(const sp<AReplyToken> &replyID, bool newRequest) {
+    std::shared_ptr<BufferEvent> event;
+    if (mTracer) {
+        event = mTracer->getBufferEvent(kCodecTraceActionOnInputBufferAvailable);
+    }
     if (!isExecuting()) {
         mErrorLog.log(LOG_TAG, base::StringPrintf(
                 "Invalid to call %s; only valid in executing state",
@@ -4319,6 +4356,9 @@ bool MediaCodec::handleDequeueInputBuffer(const sp<AReplyToken> &replyID, bool n
         CHECK_EQ(index, -EAGAIN);
         return false;
     }
+    if (event) {
+        event->onEvent();
+    }
 
     sp<AMessage> response = new AMessage;
     response->setSize("index", index);
@@ -4330,6 +4370,10 @@ bool MediaCodec::handleDequeueInputBuffer(const sp<AReplyToken> &replyID, bool n
 // always called from the looper thread
 MediaCodec::DequeueOutputResult MediaCodec::handleDequeueOutputBuffer(
         const sp<AReplyToken> &replyID, bool newRequest) {
+    std::shared_ptr<BufferEvent> event;
+    if (mTracer) {
+        event = mTracer->getBufferEvent(kCodecTraceActionOnOutputBufferAvailable);
+    }
     if (!isExecuting()) {
         mErrorLog.log(LOG_TAG, base::StringPrintf(
                 "Invalid to call %s; only valid in executing state",
@@ -4387,7 +4431,9 @@ MediaCodec::DequeueOutputResult MediaCodec::handleDequeueOutputBuffer(
         // already handled a potential output format change that could have
         // started a new subsession.
         statsBufferReceived(timeUs, buffer);
-
+        if (event) {
+            event->onEvent();
+        }
         response->postReply(replyID);
         return DequeueOutputResult::kSuccess;
     }
@@ -4647,6 +4693,10 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
                     CHECK(msg->findString("componentName", &mComponentName));
 
+                    if (mTracer) {
+                        mTracer->setCodecInfo(mComponentName.c_str(), mCodecId);
+                    }
+
                     if (mComponentName.c_str()) {
                         mIsHardware = !MediaCodecList::isSoftwareCodec(mComponentName);
                         mediametrics_setCString(mMetricsHandle, kCodecCodec,
@@ -4677,6 +4727,11 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
 
                     mResourceManagerProxy->addResource(MediaResource::CodecResource(
                             mFlags & kFlagIsSecure, toMediaResourceSubType(mIsHardware, mDomain)));
+
+                    if (mTracer) {
+                        StateEvent allocateEvent(kCodecTraceStateAllocated);
+                        mTracer->trace(&allocateEvent);
+                    }
 
                     postPendingRepliesAndDeferredMessages("kWhatComponentAllocated");
                     break;
@@ -4724,6 +4779,14 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     getRequiredSystemResources();
 
                     setState(CONFIGURED);
+
+                    if (mTracer) {
+                        StateEvent configuredEvent(kCodecTraceStateConfigured);
+                        configuredEvent.setMessage(kCodecTraceMetaKeyInputFormat, mInputFormat);
+                        configuredEvent.setMessage(kCodecTraceMetaKeyOutputFormat, mOutputFormat);
+                        mTracer->trace(&configuredEvent);
+                    }
+
                     postPendingRepliesAndDeferredMessages("kWhatComponentConfigured");
 
                     // augment our media metrics info, now that we know more things
@@ -4885,6 +4948,11 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     mResourceManagerProxy->notifyClientStarted(clientConfig);
 
                     setState(STARTED);
+
+                    if (mTracer) {
+                        StateEvent startedEvent(kCodecTraceStateStarted);
+                        mTracer->trace(&startedEvent);
+                    }
                     postPendingRepliesAndDeferredMessages("kWhatStartCompleted");
 
                     // Now that the codec has started, configure, by default, the peek behavior to
@@ -5208,6 +5276,11 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     mResourceManagerProxy->notifyClientStopped(clientConfig);
 
                     setState(INITIALIZED);
+
+                    if (mTracer) {
+                        StateEvent stoppedEvent(kCodecTraceStateStopped);
+                        mTracer->trace(&stoppedEvent);
+                    }
                     if (mReplyID) {
                         postPendingRepliesAndDeferredMessages("kWhatStopCompleted");
                     } else {
@@ -5226,6 +5299,12 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                         break;
                     }
                     setState(UNINITIALIZED);
+
+                    if (mTracer) {
+                        StateEvent releasedEvent(kCodecTraceStateReleased);
+                        mTracer->trace(&releasedEvent);
+                    }
+
                     mComponentName.clear();
 
                     mFlags &= ~kFlagIsComponentAllocated;
@@ -5266,6 +5345,10 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                     } else {
                         setState(STARTED);
                         mCodec->signalResume();
+                    }
+                    if (mTracer) {
+                        StateEvent flushedEvent(kCodecTraceStateFlushed);
+                        mTracer->trace(&flushedEvent);
                     }
                     mReliabilityContextMetrics.flushCount++;
 
@@ -6341,6 +6424,9 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
         default:
             TRESPASS();
     }
+    if (mTracer) {
+        mTracer->process();
+    }
 }
 
 // always called from the looper thread
@@ -6584,6 +6670,10 @@ status_t MediaCodec::queueCSDInputBuffer(size_t bufferIndex) {
         } else {
             std::shared_ptr<C2LinearBlock> block =
                 FetchLinearBlock(csd->size(), {std::string{mComponentName.c_str()}});
+            if (block == NULL) {
+                mErrorLog.log(LOG_TAG, "Fatal error: FetchLinearBlock returned NULL");
+                return -EINVAL;
+            }
             C2WriteView view{block->map().get()};
             if (view.error() != C2_OK) {
                 mErrorLog.log(LOG_TAG, "Fatal error: failed to allocate and map a block");
@@ -7088,6 +7178,13 @@ status_t MediaCodec::onQueueInputBuffer(const sp<AMessage> &msg) {
         info->mData.clear();
 
         statsBufferSent(timeUs, buffer);
+        if (mTracer) {
+            std::shared_ptr<BufferEvent> event =
+                    mTracer->getBufferEvent(kCodecTraceActionQueueInputBuffer);
+            if (event) {
+                event->onEvent();
+            }
+        }
     }
 
     return err;
@@ -7250,6 +7347,14 @@ status_t MediaCodec::onReleaseOutputBuffer(const sp<AMessage> &msg) {
             }
         }
         mBufferChannel->discardBuffer(buffer);
+    }
+    std::shared_ptr<BufferEvent> event;
+    if (mTracer) {
+        event = mTracer->getBufferEvent(kCodecTraceActionQueueOutputBuffer);
+        if (event) {
+            event->setString(kCodecTracerMetaKeyRender, (render ? "true" : "false"));
+            event->onEvent();
+        }
     }
 
     return OK;
@@ -7460,10 +7565,17 @@ status_t MediaCodec::handleSetSurface(const sp<Surface> &surface) {
 
 void MediaCodec::onInputBufferAvailable() {
     int32_t index;
+    std::shared_ptr<BufferEvent> event;
+    if (mTracer) {
+        event = mTracer->getBufferEvent(kCodecTraceActionOnInputBufferAvailable);
+    }
     while ((index = dequeuePortBuffer(kPortIndexInput)) >= 0) {
         sp<AMessage> msg = mCallback->dup();
         msg->setInt32("callbackID", CB_INPUT_AVAILABLE);
         msg->setInt32("index", index);
+        if (event) {
+            event->onEvent();
+        }
         msg->post();
     }
 }
@@ -7471,6 +7583,10 @@ void MediaCodec::onInputBufferAvailable() {
 void MediaCodec::onOutputBufferAvailable() {
     ScopedTrace trace(ATRACE_TAG, "MediaCodec::onOutputBufferAvailable#native");
     int32_t index;
+    std::shared_ptr<BufferEvent> event;
+    if (mTracer) {
+        event = mTracer->getBufferEvent(kCodecTraceActionOnOutputBufferAvailable);
+    }
     while ((index = dequeuePortBuffer(kPortIndexOutput)) >= 0) {
         if (discardDecodeOnlyOutputBuffer(index)) {
             continue;
@@ -7502,6 +7618,9 @@ void MediaCodec::onOutputBufferAvailable() {
              auInfo->value.back().mFlags |= flags & BUFFER_FLAG_END_OF_STREAM;
         }
         msg->setInt32("callbackID", outputCallbackID);
+        if (event) {
+            event->onEvent();
+        }
 
         statsBufferReceived(timeUs, buffer);
 
@@ -7535,7 +7654,12 @@ void MediaCodec::onOutputFormatChanged() {
     if (mCallback != NULL) {
         sp<AMessage> msg = mCallback->dup();
         msg->setInt32("callbackID", CB_OUTPUT_FORMAT_CHANGED);
-        msg->setMessage("format", mOutputFormat);
+
+        // Here format is MediaCodec's internal copy of output format.
+        // Make a copy since codec internal or the client might modify it.
+        sp<AMessage> copy = mOutputFormat->dup();
+        msg->setMessage("format", copy);
+
         msg->post();
     }
 }

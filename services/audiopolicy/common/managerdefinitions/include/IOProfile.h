@@ -112,7 +112,8 @@ public:
                                              audio_channel_mask_t channelMask,
                                              audio_channel_mask_t *updatedChannelMask,
                                              // FIXME parameter type
-                                             uint32_t flags) const;
+                                             uint32_t flags,
+                                             uint32_t additionalMandatoryFlags = 0) const;
 
     /**
      * @brief areAllDevicesSupported: Checks if the given devices are supported by the IO profile.
@@ -121,6 +122,7 @@ public:
      * @return true if all devices are supported, false otherwise.
      */
     bool areAllDevicesSupported(const DeviceVector &devices) const;
+    bool areAllDevicesRoutable(const DeviceVector &devices) const;
 
     /**
      * @brief isCompatibleProfileForFlags: Checks if the IO profile is compatible with
@@ -135,6 +137,7 @@ public:
     void log();
 
     bool hasSupportedDevices() const { return !mSupportedDevices.isEmpty(); }
+    bool hasRoutableDevices() const { return !mRoutableDevices.isEmpty(); }
 
     bool supportsDeviceTypes(const DeviceTypeSet& deviceTypes) const
     {
@@ -174,6 +177,14 @@ public:
         return mSupportedDevices.contains(device);
     }
 
+    /**
+     * @brief routesToDevice
+     * @param device to be checked against
+     * @return true if the device is routable as indicated by the HAL.
+     *         false otherwise.
+     */
+    bool routesToDevice(const sp<DeviceDescriptor> &device) const;
+
     bool devicesSupportEncodedFormats(DeviceTypeSet deviceTypes) const
     {
         if (deviceTypes.empty()) {
@@ -192,6 +203,7 @@ public:
     bool containsSingleDeviceSupportingEncodedFormats(const sp<DeviceDescriptor>& device) const;
 
     void clearSupportedDevices() { mSupportedDevices.clear(); }
+    void clearRoutableDevices() { mRoutableDevices.clear(); }
     void addSupportedDevice(const sp<DeviceDescriptor> &device)
     {
         mSupportedDevices.add(device);
@@ -210,8 +222,30 @@ public:
     {
         mSupportedDevices = devices;
     }
+    void setRoutableDevices(const DeviceVector &devices)
+    {
+        mRoutableDevices = devices;
+    }
 
     const DeviceVector &getSupportedDevices() const { return mSupportedDevices; }
+
+    void addRoutableDevice(const sp<DeviceDescriptor> &device)
+    {
+        mRoutableDevices.add(device);
+    }
+
+    void removeRoutableDevice(const sp<DeviceDescriptor> &device)
+    {
+        mRoutableDevices.remove(device);
+    }
+
+    const DeviceVector &getRoutableDevices() const { return mRoutableDevices; }
+
+    void addSupportedRoutableDevice(const sp<DeviceDescriptor> &device)
+    {
+        mSupportedDevices.add(device);
+        mRoutableDevices.add(device);
+    }
 
     bool canOpenNewIo() {
         if (maxOpenCount == 0 || curOpenCount < maxOpenCount) {
@@ -241,9 +275,19 @@ public:
 
 private:
     void refreshMixerBehaviors();
-    CompatibilityScore getFlagsCompatibleScore(uint32_t flags) const;
+    CompatibilityScore getFlagsCompatibleScore(uint32_t flags,
+                                               uint32_t additionalMandatoryFlags = 0) const;
 
-    DeviceVector mSupportedDevices; // supported devices: this input/output can be routed from/to
+    // supported devices: this input/output can potentially be routed from/to
+    // it is deduced by type and may end up being not necessarily routable,
+    // this is due to that `DeviceDescriptor` has the flexibility to be created
+    // before HAL connection, at which point it will find candidate/supported profiles
+    // where routability can yet be validated.
+    DeviceVector mSupportedDevices;
+
+    // routable devices as indicated via AudioRoute by the HAL, updated on device dis/connection.
+    // in pre-AIDL HAL we will assume everything is routable.
+    DeviceVector mRoutableDevices;
 
     MixerBehaviorSet mMixerBehaviors;
 };

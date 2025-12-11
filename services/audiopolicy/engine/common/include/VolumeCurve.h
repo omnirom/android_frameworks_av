@@ -110,7 +110,17 @@ public:
 
     int getVolumeIndexMin() const { return mIndexMin; }
 
+    int setVolumeIndexMin(int index) {
+        mIndexMin = index;
+        return NO_ERROR;
+    }
+
     int getVolumeIndexMax() const { return mIndexMax; }
+
+    int setVolumeIndexMax(int index) {
+        mIndexMax = index;
+        return NO_ERROR;
+    }
 
     bool hasVolumeIndexForDevice(audio_devices_t device) const
     {

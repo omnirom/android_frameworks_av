@@ -51,7 +51,8 @@ public:
             const char *address,
             audio_source_t source,
             audio_devices_t outputDevice,
-            const char *outputDeviceAddress);
+            const char *outputDeviceAddress,
+            int32_t mixPortHalId);
 
     ~AudioStreamIn() override;
 

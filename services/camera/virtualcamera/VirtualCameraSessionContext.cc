@@ -27,6 +27,7 @@ namespace android {
 namespace companion {
 namespace virtualcamera {
 
+using ::aidl::android::companion::virtualcamera::ICaptureResultConsumer;
 using ::aidl::android::hardware::camera::device::BufferCache;
 using ::aidl::android::hardware::camera::device::Stream;
 using ::aidl::android::hardware::camera::device::StreamBuffer;
@@ -167,6 +168,28 @@ std::set<int> VirtualCameraSessionContext::getStreamIds() const {
     result.insert(streamId);
   }
   return result;
+}
+
+std::shared_ptr<VirtualCameraCaptureResultConsumer>
+VirtualCameraSessionContext::getCaptureResultConsumer() const {
+  std::lock_guard<std::mutex> lock(mLock);
+  return mCaptureResultConsumer;
+}
+
+void VirtualCameraSessionContext::setCaptureResultConsumer(
+    const std::shared_ptr<VirtualCameraCaptureResultConsumer> consumer) {
+  std::lock_guard<std::mutex> lock(mLock);
+  mCaptureResultConsumer = consumer;
+}
+
+const camera_metadata_t*
+VirtualCameraSessionContext::getCaptureResultMetadataForTimestamp(
+    int64_t timestamp) {
+  std::lock_guard<std::mutex> lock(mLock);
+  if (mCaptureResultConsumer == nullptr) {
+    return nullptr;
+  }
+  return mCaptureResultConsumer->getCaptureResultMetadataForTimestamp(timestamp);
 }
 
 }  // namespace virtualcamera

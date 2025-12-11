@@ -23,6 +23,9 @@
 #include <codec2/aidl/ComponentInterface.h>
 #include <codec2/aidl/ComponentStore.h>
 #include <codec2/aidl/ParamTypes.h>
+#ifndef NO_C2_INPUT_SURFACE
+#include <codec2/aidl/inputsurface/InputSurface.h>
+#endif
 
 #include <android-base/file.h>
 #include <utils/Errors.h>
@@ -345,9 +348,13 @@ ScopedAStatus ComponentStore::listComponents(
 
 ScopedAStatus ComponentStore::createInputSurface(
         std::shared_ptr<IInputSurface> *inputSurface) {
-    // TODO
+#ifdef NO_C2_INPUT_SURFACE
     (void)inputSurface;
     return ScopedAStatus::fromServiceSpecificError(Status::OMITTED);
+#else
+    *inputSurface = SharedRefBase::make<InputSurface>();
+    return ScopedAStatus::ok();
+#endif
 }
 
 void ComponentStore::onInterfaceLoaded(const std::shared_ptr<C2ComponentInterface> &intf) {

@@ -369,7 +369,6 @@ std::string SpatializerPoseController::toString(unsigned level) const NO_THREAD_
     bool needUnlock = false;
 
     prefixSpace += ' ';
-    auto now = std::chrono::steady_clock::now();
     if (!audio_utils::std_mutex_timed_lock(mMutex, std::chrono::nanoseconds(
             media::kSpatializerDumpSysTimeOutInSecond).count())) {
         ss.append(prefixSpace).append("try_lock failed, dumpsys maybe INACCURATE!\n");

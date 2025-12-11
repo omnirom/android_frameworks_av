@@ -35,9 +35,9 @@ AudioStreamOut::AudioStreamOut(AudioHwDevice *dev)
 {
 }
 
-// This must be defined here together with the HAL includes above and
-// not solely in the header.
-AudioStreamOut::~AudioStreamOut() = default;
+AudioStreamOut::~AudioStreamOut() {
+    if (stream != nullptr) stream->close();
+}
 
 sp<DeviceHalInterface> AudioStreamOut::hwDev() const
 {
@@ -94,7 +94,8 @@ status_t AudioStreamOut::open(
         struct audio_config *config,
         audio_output_flags_t *flagsPtr,
         const char *address,
-        const std::vector<playback_track_metadata_v7_t>& sourceMetadata)
+        const std::vector<playback_track_metadata_v7_t>& sourceMetadata,
+        int32_t mixPortHalId)
 {
     sp<StreamOutHalInterface> outStream;
 
@@ -110,7 +111,8 @@ status_t AudioStreamOut::open(
             config,
             address,
             &outStream,
-            sourceMetadata);
+            sourceMetadata,
+            mixPortHalId);
     ALOGV("AudioStreamOut::open(), HAL returned stream %p, sampleRate %d, format %#x,"
             " channelMask %#x, status %d", outStream.get(), config->sample_rate, config->format,
             config->channel_mask, status);

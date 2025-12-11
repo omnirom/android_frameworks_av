@@ -46,6 +46,18 @@ mremap: 1
 # Required by Sanitizers
 sched_yield: 1
 
+# Required by MemoryHeapBase for shared memory allocations when libcutils uses
+# memfd.
+#
+# memfd_create() is used for allocating a memfd, fsetxattr() is used to change
+# the security context of the memfd, ftruncate() is used to specify its size,
+# and fcntl() is used to set file seals on the memfd, such as seals to
+# prevent the file from changing in size and from being written to.
+memfd_create: 1
+fsetxattr: 1
+ftruncate: 1
+fcntl: 1
+
 # Android profiler (heapprofd, traced_perf) additions, where not already
 # covered by the rest of the file, or by builtin minijail allow-listing of
 # logging-related syscalls.

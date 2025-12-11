@@ -106,14 +106,21 @@ error::Result<bool> filterOutAndProcessParameter(
 using VendorParametersRecipient = std::variant<
         std::shared_ptr<::aidl::android::hardware::audio::core::IModule>,
         std::shared_ptr<::aidl::android::hardware::audio::core::IStreamCommon>>;
-status_t parseAndGetVendorParameters(
+status_t fillVendorParameterIds(
         std::shared_ptr<::aidl::android::media::audio::IHalAdapterVendorExtension> vendorExt,
-        const VendorParametersRecipient& recipient,
-        const AudioParameter& parameterKeys,
+        ::aidl::android::media::audio::IHalAdapterVendorExtension::ParameterScope scope,
+        const AudioParameter& parameterKeys, std::vector<std::string>& vendorParametersIds);
+status_t fillKeyValuePairsFromVendorParameters(
+        std::shared_ptr<::aidl::android::media::audio::IHalAdapterVendorExtension> vendorExt,
+        ::aidl::android::media::audio::IHalAdapterVendorExtension::ParameterScope scope,
+        const std::vector<::aidl::android::hardware::audio::core::VendorParameter>&
+                vendorParameters,
         String8* values);
-status_t parseAndSetVendorParameters(
+status_t fillVendorParameters(
         std::shared_ptr<::aidl::android::media::audio::IHalAdapterVendorExtension> vendorExt,
-        const VendorParametersRecipient& recipient,
-        const AudioParameter& parameters);
+        ::aidl::android::media::audio::IHalAdapterVendorExtension::ParameterScope scope,
+        const AudioParameter& parameters,
+        std::vector<::aidl::android::hardware::audio::core::VendorParameter>& syncParameters,
+        std::vector<::aidl::android::hardware::audio::core::VendorParameter>& asyncParameters);
 
 }  // namespace android

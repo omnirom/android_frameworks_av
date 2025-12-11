@@ -135,7 +135,8 @@ TEST_F(SerializationTest, AudioProductStrategyBinderization) {
             volumeGroupAttrVector.push_back(volumeGroupAttr);
         }
         product_strategy_t psId = static_cast<product_strategy_t>(rand());
-        AudioProductStrategy aps{name, volumeGroupAttrVector, psId};
+        int zoneId = rand();
+        AudioProductStrategy aps{name, volumeGroupAttrVector, psId, zoneId};
 
         Parcel p;
         EXPECT_EQ(NO_ERROR, aps.writeToParcel(&p));
@@ -145,6 +146,7 @@ TEST_F(SerializationTest, AudioProductStrategyBinderization) {
         EXPECT_EQ(NO_ERROR, apsCopy.readFromParcel(&p));
         EXPECT_EQ(apsCopy.getName(), name);
         EXPECT_EQ(apsCopy.getId(), psId);
+        EXPECT_EQ(apsCopy.getZoneId(), zoneId);
         auto avec = apsCopy.getVolumeGroupAttributes();
         EXPECT_EQ(avec.size(), volumeGroupAttrVector.size());
         for (int i = 0; i < std::min(avec.size(), volumeGroupAttrVector.size()); i++) {

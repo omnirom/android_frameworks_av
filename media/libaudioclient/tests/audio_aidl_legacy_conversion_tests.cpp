@@ -633,6 +633,10 @@ TEST_P(AudioPortFwRoundTripTest, Aidl2Legacy2Aidl) {
     initial.sys.type = AudioPortType::DEVICE;
     initial.sys.profiles.resize(initial.hal.profiles.size());
     initial.sys.gains.resize(initial.hal.gains.size());
+    for (int i = 0; i < initial.hal.gains.size(); i++) {
+        initial.sys.gains[i].isInput = isInput;
+        initial.sys.gains[i].index = i;
+    }
     initial.sys.activeConfig =
             createAudioPortConfigFw(make_ACL_Stereo(), make_AFD_Pcm16Bit(), device);
     initial.sys.activeConfig.hal.flags = initial.hal.flags;

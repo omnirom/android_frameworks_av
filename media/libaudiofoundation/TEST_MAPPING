@@ -17,6 +17,18 @@
         },
         {
           "include-filter": "android.nativemedia.aaudio.AAudioTests#AAudioBasic_TestAAudioBasic_TestBasic_LOW_LATENCY__OUTPUT"
+        },
+        {
+          "include-filter": "android.nativemedia.aaudio.AAudioTests#AAudioBasic_TestAAudioBasic_TestBasic_POWER_SAVING__INPUT"
+        },
+        {
+          "include-filter": "android.nativemedia.aaudio.AAudioTests#AAudioBasic_TestAAudioBasic_TestBasic_POWER_SAVING__OUTPUT"
+        },
+        {
+          "include-filter": "android.nativemedia.aaudio.AAudioTests#AAudioBasic_TestAAudioBasic_TestBasic_POWER_SAVING_OFFLOAD__INPUT"
+        },
+        {
+          "include-filter": "android.nativemedia.aaudio.AAudioTests#AAudioBasic_TestAAudioBasic_TestBasic_POWER_SAVING_OFFLOAD__OUTPUT"
         }
       ]
     }

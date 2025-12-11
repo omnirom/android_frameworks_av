@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-#include <assert.h>
-#include <inttypes.h>
-#include <stdlib.h>
-
 #define LOG_TAG "ScreenRecord"
 //#define LOG_NDEBUG 0
 #include <utils/Log.h>
@@ -29,6 +25,10 @@
 
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+
+#include <assert.h>
+#include <inttypes.h>
+#include <stdlib.h>
 
 #include "screenrecord.h"
 #include "Overlay.h"
@@ -214,27 +214,16 @@ void Overlay::processFrame_l() {
 
     mTextRenderer.setProportionalScale(35);
 
-    if (false) {  // DEBUG - full blue background
-        glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
-        glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-    }
-
     int width = mEglWindow.getWidth();
     int height = mEglWindow.getHeight();
-    if (false) {  // DEBUG - draw inset
-        mExtTexProgram.blit(mExtTextureName, texMatrix,
-                100, 100, width-200, height-200);
-    } else {
-        mExtTexProgram.blit(mExtTextureName, texMatrix,
-                0, 0, width, height);
+    status_t ret = mExtTexProgram.blit(mExtTextureName, texMatrix, 0, 0, width, height);
+    if (ret != NO_ERROR) {
+        ALOGE("Overlay::processFrame: Failed to blit the frame texture, error %d", ret);
+        return;
     }
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    if (false) {  // DEBUG - show entire font bitmap
-        mTexProgram.blit(mTextRenderer.getTextureName(), Program::kIdentity,
-                100, 100, width-200, height-200);
-    }
 
     char textBuf[64];
     getTimeString_l(monotonicNsec, textBuf, sizeof(textBuf));
@@ -243,14 +232,6 @@ void Overlay::processFrame_l() {
     mTextRenderer.drawString(mTexProgram, Program::kIdentity, 0, 0, timeStr);
 
     glDisable(GL_BLEND);
-
-    if (false) {  // DEBUG - add red rectangle in lower-left corner
-        glEnable(GL_SCISSOR_TEST);
-        glScissor(0, 0, 200, 200);
-        glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glDisable(GL_SCISSOR_TEST);
-    }
 
     mEglWindow.presentationTime(monotonicNsec);
     mEglWindow.swapBuffers();

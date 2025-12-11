@@ -23,7 +23,6 @@ cc_library_shared {
     export_include_dirs: ["."],
 
     shared_libs: [
-        "com.android.media.audio-aconfig-cc",
         "libaudiofoundation",
         "libaudiopolicy",
         "libaudiopolicycomponents",
@@ -43,7 +42,9 @@ cc_library_shared {
         "audioclient-types-aidl-cpp",
         "audiopolicy-aidl-cpp",
         // Flag support
+        "android.media.audio-aconfig-cc",
         "android.media.audiopolicy-aconfig-cc",
+        "com.android.media.audio-aconfig-cc",
         "com.android.media.audioserver-aconfig-cc",
         "framework-permission-aidl-cpp",
         "libaudioclient_aidl_conversion",

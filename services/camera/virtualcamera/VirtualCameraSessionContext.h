@@ -22,11 +22,13 @@
 #include <mutex>
 #include <set>
 
+#include "VirtualCameraCaptureResultConsumer.h"
 #include "VirtualCameraStream.h"
 #include "aidl/android/hardware/camera/device/BufferCache.h"
 #include "aidl/android/hardware/camera/device/CaptureRequest.h"
 #include "aidl/android/hardware/camera/device/Stream.h"
 #include "aidl/android/hardware/camera/device/StreamConfiguration.h"
+#include "system/camera_metadata.h"
 
 namespace android {
 namespace companion {
@@ -42,7 +44,7 @@ class VirtualCameraSessionContext {
       const ::aidl::android::hardware::camera::device::Stream& stream)
       EXCLUDES(mLock);
 
-  // Close all streams and free all asociated buffers.
+  // Close all streams and free all associated buffers.
   void closeAllStreams() EXCLUDES(mLock);
 
   // Remove no longer needed buffers.
@@ -55,7 +57,7 @@ class VirtualCameraSessionContext {
       const ::aidl::android::hardware::camera::device::StreamConfiguration&
           streamConfiguration) EXCLUDES(mLock);
 
-  // Importored all not-yet imported buffers referenced by the capture request.
+  // Import all not-yet imported buffers referenced by the capture request.
   bool importBuffersFromCaptureRequest(
       const ::aidl::android::hardware::camera::device::CaptureRequest&
           captureRequest) EXCLUDES(mLock);
@@ -85,10 +87,29 @@ class VirtualCameraSessionContext {
   // Returns set of all stream ids managed by this instance.
   std::set<int> getStreamIds() const EXCLUDES(mLock);
 
+  // Get the capture result consumer.
+  // This can be null if per-frame metadata is not enabled.
+  std::shared_ptr<VirtualCameraCaptureResultConsumer> getCaptureResultConsumer()
+      const EXCLUDES(mLock);
+
+  // Set the capture result consumer.
+  void setCaptureResultConsumer(
+      const std::shared_ptr<VirtualCameraCaptureResultConsumer> consumer)
+      EXCLUDES(mLock);
+
+  // Get capture result metadata for a given timestamp.
+  // The caller takes ownership of the returned pointer.
+  const camera_metadata_t* getCaptureResultMetadataForTimestamp(int64_t timestamp)
+      EXCLUDES(mLock);
+
  private:
   mutable std::mutex mLock;
   // streamId -> VirtualCameraStream mapping.
   std::map<int, std::unique_ptr<VirtualCameraStream>> mStreams GUARDED_BY(mLock);
+  // The capture result consumer.
+  // This can be null if per frame metadata is not enabled.
+  std::shared_ptr<VirtualCameraCaptureResultConsumer>
+      mCaptureResultConsumer GUARDED_BY(mLock);
 };
 
 }  // namespace virtualcamera

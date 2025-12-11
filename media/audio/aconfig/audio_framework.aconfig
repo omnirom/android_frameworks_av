@@ -8,6 +8,28 @@ package: "android.media.audio"
 container: "system"
 
 flag {
+    name: "assistant_volume_control"
+    namespace: "media_audio"
+    description: "Implement the logic for having STREAM_ASSISTANT lead the volume control"
+    is_exported: true
+    bug: "416329698"
+}
+
+flag {
+    name: "audio_focus_desktop"
+    namespace: "media_audio"
+    description: "audio focus for desktop behaviors"
+    bug: "416963897"
+}
+
+flag {
+    name: "audio_focus_isolation"
+    namespace: "media_audio"
+    description: "Enables operation to isolate a uid's audio focus management."
+    bug: "428808570"
+}
+
+flag {
     name: "auto_public_volume_api_hardening"
     namespace: "media_audio"
     description: "On AAOS, make volume and ringer SDK APIs in AudioManager no-ops."
@@ -15,28 +37,10 @@ flag {
 }
 
 flag {
-    name: "automatic_bt_device_type"
+    name: "ble_hearing_aid_device"
     namespace: "media_audio"
-    description:
-        "Enable the automatic Bluetooth audio device type "
-        "categorization based on BluetoothDevice class metadata."
-    bug: "302323921"
-}
-
-flag {
-    name: "cache_get_stream_min_max_volume"
-    namespace: "media_audio"
-    description:
-       "Cache getStream[Min|Max]Volume calls between AudioManager and AudioService"
-    bug: "383667500"
-}
-
-flag {
-    name: "cache_get_stream_volume"
-    namespace: "media_audio"
-    description:
-       "Cache getStreamVolume calls between AudioManager and AudioService"
-    bug: "383667500"
+    description: "Add BLE hearing aid device category"
+    bug: "443740527"
 }
 
 flag {
@@ -50,11 +54,27 @@ flag {
 }
 
 flag {
+    name: "dap_injection_starve_management"
+    namespace: "media_audio"
+    description: "Dynamic AudioPolicy management of injection starvation"
+    bug: "416965224"
+    is_exported: true
+}
+
+flag {
     name: "deprecate_stream_bt_sco"
     namespace: "media_audio"
     description: "Deprecate STREAM_BLUETOOTH_SCO"
     is_exported: true
     bug: "376756660"
+}
+
+flag {
+    name: "device_volume_apis"
+    namespace: "media_audio"
+    description: "Add APIs to set/adjust volume for a specific device."
+    is_exported: true
+    bug: "404313846"
 }
 
 flag {
@@ -66,6 +86,13 @@ flag {
     is_exported: true
     is_fixed_read_only: true
     bug: "344031109"
+}
+
+flag {
+    name: "enable_platform_pc_type"
+    namespace: "media_audio"
+    description: "Return PLATFORM_PC in getPlatformType when the device has FEATURE_PC to control behavior on PC."
+    bug: "414709012"
 }
 
 flag{
@@ -138,6 +165,15 @@ flag {
 }
 
 flag {
+    name: "guard_stream_volume_apis"
+    namespace: "media_audio"
+    description:
+        "Guards getStreamVolume and getStreamMaxVolume APIs with permission."
+    bug: "417787833"
+    is_exported: true
+}
+
+flag {
     name: "hardening_permission_api"
     is_exported: true
     namespace: "media_audio"
@@ -159,6 +195,13 @@ flag {
     namespace: "media_audio"
     description: "API definitions for the IAMF format"
     bug: "337522902"
+}
+
+flag {
+    name: "leaudio_sw_offload"
+    namespace: "media_audio"
+    description: "Changes related to LEA SW offload"
+    bug: "372969373"
 }
 
 flag {
@@ -193,6 +236,13 @@ flag {
     namespace: "media_audio"
     description: "check user for RingtonePlayer URIs"
     bug: "400434060"
+}
+
+flag{
+    name: "ringtone_vibration_utils_api"
+    namespace: "media_audio"
+    description: "System APIs for ringtone vibration utils."
+    bug: "399265235"
 }
 
 flag {

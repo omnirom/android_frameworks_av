@@ -34,7 +34,8 @@
 namespace android {
 
 // base for record and playback
-class TrackBase : public ExtendedAudioBufferProvider, public virtual IAfTrackBase {
+class TrackBase : public ExtendedAudioBufferProvider, public virtual IAfTrackBase,
+         public VolumePortImpl {
 public:
     TrackBase(IAfThreadBase* thread,
                                 const sp<Client>& client,
@@ -54,6 +55,13 @@ public:
                                 audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE,
                                 std::string metricsId = {});
     ~TrackBase() override;
+
+    // Implement VolumePortInterface using helper VolumePortImpl.
+    void setPortVolume(float volume) final { VolumePortImpl::setPortVolume(volume); }
+    void setPortMute(bool mute) final { VolumePortImpl::setPortMute(mute); }
+    float getPortVolume() const final { return VolumePortImpl::getPortVolume(); }
+    bool getPortMute() const final { return VolumePortImpl::getPortMute(); }
+
     status_t initCheck() const override;
     sp<IMemory> getCblk() const final { return mCblkMemory; }
     audio_track_cblk_t* cblk() const final { return mCblk; }
@@ -252,6 +260,8 @@ public:
      */
     void endBatteryAttribution() final;
 
+    AudioBufferProvider* asAudioBufferProvider() final { return this; }
+
 protected:
     DISALLOW_COPY_AND_ASSIGN(TrackBase);
 
@@ -339,6 +349,14 @@ protected:
     virtual std::string trackFlagsAsString() const = 0;
 
     audio_utils::trace::Object createDeviceIntervalTrace(const std::string& devices);
+
+    virtual bool isOffloaded() const { return false; }
+
+    bool isNonOffloadableEffectEnabled_l() const final
+            REQUIRES(audio_utils::AudioFlinger_Mutex);
+
+    bool isNonOffloadableEffectEnabled() const final
+            EXCLUDES(audio_utils::AudioFlinger_Mutex);
 
     const wp<IAfThreadBase> mThread;
     const alloc_type     mAllocType;

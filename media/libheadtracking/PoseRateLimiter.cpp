@@ -15,6 +15,8 @@
  */
 #include <android-base/stringprintf.h>
 
+#include <cassert>
+
 #include "PoseRateLimiter.h"
 
 namespace android {

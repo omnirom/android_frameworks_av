@@ -75,7 +75,8 @@ public:
             audio_source_t source,
             audio_input_flags_t flags,
             audio_devices_t outputDevice,
-            const String8& outputDeviceAddress) REQUIRES(mutex()) = 0;
+            const String8& outputDeviceAddress,
+            int32_t mixPortHalId) REQUIRES(mutex()) = 0;
     virtual sp<IAfThreadBase> openOutput_l(audio_module_handle_t module,
             audio_io_handle_t* output,
             audio_config_t* halConfig,
@@ -83,10 +84,11 @@ public:
             audio_devices_t deviceType,
             const String8& address,
             audio_output_flags_t* flags,
-            audio_attributes_t attributes) REQUIRES(mutex()) = 0;
+            audio_attributes_t attributes,
+            int32_t mixPortHalId) REQUIRES(mutex()) = 0;
     virtual audio_utils::mutex& mutex() const
             RETURN_CAPABILITY(audio_utils::AudioFlinger_Mutex) = 0;
-    virtual const DefaultKeyedVector<audio_module_handle_t, AudioHwDevice*>&
+    virtual const std::map<audio_module_handle_t, AudioHwDevice*>&
             getAudioHwDevs_l() const REQUIRES(mutex()) = 0;
     virtual audio_unique_id_t nextUniqueId(audio_unique_id_use_t use) = 0;
     virtual const sp<PatchCommandThread>& getPatchCommandThread() = 0;
@@ -306,10 +308,13 @@ public:
 
     /**
      * Get the attributes of the mix port when connecting to the given device port.
+     * If `mixPortHalId` is not `AUDIO_PORT_HANDLE_NONE`, it will be used to determine
+     * the mix port. Otherwise, `mixPort->ext.mix.handle` will be used.
      */
     virtual status_t getAudioMixPort_l(
             const struct audio_port_v7* devicePort,
-            struct audio_port_v7* mixPort) REQUIRES(audio_utils::AudioFlinger_Mutex) = 0;
+            struct audio_port_v7* mixPort,
+            int32_t mixPortHalId) REQUIRES(audio_utils::AudioFlinger_Mutex) = 0;
 };
 
 }  // namespace android

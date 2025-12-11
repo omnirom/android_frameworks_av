@@ -160,9 +160,6 @@ TEST_F(SpatializerTest, SupportedBleLatencyTest) {
     if (!setpUpForHeadtracking()) {
         GTEST_SKIP() << "Skipping SupportedBleLatencyTest: head tracking not supported";
     }
-    if (!com::android::media::audio::dsa_over_bt_le_audio()) {
-        GTEST_SKIP() << "Skipping SupportedBleLatencyTest: DSA over LE not enabled";
-    }
     std::vector<audio_latency_mode_t> latencies = sBLELatencyModes;
     mSpatializer->onSupportedLatencyModesChangedMsg(sTestOutput, std::move(latencies));
 
@@ -219,9 +216,6 @@ TEST_F(SpatializerTest, RequestedA2dpLatencyTest) {
 TEST_F(SpatializerTest, RequestedBleLatencyTest) {
     if (!setpUpForHeadtracking()) {
         GTEST_SKIP() << "Skipping RequestedBleLatencyTest: head tracking not supported";
-    }
-    if (!com::android::media::audio::dsa_over_bt_le_audio()) {
-        GTEST_SKIP() << "Skipping RequestedBleLatencyTest: DSA over LE not enabled";
     }
 
     mSpatializer->onSupportedLatencyModesChangedMsg(sTestOutput,

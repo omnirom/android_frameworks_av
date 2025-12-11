@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <numeric>
 // for random()
 #include <stdlib.h>
 
@@ -24,9 +25,14 @@ using namespace aaudio;
 void TimestampScheduler::start(int64_t startTime) {
     mStartTime = startTime;
     mLastTime = startTime;
+    mStopped = false;
 }
 
 int64_t TimestampScheduler::nextAbsoluteTime() {
+    if (mStopped) {
+        return std::numeric_limits<int64_t>::max();
+    }
+
     int64_t periodsElapsed = (mLastTime - mStartTime) / mBurstPeriod;
     // This is an arbitrary schedule that could probably be improved.
     // It starts out sending a timestamp on every period because we want to

@@ -71,6 +71,20 @@ public:
     aaudio_result_t exitStandby(AudioEndpointParcelable* parcelable) override
             EXCLUDES(mMmapStreamLock);
 
+    aaudio_result_t drain(
+            int64_t wakeUpNanos, bool allowSoftWakeUp,
+            android::audio_utils::TimerQueue::handle_t* handle) final EXCLUDES(mMmapStreamLock);
+
+    aaudio_result_t activate(android::audio_utils::TimerQueue::handle_t handle)
+            final EXCLUDES(mMmapStreamLock);
+
+    aaudio_result_t setPlaybackParameters(
+            const android::media::audio::common::AudioPlaybackRate& rate)
+            final EXCLUDES(mMmapStreamLock);
+
+    aaudio_result_t getPlaybackParameters(
+            android::media::audio::common::AudioPlaybackRate* rate) final EXCLUDES(mMmapStreamLock);
+
     aaudio_result_t getFreeRunningPosition(int64_t *positionFrames, int64_t *timeNanos) override
              EXCLUDES(mMmapStreamLock);
 
@@ -84,6 +98,10 @@ public:
     void onVolumeChanged(float volume) override;
 
     void onRoutingChanged(const android::DeviceIdVector& deviceIds) override;
+
+    void onSoundDoseChanged(bool active) final;
+
+    void onWakeUp(android::audio_utils::TimerQueue::handle_t handle) final;
     // ------------------------------------------------------------------------------
 
     aaudio_result_t getDownDataDescription(AudioEndpointParcelable* parcelable);
@@ -92,7 +110,7 @@ public:
         return mHardwareTimeOffsetNanos;
     }
 
-    aaudio_result_t getExternalPosition(uint64_t *positionFrames, int64_t *timeNanos)
+    aaudio_result_t getObservablePosition(uint64_t *positionFrames, int64_t *timeNanos)
             EXCLUDES(mMmapStreamLock);
 
     int64_t nextDataReportTime() EXCLUDES(mMmapStreamLock);
@@ -141,4 +159,3 @@ private:
 } /* namespace aaudio */
 
 #endif //AAUDIO_SERVICE_ENDPOINT_MMAP_H
-

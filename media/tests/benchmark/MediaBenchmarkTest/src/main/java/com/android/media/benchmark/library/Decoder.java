@@ -29,6 +29,18 @@ import androidx.annotation.NonNull;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+
+
+
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -36,12 +48,14 @@ import java.util.List;
 
 import com.android.media.benchmark.library.IBufferXfer;
 
-public class Decoder implements IBufferXfer.IReceiveBuffer {
+public class Decoder implements IBufferXfer.IProducer {
     private static final String TAG = "Decoder";
     private static final boolean DEBUG = false;
+    private static final int TIMEOUT_IN_SEC_FOR_TASK = 2;
     private static final int kQueueDequeueTimeoutUs = 1000;
-
+    protected int DEFAULT_AUDIO_FRAME_SIZE = 4096;
     protected final Object mLock = new Object();
+    private final Object mFuturesLock = new Object();
     protected MediaCodec mCodec;
     protected int mExtraFlags = 0;
     protected Surface mSurface = null;
@@ -65,7 +79,6 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
     protected ArrayList<ByteBuffer> mInputBuffer;
     protected FileOutputStream mOutputStream;
     protected FrameReleaseQueue mFrameReleaseQueue = null;
-    protected IBufferXfer.ISendBuffer mIBufferSend = null;
 
     /* success for decoder */
     public static final int DECODE_SUCCESS = 0;
@@ -73,22 +86,96 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
     public static final int DECODE_DECODER_ERROR = -1;
     /* error while creating a decoder */
     public static final int DECODE_CREATE_ERROR = -2;
+    protected final ArrayDeque<DecoderData> mDecoderDataCache = new ArrayDeque<>();
+    protected final ArrayDeque<MediaCodec.BufferInfo> mBufferInfoCache = new ArrayDeque<>();
+    private final ExecutorService mScheduler = Executors.newFixedThreadPool(1);
+    private final ArrayDeque<Future<?>> mSchedulerFutures = new ArrayDeque<>();
+    protected IBufferXfer.IConsumer mConsumer = null;
+
+
+    @Override
+    public boolean setConsumer (@NonNull IBufferXfer.IConsumer consumer) {
+        mConsumer = consumer;
+        return true;
+    }
+
+    @Override
+    public boolean returnBuffers(ArrayDeque<IBufferXfer.IProducerData> datas) {
+        if (datas == null || datas.isEmpty()) {
+            Log.d(TAG, "Returned data is empty");
+            return true;
+        }
+        ArrayDeque<IBufferXfer.IProducerData> dataClone = datas.clone();
+        Future<?> future = mScheduler.submit(() -> { returnToCodec(dataClone); });
+        datas.clear();
+        handleFuture(future);
+        return true;
+    }
+
+    public void handleFuture(Future<?> future) {
+        synchronized(mFuturesLock) {
+            if (future != null) {
+                mSchedulerFutures.add(future);
+            }
+            while (mSchedulerFutures.isEmpty() == false
+                && mSchedulerFutures.peekFirst().isDone() == true) {
+                Future<?> task = mSchedulerFutures.pollFirst();
+                try {
+                    task.get();
+                } catch(Exception e) {
+                    Log.d (TAG, "Scheduler encountered an exception " + e.toString());
+                }
+            }
+        }
+    }
+
+    public static class DecoderData implements IBufferXfer.IProducerData{
+        public int mIdx = -1;
+        public ByteBuffer mBuffer = null;
+        MediaCodec.OutputFrame mOutputFrame = null;
+        public final ArrayDeque<MediaCodec.BufferInfo> mInfos = new ArrayDeque<>();
+
+        public ByteBuffer getBuffer() {
+            return mBuffer;
+        }
+
+        public ArrayDeque<MediaCodec.BufferInfo> getInfo() {
+            return mInfos;
+        }
+    }
+
+    void sendToConsumer(ArrayDeque<IBufferXfer.IProducerData> datas) {
+        if (DEBUG) {
+            Log.d(TAG, "Sending to consumer data size " + datas.size());
+        }
+        mConsumer.consume(datas);
+    }
+
+    void returnToCodec(ArrayDeque<IBufferXfer.IProducerData> datas) {
+        ArrayList<Integer> decoderIds = new ArrayList<>();
+        synchronized(mLock) {
+            for (IBufferXfer.IProducerData data : datas) {
+                DecoderData decoderData = (DecoderData)data;
+                decoderIds.add(decoderData.mIdx);
+                decoderData.mIdx = -1;
+                decoderData.mBuffer = null;
+                if (decoderData.getInfo().isEmpty() == false) {
+                    mBufferInfoCache.addAll(decoderData.getInfo());
+                    decoderData.getInfo().clear();
+                }
+                mDecoderDataCache.add(decoderData);
+            }
+        }
+        for (int id : decoderIds) {
+            if (DEBUG) {
+                Log.d(TAG, "Returning buffers to decoder ID " + id);
+            }
+            mCodec.releaseOutputBuffer(id, mRender);
+        }
+    }
+
     public Decoder() { mStats = new Stats(); }
     public Stats getStats() { return mStats; };
-    @Override
-    public boolean receiveBuffer(IBufferXfer.BufferXferInfo info) {
-        MediaCodec codec = (MediaCodec)info.obj;
-        if (info.isComplete) {
-            codec.releaseOutputBuffer(info.idx, mRender);
-        }
-        return true;
-    }
-    @Override
-    public boolean connect(IBufferXfer.ISendBuffer receiver) {
-        Log.d(TAG,"Setting interface of the sender");
-        mIBufferSend = receiver;
-        return true;
-    }
 
     public void setExtraConfigureFlags(int flags) {
         this.mExtraFlags = flags;
@@ -117,12 +204,12 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
     }
 
     public void setupDecoder(Surface surface, boolean render,
-            boolean useFrameReleaseQueue, int frameRate) {
+            boolean useFrameReleaseQueue, double frameRate) {
         setupDecoder(surface, render, useFrameReleaseQueue, frameRate, -1);
     }
 
     public void setupDecoder(Surface surface, boolean render,
-            boolean useFrameReleaseQueue, int frameRate, int numInFramesRequired) {
+            boolean useFrameReleaseQueue, double frameRate, int numInFramesRequired) {
         mSignalledError = false;
         mOutputStream = null;
         mSurface = surface;
@@ -157,7 +244,8 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
             }
         } catch (IllegalArgumentException ex) {
             ex.printStackTrace();
-            Log.e(TAG, "Failed to create decoder for " + codecName + " mime:" + mMime);
+            Log.e(TAG, "Failed to create decoder for "
+                    + codecName + " mime:" + mMime + ex.toString());
             return null;
         }
     }
@@ -213,8 +301,6 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
             synchronized (mLock) { mLock.notify(); }
         }
     });
-
-
     }
 
     /**
@@ -305,6 +391,18 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
                     if (outputBufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         MediaFormat outFormat = mCodec.getOutputFormat();
                         Log.i(TAG, "Output format changed. Format: " + outFormat.toString());
+                        if (mUseFrameReleaseQueue
+                                && mFrameReleaseQueue == null && mMime.startsWith("audio/")) {
+                            // start a frame release thread for this configuration.
+                            int bytesPerSample = AudioFormat.getBytesPerSample(
+                                    outFormat.getInteger(MediaFormat.KEY_PCM_ENCODING,
+                                            AudioFormat.ENCODING_PCM_16BIT));
+                            int sampleRate = outFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                            int channelCount = outFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                            mFrameReleaseQueue = new FrameReleaseQueue(
+                                    mRender, sampleRate, channelCount, bytesPerSample);
+                            mFrameReleaseQueue.setMediaCodec(mCodec);
+                        }
                     } else if (outputBufferId == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
                         Log.i(TAG, "Ignoring deprecated flag: INFO_OUTPUT_BUFFERS_CHANGED");
                     } else if (outputBufferId != MediaCodec.INFO_TRY_AGAIN_LATER) {
@@ -364,7 +462,25 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
     /**
      * Resets the stats
      */
-    public void resetDecoder() { mStats.reset(); }
+    public void resetDecoder() {
+        mStats.reset();
+        synchronized(mFuturesLock) {
+            while (mSchedulerFutures.isEmpty() == false) {
+                Future<?> future = mSchedulerFutures.pollFirst();
+                try {
+                    future.get(TIMEOUT_IN_SEC_FOR_TASK, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    Log.d(TAG, "Future timed-out in scheduler " + e.toString());
+                    future.cancel(true);
+                } catch (InterruptedException | ExecutionException e) {
+                    Log.d(TAG, "Future exception in scheduler " + e.toString());
+                }
+            }
+        }
+        if (mScheduler != null) {
+            mScheduler.shutdownNow();
+        }
+    }
 
     /**
      * Returns the format of the output buffers
@@ -405,6 +521,37 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
         }
     }
 
+    protected DecoderData prepareDecoderData(
+            int outputBufferId, ByteBuffer buffer, ArrayDeque<BufferInfo> infos) {
+        if (infos == null || infos.isEmpty() == true) {
+            Log.d(TAG, "Something wrong with buffers -- cannot send data");
+            return null;
+        }
+        DecoderData decoderData = null;
+        MediaCodec.BufferInfo ifo = null;
+        synchronized(mLock) {
+            decoderData = mDecoderDataCache.pollFirst();
+            if (decoderData == null) {
+                decoderData = new DecoderData();
+            }
+            decoderData.getInfo().clear();
+            decoderData.mBuffer = buffer;
+            decoderData.mIdx = outputBufferId;
+            for (MediaCodec.BufferInfo info : infos) {
+                ifo = mBufferInfoCache.pollFirst();
+                if (ifo == null) {
+                    ifo = new MediaCodec.BufferInfo();
+                }
+                ifo.set(info.offset,
+                        info.size,
+                        info.presentationTimeUs,
+                        info.flags);
+                decoderData.getInfo().add(ifo);
+            }
+        }
+        return decoderData;
+    }
+
     protected void onOutputAvailable(
             MediaCodec mediaCodec, int outputBufferId, BufferInfo outputBufferInfo) {
         if (mSawOutputEOS || outputBufferId < 0) {
@@ -414,46 +561,57 @@ public class Decoder implements IBufferXfer.IReceiveBuffer {
         if (DEBUG) {
             Log.d(TAG,
                     "In OutputBufferAvailable ,"
+                            + " MediaCodec buffer ID: " + outputBufferId
                             + " output frame number = " + mNumOutputFrame
                             + " timestamp = " + outputBufferInfo.presentationTimeUs
                             + " size = " + outputBufferInfo.size);
         }
-        if (mOutputStream != null) {
+        ByteBuffer outputBuffer = null;
+        if (mOutputStream != null && mSurface == null) {
             try {
-                ByteBuffer outputBuffer = mediaCodec.getOutputBuffer(outputBufferId);
-                byte[] bytesOutput = new byte[outputBuffer.remaining()];
-                outputBuffer.get(bytesOutput);
-                mOutputStream.write(bytesOutput);
+                outputBuffer = mediaCodec.getOutputBuffer(outputBufferId);
+                if (outputBuffer != null) {
+                    byte[] bytesOutput = new byte[outputBuffer.remaining()];
+                    outputBuffer.get(bytesOutput);
+                    mOutputStream.write(bytesOutput);
+                }
             } catch (IOException e) {
                 e.printStackTrace();
                 Log.d(TAG, "Error Dumping File: Exception " + e.toString());
             }
         }
+        mSawOutputEOS = (outputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
         if (mFrameReleaseQueue != null) {
             if (mMime.startsWith("audio/")) {
                 try {
-                    ByteBuffer outputBuffer = mediaCodec.getOutputBuffer(outputBufferId);
-                    mFrameReleaseQueue.pushFrame(outputBufferId, outputBuffer.remaining());
+                    mFrameReleaseQueue.pushFrame(outputBufferId, outputBufferInfo.size);
                 } catch (Exception e) {
                     Log.d(TAG, "Error in getting MediaCodec buffer" + e.toString());
                 }
             } else {
-                mFrameReleaseQueue.pushFrame(mNumOutputFrame, outputBufferId,
+                if ((outputBufferInfo.flags & (MediaCodec.BUFFER_FLAG_CODEC_CONFIG)) == 0) {
+                    mFrameReleaseQueue.pushFrame(mNumOutputFrame, outputBufferId,
                                                 outputBufferInfo.presentationTimeUs);
+                } else {
+                    mediaCodec.releaseOutputBuffer(outputBufferId, mRender);
+                }
             }
-        } else if (mIBufferSend != null) {
-            IBufferXfer.BufferXferInfo info = new IBufferXfer.BufferXferInfo();
-            info.buf = mediaCodec.getOutputBuffer(outputBufferId);
-            info.idx = outputBufferId;
-            info.obj = mediaCodec;
-            info.bytesRead = outputBufferInfo.size;
-            info.presentationTimeUs = outputBufferInfo.presentationTimeUs;
-            info.flag = outputBufferInfo.flags;
-            mIBufferSend.sendBuffer(this, info);
+        } else if (mConsumer != null && mSurface == null) {
+            ArrayDeque<MediaCodec.BufferInfo> infos = new ArrayDeque<>();
+            infos.add(outputBufferInfo);
+            if(outputBuffer == null) {
+                outputBuffer = mediaCodec.getOutputBuffer(outputBufferId);
+            }
+            DecoderData data = prepareDecoderData(
+                    outputBufferId, outputBuffer, infos);
+            if (data != null) {
+                ArrayDeque<IBufferXfer.IProducerData> buffers = new ArrayDeque<>();
+                buffers.add(data);
+                sendToConsumer(buffers);
+            }
         } else {
             mediaCodec.releaseOutputBuffer(outputBufferId, mRender);
         }
-        mSawOutputEOS = (outputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
         if (mSawOutputEOS) {
             Log.i(TAG, "Saw output EOS");
         }

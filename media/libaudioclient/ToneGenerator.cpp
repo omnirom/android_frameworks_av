@@ -1321,15 +1321,20 @@ bool ToneGenerator::initAudioTrack() {
     if (mStreamType == AUDIO_STREAM_VOICE_CALL || mStreamType == AUDIO_STREAM_BLUETOOTH_SCO) {
         streamType = AUDIO_STREAM_DTMF;
     }
-    attr = AudioSystem::streamTypeToAttributes(streamType);
+    AudioSystem::getAttributesForStreamType(streamType, attr);
     attr.flags = static_cast<audio_flags_mask_t>(attr.flags | AUDIO_FLAG_LOW_LATENCY);
-
+    size_t frameCount = 0;
+    if (AudioSystem::getOutputSamplingRate(&mSamplingRate, streamType) == NO_ERROR) {
+        frameCount = (mSamplingRate * kCadenceMs) / 1000;
+    } else {
+        mSamplingRate = 0;
+    }
     status_t status = mpAudioTrack->set(
             AUDIO_STREAM_DEFAULT,
-            0,    // sampleRate
+            mSamplingRate,
             AUDIO_FORMAT_PCM_16_BIT,
             AUDIO_CHANNEL_OUT_MONO,
-            0,    // frameCount
+            frameCount,
             AUDIO_OUTPUT_FLAG_NONE,
             wp<AudioTrack::IAudioTrackCallback>::fromExisting(this),
             0,    // notificationFrames
@@ -1349,9 +1354,15 @@ bool ToneGenerator::initAudioTrack() {
         return false;
     }
 
-    mSamplingRate = mpAudioTrack->getSampleRate();
-    // Generate tone by chunks of 20 ms to keep cadencing precision
-    mProcessSize = (mSamplingRate * 20) / 1000;
+    if (mSamplingRate == 0) {
+        mSamplingRate = mpAudioTrack->getSampleRate();
+    } else {
+        LOG_ALWAYS_FATAL_IF(mSamplingRate != mpAudioTrack->getSampleRate(),
+            "ToneGenerator track sample rate %d does not match requested rate %d",
+            mpAudioTrack->getSampleRate(), mSamplingRate);
+    }
+    // Generate tone by chunks of kCadenceMs ms to keep cadencing precision
+    mProcessSize = (mSamplingRate * kCadenceMs) / 1000;
 
     mpAudioTrack->setVolume(mVolume);
     mState = TONE_INIT;

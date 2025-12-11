@@ -36,6 +36,7 @@
 #include "CameraServiceWatchdog.h"
 #include <aidl/android/hardware/camera/device/CameraBlob.h>
 
+#include <android/content/res/CameraCompatibilityInfo.h>
 #include "common/CameraDeviceBase.h"
 #include "common/DepthPhotoProcessor.h"
 #include "common/FrameProcessorBase.h"
@@ -65,6 +66,7 @@ using android::camera3::camera_stream_configuration_mode_t;
 using android::camera3::CAMERA_TEMPLATE_COUNT;
 using android::camera3::OutputStreamInfo;
 using android::camera3::SurfaceHolder;
+using android::content::res::CameraCompatibilityInfo;
 
 namespace android {
 
@@ -92,7 +94,8 @@ class Camera3Device :
 
     explicit Camera3Device(std::shared_ptr<CameraServiceProxyWrapper>& cameraServiceProxyWrapper,
             std::shared_ptr<AttributionAndPermissionUtils> attributionAndPermissionUtils,
-            const std::string& id, bool overrideForPerfClass, int rotationOverride,
+            const std::string& id, bool overrideForPerfClass,
+            const CameraCompatibilityInfo& compatInfo,
             bool isVendorClient, bool legacyClient = false);
 
     virtual ~Camera3Device();
@@ -220,8 +223,8 @@ class Camera3Device :
 
     virtual status_t beginConfigure() override {return OK;};
 
-    virtual status_t getSharedStreamId(const OutputStreamInfo& /*config*/,
-            int* /*streamId*/) override {return INVALID_OPERATION;};
+    virtual status_t getSharedStreamIds(const OutputStreamInfo& /*config*/,
+           std::vector< int>& /*streamIds*/) override {return INVALID_OPERATION;};
 
     virtual status_t addSharedSurfaces(int /*streamId*/,
             const std::vector<android::camera3::OutputStreamInfo>& /*outputInfo*/,
@@ -253,12 +256,7 @@ class Camera3Device :
     status_t configureStreams(const CameraMetadata& sessionParams,
             int operatingMode =
             camera_stream_configuration_mode_t::CAMERA_STREAM_CONFIGURATION_NORMAL_MODE) override;
-#if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
     status_t getInputSurface(sp<Surface> *surface) override;
-#else
-    status_t getInputBufferProducer(
-            sp<IGraphicBufferProducer> *producer) override;
-#endif
 
     void getOfflineStreamIds(std::vector<int> *offlineStreamIds) override;
 
@@ -940,6 +938,8 @@ class Camera3Device :
     void               setErrorStateV(const char *fmt, va_list args);
     void               setErrorStateLockedV(const char *fmt, va_list args);
 
+    bool               isInErrorState();
+
     /////////////////////////////////////////////////////////////////////
     // Implements InflightRequestUpdateInterface
 
@@ -963,7 +963,7 @@ class Camera3Device :
 
     // Override rotate_and_crop control if needed
     static bool    overrideAutoRotateAndCrop(const sp<CaptureRequest> &request /*out*/,
-            int rotationOverride,
+            const CameraCompatibilityInfo& compatInfo,
             camera_metadata_enum_android_scaler_rotate_and_crop_t rotateAndCropOverride);
 
     // Override auto framing control if needed
@@ -1000,7 +1000,7 @@ class Camera3Device :
                 const Vector<int32_t>& sessionParamKeys,
                 bool useHalBufManager,
                 bool supportCameraMute,
-                int rotationOverride,
+                const CameraCompatibilityInfo& compatInfo,
                 bool supportSettingsOverride);
         ~RequestThread();
 
@@ -1235,7 +1235,7 @@ class Camera3Device :
                 const camera_metadata_t *request);
 
         // Check and update latest session parameters based on the current request settings.
-        bool updateSessionParameters(const CameraMetadata& settings);
+        bool updateSessionParameters(const CameraMetadata& settings, bool *updatesDetected/*out*/);
 
         // Check whether FPS range session parameter re-configuration is needed in constrained
         // high speed recording camera sessions.
@@ -1321,14 +1321,14 @@ class Camera3Device :
         Vector<int32_t>    mSessionParamKeys;
         CameraMetadata     mLatestSessionParams;
         CameraMetadata     mInjectedSessionParams;
-        bool               mForceNewRequestAfterReconfigure;
+        bool               mForceNewRequest;
 
         std::map<int32_t, std::set<std::string>> mGroupIdPhysicalCameraMap;
 
         bool               mUseHalBufManager = false;
         std::set<int32_t > mHalBufManagedStreamIds;
         const bool         mSupportCameraMute;
-        const bool         mRotationOverride;
+        const CameraCompatibilityInfo& mCompatInfo;
         const bool         mSupportSettingsOverride;
         int32_t            mVndkVersion = -1;
     };
@@ -1339,7 +1339,7 @@ class Camera3Device :
                 const Vector<int32_t>& /*sessionParamKeys*/,
                 bool /*useHalBufManager*/,
                 bool /*supportCameraMute*/,
-                int /*rotationOverride*/,
+                const CameraCompatibilityInfo& /*compatInfo*/,
                 bool /*supportSettingsOverride*/) = 0;
 
     sp<RequestThread> mRequestThread;
@@ -1363,7 +1363,8 @@ class Camera3Device :
             bool isFixedFps, const std::set<std::set<std::string>>& physicalCameraIds,
             bool isStillCapture, bool isZslCapture, bool rotateAndCropAuto, bool autoframingAuto,
             const std::set<std::string>& cameraIdsWithZoom, bool useZoomRatio,
-            const SurfaceMap& outputSurfaces, nsecs_t requestTimeNs);
+            const SurfaceMap& outputSurfaces, nsecs_t requestTimeNs,
+            const TransformationMap& transform);
 
     /**
      * Tracking for idle detection
@@ -1519,6 +1520,9 @@ class Camera3Device :
     // b/79972865
     Mutex mTrackerLock;
 
+    // Drop buffers for all streams
+    void dropAllStreamBuffers();
+
     // Whether HAL request buffers through requestStreamBuffers API
     bool mUseHalBufManager = false;
     std::set<int32_t > mHalBufManagedStreamIds;
@@ -1621,7 +1625,7 @@ class Camera3Device :
 
     // Whether the camera framework overrides the device characteristics for
     // app compatibility reasons.
-    int mRotationOverride;
+    CameraCompatibilityInfo mCompatInfo;
     camera_metadata_enum_android_scaler_rotate_and_crop_t mRotateAndCropOverride;
     bool mComposerOutput;
 

@@ -20,6 +20,7 @@
 #include <aidl/AidlUtils.h>
 #include <aidl/android/frameworks/cameraservice/device/CaptureMetadataInfo.h>
 #include <android-base/properties.h>
+#include <cutils/properties.h>
 #include <utils/Utils.h>
 
 namespace android::frameworks::cameraservice::device::implementation {
@@ -72,7 +73,8 @@ bool AidlCameraDeviceUser::initDevice() {
         return false;
     }
 
-    int32_t resFMQSize = CAMERA_RESULT_METADATA_QUEUE_SIZE;
+    int32_t resFMQSize = property_get_int32(FMQ_SIZE_PROP.c_str(),
+            /*default*/CAMERA_RESULT_METADATA_QUEUE_SIZE);
     mCaptureResultMetadataQueue =
         std::make_shared<CaptureResultMetadataQueue>(static_cast<size_t>(resFMQSize),
                                                      false /* non blocking */);

@@ -217,7 +217,8 @@ class FakeBnSurfaceComposerClient : public gui::BnSurfaceComposerClient {
                 (const sp<IBinder>& handle, gui::FrameStats* outStats), (override));
 
     MOCK_METHOD(binder::Status, mirrorSurface,
-                (const sp<IBinder>& mirrorFromHandle, gui::CreateSurfaceResult* outResult),
+                (const sp<IBinder>& mirrorFromHandle, const sp<IBinder>& stopAtHandle,
+                 gui::CreateSurfaceResult* outResult),
                 (override));
 
     MOCK_METHOD(binder::Status, mirrorDisplay,
@@ -325,7 +326,8 @@ void MediaPlayerServiceFuzzer::invokeMediaPlayer() {
                     sp<SurfaceControl> surfaceControl = makeSurfaceControl();
                     if (surfaceControl) {
                         sp<Surface> surface = surfaceControl->getSurface();
-                        mMediaPlayer->setVideoSurfaceTexture(surface->getIGraphicBufferProducer());
+                        mMediaPlayer->setVideoSurfaceTexture(
+                            mediaflagtools::surfaceToSurfaceType(surface));
                     }
                 },
                 [&]() {

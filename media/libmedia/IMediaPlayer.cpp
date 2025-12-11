@@ -22,6 +22,7 @@
 #include <binder/IPCThreadState.h>
 #include <binder/Parcel.h>
 #include <gui/IGraphicBufferProducer.h>
+#include <gui/view/Surface.h>
 #include <media/AudioResamplerPublic.h>
 #include <media/AVSyncSettings.h>
 #include <media/BufferingSettings.h>
@@ -149,14 +150,19 @@ public:
         return reply.readInt32();
     }
 
-    // pass the buffered IGraphicBufferProducer to the media player service
-    status_t setVideoSurfaceTexture(const sp<IGraphicBufferProducer>& bufferProducer)
+    // pass the buffered Surface to the media player service
+    status_t setVideoSurfaceTexture(const sp<MediaSurfaceType>& surface)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
-        sp<IBinder> b(IInterface::asBinder(bufferProducer));
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        data.writeParcelable(view::Surface::fromSurface(surface));
+        remote()->transact(SET_VIDEO_SURFACETEXTURE_V2, data, &reply);
+#else
+        sp<IBinder> b(IInterface::asBinder(surface));
         data.writeStrongBinder(b);
         remote()->transact(SET_VIDEO_SURFACETEXTURE, data, &reply);
+#endif
         return reply.readInt32();
     }
 
@@ -684,9 +690,19 @@ status_t BnMediaPlayer::onTransact(
             CHECK_INTERFACE(IMediaPlayer, data, reply);
             sp<IGraphicBufferProducer> bufferProducer =
                     interface_cast<IGraphicBufferProducer>(data.readStrongBinder());
-            reply->writeInt32(setVideoSurfaceTexture(bufferProducer));
+            reply->writeInt32(setVideoSurfaceTexture(
+                    mediaflagtools::igbpToSurfaceType(bufferProducer)));
             return NO_ERROR;
         } break;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        case SET_VIDEO_SURFACETEXTURE_V2: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            view::Surface surface;
+            data.readParcelable(&surface);
+            reply->writeInt32(setVideoSurfaceTexture(surface.toSurface()));
+            return NO_ERROR;
+        } break;
+#endif
         case SET_BUFFERING_SETTINGS: {
             CHECK_INTERFACE(IMediaPlayer, data, reply);
             BufferingSettings buffering;

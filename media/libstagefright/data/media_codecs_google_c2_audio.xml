@@ -76,6 +76,18 @@
             <Limit name="sample-rate" ranges="1-655350" />
             <Limit name="bitrate" range="1-21000000" />
         </MediaCodec>
+        <MediaCodec name="c2.android.iamf.decoder" type="audio/iamf" minsdk="36" variant="!slow-cpu">
+            <!-- IAMF v1.0 (Simple and Base profiles) support up to 18 input channels.
+                 See https://aomediacodec.github.io/iamf/v1.0.0-errata.html#syntax-layout. -->
+            <Limit name="channel-count" max="18" />
+            <!-- The decoder currently supports Opus and PCM which are limited to 48k and
+                 16, 32, 44.1, 48, and 96k, respectively, by the IAMF spec.
+                 This will need to be updated when AAC and FLAC are added. -->
+            <Limit name="sample-rate" ranges="16000,32000,44100,48000,96000" />
+            <!-- Permissive bitrate range, representing the max range of FLAC, the
+                 widest range of the IAMF encoding types. -->
+            <Limit name="bitrate" range="1-21000000" />
+        </MediaCodec>
     </Decoders>
     <Encoders>
         <MediaCodec name="c2.android.aac.encoder" type="audio/mp4a-latm">

@@ -25,6 +25,8 @@
 
 namespace android {
 
+static const std::string FMQ_SIZE_PROP = "ro.camera.resultFmqSize";
+
 /**
  * Magically convert an enum to its underlying integer type, mostly so they can be
  * printed with printf-style formatters without warnings.

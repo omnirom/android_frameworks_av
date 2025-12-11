@@ -104,11 +104,47 @@ hardware::camera2::params::OutputConfiguration convertFromHidl(
         surfaces.push_back(new H2BGraphicBufferProducer(igbp));
 #endif
     }
+
+    int format = 0, dataSpace = 0;
+    int width = 0, height = 0;
+    if (!surfaces.empty()) {
+        // We need to query these here since vendor clients are forbidden by sepolicy
+        // to talk to some consumer processes such as an app which may be passing a preview
+        // surface to a HAL process which uses the VNDK interface.
+#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+        if (surfaces[0].graphicBufferProducer->query(NATIVE_WINDOW_FORMAT, &format) != OK) {
+            ALOGE("%s: NATIVE_WINDOW_FORMAT query failed", __FUNCTION__);
+        }
+        if (surfaces[0].graphicBufferProducer->query(NATIVE_WINDOW_DEFAULT_DATASPACE,
+            &dataSpace) != OK) {
+            ALOGE("%s: NATIVE_WINDOW_DEFAULT_DATASPACE query failed", __FUNCTION__);
+        }
+        if (surfaces[0].graphicBufferProducer->query(NATIVE_WINDOW_WIDTH, &width) != OK) {
+            ALOGE("%s: NATIVE_WINDOW_WIDTH query failed", __FUNCTION__);
+        }
+        if (surfaces[0].graphicBufferProducer->query(NATIVE_WINDOW_HEIGHT, &height) != OK) {
+            ALOGE("%s: NATIVE_WINDOW_HEIGHT query failed", __FUNCTION__);
+        }
+#else
+        if (surfaces[0]->query(NATIVE_WINDOW_FORMAT, &format) != OK) {
+            ALOGE("%s: NATIVE_WINDOW_FORMAT query failed", __FUNCTION__);
+        }
+        if (surfaces[0]->query(NATIVE_WINDOW_DEFAULT_DATASPACE, &dataSpace) != OK) {
+            ALOGE("%s: NATIVE_WINDOW_DEFAULT_DATASPACE query failed", __FUNCTION__);
+        }
+        if (surfaces[0]->query(NATIVE_WINDOW_WIDTH, &width) != OK) {
+            ALOGE("%s: NATIVE_WINDOW_WIDTH query failed", __FUNCTION__);
+        }
+        if (surfaces[0]->query(NATIVE_WINDOW_HEIGHT, &height) != OK) {
+            ALOGE("%s: NATIVE_WINDOW_HEIGHT query failed", __FUNCTION__);
+        }
+#endif
+    }
     hardware::camera2::params::OutputConfiguration outputConfiguration(
         surfaces, convertFromHidl(hOutputConfiguration.rotation),
         hOutputConfiguration.physicalCameraId,
-        hOutputConfiguration.windowGroupId, OutputConfiguration::SURFACE_TYPE_UNKNOWN, 0, 0,
-        (windowHandles.size() > 1));
+        hOutputConfiguration.windowGroupId, OutputConfiguration::SURFACE_TYPE_UNKNOWN,
+        width, height, (windowHandles.size() > 1), format, dataSpace);
     return outputConfiguration;
 }
 

@@ -25,6 +25,8 @@
 
 #include <aaudio/AAudio.h>
 #include <aaudio/AAudioTesting.h>
+#include <com_android_media_aaudio.h>
+#include <com_android_media_audioserver.h>
 #include <system/aaudio/AAudio.h>
 #include <system/audio.h>
 #include "AudioClock.h"
@@ -250,6 +252,20 @@ AAUDIO_API void AAudioStreamBuilder_setDataCallback(AAudioStreamBuilder* builder
     streamBuilder->setDataCallbackUserData(userData);
 }
 
+AAUDIO_API aaudio_result_t AAudioStreamBuilder_setPartialDataCallback(
+        AAudioStreamBuilder* builder,
+        AAudioStream_partialDataCallback callback,
+        void *userData)
+{
+    if (!com::android::media::aaudio::new_data_callback()) {
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
+    AudioStreamBuilder *streamBuilder = convertAAudioBuilderToStreamBuilder(builder);
+    streamBuilder->setPartialDataCallbackProc(callback)
+                 ->setDataCallbackUserData(userData);
+    return AAUDIO_OK;
+}
+
 AAUDIO_API void AAudioStreamBuilder_setErrorCallback(AAudioStreamBuilder* builder,
                                                  AAudioStream_errorCallback callback,
                                                  void *userData)
@@ -295,11 +311,18 @@ AAUDIO_API aaudio_result_t  AAudioStreamBuilder_openStream(AAudioStreamBuilder* 
     if (result == AAUDIO_OK) {
         *streamPtr = (AAudioStream*) audioStream;
         id = audioStream->getId();
+        ALOGI("%s() got %s, devIds = [%s], perf = %s, burst = %d",
+              __func__,
+              (audioStream->isMMap() ? "MMAP" : "Legacy"),
+              android::toString(audioStream->getDeviceIds()).c_str(),
+              AudioGlobal_convertPerformanceModeToShortText(audioStream->getPerformanceMode()),
+              audioStream->getFramesPerBurst()
+              );
     } else {
         *streamPtr = nullptr;
     }
     ALOGI("%s() returns %d = %s for s#%u ----------------",
-        __func__, result, AAudio_convertResultToText(result), id);
+          __func__, result, AAudio_convertResultToText(result), id);
     return result;
 }
 
@@ -753,4 +776,31 @@ AAUDIO_API int32_t AAudioStream_getOffloadPadding(AAudioStream* stream) {
 AAUDIO_API aaudio_result_t AAudioStream_setOffloadEndOfStream(AAudioStream* stream) {
     AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
     return audioStream->setOffloadEndOfStream();
+}
+
+AAUDIO_API aaudio_result_t AAudioStream_flushFromFrame(
+        AAudioStream* stream, AAudio_FlushFromAccuracy accuracy, int64_t* inOutPosition) {
+    if (!com::android::media::audioserver::mmap_pcm_offload_support()) {
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
+    AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
+    return audioStream->flushFromFrame(accuracy, inOutPosition);
+}
+
+AAUDIO_API aaudio_result_t AAudioStream_setPlaybackParameters(
+        AAudioStream* stream, const AAudioPlaybackParameters* parameters) {
+    if (!com::android::media::audioserver::mmap_pcm_offload_support()) {
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
+    AudioStream* audioStream = convertAAudioStreamToAudioStream(stream);
+    return audioStream->setPlaybackParameters(parameters);
+}
+
+AAUDIO_API aaudio_result_t AAudioStream_getPlaybackParameters(
+        AAudioStream* stream, AAudioPlaybackParameters* outParameters) {
+    if (!com::android::media::audioserver::mmap_pcm_offload_support()) {
+        return AAUDIO_ERROR_UNIMPLEMENTED;
+    }
+    AudioStream* audioStream = convertAAudioStreamToAudioStream(stream);
+    return audioStream->getPlaybackParameters(outParameters);
 }

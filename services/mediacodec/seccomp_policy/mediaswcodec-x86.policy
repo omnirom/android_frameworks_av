@@ -13,7 +13,6 @@
 # limitations under the License.
 
 read: 1
-mprotect: 1
 prctl: 1
 openat: 1
 open: 1
@@ -23,8 +22,8 @@ getrlimit: 1
 writev: 1
 ioctl: 1
 close: 1
-mmap2: 1
-mmap: 1
+mprotect: arg2 in ~PROT_EXEC || arg2 in ~PROT_WRITE
+mmap2: arg2 in ~PROT_EXEC || arg2 in ~PROT_WRITE
 fstat64: 1
 fstat: 1
 stat: 1
@@ -60,14 +59,17 @@ nanosleep: 1
 sched_setscheduler: 1
 uname: 1
 memfd_create: 1
+fsetxattr: 1
 ftruncate: 1
 ftruncate64: 1
 
 # Required by AddressSanitizer
-gettid: 1
-sched_yield: 1
 getpid: 1
 gettid: 1
+sched_yield: 1
 
-@include /apex/com.android.media.swcodec/etc/seccomp_policy/crash_dump.x86.policy
+# The mmap2/mprotect/prctl rules in this file are less restrictive than the rules
+# in the crash_dump policy file. Therefore, include a version of the crash_dump
+# policy that does not include any mmap2/mprotect/prctl rules.
+@include /apex/com.android.media.swcodec/etc/seccomp_policy/crash_dump.no_mmap_mprotect_prctl.x86.policy
 @include /apex/com.android.media.swcodec/etc/seccomp_policy/code_coverage.x86.policy

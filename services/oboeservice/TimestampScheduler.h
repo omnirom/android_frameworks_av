@@ -57,11 +57,16 @@ public:
         return mBurstPeriod;
     }
 
+    void stop() {
+        mStopped = true;
+    }
+
 private:
     // Start with an arbitrary default so we do not divide by zero.
     int64_t mBurstPeriod = AAUDIO_NANOS_PER_MILLISECOND;
     int64_t mStartTime = 0;
     int64_t mLastTime = 0;
+    bool mStopped = false;
 };
 
 } /* namespace aaudio */

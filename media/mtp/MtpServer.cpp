@@ -133,6 +133,7 @@ MtpServer::MtpServer(IMtpDatabase* database, int controlFd, bool ptp,
 
 MtpServer::~MtpServer() {
     if (mHandle) {
+        mHandle->close();
         delete mHandle;
         mHandle = NULL;
     }

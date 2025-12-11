@@ -443,6 +443,22 @@ ALookup<C2Config::profile_t, int32_t> sApvProfiles = {
     { C2Config::PROFILE_APV_422_10, APVProfile422_10HDR10Plus },
 };
 
+// IAMF
+ALookup<C2Config::profile_t, int32_t> sIamfProfiles = {
+    { C2Config::PROFILE_IAMF_SIMPLE_AAC, IAMFProfileSimpleAac },
+    { C2Config::PROFILE_IAMF_SIMPLE_FLAC, IAMFProfileSimpleFlac },
+    { C2Config::PROFILE_IAMF_SIMPLE_OPUS, IAMFProfileSimpleOpus },
+    { C2Config::PROFILE_IAMF_SIMPLE_PCM, IAMFProfileSimplePcm },
+    { C2Config::PROFILE_IAMF_BASE_AAC, IAMFProfileBaseAac },
+    { C2Config::PROFILE_IAMF_BASE_FLAC, IAMFProfileBaseFlac },
+    { C2Config::PROFILE_IAMF_BASE_OPUS, IAMFProfileBaseOpus },
+    { C2Config::PROFILE_IAMF_BASE_PCM, IAMFProfileBasePcm },
+    { C2Config::PROFILE_IAMF_BASE_ENHANCED_AAC, IAMFProfileBaseEnhancedAac },
+    { C2Config::PROFILE_IAMF_BASE_ENHANCED_FLAC, IAMFProfileBaseEnhancedFlac },
+    { C2Config::PROFILE_IAMF_BASE_ENHANCED_OPUS, IAMFProfileBaseEnhancedOpus },
+    { C2Config::PROFILE_IAMF_BASE_ENHANCED_PCM, IAMFProfileBaseEnhancedPcm },
+};
+
 ALookup<C2Config::profile_t, int32_t> sApvHdrProfiles = {
     { C2Config::PROFILE_APV_422_10, APVProfile422_10HDR10 },
 };
@@ -816,6 +832,28 @@ private:
     int32_t mBitDepth;
 };
 
+// IAMF only uses profiles, map all levels to unused or 0
+struct IamfProfileLevelMapper : ProfileLevelMapperHelper {
+    virtual bool simpleMap(C2Config::level_t, int32_t *to) {
+        *to = 0;
+        return true;
+    }
+    virtual bool simpleMap(int32_t, C2Config::level_t *to) {
+        *to = C2Config::LEVEL_UNUSED;
+        return true;
+    }
+    virtual bool simpleMap(C2Config::profile_t from, int32_t *to) {
+        return sIamfProfiles.map(from, to);
+    }
+    virtual bool simpleMap(int32_t from, C2Config::profile_t *to) {
+        return sIamfProfiles.map(from, to);
+    }
+    // IAMF does not have HDR format
+    virtual bool mapHdrFormat(int32_t, C2Config::hdr_format_t*) override {
+        return false;
+    }
+};
+
 // APV
 struct ApvProfileLevelMapper : ProfileLevelMapperHelper {
     ApvProfileLevelMapper(bool isHdr = false, bool isHdr10Plus = false) :
@@ -899,6 +937,8 @@ C2Mapper::GetProfileLevelMapper(std::string mediaType) {
         return std::make_shared<ApvProfileLevelMapper>();
     } else if (mediaType == MIMETYPE_AUDIO_AC4) {
         return std::make_shared<Ac4ProfileLevelMapper>();
+    } else if (mediaType == MIMETYPE_AUDIO_IAMF) {
+        return std::make_shared<IamfProfileLevelMapper>();
     }
     return nullptr;
 }

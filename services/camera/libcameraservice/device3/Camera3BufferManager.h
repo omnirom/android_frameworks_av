@@ -65,10 +65,10 @@ public:
      * over the buffer allocation role and provides buffers to this stream via getBufferForStream().
      * The returned buffer can be sent to the camera HAL for image output, and then queued to the
      * ANativeWindow (Surface) for downstream consumer to acquire. Once the image buffer is released
-     * by the consumer end point, the BufferQueueProducer callback onBufferReleased will call
-     * returnBufferForStream() to return the free buffer to this buffer manager. If the stream
-     * uses buffer manager to manage the stream buffers, it should disable the BufferQueue
-     * allocation via Surface::allowAllocation(false).
+     * by the consumer end point, the BufferQueueProducer callback onBufferReleased will update
+     * handoutBufferCount and indicate whether the caller should free the released buffer to be
+     * under the watermark. If the stream uses buffer manager to manage the stream buffers, it
+     * should disable the BufferQueue allocation via Surface::allowAllocation(false).
      *
      * Registering an already registered stream has no effect.
      *
@@ -112,10 +112,6 @@ public:
      *
      * After this call, the client takes over the ownership of this buffer if it is not freed.
      *
-     * Sometimes free buffers are discarded from consumer side and the dequeueBuffer call returns
-     * TIMED_OUT, in this case calling getBufferForStream again with noFreeBufferAtConsumer set to
-     * true will notify buffer manager to update its states and also tries to allocate a new buffer.
-     *
      * Return values:
      *
      *  OK:        Getting buffer for this stream was successful.
@@ -127,8 +123,7 @@ public:
      *  NO_MEMORY: Unable to allocate a buffer for this stream at this time.
      */
     status_t getBufferForStream(
-            int streamId, int streamSetId, bool isMultiRes, sp<GraphicBuffer>* gb,
-            int* fenceFd, bool noFreeBufferAtConsumer = false);
+            int streamId, int streamSetId, bool isMultiRes, sp<GraphicBuffer>* gb, int* fenceFd);
 
     /**
      * This method notifies the manager that a buffer has been released by the consumer.
@@ -139,7 +134,7 @@ public:
      * The notification lets the manager know how many buffers are directly available to the stream.
      *
      * If onBufferReleased is called for a given released buffer,
-     * returnBufferForStream may not be called for the same buffer, until the
+     * checkAndFreeBufferOnOtherStreamsLocked may not be called for the same buffer, until the
      * buffer has been reused. The manager will call detachBuffer on the stream
      * if it needs the released buffer otherwise.
      *
@@ -151,18 +146,24 @@ public:
      *  OK:        Buffer release was processed succesfully
      *  BAD_VALUE: stream ID or streamSetId are invalid, or stream ID and stream set ID
      *             combination doesn't match what was registered, or this stream wasn't registered
-     *             to this buffer manager before, or shouldFreeBuffer is null/
+     *             to this buffer manager before, or shouldFreeBuffer is null.
      */
     status_t onBufferReleased(int streamId, int streamSetId, bool isMultiRes,
                               /*out*/bool* shouldFreeBuffer);
 
     /**
      * This method notifies the manager that certain buffers has been removed from the
-     * buffer queue by detachBuffer from the consumer.
+     * buffer queue by detachBuffer/discardFreeBuffers from the consumer.
      *
      * The notification lets the manager update its internal handout buffer count and
-     * attached buffer counts accordingly. When buffers are detached from
-     * consumer, both handout and attached counts are decremented.
+     * attached buffer counts accordingly.
+     *
+     * released == true: buffers are released and discarded through
+     * discardFreeBuffers. Only attached counts are decremented because released
+     * buffers aren't counted as handed out.
+     *
+     * released == false: buffers are acquired and detached by the consumer.
+     * Both handout and attached counts are decremented.
      *
      * Return values:
      *
@@ -172,7 +173,8 @@ public:
      *             to this buffer manager before, or the removed buffer count is larger than
      *             current total handoutCount or attachedCount.
      */
-    status_t onBuffersRemoved(int streamId, int streamSetId, bool isMultiRes, size_t count);
+    status_t onBuffersRemoved(int streamId, int streamSetId,
+                              bool isMultiRes, size_t count, bool released);
 
     /**
      * This method notifiers the manager that a buffer is freed from the buffer queue, usually
@@ -276,6 +278,14 @@ private:
         InfoMap streamInfoMap;
         /**
          * The count of the buffers that were handed out to the streams of this set.
+         *
+         * Note: a buffer being handed out means that it's in one of three
+         * states:
+         *   - dequeued by the producer,
+         *   - queued by the producer and yet to be acquired by the consumer, or
+         *   - acquired by the consumer
+         * Only when the buffer is released by the consumer, it comes out of the
+         * `handed out` state.
          */
         BufferCountMap handoutBufferCountMap;
         /**

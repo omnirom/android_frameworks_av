@@ -6,6 +6,13 @@ package: "com.android.media.aaudio"
 container: "system"
 
 flag {
+    name: "new_data_callback"
+    namespace: "media_audio"
+    description: "New data callback in AAudio."
+    bug: "406332239"
+}
+
+flag {
     name: "offload_support"
     namespace: "media_audio"
     description: "Enable offload support in AAudio."
@@ -17,11 +24,4 @@ flag {
     namespace: "media_audio"
     description: "Enable the AAudio sample rate converter."
     bug: "219533889"
-}
-
-flag {
-    name: "start_stop_client_from_command_thread"
-    namespace: "media_audio"
-    description: "Start or stop client from command thread."
-    bug: "341627085"
 }

@@ -1,0 +1,29 @@
+package {
+    default_applicable_licenses: ["frameworks_av_license"],
+}
+
+cc_test {
+    name: "libcodec2_soft_iamfdec_LayoutTranslationTest",
+    team: "trendy_team_media_codec_framework",
+    gtest: true,
+    srcs: [
+        "LayoutTranslationTest.cpp",
+    ],
+    static_libs: [
+        "iamf_tools",
+        "libcodec2_soft_iamfdec",
+    ],
+    shared_libs: [
+        "liblog",
+    ],
+    include_dirs: [
+        "frameworks/av/media/codec2/components/iamf/",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    test_suites: [
+        "general-tests",
+    ],
+}

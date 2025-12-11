@@ -52,6 +52,7 @@ cc_library {
         "libmedia_headers",
     ],
 
+    defaults: ["android.hardware.drm-media_drm-ndk-shared"],
     shared_libs: [
         "libbinder_ndk",
         "libcutils",
@@ -70,7 +71,6 @@ cc_library {
         "android.hardware.drm@1.4",
         "libhidlallocatorutils",
         "libhidlbase",
-        "android.hardware.drm-V1-ndk",
     ],
 
     static_libs: [

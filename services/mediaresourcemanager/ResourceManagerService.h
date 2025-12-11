@@ -131,9 +131,6 @@ protected:
     // Returns false otherwise.
     bool isCallingPriorityHigher_l(int callingPid, int pid);
 
-    // To notify the metrics about client being released.
-    void notifyClientReleased(const ClientInfoParcel& clientInfo);
-
     virtual Status removeResource(const ClientInfoParcel& clientInfo, bool checkValid);
 
 private:
@@ -254,6 +251,7 @@ protected:
     bool mSupportsMultipleSecureCodecs;
     bool mSupportsSecureWithNonSecureCodec;
     int32_t mCpuBoostCount;
+    std::unique_ptr<ResourceManagerMetrics> mResourceManagerMetrics;
 
 private:
     PidResourceInfosMap mMap;
@@ -264,7 +262,6 @@ private:
     std::map<int, int> mOverridePidMap;
     std::map<pid_t, ProcessInfoOverride> mProcessInfoOverrideMap;
     std::shared_ptr<ResourceObserverService> mObserverService;
-    std::unique_ptr<ResourceManagerMetrics> mResourceManagerMetrics;
 };
 
 // ----------------------------------------------------------------------------

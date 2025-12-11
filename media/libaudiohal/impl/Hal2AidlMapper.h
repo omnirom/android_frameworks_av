@@ -73,12 +73,14 @@ class Hal2AidlMapper : public ConversionHelperAidl {
         return ::aidl::android::convertContainer(mRoutes, routes, converter);
     }
     status_t initialize();
+    void onStreamClosed(const sp<StreamHalInterface>& stream);
     status_t prepareToDisconnectExternalDevice(
             const ::aidl::android::media::audio::common::AudioPort& devicePort);
     // If the resulting 'mixPortConfig->id' is 0, that means the stream was not created,
     // and 'config' is a suggested config.
     status_t prepareToOpenStream(
         int32_t ioHandle,
+        int32_t mixPortHalId,
         const ::aidl::android::media::audio::common::AudioDevice& device,
         const ::aidl::android::media::audio::common::AudioIoFlags& flags,
         ::aidl::android::media::audio::common::AudioSource source,
@@ -95,6 +97,8 @@ class Hal2AidlMapper : public ConversionHelperAidl {
     void resetUnusedPatchesAndPortConfigs();
     status_t setDevicePortConnectedState(
             const ::aidl::android::media::audio::common::AudioPort& devicePort, bool connected);
+    status_t updateAudioPort(
+            int32_t portId, ::aidl::android::media::audio::common::AudioPort* port);
 
     // Methods to work with FwkPatches.
     void eraseFwkPatch(int32_t fwkPatchId) { mFwkPatches.erase(fwkPatchId); }
@@ -104,6 +108,10 @@ class Hal2AidlMapper : public ConversionHelperAidl {
     }
     void updateFwkPatch(int32_t fwkPatchId, int32_t halPatchId) {
         mFwkPatches[fwkPatchId] = halPatchId;
+    }
+
+    bool isRoutable(int32_t devicePortId, int32_t mixPortId) {
+        return mRoutingMatrix.count(std::make_pair(devicePortId, mixPortId)) > 0;
     }
 
   private:
@@ -145,6 +153,19 @@ class Hal2AidlMapper : public ConversionHelperAidl {
     // If the 'result->id' is 0, that means, the config was not created/updated,
     // and the 'result' is a suggestion from the HAL.
     status_t createOrUpdatePortConfig(
+            const ::aidl::android::media::audio::common::AudioPort& audioPort,
+            const ::aidl::android::media::audio::common::AudioConfig& config,
+            const std::optional<::aidl::android::media::audio::common::AudioIoFlags>& flags,
+            ::aidl::android::media::audio::common::AudioSource source,
+            int32_t ioHandle,
+            ::aidl::android::media::audio::common::AudioPortConfig* result,
+            bool *created);
+    status_t createOrUpdatePortConfig(
+            const ::aidl::android::media::audio::common::AudioPortConfig& requestedPortConfig,
+            const ::aidl::android::media::audio::common::AudioConfig& config,
+            ::aidl::android::media::audio::common::AudioSource source,
+            ::aidl::android::media::audio::common::AudioPortConfig* result, bool *created);
+    status_t createOrUpdatePortConfig(
             const ::aidl::android::media::audio::common::AudioPortConfig& requestedPortConfig,
             ::aidl::android::media::audio::common::AudioPortConfig* result, bool *created);
     status_t createOrUpdatePortConfigRetry(
@@ -172,6 +193,14 @@ class Hal2AidlMapper : public ConversionHelperAidl {
             const ::aidl::android::media::audio::common::AudioConfig& config,
             const std::optional<::aidl::android::media::audio::common::AudioIoFlags>& flags,
             int32_t ioHandle,
+            int32_t mixPortHalId,
+            ::aidl::android::media::audio::common::AudioSource source,
+            const std::set<int32_t>& destinationPortIds,
+            ::aidl::android::media::audio::common::AudioPortConfig* portConfig, bool* created);
+    status_t findOrCreateMixPortConfig(
+            const ::aidl::android::media::audio::common::AudioConfig& config,
+            const std::optional<::aidl::android::media::audio::common::AudioIoFlags>& flags,
+            int32_t ioHandle,
             ::aidl::android::media::audio::common::AudioSource source,
             const std::set<int32_t>& destinationPortIds,
             ::aidl::android::media::audio::common::AudioPortConfig* portConfig, bool* created);
@@ -193,8 +222,11 @@ class Hal2AidlMapper : public ConversionHelperAidl {
             const std::optional<::aidl::android::media::audio::common::AudioIoFlags>& flags,
             int32_t ioHandle);
     std::set<int32_t> getPatchIdsByPortId(int32_t portId);
+    void insertConnectedPort(
+            int32_t portId,
+            const ::aidl::android::media::audio::common::AudioPort& devicePort);
     status_t prepareToOpenStreamHelper(
-        int32_t ioHandle, int32_t devicePortId, int32_t devicePortConfigId,
+        int32_t ioHandle, int32_t mixPortHalId, int32_t devicePortId, int32_t devicePortConfigId,
         const ::aidl::android::media::audio::common::AudioIoFlags& flags,
         ::aidl::android::media::audio::common::AudioSource source,
         const ::aidl::android::media::audio::common::AudioConfig& initialConfig,
@@ -210,8 +242,6 @@ class Hal2AidlMapper : public ConversionHelperAidl {
     void resetPatch(int32_t patchId) { (void)releaseAudioPatch(patchId); }
     void resetPortConfig(int32_t portConfigId);
     void resetUnusedPortConfigs();
-    status_t updateAudioPort(
-            int32_t portId, ::aidl::android::media::audio::common::AudioPort* port);
     status_t updateRoutes();
     void updateDynamicMixPorts();
 

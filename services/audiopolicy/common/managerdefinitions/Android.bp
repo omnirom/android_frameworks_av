@@ -33,6 +33,7 @@ cc_library {
         "src/PreferredMixerAttributesInfo.cpp",
         "src/Serializer.cpp",
         "src/SoundTriggerSession.cpp",
+        "src/SpatializerHelper.cpp",
         "src/TypeConverter.cpp",
     ],
     shared_libs: [
@@ -62,6 +63,7 @@ cc_library {
         "libmedia_helper",
     ],
     header_libs: [
+        "libaudiofoundation_headers",
         "libaudiopolicycommon",
         "libaudiopolicymanager_interface_headers",
     ],

@@ -252,13 +252,12 @@ status_t MediaPlayer::getMetadata(bool update_only, bool apply_filter, Parcel *m
     return mPlayer->getMetadata(update_only, apply_filter, metadata);
 }
 
-status_t MediaPlayer::setVideoSurfaceTexture(
-        const sp<IGraphicBufferProducer>& bufferProducer)
+status_t MediaPlayer::setVideoSurfaceTexture(const sp<MediaSurfaceType>& surface)
 {
     ALOGV("setVideoSurfaceTexture");
     Mutex::Autolock _l(mLock);
     if (mPlayer == 0) return NO_INIT;
-    return mPlayer->setVideoSurfaceTexture(bufferProducer);
+    return mPlayer->setVideoSurfaceTexture(surface);
 }
 
 status_t MediaPlayer::getBufferingSettings(BufferingSettings* buffering /* nonnull */)

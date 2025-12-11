@@ -387,15 +387,11 @@ void NuPlayer::prepareAsync() {
     (new AMessage(kWhatPrepare, this))->post();
 }
 
-void NuPlayer::setVideoSurfaceTextureAsync(
-        const sp<IGraphicBufferProducer> &bufferProducer) {
+void NuPlayer::setVideoSurfaceTextureAsync(const sp<MediaSurfaceType>& surface) {
     sp<AMessage> msg = new AMessage(kWhatSetVideoSurface, this);
 
-    if (bufferProducer == NULL) {
-        msg->setObject("surface", NULL);
-    } else {
-        msg->setObject("surface", new Surface(bufferProducer, true /* controlledByApp */));
-    }
+    msg->setObject("surface",
+        mediaflagtools::surfaceTypeToSurface(surface, /* controlledByApp */ true));
 
     msg->post();
 }

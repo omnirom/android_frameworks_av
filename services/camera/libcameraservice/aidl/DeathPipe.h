@@ -21,6 +21,7 @@
 #include <android/binder_ibinder.h>
 #include <binder/Parcel.h>
 #include <list>
+#include <mutex>
 
 namespace android::frameworks::cameraservice::utils {
 

@@ -92,6 +92,7 @@ cc_defaults {
     ],
 
     static_libs: [
+        "android.media.mediarecorder-aconfig-cc",
         "com.android.media.flags.editing-aconfig-cc",
         "framework-permission-aidl-cpp",
         "libplayerservice_datasource",

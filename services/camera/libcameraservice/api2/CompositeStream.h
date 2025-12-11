@@ -125,6 +125,8 @@ protected:
     // Composite streams should behave accordingly.
     void enableErrorState();
 
+    static status_t setSWUsage(int streamId, ANativeWindow *anw);
+
     wp<CameraDeviceBase>   mDevice;
     wp<camera3::StatusTracker> mStatusTracker;
     wp<hardware::camera2::ICameraDeviceCallbacks> mRemoteCallback;

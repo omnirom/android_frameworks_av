@@ -57,15 +57,12 @@ private:
     static const int kMaxPayload = 1500; // from tests/test_opus_encode.c
 
     std::shared_ptr<IntfImpl> mIntf;
-    std::shared_ptr<C2LinearBlock> mOutputBlock;
 
     OpusMSEncoder* mEncoder;
     int16_t* mInputBufferPcm16;
 
     bool mHeaderGenerated;
     bool mIsFirstFrame;
-    bool mEncoderFlushed;
-    bool mBufferAvailable;
     bool mSignalledEos;
     bool mSignalledError;
     uint32_t mSampleRate;
@@ -78,13 +75,12 @@ private:
     // Seek pre-roll in ns
     uint64_t mSeekPreRoll;
     int mNumSamplesPerFrame;
-    int mBytesEncoded;
     int32_t mFilledLen;
     size_t mNumPcmBytesPerInputFrame;
     std::atomic_uint64_t mOutIndex;
     c2_status_t initEncoder();
     c2_status_t configureEncoder();
-    int drainEncoder(uint8_t* outPtr);
+    int drainEncoder(uint8_t* outPtr, int outCapacity);
     c2_status_t drainInternal(const std::shared_ptr<C2BlockPool>& pool,
                               const std::unique_ptr<C2Work>& work);
 

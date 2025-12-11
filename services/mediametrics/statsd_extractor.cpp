@@ -33,7 +33,7 @@
 
 #include "MediaMetricsService.h"
 #include "ValidateId.h"
-#include "frameworks/proto_logging/stats/message/mediametrics_message.pb.h"
+#include "frameworks/proto_logging/stats/message/mediametrics/mediametrics_message.pb.h"
 #include "iface_statsd.h"
 
 namespace android {

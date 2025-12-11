@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <utility>
 
+#include "aaudio/AAudio.h"
+
 /**
  * Interface for a class that needs fixed-size blocks.
  */
@@ -30,9 +32,9 @@ public:
     virtual int32_t onProcessFixedBlock(uint8_t *buffer, int32_t numBytes) = 0;
 };
 
-// The first value is the processing result code which 0 is OK.
+// The first value is used to indicate if callback should be stopped or continued.
 // The second value is the actual processed size in bytes.
-using AdapterProcessResult = std::pair<int32_t, int32_t>;
+using AdapterProcessResult = std::pair<aaudio_data_callback_result_t, int32_t>;
 
 /**
  * Base class for a variable-to-fixed-size block adapter.
@@ -72,6 +74,7 @@ protected:
     std::unique_ptr<uint8_t[]> mStorage;         // Store data here while assembling buffers.
     int32_t               mSize = 0;             // Size in bytes of the fixed size buffer.
     int32_t               mPosition = 0;         // Offset of the last byte read or written.
+    int32_t               mAvailable = 0;        // Total available data in storage
 };
 
 #endif /* AAUDIO_FIXED_BLOCK_ADAPTER_H */

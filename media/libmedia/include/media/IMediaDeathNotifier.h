@@ -18,6 +18,7 @@
 #define ANDROID_IMEDIADEATHNOTIFIER_H
 
 #include <utils/threads.h>
+#include <binder/IPCThreadState.h>
 #include <media/IMediaPlayerService.h>
 #include <utils/SortedVector.h>
 
@@ -27,7 +28,10 @@ class IMediaDeathNotifier: virtual public RefBase
 {
 public:
     IMediaDeathNotifier() { addObitRecipient(this); }
-    virtual ~IMediaDeathNotifier() { removeObitRecipient(this); }
+    virtual ~IMediaDeathNotifier() {
+        removeObitRecipient(this);
+        IPCThreadState::self()->flushCommands();
+    }
 
     virtual void died() = 0;
     static const sp<IMediaPlayerService> getMediaPlayerService();

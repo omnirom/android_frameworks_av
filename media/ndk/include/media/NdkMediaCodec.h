@@ -355,9 +355,9 @@ media_status_t AMediaCodec_releaseOutputBuffer(AMediaCodec*, size_t idx, bool re
  *
  * For more details, see the Java documentation for MediaCodec.setOutputSurface.
  *
- * Available since API level 21.
+ * Available since API level 24.
  */
-media_status_t AMediaCodec_setOutputSurface(AMediaCodec*, ANativeWindow* surface) __INTRODUCED_IN(21);
+media_status_t AMediaCodec_setOutputSurface(AMediaCodec*, ANativeWindow* surface) __INTRODUCED_IN(24);
 
 /**
  * If you are done with a buffer, use this call to update its surface timestamp
@@ -626,11 +626,11 @@ media_status_t AMediaCodecCryptoInfo_delete(AMediaCodecCryptoInfo*) __INTRODUCED
 /**
  * Set the crypto pattern on an AMediaCryptoInfo object.
  *
- * Available since API level 21.
+ * Available since API level 24.
  */
 void AMediaCodecCryptoInfo_setPattern(
         AMediaCodecCryptoInfo *info,
-        cryptoinfo_pattern_t *pattern) __INTRODUCED_IN(21);
+        cryptoinfo_pattern_t *pattern) __INTRODUCED_IN(24);
 
 /**
  * The number of subsamples that make up the buffer's contents.

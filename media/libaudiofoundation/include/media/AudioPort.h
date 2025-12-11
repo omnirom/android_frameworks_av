@@ -114,6 +114,9 @@ public:
                         ((mFlags.input & AUDIO_INPUT_FLAG_MMAP_NOIRQ) != 0)));
     }
 
+    void setHalIdForTest(int32_t halId) { mHalId = halId; }
+    int32_t getHalId() const { return mHalId; }
+
     void dump(std::string *dst, int spaces,
               const char* extraInfo = nullptr, bool verbose = true) const;
 
@@ -150,6 +153,8 @@ protected:
     // by the platform, e.g. short audio descriptor in EDID for HDMI.
     std::vector<media::audio::common::ExtraAudioDescriptor> mExtraAudioDescriptors;
     union audio_io_flags mFlags = { .output = AUDIO_OUTPUT_FLAG_NONE };
+
+    int32_t mHalId = 0;
 private:
     template <typename T, std::enable_if_t<std::is_same<T, struct audio_port>::value
                                         || std::is_same<T, struct audio_port_v7>::value, int> = 0>

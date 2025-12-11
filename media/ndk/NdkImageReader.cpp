@@ -304,9 +304,6 @@ AImageReader::init() {
         return AMEDIA_ERROR_UNKNOWN;
     }
 
-#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    mProducer = mSurface->getIGraphicBufferProducer();
-#endif
     mBufferItemConsumer->setName(consumerName);
     mBufferItemConsumer->setFrameAvailableListener(mFrameListener);
     mBufferItemConsumer->setBufferFreedListener(mBufferRemovedListener);
@@ -440,6 +437,7 @@ AImageReader::acquireImageLocked(/*out*/AImage** image, /*out*/int* acquireFence
     const int bufferHeight = getBufferHeight(buffer);
     const int bufferFmt = buffer->mGraphicBuffer->getPixelFormat();
     const int bufferUsage = buffer->mGraphicBuffer->getUsage();
+    const android_dataspace bufferDataspace = buffer->mDataSpace;
 
     const int readerWidth = mWidth;
     const int readerHeight = mHeight;
@@ -469,32 +467,17 @@ AImageReader::acquireImageLocked(/*out*/AImage** image, /*out*/int* acquireFence
                 "configured: %x",
                 __FUNCTION__, bufferUsage, readerUsage);
 
-        if (readerFmt != bufferFmt) {
-            if (readerFmt == HAL_PIXEL_FORMAT_YCbCr_420_888 && isPossiblyYUV(bufferFmt)) {
-                // Special casing for when producer switches to a format compatible with flexible
-                // YUV.
-                mHalFormat = bufferFmt;
-                ALOGD("%s: Overriding buffer format YUV_420_888 to 0x%x.", __FUNCTION__, bufferFmt);
-            } else {
-                // Return the buffer to the queue. No need to provide fence, as this buffer wasn't
-                // used anywhere yet.
-                mBufferItemConsumer->releaseBuffer(*buffer);
-                returnBufferItemLocked(buffer);
-
-                ALOGE("%s: Output buffer format: 0x%x, ImageReader configured format: 0x%x",
-                        __FUNCTION__, bufferFmt, readerFmt);
-
-                return AMEDIA_ERROR_UNKNOWN;
-            }
-        }
+        ALOGV_IF(readerFmt != bufferFmt,
+                "%s: reader format(0x%x) and buffer format(0x%x) are not same" ,
+                __FUNCTION__, readerFmt, bufferFmt);
     }
 
     if (mHalFormat == HAL_PIXEL_FORMAT_BLOB) {
-        *image = new AImage(this, mFormat, mUsage, buffer, buffer->mTimestamp,
-                readerWidth, readerHeight, mNumPlanes);
+        *image = new AImage(this, bufferFmt, mUsage, buffer, buffer->mTimestamp,
+                readerWidth, readerHeight, mNumPlanes, bufferDataspace);
     } else {
-        *image = new AImage(this, mFormat, mUsage, buffer, buffer->mTimestamp,
-                bufferWidth, bufferHeight, mNumPlanes);
+        *image = new AImage(this, bufferFmt, mUsage, buffer, buffer->mTimestamp,
+                bufferWidth, bufferHeight, mNumPlanes, bufferDataspace);
     }
     mAcquiredImages.push_back(*image);
 
@@ -577,13 +560,8 @@ media_status_t AImageReader::getWindowNativeHandle(native_handle **handle) {
         *handle = mWindowHandle;
         return AMEDIA_OK;
     }
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     sp<HGraphicBufferProducer> hgbp = new TWGraphicBufferProducer<HGraphicBufferProducer>(
             mSurface->getIGraphicBufferProducer());
-#else
-    sp<HGraphicBufferProducer> hgbp =
-        new TWGraphicBufferProducer<HGraphicBufferProducer>(mProducer);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     HalToken halToken;
     if (!createHalToken(hgbp, &halToken)) {
         return AMEDIA_ERROR_UNKNOWN;
@@ -666,11 +644,11 @@ AImageReader::setUsage(uint64_t usage) {
         ALOGE("not ready to perform setUsage()");
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
+
     if (mUsage == usage) {
         return AMEDIA_OK;
     }
-
-    uint64_t halUsage = AHardwareBuffer_convertToGrallocUsageBits(mUsage);
+    uint64_t halUsage = AHardwareBuffer_convertToGrallocUsageBits(usage);
     status_t ret = mBufferItemConsumer->setConsumerUsageBits(halUsage);
     if (ret != OK) {
         ALOGE("setConsumerUsageBits() failed %d", ret);
@@ -678,6 +656,104 @@ AImageReader::setUsage(uint64_t usage) {
     }
     mUsage = usage;
     mHalUsage = halUsage;
+    return AMEDIA_OK;
+}
+
+media_status_t
+AImageReader::setMaxImages(int32_t maxImages) {
+    Mutex::Autolock _l(mLock);
+    if (!mIsOpen || mBufferItemConsumer == nullptr) {
+        ALOGE("not ready to perform setMaxImages()");
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    if (mMaxImages == maxImages) {
+        return AMEDIA_OK;
+    }
+    int delta = maxImages - mMaxImages;
+    if (delta < 0) {
+        // If maxImages is less than the current, reducing the # of available
+        // buffers is necessary. Check if that is possible.
+        if (mBuffers.size() < -delta) {
+            ALOGE("setMaxImages() cannot reduce the image count.");
+            return AMEDIA_ERROR_INVALID_PARAMETER;
+        }
+    }
+    status_t ret = mBufferItemConsumer->setMaxAcquiredBufferCount(maxImages);
+    if (ret != OK) {
+        ALOGE("setMaxAcquiredBufferCount() failed %d", ret);
+        return AMEDIA_ERROR_UNKNOWN;
+    }
+    if (delta < 0) {
+        for (int i = 0; i < -delta; ++i) {
+            auto it = mBuffers.begin();
+            delete *it;
+            mBuffers.erase(it);
+        }
+    } else if (delta > 0) {
+        for (int i = 0; i < delta; ++i) {
+            mBuffers.push_back(new BufferItem);
+        }
+    }
+    mMaxImages = maxImages;
+    return AMEDIA_OK;
+}
+
+media_status_t
+AImageReader::setDefaultBufferSize(int32_t width, int32_t height) {
+    Mutex::Autolock _l(mLock);
+    if (!mIsOpen || mBufferItemConsumer == nullptr) {
+        ALOGE("not ready to perform setDefaultBufferSize()");
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    if (mWidth == width && mHeight == height) {
+        return AMEDIA_OK;
+    }
+    status_t ret = mBufferItemConsumer->setDefaultBufferSize(width, height);
+    if (ret != OK) {
+        ALOGE("setDefaultBufferSize() failed %d", ret);
+        return AMEDIA_ERROR_UNKNOWN;
+    }
+    mWidth = width;
+    mHeight = height;
+    return AMEDIA_OK;
+}
+
+media_status_t
+AImageReader::setDefaultBufferDataSpace(android_dataspace dataSpace) {
+    Mutex::Autolock _l(mLock);
+    if (!mIsOpen || mBufferItemConsumer == nullptr) {
+        ALOGE("not ready to perform setDefaultBufferDataSpace()");
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    if (mHalDataSpace == dataSpace) {
+        return AMEDIA_OK;
+    }
+    status_t ret = mBufferItemConsumer->setDefaultBufferDataSpace(dataSpace);
+    if (ret != OK) {
+        ALOGE("setDefaultBufferDataSpace() failed %d", ret);
+        return AMEDIA_ERROR_UNKNOWN;
+    }
+    mHalDataSpace = dataSpace;
+    return AMEDIA_OK;
+}
+
+media_status_t
+AImageReader::setDefaultAHardwareBufferFormat(int32_t format) {
+    Mutex::Autolock _l(mLock);
+    if (!mIsOpen || mBufferItemConsumer == nullptr) {
+        ALOGE("not ready to perform setDefaultBufferHalFormat()");
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    if (mHalFormat == format) {
+        return AMEDIA_OK;
+    }
+    status_t ret = mBufferItemConsumer->setDefaultBufferFormat(format);
+    if (ret != OK) {
+        ALOGE("setDefaultBufferFormat() failed %d", ret);
+        return AMEDIA_ERROR_UNKNOWN;
+    }
+    mFormat = format;
+    mHalFormat = format;
     return AMEDIA_OK;
 }
 
@@ -948,4 +1024,49 @@ media_status_t AImageReader_setUsage(
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
     return reader->setUsage(usage);
+}
+
+EXPORT
+media_status_t AImageReader_setMaxImages(
+        AImageReader* reader, int32_t maxImages) {
+    ALOGV("%s", __FUNCTION__);
+    if (reader == nullptr) {
+        ALOGE("%s: invalid argument! reader %p", __FUNCTION__, reader);
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    return reader->setMaxImages(maxImages);
+}
+
+EXPORT
+media_status_t AImageReader_setDefaultBufferSize(
+        AImageReader* reader, int32_t width, int32_t height) {
+    ALOGV("%s", __FUNCTION__);
+    if (reader == nullptr) {
+        ALOGE("%s: invalid argument! reader %p", __FUNCTION__, reader);
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    return reader->setDefaultBufferSize(width, height);
+}
+
+EXPORT
+media_status_t AImageReader_setDefaultBufferDataSpace(
+        AImageReader* reader, int32_t dataSpace) {
+    ALOGV("%s", __FUNCTION__);
+    if (reader == nullptr) {
+        ALOGE("%s: invalid argument! reader %p", __FUNCTION__, reader);
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    android_dataspace androidDataSpace = static_cast<android_dataspace>(dataSpace);
+    return reader->setDefaultBufferDataSpace(androidDataSpace);
+}
+
+EXPORT
+media_status_t AImageReader_setDefaultAHardwareBufferFormat(
+        AImageReader* reader, int32_t format) {
+    ALOGV("%s", __FUNCTION__);
+    if (reader == nullptr) {
+        ALOGE("%s: invalid argument! reader %p", __FUNCTION__, reader);
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    return reader->setDefaultAHardwareBufferFormat(format);
 }

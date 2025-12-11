@@ -21,9 +21,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <memory>
 #include <string>
+#include <vector>
 
 #define LOG_TAG "MtpFuzzer"
 

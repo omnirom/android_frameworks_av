@@ -669,6 +669,8 @@ const detail::AudioFormatPairs& getAudioFormatPairs() {
             {AUDIO_FORMAT_VORBIS,
              make_AudioFormatDescription(::android::MEDIA_MIMETYPE_AUDIO_VORBIS)},
             {AUDIO_FORMAT_OPUS, make_AudioFormatDescription(::android::MEDIA_MIMETYPE_AUDIO_OPUS)},
+            {AUDIO_FORMAT_OPUS_HI_RES, make_AudioFormatDescription(
+                    std::string(::android::MEDIA_MIMETYPE_AUDIO_OPUS) + ".hi_res")},
             {AUDIO_FORMAT_AC3, make_AudioFormatDescription(::android::MEDIA_MIMETYPE_AUDIO_AC3)},
             {AUDIO_FORMAT_E_AC3, make_AudioFormatDescription(::android::MEDIA_MIMETYPE_AUDIO_EAC3)},
             {AUDIO_FORMAT_E_AC3_JOC,
@@ -2880,6 +2882,9 @@ legacy2aidl_audio_mode_t_AudioMode(audio_mode_t legacy) {
             return AudioMode::SYS_RESERVED_CALL_REDIRECT;
         case AUDIO_MODE_COMMUNICATION_REDIRECT:
             return AudioMode::SYS_RESERVED_COMMUNICATION_REDIRECT;
+        case AUDIO_MODE_ASSISTANT_CONVERSATION:
+            // TODO(b/416329698): return the new mode when supported
+            break;
         case AUDIO_MODE_CNT:
             break;
     }

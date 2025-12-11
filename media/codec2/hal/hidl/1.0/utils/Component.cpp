@@ -385,17 +385,8 @@ Return<Status> Component::setOutputSurface(
 Return<void> Component::connectToInputSurface(
         const sp<IInputSurface>& inputSurface,
         connectToInputSurface_cb _hidl_cb) {
-    Status status;
-    sp<IInputSurfaceConnection> connection;
-    auto transStatus = inputSurface->connect(
-            asInputSink(),
-            [&status, &connection](
-                    Status s, const sp<IInputSurfaceConnection>& c) {
-                status = s;
-                connection = c;
-            }
-        );
-    _hidl_cb(status, connection);
+    (void)inputSurface;
+    _hidl_cb(Status::OMITTED, nullptr);
     return Void();
 }
 

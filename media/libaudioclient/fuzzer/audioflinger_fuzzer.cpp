@@ -504,24 +504,15 @@ void AudioFlingerFuzzer::invokeAudioSystem() {
     AudioSystem::getMasterMute(&state);
     AudioSystem::isMicrophoneMuted(&state);
 
-    audio_stream_type_t stream ;
-    if (!audioserver_flags::portid_volume_management()) {
-        stream = getValue(&mFdp, kStreamtypes);
-        AudioSystem::setStreamMute(getValue(&mFdp, kStreamtypes), mFdp.ConsumeBool());
+    std::vector <audio_port_handle_t> portsForVolumeChange{};
+    AudioSystem::setPortsVolume(portsForVolumeChange, mFdp.ConsumeFloatingPoint<float>(),
+                                mFdp.ConsumeBool(), mFdp.ConsumeIntegral<int32_t>());
 
-        stream = getValue(&mFdp, kStreamtypes);
-        AudioSystem::setStreamVolume(stream, mFdp.ConsumeFloatingPoint<float>(),
-                                     mFdp.ConsumeBool(), mFdp.ConsumeIntegral<int32_t>());
-    } else {
-        std::vector <audio_port_handle_t> portsForVolumeChange{};
-        AudioSystem::setPortsVolume(portsForVolumeChange, mFdp.ConsumeFloatingPoint<float>(),
-                                    mFdp.ConsumeBool(), mFdp.ConsumeIntegral<int32_t>());
-    }
     audio_mode_t mode = getValue(&mFdp, kModes);
     AudioSystem::setMode(mode);
 
     size_t frameCount;
-    stream = getValue(&mFdp, kStreamtypes);
+    audio_stream_type_t stream = getValue(&mFdp, kStreamtypes);
     AudioSystem::getOutputFrameCount(&frameCount, stream);
 
     uint32_t latency;

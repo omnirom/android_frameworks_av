@@ -20,6 +20,7 @@
 
 #include <media/AudioSystem.h>
 #include <media/mediarecorder.h>
+#include <gui/Flags.h> // Remove with MediaSurfaceType and WB_MEDIA_MIGRATION.
 #include <android/content/AttributionSourceState.h>
 
 #include <system/audio.h>
@@ -29,7 +30,6 @@
 namespace android {
 
 class ICameraRecordingProxy;
-class IGraphicBufferProducer;
 struct PersistentSurface;
 
 struct MediaRecorderBase {
@@ -49,7 +49,7 @@ struct MediaRecorderBase {
     virtual status_t setVideoFrameRate(int frames_per_second) = 0;
     virtual status_t setCamera(const sp<hardware::ICamera>& camera,
                                const sp<ICameraRecordingProxy>& proxy) = 0;
-    virtual status_t setPreviewSurface(const sp<IGraphicBufferProducer>& surface) = 0;
+    virtual status_t setPreviewSurface(const sp<MediaSurfaceType>& surface) = 0;
     virtual status_t setOutputFile(int fd) = 0;
     virtual status_t setNextOutputFile(int /*fd*/) {return INVALID_OPERATION;}
     virtual status_t setOutputFileAuxiliary(int /*fd*/) {return INVALID_OPERATION;}
@@ -67,7 +67,7 @@ struct MediaRecorderBase {
     virtual status_t getMetrics(Parcel *reply) = 0;
     virtual status_t dump(int fd, const Vector<String16>& args) const = 0;
     virtual status_t setInputSurface(const sp<PersistentSurface>& surface) = 0;
-    virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() const = 0;
+    virtual sp<MediaSurfaceType> querySurfaceMediaSource() const = 0;
     virtual status_t setInputDevice(audio_port_handle_t deviceId) = 0;
     virtual status_t getRoutedDeviceIds(DeviceIdVector& deviceIds) = 0;
     virtual void setAudioDeviceCallback(const sp<AudioSystem::AudioDeviceCallback>& callback) = 0;

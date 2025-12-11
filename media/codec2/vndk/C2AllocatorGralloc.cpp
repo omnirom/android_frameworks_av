@@ -21,6 +21,9 @@
 #include <mutex>
 
 #include <android_media_codec.h>
+#ifdef __ANDROID_APEX__
+#include <android_media_swcodec_flags.h>
+#endif
 
 #include <aidl/android/hardware/graphics/common/Cta861_3.h>
 #include <aidl/android/hardware/graphics/common/PlaneLayoutComponentType.h>
@@ -1111,9 +1114,15 @@ c2_status_t SetMetadataToGralloc4Handle(
         return err;
     }
     // Use V0 dataspaces for Gralloc4+
+#ifdef __ANDROID_APEX__
+    if (android::media::swcodec::flags::provider_->dataspace_v0_gralloc4()) {
+        ColorUtils::convertDataSpaceToV0(dataSpace);
+    }
+#else
     if (android::media::codec::provider_->dataspace_v0_partial()) {
         ColorUtils::convertDataSpaceToV0(dataSpace);
     }
+#endif
     status_t status = mapper.setDataspace(buffer.get(), static_cast<ui::Dataspace>(dataSpace));
     if (status != OK) {
        err = C2_CORRUPTED;

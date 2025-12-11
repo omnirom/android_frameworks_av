@@ -90,7 +90,7 @@ interface ISoundDose {
      */
     boolean isSoundDoseHalSupported();
     /** Enables/Disables MEL computations from framework. */
-    oneway void forceUseFrameworkMel(boolean useFrameworkMel);
+    void forceUseFrameworkMel(boolean useFrameworkMel);
     /** Enables/Disables the computation of CSD on all devices. */
-    oneway void forceComputeCsdOnAllDevices(boolean computeCsdOnAllDevices);
+    void forceComputeCsdOnAllDevices(boolean computeCsdOnAllDevices);
 }

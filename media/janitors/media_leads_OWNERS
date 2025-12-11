@@ -1,9 +1,16 @@
 # gerrit owner/approvers corresponding to the TLs within the media team
-# loosely (as of 2022/3) fgoldfain@ and direct reports
-arifdikici@google.com
-elaurent@google.com
-fgoldfain@google.com    #{LAST_RESORT_SUGGESTION}
-lajos@google.com
-nchalko@google.com
-olly@google.com
-robertshih@google.com
+# loosely pshehane@ and his area leads (slightly different from direct reports)
+#
+# 2025/7: currently only used within cts/tests/tests/media
+# last_resort here is counted even if someone appears as a normal reviewer in a
+# finer-grained OWNERS file; that's a debated behavior of the plugin.
+#
+andrewlewis@google.com  #{LAST_RESORT_SUGGESTION}
+etalvala@google.com     #{LAST_RESORT_SUGGESTION}
+jmtrivi@google.com      #{LAST_RESORT_SUGGESTION}
+lajos@google.com        #{LAST_RESORT_SUGGESTION}
+nchalko@google.com      #{LAST_RESORT_SUGGESTION}
+portmannc@google.com    #{LAST_RESORT_SUGGESTION}
+pshehane@google.com     #{LAST_RESORT_SUGGESTION}
+robertshih@google.com   #{LAST_RESORT_SUGGESTION}
+tonihei@google.com      #{LAST_RESORT_SUGGESTION}

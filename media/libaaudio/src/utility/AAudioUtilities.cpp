@@ -425,6 +425,8 @@ audio_channel_mask_t AAudioConvert_aaudioToAndroidChannelLayoutMask(
                 return AUDIO_CHANNEL_OUT_7POINT1POINT2;
             case AAUDIO_CHANNEL_7POINT1POINT4:
                 return AUDIO_CHANNEL_OUT_7POINT1POINT4;
+            case AAUDIO_CHANNEL_13POINT0:
+                return AUDIO_CHANNEL_OUT_13POINT0;
             case AAUDIO_CHANNEL_9POINT1POINT4:
                 return AUDIO_CHANNEL_OUT_9POINT1POINT4;
             case AAUDIO_CHANNEL_9POINT1POINT6:
@@ -506,6 +508,8 @@ aaudio_channel_mask_t AAudioConvert_androidToAAudioChannelLayoutMask(
                 return AAUDIO_CHANNEL_7POINT1POINT2;
             case AUDIO_CHANNEL_OUT_7POINT1POINT4:
                 return AAUDIO_CHANNEL_7POINT1POINT4;
+            case AUDIO_CHANNEL_OUT_13POINT0:
+                return AAUDIO_CHANNEL_13POINT0;
             case AUDIO_CHANNEL_OUT_9POINT1POINT4:
                 return AAUDIO_CHANNEL_9POINT1POINT4;
             case AUDIO_CHANNEL_OUT_9POINT1POINT6:
@@ -859,4 +863,84 @@ aaudio_policy_t AAudioConvert_androidToAAudioMMapPolicy(AudioMMapPolicy policy) 
         default:
             return AAUDIO_POLICY_NEVER;
     }
+}
+
+// If AUDIO_NO_SYSTEM_DECLARATIONS is defined, AUDIO_TIMESTRETCH_FALLBACK_DEFAULT is not
+// defined in system/media/audio/include/system/audio.h
+#ifdef AUDIO_NO_SYSTEM_DECLARATIONS
+// Keep this value the same as the one in system/media/audio/include/system/audio.h
+#define AUDIO_TIMESTRETCH_FALLBACK_DEFAULT 0
+#endif
+
+aaudio_result_t AAudioConvert_aaudioToAndroidPlaybackParameters(
+        const AAudioPlaybackParameters& parameters, android::AudioPlaybackRate* rate) {
+    switch (parameters.fallbackMode) {
+        case AAUDIO_FALLBACK_MODE_DEFAULT:
+            rate->mFallbackMode = AUDIO_TIMESTRETCH_FALLBACK_DEFAULT;
+            break;
+        case AAUDIO_FALLBACK_MODE_MUTE:
+            rate->mFallbackMode = AUDIO_TIMESTRETCH_FALLBACK_MUTE;
+            break;
+        case AAUDIO_FALLBACK_MODE_FAIL:
+            rate->mFallbackMode = AUDIO_TIMESTRETCH_FALLBACK_FAIL;
+            break;
+        default:
+            return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+    }
+
+    switch (parameters.stretchMode) {
+        case AAUDIO_STRETCH_MODE_DEFAULT:
+            rate->mStretchMode = AUDIO_TIMESTRETCH_STRETCH_DEFAULT;
+            break;
+        case AAUDIO_STRETCH_MODE_VOICE:
+            rate->mStretchMode = AUDIO_TIMESTRETCH_STRETCH_VOICE;
+            break;
+        default:
+            return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+    }
+
+    rate->mSpeed = parameters.speed;
+    rate->mPitch = parameters.pitch;
+    return android::isAudioPlaybackRateValid(*rate) ? AAUDIO_OK : AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+}
+
+aaudio_result_t AAudioConvert_androidToAAudioPlaybackParameters(
+        const android::AudioPlaybackRate& rate, AAudioPlaybackParameters* parameters) {
+    if (!android::isAudioPlaybackRateValid(rate)) {
+        return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+    }
+    switch (rate.mFallbackMode) {
+        case AUDIO_TIMESTRETCH_FALLBACK_MUTE:
+            parameters->fallbackMode = AAUDIO_FALLBACK_MODE_MUTE;
+            break;
+        case AUDIO_TIMESTRETCH_FALLBACK_FAIL:
+            parameters->fallbackMode = AAUDIO_FALLBACK_MODE_FAIL;
+            break;
+        case AUDIO_TIMESTRETCH_FALLBACK_DEFAULT:
+            parameters->fallbackMode = AAUDIO_FALLBACK_MODE_DEFAULT;
+            break;
+        default:
+            ALOGW("%s unrecognized fallback mode: %d, convert it to default",
+                  __func__, rate.mFallbackMode);
+            parameters->fallbackMode = AAUDIO_FALLBACK_MODE_DEFAULT;
+            break;
+    }
+
+    switch (rate.mStretchMode) {
+        case AUDIO_TIMESTRETCH_STRETCH_VOICE:
+            parameters->stretchMode = AAUDIO_STRETCH_MODE_VOICE;
+            break;
+        case AUDIO_TIMESTRETCH_STRETCH_DEFAULT:
+            parameters->stretchMode = AAUDIO_STRETCH_MODE_DEFAULT;
+            break;
+        default:
+            ALOGW("%s unrecognized stretch mode: %d, convert it to default",
+                  __func__, rate.mFallbackMode);
+            parameters->stretchMode = AAUDIO_STRETCH_MODE_DEFAULT;
+            break;
+    }
+
+    parameters->speed = rate.mSpeed;
+    parameters->pitch = rate.mPitch;
+    return AAUDIO_OK;
 }

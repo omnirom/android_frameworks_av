@@ -18,6 +18,7 @@
 #define LOG_TAG "MediaPlayerService-DeathNotifier"
 #include <android-base/logging.h>
 #include <map>
+#include <mutex>
 
 #include "DeathNotifier.h"
 

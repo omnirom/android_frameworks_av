@@ -35,9 +35,9 @@ AudioStreamIn::AudioStreamIn(AudioHwDevice *dev, audio_input_flags_t flags)
 {
 }
 
-// This must be defined here together with the HAL includes above and
-// not solely in the header.
-AudioStreamIn::~AudioStreamIn() = default;
+AudioStreamIn::~AudioStreamIn() {
+    if (stream != nullptr) stream->close();
+}
 
 sp<DeviceHalInterface> AudioStreamIn::hwDev() const
 {
@@ -78,7 +78,8 @@ status_t AudioStreamIn::open(
         const char *address,
         audio_source_t source,
         audio_devices_t outputDevice,
-        const char *outputDeviceAddress)
+        const char *outputDeviceAddress,
+        int32_t mixPortHalId)
 {
     sp<StreamInHalInterface> inStream;
 
@@ -91,7 +92,8 @@ status_t AudioStreamIn::open(
             source,
             outputDevice,
             outputDeviceAddress,
-            &inStream);
+            &inStream,
+            mixPortHalId);
     ALOGV("AudioStreamIn::open(), HAL returned stream %p, sampleRate %d, format %#x,"
             " channelMask %#x, status %d", inStream.get(), config->sample_rate, config->format,
             config->channel_mask, status);

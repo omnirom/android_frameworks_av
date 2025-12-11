@@ -63,8 +63,8 @@ protected:
             std::shared_ptr<AttributionAndPermissionUtils> attributionAndPermissionUtils,
             const AttributionSourceState& clientAttribution, int callingPid,
             bool systemNativeClient, const std::string& cameraId, int api1CameraId,
-            int cameraFacing, int sensorOrientation, int servicePid, int rotationOverride,
-            bool sharedMode);
+            int cameraFacing, int sensorOrientation, int servicePid,
+            const CameraCompatibilityInfo& compatInfo, bool sharedMode);
 
     sp<hardware::camera2::ICameraDeviceCallbacks> mRemoteCallback;
 };
@@ -201,8 +201,8 @@ public:
                        const AttributionSourceState& clientAttribution, int callingPid,
                        bool clientPackageOverride, const std::string& cameraId, int cameraFacing,
                        int sensorOrientation, int servicePid, bool overrideForPerfClass,
-                       int rotationOverride, const std::string& originalCameraId, bool sharedMode,
-                       bool isVendorClient);
+                       const CameraCompatibilityInfo& compatInfo,
+                       const std::string& originalCameraId, bool sharedMode, bool isVendorClient);
     virtual ~CameraDeviceClient();
 
     virtual status_t      initialize(sp<CameraProviderManager> manager,
@@ -221,7 +221,7 @@ public:
 
     virtual status_t      dump(int fd, const Vector<String16>& args);
 
-    virtual status_t      dumpClient(int fd, const Vector<String16>& args);
+    virtual status_t      dumpClient(int fd, const Vector<String16>& args, bool ignoreResult);
 
     virtual status_t      startWatchingTags(const std::string &tags, int out);
     virtual status_t      stopWatchingTags(int out);

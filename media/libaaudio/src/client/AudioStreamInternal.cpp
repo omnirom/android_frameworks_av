@@ -25,11 +25,12 @@
 #include <binder/IServiceManager.h>
 
 #include <aaudio/AAudio.h>
+#include <aaudio/IAAudioClientCallback.h>
 #include <cutils/properties.h>
-
 #include <media/AudioParameter.h>
 #include <media/AudioSystem.h>
 #include <media/MediaMetricsItem.h>
+#include <mediautils/SchedulingPolicyService.h>
 #include <utils/Trace.h>
 
 #include "AudioEndpointParcelable.h"
@@ -66,6 +67,9 @@ using namespace aaudio;
 // Minimum number of bursts to use when sample rate conversion is used.
 #define MIN_SAMPLE_RATE_CONVERSION_NUM_BURSTS    3
 
+// Matches kRealTimeAudioPriorityService in frameworks/av/services/oboeservice/AAudioService.h
+#define REAL_TIME_AUDIO_PRIORITY_SERVICE 3
+
 AudioStreamInternal::AudioStreamInternal(AAudioServiceInterface  &serviceInterface, bool inService)
         : AudioStream()
         , mClockModel()
@@ -98,14 +102,22 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     if (result < 0) {
         return result;
     }
+    if (getPerformanceMode() == AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED) {
+        // For offload, force the sharing mode as exclusive
+        ALOGI("%s force to use exclusive mode when trying to open mmap offload stream", __func__);
+        setSharingMode(AAUDIO_SHARING_MODE_EXCLUSIVE);
+        setSharingModeMatchRequired(true);
+    }
 
     const audio_format_t requestedFormat = getFormat();
     // We have to do volume scaling. So we prefer FLOAT format.
     if (requestedFormat == AUDIO_FORMAT_DEFAULT) {
         setFormat(AUDIO_FORMAT_PCM_FLOAT);
     }
-    // Request FLOAT for the shared mixer or the device.
-    request.getConfiguration().setFormat(AUDIO_FORMAT_PCM_FLOAT);
+    // Request FLOAT for the shared mixer or the device if it is not offload.
+    request.getConfiguration().setFormat(
+            getPerformanceMode() == AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED
+                    ? getFormat() : AUDIO_FORMAT_PCM_FLOAT);
 
     // TODO b/182392769: use attribution source util
     AttributionSourceState attributionSource;
@@ -116,6 +128,7 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     attributionSource.token = sp<android::BBinder>::make();
 
     // Build the request to send to the server.
+    request.setCallback(this);
     request.setAttributionSource(attributionSource);
     request.setSharingModeMatchRequired(isSharingModeMatchRequired());
     request.setInService(isInService());
@@ -135,6 +148,9 @@ aaudio_result_t AudioStreamInternal::open(const AudioStreamBuilder &builder) {
     request.getConfiguration().setPrivacySensitive(isPrivacySensitive());
 
     request.getConfiguration().setBufferCapacity(builder.getBufferCapacity());
+
+    request.getConfiguration().setPerformanceMode(getPerformanceMode());
+    request.getConfiguration().setSessionId(builder.getSessionId());
 
     mServiceStreamHandleInfo = mServiceInterface.openStream(request, configurationOutput);
     if (getServiceHandle() < 0
@@ -329,12 +345,17 @@ aaudio_result_t AudioStreamInternal::configureDataInformation(int32_t callbackFr
         mTimeOffsetNanos = offsetMicros * AAUDIO_NANOS_PER_MICROSECOND;
     }
 
-    // Default buffer size to match Q
-    setBufferSize(mBufferCapacityInFrames / 2);
+    // Default buffer size to match Android Q
+    int32_t bufSize = mBufferCapacityInFrames / 2;
+    if (getPerformanceMode() == AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED) {
+        // If it is an offload stream, try to set the buffer size as big as possible.
+        bufSize = std::max(bufSize, mBufferCapacityInFrames - getFramesPerBurst());
+    }
+    setBufferSize(bufSize);
     return AAUDIO_OK;
 }
 
-// This must be called under mStreamLock.
+// This must be called under mStreamMutex.
 aaudio_result_t AudioStreamInternal::release_l() {
     aaudio_result_t result = AAUDIO_OK;
     ALOGD("%s(): mServiceStreamHandle = 0x%08X", __func__, getServiceHandle());
@@ -389,9 +410,10 @@ aaudio_result_t AudioStreamInternal::exitStandby_l() {
     // Cache the buffer size which may be from client.
     const int32_t previousBufferSize = mBufferSizeInFrames;
     // Copy all available data from current data queue.
-    uint8_t buffer[getDeviceBufferCapacity() * getBytesPerFrame()];
-    android::fifo_frames_t fullFramesAvailable = mAudioEndpoint->read(buffer,
-            getDeviceBufferCapacity());
+    android::fifo_frames_t fullFramesAvailable = mAudioEndpoint->getFullFramesAvailable();
+    std::unique_ptr<uint8_t[]> buffer =
+            std::make_unique<uint8_t[]>(fullFramesAvailable * getBytesPerFrame());
+    fullFramesAvailable = mAudioEndpoint->read(buffer.get(), fullFramesAvailable);
     // Before releasing the data queue, update the frames read and written.
     getFramesRead();
     getFramesWritten();
@@ -430,7 +452,7 @@ aaudio_result_t AudioStreamInternal::exitStandby_l() {
     }
     // Write data from previous data buffer to new endpoint.
     if (const android::fifo_frames_t framesWritten =
-                mAudioEndpoint->write(buffer, fullFramesAvailable);
+                mAudioEndpoint->write(buffer.get(), fullFramesAvailable);
             framesWritten != fullFramesAvailable) {
         ALOGW("Some data lost after exiting standby, frames written: %d, "
               "frames to write: %d", framesWritten, fullFramesAvailable);
@@ -499,11 +521,7 @@ aaudio_result_t AudioStreamInternal::requestStart_l()
     // Start data callback thread.
     if (result == AAUDIO_OK && isDataCallbackSet()) {
         // Launch the callback loop thread.
-        int64_t periodNanos = mCallbackFrames
-                              * AAUDIO_NANOS_PER_SECOND
-                              / getSampleRate();
-        mCallbackEnabled.store(true);
-        result = createThread_l(periodNanos, aaudio_callback_thread_proc, this);
+        result = startCallback_l();
     }
     if (result != AAUDIO_OK) {
         setState(originalState);
@@ -528,12 +546,13 @@ int64_t AudioStreamInternal::calculateReasonableTimeout() {
     return calculateReasonableTimeout(getFramesPerBurst());
 }
 
-// This must be called under mStreamLock.
+// This must be called under mStreamMutex.
 aaudio_result_t AudioStreamInternal::stopCallback_l()
 {
     if (isDataCallbackSet() && (isActive() || isDisconnected())) {
         mCallbackEnabled.store(false);
-        aaudio_result_t result = joinThread_l(nullptr); // may temporarily unlock mStreamLock
+        wakeupCallbackThread_l();
+        aaudio_result_t result = joinThread_l(nullptr); // may temporarily unlock mStreamMutex
         if (result == AAUDIO_ERROR_INVALID_HANDLE) {
             ALOGD("%s() INVALID_HANDLE, stream was probably stolen", __func__);
             result = AAUDIO_OK;
@@ -544,6 +563,12 @@ aaudio_result_t AudioStreamInternal::stopCallback_l()
             isDataCallbackSet(), isActive(), getState());
         return AAUDIO_OK;
     }
+}
+
+aaudio_result_t AudioStreamInternal::startCallback_l() {
+    int64_t periodNanos = mCallbackFrames * AAUDIO_NANOS_PER_SECOND / getSampleRate();
+    mCallbackEnabled.store(true);
+    return createThread_l(periodNanos, aaudio_callback_thread_proc, this);
 }
 
 aaudio_result_t AudioStreamInternal::requestStop_l() {
@@ -594,6 +619,16 @@ aaudio_result_t AudioStreamInternal::registerThread() {
         ALOGW("%s() mServiceStreamHandle invalid", __func__);
         return AAUDIO_ERROR_INVALID_STATE;
     }
+    if (mInService) {
+        // Threads in the service can request for their own priority directly.
+        int err = android::requestPriority(getpid(), gettid(), REAL_TIME_AUDIO_PRIORITY_SERVICE,
+                                           true /* isForApp */);
+        if (err != 0) {
+            ALOGE("%s(%d) requestPriority failed, errno = %d", __func__, gettid(), err);
+            return AAUDIO_ERROR_INTERNAL;
+        }
+        return AAUDIO_OK;
+    }
     return mServiceInterface.registerAudioThread(mServiceStreamHandleInfo,
                                                  gettid(),
                                                  getPeriodNanoseconds());
@@ -603,6 +638,9 @@ aaudio_result_t AudioStreamInternal::unregisterThread() {
     if (getServiceHandle() == AAUDIO_HANDLE_INVALID) {
         ALOGW("%s() mServiceStreamHandle invalid", __func__);
         return AAUDIO_ERROR_INVALID_STATE;
+    }
+    if (mInService) {
+        return AAUDIO_OK;
     }
     return mServiceInterface.unregisterAudioThread(mServiceStreamHandleInfo, gettid());
 }
@@ -853,6 +891,10 @@ aaudio_result_t AudioStreamInternal::processData(void *buffer, int32_t numFrames
         framesLeft -= (int32_t) framesProcessed;
         audioData += framesProcessed * getBytesPerFrame();
 
+        if (mayNeedToDrain() && framesLeft <= 0) {
+            break;
+        }
+
         // Should we block?
         if (timeoutNanoseconds == 0) {
             break; // don't block
@@ -954,8 +996,8 @@ aaudio_result_t AudioStreamInternal::setBufferSize(int32_t requestedFrames) {
 
     mBufferSizeInFrames = bufferSizeInFrames;
     mDeviceBufferSizeInFrames = deviceBufferSizeInFrames;
-    ALOGV("%s(%d) returns %d", __func__, requestedFrames, adjustedFrames);
-    return (aaudio_result_t) adjustedFrames;
+    ALOGV("%s(%d) returns %d", __func__, requestedFrames, mBufferSizeInFrames);
+    return (aaudio_result_t) mBufferSizeInFrames;
 }
 
 int32_t AudioStreamInternal::getBufferSize() const {
@@ -976,4 +1018,20 @@ int32_t AudioStreamInternal::getDeviceBufferCapacity() const {
 
 bool AudioStreamInternal::isClockModelInControl() const {
     return isActive() && mAudioEndpoint->isFreeRunning() && mClockModel.isRunning();
+}
+
+//------------------------------------------------------------------------------
+// Implementation of AAudioClientCallback
+
+android::binder::Status AudioStreamInternal::onWakeUp(
+        const android::media::TimerQueueHandle& handle) {
+    if (getPerformanceMode() != AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED) {
+        ALOGW("%s on a non-offload stream", __func__);
+        return android::binder::Status::fromStatusT(STATUS_INVALID_OPERATION);
+    }
+    android::audio_utils::TimerQueue::handle_t legacy = VALUE_OR_RETURN_BINDER_STATUS(
+            android::aidl2legacy_TimerQueueHandle_timer_queue_handle_t(handle));
+    std::lock_guard _l(mStreamMutex);
+    onWakeUp_l(legacy);
+    return android::binder::Status::ok();
 }

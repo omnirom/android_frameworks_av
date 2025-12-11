@@ -17,3 +17,14 @@ prebuilt_etc {
     src: "audio_effects.xml",
     filename: "audio_effects.xml",
 }
+
+prebuilt_etc {
+    name: "aosp_audio_effects.xml",
+    src: "audio_effects.xml",
+    filename_from_src: true,
+    vendor: true,
+    enabled: select(soong_config_variable("frameworks_av", "use_aosp_audio_effects_config"), {
+        true: true,
+        default: false,
+    }),
+}

@@ -28,6 +28,9 @@
 
 #include <log/log.h>
 
+#include <android_media_audiopolicy.h>
+
+namespace audio_flags = android::media::audiopolicy;
 
 namespace android {
 
@@ -39,12 +42,13 @@ using media::audio::common::AudioHalProductStrategy;
  * REROUTING & PATCH system strategies are added.
  * To prevent from collision, generate from VENDOR_STRATEGY_ID_START when id is not provided.
  */
-ProductStrategy::ProductStrategy(const std::string &name, int id) :
+ProductStrategy::ProductStrategy(const std::string &name, int id, int zoneId) :
     mName(name),
     mId((static_cast<product_strategy_t>(id) != PRODUCT_STRATEGY_NONE) ?
             static_cast<product_strategy_t>(id) :
             static_cast<product_strategy_t>(AudioHalProductStrategy::VENDOR_STRATEGY_ID_START +
-                    HandleGenerator<uint32_t>::getNextHandle())) {}
+                    HandleGenerator<uint32_t>::getNextHandle())),
+    mZoneId(zoneId) {}
 
 void ProductStrategy::addAttributes(const VolumeGroupAttributes &volumeGroupAttributes)
 {
@@ -72,12 +76,45 @@ AttributesVector ProductStrategy::getAudioAttributes() const
     return { AUDIO_ATTRIBUTES_INITIALIZER };
 }
 
+std::pair<int, VolumeGroupAttributes> ProductStrategy::getScoredVolumeGroupAttributesForAttributes(
+        const audio_attributes_t attributes, int zoneId) const
+{
+    int bestScore = AudioProductStrategy::NO_MATCH;
+    VolumeGroupAttributes bestVolumeGroupAttributesOrDefault = {};
+    for (const auto &aag : mAttributesVector) {
+        int score = AudioProductStrategy::attributesMatchesScore(aag.getAttributes(), attributes,
+                mZoneId, zoneId);
+        if (AudioProductStrategy::isMatchingScore(score)) {
+            return std::pair<int, VolumeGroupAttributes>(AudioProductStrategy::MATCH_EQUALS, aag);
+        }
+        if (score > bestScore) {
+            bestVolumeGroupAttributesOrDefault = aag;
+            bestScore = score;
+        }
+    }
+    return std::pair<int, VolumeGroupAttributes>(bestScore, bestVolumeGroupAttributesOrDefault);
+}
+
 int ProductStrategy::matchesScore(const audio_attributes_t attr) const
 {
     int strategyScore = AudioProductStrategy::NO_MATCH;
     for (const auto &attrGroup : mAttributesVector) {
         int score = AudioProductStrategy::attributesMatchesScore(attrGroup.getAttributes(), attr);
-        if (score == AudioProductStrategy::MATCH_EQUALS) {
+        if (AudioProductStrategy::isMatchingScore(score)) {
+            return score;
+        }
+        strategyScore = std::max(score, strategyScore);
+    }
+    return strategyScore;
+}
+
+int ProductStrategy::matchesScore(const audio_attributes_t attr, int zoneId) const
+{
+    int strategyScore = AudioProductStrategy::NO_MATCH;
+    for (const auto &attrGroup : mAttributesVector) {
+        int score = AudioProductStrategy::attributesMatchesScore(attrGroup.getAttributes(), attr,
+                mZoneId, zoneId);
+        if (AudioProductStrategy::isMatchingScore(score)) {
             return score;
         }
         strategyScore = std::max(score, strategyScore);
@@ -139,9 +176,12 @@ volume_group_t ProductStrategy::getDefaultVolumeGroup() const
 
 void ProductStrategy::dump(String8 *dst, int spaces) const
 {
-    dst->appendFormat("\n%*s-%s (id: %d)\n", spaces, "", mName.c_str(), mId);
+    dst->appendFormat("\n%*s-%s (id: %d)", spaces, "", mName.c_str(), mId);
+    if (audio_flags::multi_zone_audio()) {
+        dst->appendFormat("(ZoneId: %d)", mZoneId);
+    }
     std::string deviceLiteral = deviceTypesToString(mApplicableDevices);
-    dst->appendFormat("%*sSelected Device: {%s, @:%s}\n", spaces + 2, "",
+    dst->appendFormat("\n%*sSelected Device: {%s, @:%s}\n", spaces + 2, "",
                        deviceLiteral.c_str(), mDeviceAddress.c_str());
 
     for (const auto &attr : mAttributesVector) {
@@ -157,20 +197,39 @@ void ProductStrategy::dump(String8 *dst, int spaces) const
 product_strategy_t ProductStrategyMap::getProductStrategyForAttributes(
         const audio_attributes_t &attributes, bool fallbackOnDefault) const
 {
-    product_strategy_t bestStrategyOrdefault = PRODUCT_STRATEGY_NONE;
+    product_strategy_t bestStrategyOrDefault = PRODUCT_STRATEGY_NONE;
     int matchScore = AudioProductStrategy::NO_MATCH;
     for (const auto &iter : *this) {
         int score = iter.second->matchesScore(attributes);
-        if (score == AudioProductStrategy::MATCH_EQUALS) {
+        if (AudioProductStrategy::isMatchingScore(score)) {
             return iter.second->getId();
         }
         if (score > matchScore) {
-            bestStrategyOrdefault = iter.second->getId();
+            bestStrategyOrDefault = iter.second->getId();
             matchScore = score;
         }
     }
-    return (matchScore != AudioProductStrategy::MATCH_ON_DEFAULT_SCORE || fallbackOnDefault) ?
-            bestStrategyOrdefault : PRODUCT_STRATEGY_NONE;
+    return (!AudioProductStrategy::isDefaultMatchingScore(matchScore) || fallbackOnDefault) ?
+           bestStrategyOrDefault : PRODUCT_STRATEGY_NONE;
+}
+
+product_strategy_t ProductStrategyMap::getProductStrategyForAttributes(
+        const audio_attributes_t &attributes, int zoneId, bool fallbackOnDefault) const
+{
+    product_strategy_t bestStrategyOrDefault = PRODUCT_STRATEGY_NONE;
+    int matchScore = AudioProductStrategy::NO_MATCH;
+    for (const auto &iter : *this) {
+        int score = iter.second->matchesScore(attributes, zoneId);
+        if (AudioProductStrategy::isMatchingScore(score)) {
+            return iter.second->getId();
+        }
+        if (score > matchScore) {
+            bestStrategyOrDefault = iter.second->getId();
+            matchScore = score;
+        }
+    }
+    return (!AudioProductStrategy::isDefaultMatchingScore(matchScore) || fallbackOnDefault) ?
+           bestStrategyOrDefault : PRODUCT_STRATEGY_NONE;
 }
 
 audio_attributes_t ProductStrategyMap::getAttributesForStreamType(audio_stream_type_t stream) const
@@ -186,6 +245,26 @@ audio_attributes_t ProductStrategyMap::getAttributesForStreamType(audio_stream_t
     return {};
 }
 
+audio_attributes_t ProductStrategyMap::getAttributesForStreamType(audio_stream_type_t stream,
+        int zoneId) const
+{
+    audio_attributes_t defaultAttributesForStream = {};
+    for (const auto &iter : *this) {
+        const auto strategy = iter.second;
+        if (strategy->supportStreamType(stream)) {
+            if (zoneId == strategy->getZoneId()) {
+                return strategy->getAttributesForStreamType(stream);
+            }
+            if (strategy->getZoneId() == AudioProductStrategy::DEFAULT_ZONE_ID) {
+                defaultAttributesForStream = strategy->getAttributesForStreamType(stream);
+            }
+        }
+    }
+    ALOGV("%s: No product strategy for stream %s, using default", __FUNCTION__,
+            toString(stream).c_str());
+    return defaultAttributesForStream;
+}
+
 product_strategy_t ProductStrategyMap::getDefault() const
 {
     if (mDefaultStrategy != PRODUCT_STRATEGY_NONE) {
@@ -199,6 +278,23 @@ product_strategy_t ProductStrategyMap::getDefault() const
     }
     ALOGE("%s: No default product strategy defined", __FUNCTION__);
     return PRODUCT_STRATEGY_NONE;
+}
+
+product_strategy_t ProductStrategyMap::getDefault(int zoneId) const
+{
+    if (mDefaultStrategy != PRODUCT_STRATEGY_NONE
+            && zoneId == AudioProductStrategy::DEFAULT_ZONE_ID) {
+        return mDefaultStrategy;
+    }
+    for (const auto &iter : *this) {
+        if (zoneId == iter.second->getZoneId() && iter.second->isDefault()) {
+            ALOGV("%s: using default %s", __FUNCTION__, iter.second->getName().c_str());
+            return iter.second->getId();
+        }
+    }
+    ALOGE_IF(mDefaultStrategy == PRODUCT_STRATEGY_NONE,
+             "%s: No default product strategy defined", __FUNCTION__);
+    return mDefaultStrategy;
 }
 
 audio_attributes_t ProductStrategyMap::getAttributesForProductStrategy(
@@ -220,6 +316,24 @@ product_strategy_t ProductStrategyMap::getProductStrategyForStream(audio_stream_
     }
     ALOGV("%s: No product strategy for stream %d, using default", __FUNCTION__, stream);
     return getDefault();
+}
+
+product_strategy_t ProductStrategyMap::getProductStrategyForStream(audio_stream_type_t stream,
+        int zoneId) const
+{
+    product_strategy_t defaultStrategyForStream = mDefaultStrategy;
+    for (const auto &iter : *this) {
+        const auto &strategy = iter.second;
+        if (strategy->supportStreamType(stream)) {
+            if (strategy->getZoneId() == zoneId) {
+                return strategy->getId();
+            } else if (strategy->getZoneId() == AudioProductStrategy::DEFAULT_ZONE_ID) {
+                defaultStrategyForStream = strategy->getId();
+            }
+        }
+    }
+    ALOGV("%s: No product strategy for stream %d, using default", __FUNCTION__, stream);
+    return defaultStrategyForStream;
 }
 
 
@@ -258,7 +372,7 @@ VolumeGroupAttributes ProductStrategyMap::getVolumeGroupAttributesForAttributes(
     for (const auto &iter : *this) {
         for (const auto &volGroupAttr : iter.second->getVolumeGroupAttributes()) {
             int score = volGroupAttr.matchesScore(attr);
-            if (score == AudioProductStrategy::MATCH_EQUALS) {
+            if (AudioProductStrategy::isMatchingScore(score)) {
                 return volGroupAttr;
             }
             if (score > matchScore) {
@@ -267,7 +381,28 @@ VolumeGroupAttributes ProductStrategyMap::getVolumeGroupAttributesForAttributes(
             }
         }
     }
-    return (matchScore != AudioProductStrategy::MATCH_ON_DEFAULT_SCORE || fallbackOnDefault) ?
+    return (AudioProductStrategy::isDefaultMatchingScore(matchScore)  || fallbackOnDefault) ?
+           bestVolumeGroupAttributes : VolumeGroupAttributes();
+}
+
+VolumeGroupAttributes ProductStrategyMap::getVolumeGroupAttributesForAttributes(
+        const audio_attributes_t &attr, int zoneId, bool fallbackOnDefault) const
+{
+    int matchScore = AudioProductStrategy::NO_MATCH;
+    VolumeGroupAttributes bestVolumeGroupAttributes = {};
+    for (const auto &iter : *this) {
+        std::pair<int, VolumeGroupAttributes> scoredAag =
+                iter.second->getScoredVolumeGroupAttributesForAttributes(attr, zoneId);
+        int score = scoredAag.first;
+        if (AudioProductStrategy::isMatchingScore(score)) {
+            return scoredAag.second;
+        }
+        if (score > matchScore) {
+            matchScore = score;
+            bestVolumeGroupAttributes = scoredAag.second;
+        }
+    }
+    return (!AudioProductStrategy::isDefaultMatchingScore(matchScore) || fallbackOnDefault) ?
             bestVolumeGroupAttributes : VolumeGroupAttributes();
 }
 
@@ -295,7 +430,7 @@ volume_group_t ProductStrategyMap::getVolumeGroupForStreamType(
         }
     }
     ALOGW("%s: no volume group for %s, using default", __func__, toString(stream).c_str());
-    return fallbackOnDefault ? getDefaultVolumeGroup() : VOLUME_GROUP_NONE;
+    return fallbackOnDefault ? mDefaultVolumeGroup : VOLUME_GROUP_NONE;
 }
 
 volume_group_t ProductStrategyMap::getDefaultVolumeGroup() const
@@ -307,11 +442,59 @@ volume_group_t ProductStrategyMap::getDefaultVolumeGroup() const
     return at(defaultStrategy)->getDefaultVolumeGroup();
 }
 
+audio_stream_type_t ProductStrategyMap::getStreamTypeForAttributes(
+        const audio_attributes_t &attr, int zoneId) const
+{
+    audio_stream_type_t streamType = getVolumeGroupAttributesForAttributes(
+            attr, zoneId, /* fallbackOnDefault= */ true).getStreamType();
+    return streamType != AUDIO_STREAM_DEFAULT ? streamType : AUDIO_STREAM_MUSIC;
+}
+
+volume_group_t ProductStrategyMap::getVolumeGroupForAttributes(
+        const audio_attributes_t &attr, int zoneId, bool fallbackOnDefault) const
+{
+    return getVolumeGroupAttributesForAttributes(attr, zoneId, fallbackOnDefault).getGroupId();
+}
+
+volume_group_t ProductStrategyMap::getVolumeGroupForStreamType(
+        audio_stream_type_t stream, int zoneId, bool fallbackOnDefault) const
+{
+    volume_group_t defaultVolumeGroupForStream = mDefaultVolumeGroup;
+    for (const auto &iter : *this) {
+        const auto &strategy = iter.second;
+        volume_group_t group = strategy->getVolumeGroupForStreamType(stream);
+        if (group != VOLUME_GROUP_NONE) {
+            if (strategy->getZoneId() == zoneId) {
+                return group;
+            } else if (strategy->getZoneId() == AudioProductStrategy::DEFAULT_ZONE_ID) {
+                defaultVolumeGroupForStream = group;
+            }
+        }
+    }
+    ALOGW("%s: no volume group for %s, using default", __func__, toString(stream).c_str());
+    return fallbackOnDefault ? defaultVolumeGroupForStream : VOLUME_GROUP_NONE;
+}
+
+volume_group_t ProductStrategyMap::getDefaultVolumeGroup(int zoneId) const
+{
+    product_strategy_t defaultStrategy = getDefault(zoneId);
+    if (defaultStrategy == PRODUCT_STRATEGY_NONE) {
+        return VOLUME_GROUP_NONE;
+    }
+    return at(defaultStrategy)->getDefaultVolumeGroup();
+}
+
 void ProductStrategyMap::initialize()
 {
     mDefaultStrategy = PRODUCT_STRATEGY_NONE;
     mDefaultStrategy = getDefault();
+    if (audio_flags::multi_zone_audio()) {
+        mDefaultVolumeGroup = getDefaultVolumeGroup(AudioProductStrategy::DEFAULT_ZONE_ID);
+    } else {
+        mDefaultVolumeGroup = getDefaultVolumeGroup();
+    }
     ALOG_ASSERT(mDefaultStrategy != PRODUCT_STRATEGY_NONE, "No default product strategy found");
+    ALOG_ASSERT(mDefaultVolumeGroup != VOLUME_GROUP_NONE, "No default volume group found");
 }
 
 void ProductStrategyMap::dump(String8 *dst, int spaces) const

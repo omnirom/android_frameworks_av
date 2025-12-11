@@ -22,7 +22,7 @@ import android.media.audio.common.AudioConfigBase;
 import android.media.audio.common.AudioAttributes;
 
 /**
- * {@hide}
+ * @hide
  */
 parcelable OpenOutputRequest {
     /** Interpreted as audio_module_handle_t. */
@@ -34,4 +34,5 @@ parcelable OpenOutputRequest {
     /** Bitmask, indexed by AudioOutputFlag. */
     int flags;
     AudioAttributes attributes;
+    int mixPortHalId;
 }

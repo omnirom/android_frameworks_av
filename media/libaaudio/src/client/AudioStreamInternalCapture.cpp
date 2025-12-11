@@ -282,18 +282,20 @@ int64_t AudioStreamInternalCapture::getFramesRead() {
 // Read data from the stream and pass it to the callback for processing.
 void *AudioStreamInternalCapture::callbackLoop() {
     aaudio_result_t result = AAUDIO_OK;
-    aaudio_data_callback_result_t callbackResult = AAUDIO_CALLBACK_RESULT_CONTINUE;
+    int32_t callbackResult = 0;
     if (!isDataCallbackSet()) return nullptr;
 
+    uint8_t* buf = mCallbackBuffer.get();
+    int32_t framesToRead = mCallbackFrames;
     // result might be a frame count
     while (mCallbackEnabled.load() && isActive() && (result >= 0)) {
 
         // Read audio data from stream.
-        int64_t timeoutNanos = calculateReasonableTimeout(mCallbackFrames);
+        int64_t timeoutNanos = calculateReasonableTimeout(framesToRead);
 
         // This is a BLOCKING READ!
-        result = read(mCallbackBuffer.get(), mCallbackFrames, timeoutNanos);
-        if ((result != mCallbackFrames)) {
+        result = read(buf, framesToRead, timeoutNanos);
+        if ((result != framesToRead)) {
             ALOGE("callbackLoop: read() returned %d", result);
             if (result >= 0) {
                 // Only read some of the frames requested. The stream can be disconnected
@@ -305,14 +307,23 @@ void *AudioStreamInternalCapture::callbackLoop() {
             break;
         }
 
-        // Call application using the AAudio callback interface.
         callbackResult = maybeCallDataCallback(mCallbackBuffer.get(), mCallbackFrames);
 
-        if (callbackResult == AAUDIO_CALLBACK_RESULT_STOP) {
+        if (callbackResult < 0) {
             ALOGD("%s(): callback returned AAUDIO_CALLBACK_RESULT_STOP", __func__);
             result = systemStopInternal();
             break;
         }
+
+        buf = mCallbackBuffer.get();
+        framesToRead = callbackResult;
+
+        // Client side may only consumes part of the data, copy the left data to the beginning of
+        // callback buffer.
+        const uint8_t* unprocessedBuf = buf + callbackResult * getBytesPerFrame();
+        int32_t bytesLeft = (mCallbackFrames - callbackResult) * getBytesPerFrame();
+        memcpy(buf, unprocessedBuf, bytesLeft);
+        buf += bytesLeft;
     }
 
     ALOGD("callbackLoop() exiting, result = %d, isActive() = %d",

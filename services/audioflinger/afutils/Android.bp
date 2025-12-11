@@ -39,7 +39,6 @@ cc_library {
         "AudioWatchdog.cpp",
         "BufLog.cpp",
         "NBAIO_Tee.cpp",
-        "Permission.cpp",
         "PropertyUtils.cpp",
         "TypedLogger.cpp",
         "Vibrator.cpp",

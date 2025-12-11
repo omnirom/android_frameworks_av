@@ -84,7 +84,6 @@ class ZslProcessor :
 
   private:
 
-#if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
     class InputProducerListener : public SurfaceListener {
     public:
         InputProducerListener(wp<ZslProcessor> parent) : mParent(parent) {}
@@ -97,17 +96,6 @@ class ZslProcessor :
     private:
         wp<ZslProcessor> mParent;
     };
-#else
-    class InputProducerListener : public BnProducerListener {
-    public:
-        InputProducerListener(wp<ZslProcessor> parent) : mParent(parent) {}
-        virtual void onBufferReleased();
-        virtual bool needsReleaseNotify() { return true; }
-
-    private:
-        wp<ZslProcessor> mParent;
-    };
-#endif
 
     static const nsecs_t kWaitDuration = 10000000; // 10 ms
     nsecs_t mLatestClearedBufferTimestamp;
@@ -156,12 +144,7 @@ class ZslProcessor :
     sp<RingBufferConsumer::PinnedBufferItem> mInputBuffer;
     sp<RingBufferConsumer>                   mProducer;
 
-#if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
     sp<Surface>                              mInputSurface;
-#else
-    sp<IGraphicBufferProducer>               mInputProducer;
-    int                                      mInputProducerSlot;
-#endif
 
     Condition                                mBuffersToDetachSignal;
     int                                      mBuffersToDetach;

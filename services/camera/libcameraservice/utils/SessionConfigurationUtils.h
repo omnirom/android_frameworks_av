@@ -108,7 +108,8 @@ bool isPublicFormat(int32_t format);
 // previous Surface property doesn't match with streamInfo
 binder::Status createConfiguredSurface(
         camera3::OutputStreamInfo& streamInfo, bool isStreamInfoValid,
-        sp<Surface>& out_surface, const sp<SurfaceType>& surface,
+        const OutputConfiguration &outputConfiguration,
+        sp<Surface> &out_surface, const sp<SurfaceType>& surface,
         const std::string &logicalCameraId, const CameraMetadata &physicalCameraMetadata,
         const std::vector<int32_t> &sensorPixelModesUsed,  int64_t dynamicRangeProfile,
         int64_t streamUseCase, int timestampBase, int mirrorMode,

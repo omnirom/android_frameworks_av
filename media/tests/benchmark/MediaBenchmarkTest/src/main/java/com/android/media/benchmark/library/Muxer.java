@@ -19,9 +19,10 @@ import android.content.Context;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
-
+import java.io.FileDescriptor;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -55,6 +56,31 @@ public class Muxer {
     }
 
     /**
+     * Creates a Media Muxer for the specified path
+     *
+     * @param fd      FileDescriptor to which muxer should write data
+     * @param outputFormat Format of the output media file
+     * @param trackFormat  Format of the current track
+     * @return Returns the track index of the newly added track, -1 otherwise
+     */
+    public int setUpMuxer(FileDescriptor fd, int outputFormat, MediaFormat trackFormat) {
+        try {
+            mStats = new Stats();
+            long sTime = mStats.getCurTime();
+            mMuxer = new MediaMuxer(fd, outputFormat);
+            int trackIndex = mMuxer.addTrack(trackFormat);
+            mMuxer.start();
+            long eTime = mStats.getCurTime();
+            long timeTaken = mStats.getTimeDiff(sTime, eTime);
+            mStats.setInitTime(timeTaken);
+            return trackIndex;
+        } catch (IllegalArgumentException | IOException e) {
+            e.printStackTrace();
+            return -1;
+        }
+    }
+
+    /**
      * Performs the Mux operation
      *
      * @param trackIndex           Track index of the sample
@@ -72,6 +98,29 @@ public class Muxer {
                 mStats.addOutputTime();
                 mStats.addFrameSize(inputBufferInfo.get(sampleCount).size);
             } catch (IllegalArgumentException | IllegalStateException e) {
+                e.printStackTrace();
+                return -1;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Performs the Mux operation
+     *
+     * @param trackIndex            Track index of the sample
+     * @param buffer                Buffer containing encoded samples
+     * @param infos                 Buffer information related to these samples
+     * @return Returns Status as 0 if write operation is successful, -1 otherwise
+     */
+    public int mux(int trackIndex, ByteBuffer buffer,
+                   ArrayDeque<MediaCodec.BufferInfo> infos) {
+        for (MediaCodec.BufferInfo info : infos) {
+            try {
+                mMuxer.writeSampleData(trackIndex, buffer, info);
+                mStats.addOutputTime();
+                mStats.addFrameSize(info.size);
+            } catch(IllegalStateException | IllegalArgumentException e) {
                 e.printStackTrace();
                 return -1;
             }

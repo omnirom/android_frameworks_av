@@ -47,7 +47,8 @@ status_t SpdifStreamIn::open(
         const char *address,
         audio_source_t source,
         audio_devices_t outputDevice,
-        const char* outputDeviceAddress)
+        const char* outputDeviceAddress,
+        int32_t mixPortHalId)
 {
     struct audio_config customConfig = *config;
 
@@ -79,7 +80,8 @@ status_t SpdifStreamIn::open(
             address,
             source,
             outputDevice,
-            outputDeviceAddress);
+            outputDeviceAddress,
+            mixPortHalId);
 
     // reset config back to whatever is returned by HAL
     config->sample_rate = customConfig.sample_rate;

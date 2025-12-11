@@ -23,6 +23,8 @@
 #include <vector>
 
 #include <android-base/thread_annotations.h>
+#include <android/media/audio/common/AudioPlaybackRate.h>
+#include <audio_utils/TimerQueue.h>
 
 #include "client/AudioStreamInternal.h"
 #include "client/AudioStreamInternalPlay.h"
@@ -86,6 +88,29 @@ public:
 
     virtual aaudio_result_t exitStandby(AudioEndpointParcelable* /*parcelable*/) {
         ALOGD("AAudioServiceEndpoint::exitStandby() AAUDIO_ERROR_UNAVAILABLE");
+        return AAUDIO_ERROR_UNAVAILABLE;
+    }
+
+    virtual aaudio_result_t drain(int64_t wakeUpNanos, bool allowSoftWakeUp,
+                                  android::audio_utils::TimerQueue::handle_t* handle) {
+        ALOGD("AAudioServiceEndpoint::%s() AAUDIO_ERROR_UNAVAILABLE", __func__);
+        return AAUDIO_ERROR_UNAVAILABLE;
+    }
+
+    virtual aaudio_result_t activate(android::audio_utils::TimerQueue::handle_t handle) {
+        ALOGD("AAudioServiceEndpoint::%s() AAUDIO_ERROR_UNAVAILABLE", __func__);
+        return AAUDIO_ERROR_UNAVAILABLE;
+    }
+
+    virtual aaudio_result_t setPlaybackParameters(
+            const android::media::audio::common::AudioPlaybackRate& /*rate*/) {
+        ALOGD("AAudioServiceEndpoint::%s() AAUDIO_ERROR_UNAVAILABLE", __func__);
+        return AAUDIO_ERROR_UNAVAILABLE;
+    }
+
+    virtual aaudio_result_t getPlaybackParameters(
+            android::media::audio::common::AudioPlaybackRate* /*rate*/) {
+        ALOGD("AAudioServiceEndpoint::%s() AAUDIO_ERROR_UNAVAILABLE", __func__);
         return AAUDIO_ERROR_UNAVAILABLE;
     }
 

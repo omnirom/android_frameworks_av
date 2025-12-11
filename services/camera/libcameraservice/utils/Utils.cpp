@@ -70,9 +70,9 @@ RunThreadWithRealtimePriority::RunThreadWithRealtimePriority(int tid)
 
     res = sched_setscheduler(mTid, SCHED_FIFO, &param);
     if (res != OK) {
-        ALOGW("Can't set realtime priority for thread: %s (%d)", strerror(-res), res);
+        ALOGE("Can't set realtime priority for thread: %s (%d)", strerror(-res), res);
     } else {
-        ALOGD("Set real time priority for thread (tid %d)", mTid);
+        ALOGV("Set real time priority for thread (tid %d)", mTid);
         mPolicyBumped = true;
     }
 }
@@ -83,7 +83,7 @@ RunThreadWithRealtimePriority::~RunThreadWithRealtimePriority() {
         if (res != OK) {
             ALOGE("Can't set regular priority for thread: %s (%d)", strerror(-res), res);
         } else {
-            ALOGD("Set regular priority for thread (tid %d)", mTid);
+            ALOGV("Set regular priority for thread (tid %d)", mTid);
         }
     }
 }

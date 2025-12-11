@@ -42,6 +42,7 @@ import android.media.IAudioPolicyServiceClient;
 import android.media.ICaptureStateListener;
 import android.media.INativeSpatializerCallback;
 import android.media.SoundTriggerSession;
+import android.media.StartOutputResponse;
 import android.media.audio.common.AudioAttributes;
 import android.media.audio.common.AudioConfig;
 import android.media.audio.common.AudioConfigBase;
@@ -65,7 +66,7 @@ import com.android.media.permission.INativePermissionController;
 /**
  * IAudioPolicyService interface (see AudioPolicyInterface for method descriptions).
  *
- * {@hide}
+ * @hide
  */
 interface IAudioPolicyService {
     oneway void onNewAudioModulesAvailable();
@@ -97,11 +98,13 @@ interface IAudioPolicyService {
                                               int /* Bitmask, indexed by AudioOutputFlags */ flags,
                                               in int[] /* audio_port_handle_t */ selectedDeviceIds);
 
-    void startOutput(int /* audio_port_handle_t */ portId);
+    StartOutputResponse startOutput(int /* audio_port_handle_t */ portId);
 
     void stopOutput(int /* audio_port_handle_t */ portId);
 
     void releaseOutput(int /* audio_port_handle_t */ portId);
+
+    void forceReleaseDirectOutput(int /* audio_io_handle_t */ output);
 
     GetInputForAttrResponse getInputForAttr(in AudioAttributes attr,
                                             int /* audio_io_handle_t */ input,
@@ -144,6 +147,19 @@ interface IAudioPolicyService {
     int getMaxVolumeIndexForAttributes(in AudioAttributes attr);
 
     int getMinVolumeIndexForAttributes(in AudioAttributes attr);
+
+    void setVolumeIndexForGroup(int groupId, in AudioDeviceDescription device, int index,
+                                   boolean muted);
+
+    int getVolumeIndexForGroup(int groupId, in AudioDeviceDescription device);
+
+    int getMaxVolumeIndexForGroup(int groupId);
+
+    int getMinVolumeIndexForGroup(int groupId);
+
+    void setMaxVolumeIndexForGroup(int groupId, int maxIndex);
+
+    void setMinVolumeIndexForGroup(int groupId, int minIndex);
 
     int /* product_strategy_t */ getStrategyForStream(AudioStreamType stream);
 
@@ -344,6 +360,8 @@ interface IAudioPolicyService {
      */
     boolean isHotwordStreamSupported(boolean lookbackAudio);
 
+    AudioAttributes getAttributesForStreamType(in AudioStreamType stream);
+    AudioStreamType getStreamTypeForAttributes(in AudioAttributes attributes);
     AudioProductStrategy[] listAudioProductStrategies();
     int /* product_strategy_t */ getProductStrategyFromAudioAttributes(
             in AudioAttributes aa, boolean fallbackOnDefault);

@@ -69,6 +69,7 @@
 #include <system/audio.h>
 
 #include <media/stagefright/rtsp/ARTPWriter.h>
+#include <android_media_mediarecorder.h>
 #include <com_android_media_editing_flags.h>
 
 namespace android {
@@ -136,6 +137,7 @@ StagefrightRecorder::StagefrightRecorder(const AttributionSourceState& client)
       mRTPSockDscp(0),
       mRTPSockOptEcn(0),
       mRTPSockNetwork(0),
+      mRTPVidEncCoeffPercent(80),
       mLastSeqNo(0),
       mStarted(false),
       mSelectedDeviceId(AUDIO_PORT_HANDLE_NONE),
@@ -251,9 +253,9 @@ status_t StagefrightRecorder::init() {
 // The client side of mediaserver asks it to create a SurfaceMediaSource
 // and return a interface reference. The client side will use that
 // while encoding GL Frames
-sp<IGraphicBufferProducer> StagefrightRecorder::querySurfaceMediaSource() const {
+sp<MediaSurfaceType> StagefrightRecorder::querySurfaceMediaSource() const {
     ALOGV("Get SurfaceMediaSource");
-    return mGraphicBufferProducer;
+    return mSurface;
 }
 
 status_t StagefrightRecorder::setAudioSource(audio_source_t as) {
@@ -401,10 +403,9 @@ status_t StagefrightRecorder::setCamera(const sp<hardware::ICamera> &camera,
     return OK;
 }
 
-status_t StagefrightRecorder::setPreviewSurface(const sp<IGraphicBufferProducer> &surface) {
+status_t StagefrightRecorder::setPreviewSurface(const sp<MediaSurfaceType> &surface) {
     ALOGV("setPreviewSurface: %p", surface.get());
     mPreviewSurface = surface;
-
     return OK;
 }
 
@@ -598,7 +599,7 @@ status_t StagefrightRecorder::setParamVideoEncodingBitRate(int32_t bitRate) {
         // Regular I frames may overload the network so we reduce the bitrate to allow
         // margins for the I frame overruns.
         // Still send requested bitrate (TMMBR) in the reply (TMMBN).
-        const float coefficient = 0.8f;
+        const float coefficient = mRTPVidEncCoeffPercent / 100.f;
         mVideoBitRate = (bitRate * coefficient) / 1000 * 1000;
     }
     if (mOutputFormat == OUTPUT_FORMAT_RTP_AVP && mStarted && mPauseStartTimeUs == 0) {
@@ -933,6 +934,11 @@ status_t StagefrightRecorder::requestIDRFrame() {
     return ret;
 }
 
+status_t StagefrightRecorder::setRTPVidEncCoeffPercent(int32_t percent) {
+    mRTPVidEncCoeffPercent = percent;
+    return OK;
+}
+
 status_t StagefrightRecorder::setLogSessionId(const String8 &log_session_id) {
     ALOGV("setLogSessionId: %s", log_session_id.c_str());
 
@@ -1113,6 +1119,11 @@ status_t StagefrightRecorder::setParameter(
         int64_t networkHandle;
         if (safe_strtoi64(value.c_str(), &networkHandle)) {
             return setSocketNetwork(networkHandle);
+        }
+    } else if (key == "rtp-param-vid-enc-coeff-percent") {
+        int32_t percent;
+        if (safe_strtoi32(value.c_str(), &percent)) {
+            return setRTPVidEncCoeffPercent(percent);
         }
     } else if (key == "log-session-id") {
         return setLogSessionId(value);
@@ -1936,32 +1947,15 @@ status_t StagefrightRecorder::setupCameraSource(
             return BAD_VALUE;
         }
 
-#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
-        sp<Surface> surface = new Surface(mPreviewSurface);
         mCameraSourceTimeLapse = CameraSourceTimeLapse::CreateFromCamera(
-                mCamera, mCameraProxy, mCameraId, clientName, uid, pid,
-                videoSize, mFrameRate, surface,
+                mCamera, mCameraProxy, mCameraId, clientName, uid, pid, videoSize, mFrameRate,
+                mediaflagtools::mediaSurfaceToCameraSurfaceType(mPreviewSurface),
                 std::llround(1e6 / mCaptureFps));
-#else
-        mCameraSourceTimeLapse = CameraSourceTimeLapse::CreateFromCamera(
-                mCamera, mCameraProxy, mCameraId, clientName, uid, pid,
-                videoSize, mFrameRate, mPreviewSurface,
-                std::llround(1e6 / mCaptureFps));
-#endif
         *cameraSource = mCameraSourceTimeLapse;
     } else {
-#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
-        sp<Surface> surface = new Surface(mPreviewSurface);
         *cameraSource = CameraSource::CreateFromCamera(
-                mCamera, mCameraProxy, mCameraId, clientName, uid, pid,
-                videoSize, mFrameRate,
-                surface);
-#else
-        *cameraSource = CameraSource::CreateFromCamera(
-                mCamera, mCameraProxy, mCameraId, clientName, uid, pid,
-                videoSize, mFrameRate,
-                mPreviewSurface);
-#endif
+                mCamera, mCameraProxy, mCameraId, clientName, uid, pid, videoSize, mFrameRate,
+                mediaflagtools::mediaSurfaceToCameraSurfaceType(mPreviewSurface));
     }
     mCamera.clear();
     mCameraProxy.clear();
@@ -2029,6 +2023,14 @@ status_t StagefrightRecorder::setupVideoEncoder(
 
         case VIDEO_ENCODER_AV1:
             format->setString("mime", MEDIA_MIMETYPE_VIDEO_AV1);
+            break;
+
+        case VIDEO_ENCODER_APV:
+            if (android::media::mediarecorder::apv_recording_support()) {
+                format->setString("mime", MEDIA_MIMETYPE_VIDEO_APV);
+            } else {
+                CHECK(!"Should not be here, unsupported video encoding.");
+            }
             break;
 
         default:
@@ -2140,12 +2142,6 @@ status_t StagefrightRecorder::setupVideoEncoder(
 
     if (tsLayers > 1) {
         uint32_t bLayers = std::min(2u, tsLayers - 1); // use up-to 2 B-layers
-        // TODO(b/341121900): Remove this once B frames are handled correctly in screen recorder
-        // use case in case of mic only
-        if (!com::android::media::editing::flags::stagefrightrecorder_enable_b_frames()
-                && mAudioSource == AUDIO_SOURCE_MIC && mVideoSource == VIDEO_SOURCE_SURFACE) {
-            bLayers = 0;
-        }
         uint32_t pLayers = tsLayers - bLayers;
         format->setString(
                 "ts-schema", AStringPrintf("android.generic.%u+%u", pLayers, bLayers));
@@ -2181,7 +2177,7 @@ status_t StagefrightRecorder::setupVideoEncoder(
     }
 
     if (cameraSource == NULL) {
-        mGraphicBufferProducer = encoder->getGraphicBufferProducer();
+        mSurface = encoder->getSurface();
     }
 
     *source = encoder;
@@ -2462,7 +2458,7 @@ status_t StagefrightRecorder::stop() {
     mPauseStartTimeUs = 0;
     mStartedRecordingUs = 0;
 
-    mGraphicBufferProducer.clear();
+    mSurface.clear();
     mPersistentSurface.clear();
     mAudioEncoderSource.clear();
     mVideoEncoderSource.clear();

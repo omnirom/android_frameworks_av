@@ -325,31 +325,23 @@ bool EffectProxy::isTunnel() const {
            Flags::HardwareAccelerator::TUNNEL;
 }
 
-binder_status_t EffectProxy::dump(int fd, const char** args, uint32_t numArgs) {
-    const std::string dumpString = toString();
+binder_status_t EffectProxy::dump(int fd, const char**, uint32_t) {
+    const std::string dumpString = toString(8 /* spaces */);
     write(fd, dumpString.c_str(), dumpString.size());
-
-    return runWithAllSubEffects([&](std::shared_ptr<IEffect>& effect) {
-               return ndk::ScopedAStatus::fromStatus(effect->dump(fd, args, numArgs));
-           })
-            .getStatus();
+    return STATUS_OK;
 }
 
-std::string EffectProxy::toString(size_t level) const {
-    std::string prefixSpace(level, ' ');
-    std::string ss = prefixSpace + "EffectProxy:\n";
-    prefixSpace += " ";
-    base::StringAppendF(&ss, "%sDescriptorCommon: %s\n", prefixSpace.c_str(),
-                        mDescriptorCommon.toString().c_str());
+std::string EffectProxy::toString(size_t spaces) const {
+    std::string prefixSpace(spaces, ' ');
+    std::string ss = prefixSpace + "EffectProxy (sub-effects):\n";
+    for (size_t i = 0; i < mSubEffects.size(); i++) {
+        base::StringAppendF(
+                &ss, "%s[%s] - Handle: %p, implementation UUID: %s\n", prefixSpace.c_str(),
+                (i == mActiveSubIdx) ? "ACTIVE" : "INACTIVE", mSubEffects[i].handle.get(),
+                android::audio::utils::toString(mSubEffects[i].descriptor.common.id.uuid).c_str());
+    }
     base::StringAppendF(&ss, "%sDescriptorCapability: %s\n", prefixSpace.c_str(),
                         mSharedCapability.toString().c_str());
-    base::StringAppendF(&ss, "%sActiveSubIdx: %zu\n", prefixSpace.c_str(), mActiveSubIdx);
-    base::StringAppendF(&ss, "%sAllSubEffects:\n", prefixSpace.c_str());
-    for (size_t i = 0; i < mSubEffects.size(); i++) {
-        base::StringAppendF(&ss, "%s[%zu] - Handle: %p, %s\n", prefixSpace.c_str(), i,
-                            mSubEffects[i].handle.get(),
-                            mSubEffects[i].descriptor.toString().c_str());
-    }
     return ss;
 }
 

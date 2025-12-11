@@ -88,6 +88,7 @@ filegroup {
         ":device_for_input_source.pfw",
         ":volumes.pfw",
         "Settings/device_for_product_strategy_accessibility.pfw",
+        "Settings/device_for_product_strategy_assistant.pfw",
         "Settings/device_for_product_strategy_dtmf.pfw",
         "Settings/device_for_product_strategy_enforced_audible.pfw",
         "Settings/device_for_product_strategy_media.pfw",

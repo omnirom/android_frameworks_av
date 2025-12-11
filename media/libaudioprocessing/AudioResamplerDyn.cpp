@@ -349,7 +349,8 @@ void AudioResamplerDyn<TC, TI, TO>::setSampleRate(int32_t inSampleRate)
     }
     int32_t oldSampleRate = mInSampleRate;
     uint32_t oldPhaseWrapLimit = mConstants.mL << mConstants.mShift;
-    bool useS32 = false;
+    // useS32 is only used if DEBUG_RESAMPLER is set.
+    [[maybe_unused]] bool useS32 = false;
 
     mInSampleRate = inSampleRate;
 

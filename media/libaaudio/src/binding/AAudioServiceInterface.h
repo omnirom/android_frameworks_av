@@ -17,8 +17,10 @@
 #ifndef ANDROID_AAUDIO_BINDING_AAUDIO_SERVICE_INTERFACE_H
 #define ANDROID_AAUDIO_BINDING_AAUDIO_SERVICE_INTERFACE_H
 
-#include <utils/StrongPointer.h>
+#include <audio_utils/TimerQueue.h>
 #include <media/AudioClient.h>
+#include <media/AudioResamplerPublic.h>
+#include <utils/StrongPointer.h>
 
 #include "aaudio/IAAudioClient.h"
 #include "binding/AAudioServiceDefinitions.h"
@@ -108,6 +110,70 @@ public:
      */
     virtual aaudio_result_t exitStandby(const AAudioHandleInfo& streamHandleInfo,
                                         AudioEndpointParcelable &parcelable) = 0;
+
+    /**
+     * AAudio service will send timestamp periodically. Client call this method to trigger
+     * a timestamp update immediately.
+     *
+     * @param streamHandleInfo the stream handle
+     * @return
+     */
+    virtual aaudio_result_t updateTimestamp(const AAudioHandleInfo& streamHandleInfo) = 0;
+
+    /**
+     * This is currently only used for offload playback.
+     *
+     * Notify service to drain all data. Client won't write any more data before it is closed
+     * to render all data. When draining, the device may be suspended. If the device is suspended,
+     * it can only be woken up from the service side or by user's input. In that case, a wake up
+     * time is sent to service side to wake up the client at the requested time.
+     *
+     * @param streamHandleInfo stream handle to identify the stream.
+     * @param wakeUpNanos the timestamp in boottime nanoseconds that the client must be waken up.
+     * @param allowSoftWakeUp allow the service side to wake up the client even if it is not the
+     *                        requested time. This allows service side to smartly select wake up
+     *                        time instead of waiting for the exact wake up time.
+     * @param handle the handle to identify the task in TimerQueue at service side. Use this handle
+     *               to remove the wake up task if the wake up task is no longer needed.
+     * @return AAUDIO_OK if the service side successfully receives the drain command.
+     */
+    virtual aaudio_result_t drainStream(const AAudioHandleInfo& streamHandleInfo,
+                                        int64_t wakeUpNanos,
+                                        bool allowSoftWakeUp,
+                                        android::audio_utils::TimerQueue::handle_t* handle) = 0;
+
+    /**
+     * This is currently only used for offload playback.
+     *
+     * This method is used to when the client is no longer suspended for draining.
+     *
+     * @param streamHandleInfo stream handle to identify the stream.
+     * @param handle the handle to identify the wake up task in TimerQueue at service side.
+     *               It is used by service side to remove wake up task.
+     * @return
+     */
+    virtual aaudio_result_t activateStream(const AAudioHandleInfo& streamHandleInfo,
+                                           android::audio_utils::TimerQueue::handle_t handle) = 0;
+
+    /**
+     * Set playback parameters for the stream.
+     *
+     * @param streamHandleInfo
+     * @param rate
+     * @return
+     */
+    virtual aaudio_result_t setPlaybackParameters(const AAudioHandleInfo& streamHandleInfo,
+                                                  const android::AudioPlaybackRate& rate) = 0;
+
+    /**
+     * Get playback parameters for the stream.
+     *
+     * @param streamHandleInfo
+     * @param rate
+     * @return
+     */
+    virtual aaudio_result_t getPlaybackParameters(const AAudioHandleInfo& streamHandleInfo,
+                                                  android::AudioPlaybackRate* rate) = 0;
 };
 
 } /* namespace aaudio */

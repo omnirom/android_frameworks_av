@@ -23,16 +23,19 @@
 #include <media/AudioContainers.h>
 #include <system/audio.h>
 #include <vector>
+#include <gui/Flags.h> // Remove with MediaSurfaceType and WB_MEDIA_MIGRATION.
 
 namespace android {
 
 class Surface;
+namespace view {
+class Surface;
+}
 namespace hardware {
 class ICamera;
 }
 class ICameraRecordingProxy;
 class IMediaRecorderClient;
-class IGraphicBufferProducer;
 struct PersistentSurface;
 
 class IMediaRecorder: public IInterface
@@ -42,7 +45,7 @@ public:
 
     virtual status_t setCamera(const sp<hardware::ICamera>& camera,
                                const sp<ICameraRecordingProxy>& proxy) = 0;
-    virtual status_t setPreviewSurface(const sp<IGraphicBufferProducer>& surface) = 0;
+    virtual status_t setPreviewSurface(const sp<MediaSurfaceType>& surface) = 0;
     virtual status_t setVideoSource(int vs) = 0;
     virtual status_t setAudioSource(int as) = 0;
     virtual status_t setPrivacySensitive(bool privacySensitive) = 0;
@@ -69,8 +72,7 @@ public:
     virtual status_t close() = 0;
     virtual status_t release() = 0;
     virtual status_t setInputSurface(const sp<PersistentSurface>& surface) = 0;
-    virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() = 0;
-
+    virtual sp<MediaSurfaceType> querySurfaceMediaSource() = 0;
     virtual status_t setInputDevice(audio_port_handle_t deviceId) = 0;
     virtual status_t getRoutedDeviceIds(DeviceIdVector& deviceIds) = 0;
     virtual status_t enableAudioDeviceCallback(bool enabled) = 0;

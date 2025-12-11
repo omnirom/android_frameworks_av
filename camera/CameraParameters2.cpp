@@ -189,13 +189,13 @@ static int parse_pair(const char *str, int *first, int *second, char delim,
     // Find the first integer.
     char *end;
     int w = (int)strtol(str, &end, 10);
-    // If a delimeter does not immediately follow, give up.
+    // If a delimiter does not immediately follow, give up.
     if (*end != delim) {
-        ALOGE("Cannot find delimeter (%c) in str=%s", delim, str);
+        ALOGE("Cannot find delimiter (%c) in str=%s", delim, str);
         return -1;
     }
 
-    // Find the second integer, immediately after the delimeter.
+    // Find the second integer, immediately after the delimiter.
     int h = (int)strtol(end+1, &end, 10);
 
     *first = w;

@@ -27,7 +27,7 @@ package {
 
 cc_defaults {
     name: "C2Fuzzer-defaults",
-
+    team: "trendy_team_media_codec_framework",
     defaults: ["libcodec2-static-defaults"],
 
     srcs: [
@@ -193,7 +193,7 @@ cc_fuzz {
 
 cc_fuzz {
     name: "C2FuzzerAPVDec",
-    defaults: ["C2Fuzzer-defaults"],
+    defaults: ["C2Fuzzer-defaults-shipped"],
 
     cflags: [
         "-DC2COMPONENTNAME=\"c2.android.apv.decoder\"",
@@ -305,6 +305,23 @@ cc_fuzz {
     static_libs: [
         "libgsm",
         "libcodec2_soft_gsmdec",
+    ],
+}
+
+cc_fuzz {
+    name: "C2FuzzerIamfDec",
+    defaults: ["C2Fuzzer-defaults-shipped"],
+
+    cflags: [
+        "-DC2COMPONENTNAME=\"c2.android.iamf.decoder\"",
+    ],
+
+    static_libs: [
+        "iamf_tools",
+        "libcodec2_soft_iamfdec",
+        "libFLAC",
+        "libFraunhoferAAC",
+        "libopus",
     ],
 }
 

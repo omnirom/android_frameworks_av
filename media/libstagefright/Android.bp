@@ -94,6 +94,7 @@ cc_library_static {
     ],
 
     shared_libs: [
+        "aconfig_libgui_flags_c_lib",
         "liblog",
     ],
 
@@ -241,6 +242,7 @@ cc_library {
         "CameraSource.cpp",
         "CameraSourceTimeLapse.cpp",
         "CodecErrorLog.cpp",
+        "CodecTrace.cpp",
         "CryptoAsync.cpp",
         "FrameDecoder.cpp",
         "HevcUtils.cpp",
@@ -312,6 +314,7 @@ cc_library {
         "libmedia_omx",
         "libmedia_omx_client",
         "libmediametrics",
+        "libcameracompatbilityinfo",
         "libsfplugin_ccodec",
         "libsfplugin_ccodec_utils",
         "libstagefright_codecbase",

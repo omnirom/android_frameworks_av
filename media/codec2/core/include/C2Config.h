@@ -29,8 +29,8 @@
  * Enumerated boolean.
  */
 C2ENUM(c2_bool_t, uint32_t,
-    C2_FALSE, ///< true
-    C2_TRUE,  ///< false
+    C2_FALSE, ///< false
+    C2_TRUE,  ///< true
 )
 
 typedef C2SimpleValueStruct<c2_bool_t> C2BoolValue;
@@ -249,7 +249,8 @@ enum C2ParamIndexKind : C2Param::type_index_t {
     kParamIndexDrcEffectType, // drc, enum
     kParamIndexDrcOutputLoudness, // drc, float (dBFS)
     kParamIndexDrcAlbumMode, // drc, enum
-    kParamIndexAudioFrameSize, // int
+    kParamIndexAudioFrameSize, // u32
+    kParamIndexAudioPresentationId,  // i64
 
     /* ============================== platform-defined parameters ============================== */
 
@@ -264,7 +265,7 @@ enum C2ParamIndexKind : C2Param::type_index_t {
     kParamIndexSurfaceScaling, // u32
 
     // input surface
-    kParamIndexInputSurfaceEos, // input-surface, eos
+    kParamIndexInputSurfaceStart, // input-surface, start
     kParamIndexTimedControl, // struct
     kParamIndexStartAt, // input-surface, struct
     kParamIndexSuspendAt, // input-surface, struct
@@ -448,7 +449,7 @@ enum : uint32_t {
     _C2_PL_MPEGH_BASE = 0xB000,     // MPEG-H 3D Audio
     _C2_PL_APV_BASE = 0xC000,     // APV
     _C2_PL_AC4_BASE  = 0xD000,
-
+    _C2_PL_IAMF_START = 0xE000,
     C2_PROFILE_LEVEL_VENDOR_START = 0x70000000,
 };
 
@@ -634,6 +635,20 @@ enum C2Config::profile_t : uint32_t {
     PROFILE_AC4_1_1,                            ///< AC-4 Profile 01.01
     PROFILE_AC4_2_1,                            ///< AC-4 Profile 02.01
     PROFILE_AC4_2_2,                            ///< AC-4 Profile 02.02
+
+    // IAMF Profiles
+    PROFILE_IAMF_SIMPLE_AAC = _C2_PL_IAMF_START, ///< IAMF Simple Profile with AAC
+    PROFILE_IAMF_SIMPLE_FLAC,                    ///< IAMF Simple Profile with FLAC
+    PROFILE_IAMF_SIMPLE_OPUS,                    ///< IAMF Simple Profile with Opus
+    PROFILE_IAMF_SIMPLE_PCM,                     ///< IAMF Simple Profile with PCM
+    PROFILE_IAMF_BASE_AAC,                       ///< IAMF Base Profile with AAC
+    PROFILE_IAMF_BASE_FLAC,                      ///< IAMF Base Profile with FLAC
+    PROFILE_IAMF_BASE_OPUS,                      ///< IAMF Base Profile with Opus
+    PROFILE_IAMF_BASE_PCM,                       ///< IAMF Base Profile with PCM
+    PROFILE_IAMF_BASE_ENHANCED_AAC,              ///< IAMF Base Enhanced with AAC
+    PROFILE_IAMF_BASE_ENHANCED_FLAC,             ///< IAMF Base Enhanced with FLAC
+    PROFILE_IAMF_BASE_ENHANCED_OPUS,             ///< IAMF Base Enhanced with Opus
+    PROFILE_IAMF_BASE_ENHANCED_PCM,              ///< IAMF Base Enhanced with PCM
 };
 
 enum C2Config::level_t : uint32_t {
@@ -2474,6 +2489,14 @@ typedef C2StreamParam<C2Info, C2SimpleArrayStruct<C2AccessUnitInfosStruct>,
 constexpr char C2_PARAMKEY_INPUT_ACCESS_UNIT_INFOS[] = "input.access-unit-infos";
 constexpr char C2_PARAMKEY_OUTPUT_ACCESS_UNIT_INFOS[] = "output.access-unit-infos";
 
+/**
+ * Audio Presentation ID. Used to configure a decoder with an audio presentation
+ * or mix presentation to be decoded.
+ */
+typedef C2GlobalParam<C2Tuning, C2Int64Value, kParamIndexAudioPresentationId>
+        C2AudioPresentationIdTuning;
+const char C2_PARAMKEY_AUDIO_PRESENTATION_ID[] = "algo.audio-presentation-id";
+
 /* --------------------------------------- AAC components --------------------------------------- */
 
 /**
@@ -2639,11 +2662,11 @@ constexpr char C2_PARAMKEY_SURFACE_SCALING_MODE[] = "raw.surface-scaling";
 /* ======================================= INPUT SURFACE ======================================= */
 
 /**
- * Input surface EOS
+ * Input surface Start
  */
-typedef C2GlobalParam<C2Tuning, C2EasyBoolValue, kParamIndexInputSurfaceEos>
-        C2InputSurfaceEosTuning;
-constexpr char C2_PARAMKEY_INPUT_SURFACE_EOS[] = "input-surface.eos";
+typedef C2GlobalParam<C2Tuning, C2EasyBoolValue, kParamIndexInputSurfaceStart>
+        C2InputSurfaceStartTuning;
+constexpr char C2_PARAMKEY_INPUT_SURFACE_START[] = "input-surface.start";
 
 /**
  * Start/suspend/resume/stop controls and timestamps for input surface.

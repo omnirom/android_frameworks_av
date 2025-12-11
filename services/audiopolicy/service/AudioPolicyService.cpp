@@ -38,7 +38,6 @@
 #include <media/AudioEffect.h>
 #include <media/AudioParameter.h>
 #include <mediautils/MethodStatistics.h>
-#include <mediautils/ServiceUtilities.h>
 #include <mediautils/TimeCheck.h>
 #include <sensorprivacy/SensorPrivacyManager.h>
 
@@ -46,6 +45,8 @@
 #include <system/audio_policy.h>
 #include <AudioPolicyConfig.h>
 #include <AudioPolicyManager.h>
+
+#include <com_android_media_audio.h>
 
 namespace android {
 using binder::Status;
@@ -83,6 +84,7 @@ BINDER_METHOD_ENTRY(getOutputForAttr) \
 BINDER_METHOD_ENTRY(startOutput) \
 BINDER_METHOD_ENTRY(stopOutput) \
 BINDER_METHOD_ENTRY(releaseOutput) \
+BINDER_METHOD_ENTRY(forceReleaseDirectOutput) \
 BINDER_METHOD_ENTRY(getInputForAttr) \
 BINDER_METHOD_ENTRY(startInput) \
 BINDER_METHOD_ENTRY(stopInput) \
@@ -95,6 +97,12 @@ BINDER_METHOD_ENTRY(setVolumeIndexForAttributes) \
 BINDER_METHOD_ENTRY(getVolumeIndexForAttributes) \
 BINDER_METHOD_ENTRY(getMaxVolumeIndexForAttributes) \
 BINDER_METHOD_ENTRY(getMinVolumeIndexForAttributes) \
+BINDER_METHOD_ENTRY(setVolumeIndexForGroup) \
+BINDER_METHOD_ENTRY(getVolumeIndexForGroup) \
+BINDER_METHOD_ENTRY(getMaxVolumeIndexForGroup) \
+BINDER_METHOD_ENTRY(setMaxVolumeIndexForGroup) \
+BINDER_METHOD_ENTRY(getMinVolumeIndexForGroup) \
+BINDER_METHOD_ENTRY(setMinVolumeIndexForGroup) \
 BINDER_METHOD_ENTRY(getStrategyForStream) \
 BINDER_METHOD_ENTRY(getDevicesForAttributes) \
 BINDER_METHOD_ENTRY(getOutputForEffect) \
@@ -148,6 +156,8 @@ BINDER_METHOD_ENTRY(setCurrentImeUid) \
 BINDER_METHOD_ENTRY(isHapticPlaybackSupported) \
 BINDER_METHOD_ENTRY(isUltrasoundSupported) \
 BINDER_METHOD_ENTRY(isHotwordStreamSupported) \
+BINDER_METHOD_ENTRY(getAttributesForStreamType) \
+BINDER_METHOD_ENTRY(getStreamTypeForAttributes) \
 BINDER_METHOD_ENTRY(listAudioProductStrategies) \
 BINDER_METHOD_ENTRY(getProductStrategyFromAudioAttributes) \
 BINDER_METHOD_ENTRY(listAudioVolumeGroups) \
@@ -545,9 +555,15 @@ void AudioPolicyService::onRoutingUpdated()
 
 void AudioPolicyService::doOnRoutingUpdated()
 {
-  audio_utils::lock_guard _l(mNotificationClientsMutex);
-    for (size_t i = 0; i < mNotificationClients.size(); i++) {
-        mNotificationClients.valueAt(i)->onRoutingUpdated();
+    {
+        audio_utils::lock_guard _l(mNotificationClientsMutex);
+        for (size_t i = 0; i < mNotificationClients.size(); i++) {
+            mNotificationClients.valueAt(i)->onRoutingUpdated();
+        }
+    }
+
+    if (com_android_media_audio_stereo_spatialization_binaural_transaural()) {
+        doOnCheckSpatializer();
     }
 }
 
@@ -577,47 +593,58 @@ void AudioPolicyService::onCheckSpatializer_l()
     }
 }
 
+void AudioPolicyService::maybeCheckSpatializer_l() {
+    if (mSpatializer == nullptr ||
+            com_android_media_audio_stereo_spatialization_binaural_transaural()) {
+        return;
+    }
+    onCheckSpatializer_l();
+}
+
 void AudioPolicyService::doOnCheckSpatializer()
 {
+    if (mSpatializer == nullptr) {
+        ALOGV("%s mSpatializer == null", __func__);
+        return;
+    }
+
     ALOGV("%s mSpatializer %p level %d",
         __func__, mSpatializer.get(), (int)mSpatializer->getLevel());
 
-    if (mSpatializer != nullptr) {
-        // Note: mSpatializer != nullptr =>  mAudioPolicyManager != nullptr
-        if (mSpatializer->getLevel() != Spatialization::Level::NONE) {
-            audio_io_handle_t currentOutput = mSpatializer->getOutput();
-            audio_io_handle_t newOutput;
-            const audio_attributes_t attr = attributes_initializer(AUDIO_USAGE_MEDIA);
-            audio_config_base_t config = mSpatializer->getAudioInConfig();
+    // Note: mSpatializer != nullptr =>  mAudioPolicyManager != nullptr
+    if (mSpatializer->getLevel() != Spatialization::Level::NONE) {
+        audio_io_handle_t currentOutput = mSpatializer->getOutput();
+        audio_io_handle_t newOutput;
+        const audio_attributes_t attr = attributes_initializer(AUDIO_USAGE_MEDIA);
+        audio_config_base_t config = mSpatializer->getAudioInConfig();
 
+        audio_utils::lock_guard _l(mMutex);
+        status_t status =
+                mAudioPolicyManager->getSpatializerOutput(&config, &attr, &newOutput);
+        ALOGV("%s currentOutput %d newOutput %d channel_mask %#x",
+                __func__, currentOutput, newOutput, config.channel_mask);
+        if (status == NO_ERROR && currentOutput == newOutput) {
+            return;
+        }
+        std::vector<audio_channel_mask_t> activeTracksMasks =
+                getActiveTracksMasks_l(newOutput);
+        mMutex.unlock();
+        // It is OK to call detachOutput() is none is already attached.
+        mSpatializer->detachOutput();
+        if (status == NO_ERROR && newOutput != AUDIO_IO_HANDLE_NONE) {
+            status = mSpatializer->attachOutput(newOutput, activeTracksMasks);
+        }
+        mMutex.lock();
+        if (status != NO_ERROR) {
+            mAudioPolicyManager->releaseSpatializerOutput(newOutput);
+        }
+    } else if (mSpatializer->getLevel() == Spatialization::Level::NONE &&
+               mSpatializer->getOutput() != AUDIO_IO_HANDLE_NONE) {
+        audio_io_handle_t output = mSpatializer->detachOutput();
+
+        if (output != AUDIO_IO_HANDLE_NONE) {
             audio_utils::lock_guard _l(mMutex);
-            status_t status =
-                    mAudioPolicyManager->getSpatializerOutput(&config, &attr, &newOutput);
-            ALOGV("%s currentOutput %d newOutput %d channel_mask %#x",
-                    __func__, currentOutput, newOutput, config.channel_mask);
-            if (status == NO_ERROR && currentOutput == newOutput) {
-                return;
-            }
-            std::vector<audio_channel_mask_t> activeTracksMasks =
-                    getActiveTracksMasks_l(newOutput);
-            mMutex.unlock();
-            // It is OK to call detachOutput() is none is already attached.
-            mSpatializer->detachOutput();
-            if (status == NO_ERROR && newOutput != AUDIO_IO_HANDLE_NONE) {
-                status = mSpatializer->attachOutput(newOutput, activeTracksMasks);
-            }
-            mMutex.lock();
-            if (status != NO_ERROR) {
-                mAudioPolicyManager->releaseSpatializerOutput(newOutput);
-            }
-        } else if (mSpatializer->getLevel() == Spatialization::Level::NONE &&
-                   mSpatializer->getOutput() != AUDIO_IO_HANDLE_NONE) {
-            audio_io_handle_t output = mSpatializer->detachOutput();
-
-            if (output != AUDIO_IO_HANDLE_NONE) {
-                audio_utils::lock_guard _l(mMutex);
-                mAudioPolicyManager->releaseSpatializerOutput(output);
-            }
+            mAudioPolicyManager->releaseSpatializerOutput(output);
         }
     }
 }
@@ -892,7 +919,7 @@ void AudioPolicyService::updateUidStates_l()
 //    NOTE: a client can capture calls if it either:
 //       has CAPTURE_AUDIO_OUTPUT privileged permission (temporarily until
 //            all system apps are updated)
-//       or has CONCURRENT_AUDIO_RECORD_BYPASS privileged permission
+//       or has BYPASS_CONCURRENT_RECORD_AUDIO_RESTRICTION privileged permission
 
 
     sp<AudioRecordClient> topActive;
@@ -1279,7 +1306,11 @@ NO_THREAD_SAFETY_ANALYSIS  // update for trylock.
             write(fd, apmPtr.c_str(), apmPtr.size());
         }
 
-        mPackageManager.dump(fd);
+        if (mPermissionController != nullptr) {
+            std::string perm_dump = "\nPermission Controller Dump:\n"
+                    + mPermissionController->dumpString();
+            write(fd, perm_dump.c_str(), perm_dump.size());
+        }
 
         dumpReleaseLock(mMutex, locked);
 
@@ -1321,6 +1352,7 @@ status_t AudioPolicyService::onTransact(
         case TRANSACTION_startOutput:
         case TRANSACTION_stopOutput:
         case TRANSACTION_releaseOutput:
+        case TRANSACTION_forceReleaseDirectOutput:
         case TRANSACTION_getInputForAttr:
         case TRANSACTION_startInput:
         case TRANSACTION_stopInput:
@@ -1354,6 +1386,12 @@ status_t AudioPolicyService::onTransact(
         case TRANSACTION_getVolumeIndexForAttributes:
         case TRANSACTION_getMinVolumeIndexForAttributes:
         case TRANSACTION_getMaxVolumeIndexForAttributes:
+        case TRANSACTION_setVolumeIndexForGroup:
+        case TRANSACTION_getVolumeIndexForGroup:
+        case TRANSACTION_getMinVolumeIndexForGroup:
+        case TRANSACTION_setMinVolumeIndexForGroup:
+        case TRANSACTION_getMaxVolumeIndexForGroup:
+        case TRANSACTION_setMaxVolumeIndexForGroup:
         case TRANSACTION_isStreamActive:
         case TRANSACTION_isStreamActiveRemotely:
         case TRANSACTION_isSourceActive:
@@ -1372,6 +1410,7 @@ status_t AudioPolicyService::onTransact(
         case TRANSACTION_removeUserIdDeviceAffinities:
         case TRANSACTION_getHwOffloadFormatsSupportedForBluetoothMedia:
         case TRANSACTION_listAudioVolumeGroups:
+        case TRANSACTION_listAudioProductStrategies:
         case TRANSACTION_getVolumeGroupFromAudioAttributes:
         case TRANSACTION_acquireSoundTriggerSession:
         case TRANSACTION_releaseSoundTriggerSession:
@@ -1469,16 +1508,12 @@ status_t AudioPolicyService::onTransact(
 // ------------------- Shell command implementation -------------------
 
 // NOTE: This is a remote API - make sure all args are validated
-status_t AudioPolicyService::shellCommand(int in, int out, int err, Vector<String16>& args) {
+status_t AudioPolicyService::shellCommand(int in, int out, int err, Vector<String16>& /* args */) {
     if (!checkCallingPermission(sManageAudioPolicyPermission, nullptr, nullptr)) {
         return PERMISSION_DENIED;
     }
     if (in == BAD_TYPE || out == BAD_TYPE || err == BAD_TYPE) {
         return BAD_VALUE;
-    }
-    if (args.size() >= 1 && args[0] == String16("purge_permission-cache")) {
-        purgePermissionCache();
-        return NO_ERROR;
     }
     return BAD_VALUE;
 }
@@ -1823,17 +1858,6 @@ bool AudioPolicyService::AudioCommandThread::threadLoop()
                 status_t createAudioPatchStatus;
 
                 switch (command->mCommand) {
-                case SET_VOLUME: {
-                    VolumeData *data = (VolumeData *)command->mParam.get();
-                    ALOGV("AudioCommandThread() processing set volume stream %d, \
-                            volume %f, output %d", data->mStream, data->mVolume, data->mIO);
-                    ul.unlock();
-                    command->mStatus = AudioSystem::setStreamVolume(data->mStream,
-                                                                    data->mVolume,
-                                                                    data->mIsMuted,
-                                                                    data->mIO);
-                    ul.lock();
-                    }break;
                 case SET_PORTS_VOLUME: {
                     VolumePortsData *data = (VolumePortsData *)command->mParam.get();
                     ALOGV("AudioCommandThread() processing set volume Ports %s volume %f, \
@@ -1883,6 +1907,19 @@ bool AudioPolicyService::AudioCommandThread::threadLoop()
                     }
                     ul.unlock();
                     svc->doReleaseOutput(data->mPortId);
+                    ul.lock();
+                    }break;
+                case FORCE_RELEASE_DIRECT_OUTPUT: {
+                    ForceReleaseDirectOutputData *data =
+                            (ForceReleaseDirectOutputData*)command->mParam.get();
+                    ALOGV("AudioCommandThread() processing force release direct output outputId %d",
+                            data->mOutputId);
+                    svc = mService.promote();
+                    if (svc == 0) {
+                        break;
+                    }
+                    ul.unlock();
+                    command->mStatus = svc->doForceReleaseDirectOutput(data->mOutputId);
                     ul.lock();
                     }break;
                 case CREATE_AUDIO_PATCH: {
@@ -2160,26 +2197,6 @@ NO_THREAD_SAFETY_ANALYSIS  // trylock
     return NO_ERROR;
 }
 
-status_t AudioPolicyService::AudioCommandThread::volumeCommand(audio_stream_type_t stream,
-                                                               float volume,
-                                                               bool muted,
-                                                               audio_io_handle_t output,
-                                                               int delayMs)
-{
-    sp<AudioCommand> command = new AudioCommand();
-    command->mCommand = SET_VOLUME;
-    sp<VolumeData> data = new VolumeData();
-    data->mStream = stream;
-    data->mVolume = volume;
-    data->mIsMuted = muted;
-    data->mIO = output;
-    command->mParam = data;
-    command->mWaitStatus = true;
-    ALOGV("AudioCommandThread() adding set volume stream %d, volume %f, output %d",
-            stream, volume, output);
-    return sendCommand(command, delayMs);
-}
-
 status_t AudioPolicyService::AudioCommandThread::volumePortsCommand(
         const std::vector<audio_port_handle_t> &ports, float volume, bool muted,
         audio_io_handle_t output, int delayMs)
@@ -2263,6 +2280,19 @@ void AudioPolicyService::AudioCommandThread::releaseOutputCommand(audio_port_han
     command->mParam = data;
     ALOGV("AudioCommandThread() adding release output portId %d", portId);
     sendCommand(command);
+}
+
+status_t AudioPolicyService::AudioCommandThread::forceReleaseDirectOutputCommand(
+        audio_io_handle_t outputId)
+{
+    sp<AudioCommand> command = new AudioCommand();
+    command->mCommand = FORCE_RELEASE_DIRECT_OUTPUT;
+    sp<ForceReleaseDirectOutputData> data = new ForceReleaseDirectOutputData();
+    data->mOutputId = outputId;
+    command->mParam = data;
+    command->mWaitStatus = true;
+    ALOGV("AudioCommandThread() adding force release direct output outputId %d", outputId);
+    return sendCommand(command);
 }
 
 status_t AudioPolicyService::AudioCommandThread::createAudioPatchCommand(
@@ -2516,20 +2546,6 @@ void AudioPolicyService::AudioCommandThread::insertCommand_l(sp<AudioCommand>& c
             delayMs = 1;
         } break;
 
-        case SET_VOLUME: {
-            VolumeData *data = (VolumeData *)command->mParam.get();
-            VolumeData *data2 = (VolumeData *)command2->mParam.get();
-            if (data->mIO != data2->mIO) break;
-            if (data->mStream != data2->mStream) break;
-            ALOGV("Filtering out volume command on output %d for stream %d",
-                    data->mIO, data->mStream);
-            removedCommands.add(command2);
-            command->mTime = command2->mTime;
-            // force delayMs to non 0 so that code below does not request to wait for
-            // command status as the command is now delayed
-            delayMs = 1;
-        } break;
-
         case SET_PORTS_VOLUME: {
             VolumePortsData *data = (VolumePortsData *)command->mParam.get();
             VolumePortsData *data2 = (VolumePortsData *)command2->mParam.get();
@@ -2691,16 +2707,6 @@ void AudioPolicyService::setParameters(audio_io_handle_t ioHandle,
 {
     mAudioCommandThread->parametersCommand(ioHandle, keyValuePairs,
                                            delayMs);
-}
-
-int AudioPolicyService::setStreamVolume(audio_stream_type_t stream,
-                                        float volume,
-                                        bool muted,
-                                        audio_io_handle_t output,
-                                        int delayMs)
-{
-    return (int)mAudioCommandThread->volumeCommand(stream, volume, muted,
-                                                   output, delayMs);
 }
 
 int AudioPolicyService::setPortsVolume(const std::vector<audio_port_handle_t> &ports, float volume,

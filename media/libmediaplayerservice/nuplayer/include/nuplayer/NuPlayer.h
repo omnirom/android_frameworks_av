@@ -22,6 +22,7 @@
 #include <mediadrm/ICrypto.h>
 #include <media/MediaPlayerInterface.h>
 #include <media/stagefright/foundation/AHandler.h>
+#include <gui/Flags.h> // Remove with MediaSurfaceType
 
 namespace android {
 
@@ -58,8 +59,7 @@ struct NuPlayer : public AHandler {
 
     void prepareAsync();
 
-    void setVideoSurfaceTextureAsync(
-            const sp<IGraphicBufferProducer> &bufferProducer);
+    void setVideoSurfaceTextureAsync(const sp<MediaSurfaceType>& surface);
 
     void setAudioSink(const sp<MediaPlayerBase::AudioSink> &sink);
     status_t setPlaybackSettings(const AudioPlaybackRate &rate);

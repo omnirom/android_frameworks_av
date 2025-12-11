@@ -16,7 +16,6 @@
 
 #include "AudioToken.h"
 #define LOG_TAG "AudioPowerManager"
-#include <com_android_media_audioserver.h>
 #include <cutils/properties.h>
 #include <utils/Log.h>
 #include <psh_utils/AudioPowerManager.h>
@@ -89,7 +88,7 @@ std::string AudioPowerManager::toString() const {
     for (const auto& info: tokenInfo) {
         result.append(prefix).append(info).append("\n");
     }
-    result.append("Power Clients:\n");
+    result.append("Power Clients: (some snapshots quantized in time)\n");
     for (const auto& [uid, powerClientStats]: mPowerClientStats) {
         result.append(powerClientStats->toString(true, prefix));
     }
@@ -129,8 +128,7 @@ void AudioPowerManager::clear_token_ptr(Token* token) {
 
 /* static */
 bool AudioPowerManager::enabled() {
-    static const bool enabled = com::android::media::audioserver::power_stats()
-            && property_get_bool("persist.audio.power_stats.enabled", false);
+    static const bool enabled = property_get_bool("persist.audio.power_stats.enabled", false);
     return enabled;
 }
 

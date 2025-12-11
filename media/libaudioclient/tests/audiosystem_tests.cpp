@@ -25,8 +25,12 @@
 #include <media/AidlConversionCppNdk.h>
 #include <media/IAudioFlinger.h>
 
+#include <android_media_audiopolicy.h>
+
 #include "audio_test_utils.h"
 #include "test_execution_tracer.h"
+
+namespace audio_flags = android::media::audiopolicy;
 
 using android::media::audio::common::AudioDeviceAddress;
 using android::media::audio::common::AudioDeviceDescription;
@@ -45,6 +49,10 @@ void anyPatchContainsInputDevice(audio_port_handle_t deviceId, bool& res) {
             return;
         }
     }
+}
+
+bool isNonPublicOrBluetoothScoStream(int streamType) {
+    return streamType >= AUDIO_STREAM_PUBLIC_CNT || streamType == AUDIO_STREAM_BLUETOOTH_SCO;
 }
 
 class AudioSystemTest : public ::testing::Test {
@@ -202,10 +210,12 @@ TEST_F(AudioSystemTest, GetSetMasterBalance) {
 TEST_F(AudioSystemTest, StartAndStopAudioSource) {
     std::vector<struct audio_port_v7> ports;
     audio_port_config sourcePortConfig;
-    audio_attributes_t attributes = AudioSystem::streamTypeToAttributes(AUDIO_STREAM_MUSIC);
+    audio_attributes_t attributes;
+    status_t status = AudioSystem::getAttributesForStreamType(AUDIO_STREAM_MUSIC, attributes);
+    ASSERT_EQ(OK, status);
     audio_port_handle_t sourcePortHandle = AUDIO_PORT_HANDLE_NONE;
 
-    status_t status = listAudioPorts(ports);
+    status = listAudioPorts(ports);
     ASSERT_EQ(OK, status);
     if (ports.empty()) {
         GTEST_SKIP() << "No ports returned by the audio system";
@@ -439,7 +449,8 @@ TEST_F(AudioSystemTest, VolumeIndexForAttributes) {
         if (group.getAudioAttributes().empty()) continue;
         const audio_attributes_t attr = group.getAudioAttributes()[0];
         if (attr == AUDIO_ATTRIBUTES_INITIALIZER) continue;
-        audio_stream_type_t streamType = AudioSystem::attributesToStreamType(attr);
+        audio_stream_type_t streamType;
+        AudioSystem::getStreamTypeForAttributes(attr, streamType);
         if (streamType >= AUDIO_STREAM_PUBLIC_CNT) continue;
 
         volume_group_t vg;
@@ -455,6 +466,60 @@ TEST_F(AudioSystemTest, VolumeIndexForAttributes) {
                                                             speakerPort->ext.device.type));
             EXPECT_EQ(index, indexTest);
         }
+    }
+}
+
+TEST_F(AudioSystemTest, IndexForVolumeGroup) {
+    if (!audio_flags::volume_group_management_update()) {
+        GTEST_SKIP() << "RequiresFlagsEnabled volume_group_management_update";
+    }
+    std::optional<audio_port_v7> speakerPort = audio_port_v7{};
+    if (getPortByAttributes(AUDIO_PORT_ROLE_SINK, AUDIO_PORT_TYPE_DEVICE, AUDIO_DEVICE_OUT_SPEAKER,
+                            "", *speakerPort) != OK) {
+        GTEST_SKIP() << "Requires out speaker device";
+    }
+    AudioVolumeGroupVector groups;
+    EXPECT_EQ(OK, AudioSystem::listAudioVolumeGroups(groups));
+    for (const auto& group : groups) {
+        if (group.getStreamTypes().empty()) continue;
+        volume_group_t vg = group.getId();
+        audio_stream_type_t streamType = group.getStreamTypes()[0];
+        if (isNonPublicOrBluetoothScoStream(streamType)) continue;
+
+        int index;
+        EXPECT_EQ(OK, AudioSystem::getVolumeIndexForGroup(vg, index, AUDIO_DEVICE_OUT_SPEAKER))
+            << "Could not get volume index for group " << group.getName();
+
+        int indexTest;
+        EXPECT_EQ(OK, AudioSystem::getStreamVolumeIndex(streamType, &indexTest,
+                                                        AUDIO_DEVICE_OUT_SPEAKER))
+            << "Could not get volume index for stream " << toString(streamType);
+        EXPECT_EQ(index, indexTest) << "Volume index for group " << group.getName()
+        << " and stream " << toString(streamType) << " do not match";
+    }
+}
+
+TEST_F(AudioSystemTest, MinMaxIndexForVolumeGroup) {
+    if (!audio_flags::volume_group_management_update()) {
+        GTEST_SKIP() << "RequiresFlagsEnabled volume_group_management_update";
+    }
+    AudioVolumeGroupVector groups;
+    EXPECT_EQ(OK, AudioSystem::listAudioVolumeGroups(groups));
+    for (const auto& group : groups) {
+        if (group.getStreamTypes().empty()) continue;
+        volume_group_t vg = group.getId();
+        audio_stream_type_t streamType = group.getStreamTypes()[0];
+        if (isNonPublicOrBluetoothScoStream(streamType)) continue;
+        int minIndex;
+        int maxIndex;
+        EXPECT_EQ(OK, AudioSystem::getMinVolumeIndexForGroup(vg, minIndex))
+            << "Could not get min volume for group " << group.getName();
+        EXPECT_EQ(OK, AudioSystem::getMaxVolumeIndexForGroup(vg, maxIndex))
+            << "Could not get max volume for group " << group.getName();
+
+        EXPECT_TRUE(minIndex < maxIndex)
+            << "Group " << group.getName() << " min["
+            << minIndex << "] is not less than max [" << maxIndex << "]";
     }
 }
 

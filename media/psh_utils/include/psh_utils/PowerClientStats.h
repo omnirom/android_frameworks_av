@@ -82,7 +82,9 @@ private:
     const uid_t mUid;
     const std::string mName;
     const std::string mAdditional;
+    const int64_t mStatTimeToleranceNs;
     std::set<pid_t> mPids GUARDED_BY(mMutex); // pids sharing same uid
+    int64_t mStartCount GUARDED_BY(mMutex) = 0;  // audio sessions (including multiple tracks).
     int64_t mTokenCount GUARDED_BY(mMutex) = 0;
     int64_t mStartNs GUARDED_BY(mMutex) = 0;
     std::shared_ptr<const PowerStats> mStartStats GUARDED_BY(mMutex);
@@ -93,6 +95,7 @@ private:
     // where snapshots are quantized to ~500ms accuracy.
     std::shared_ptr<PowerStats> mCumulativeStats GUARDED_BY(mMutex) =
             std::make_shared<PowerStats>();
+    std::shared_ptr<PowerStats> mMaxStats GUARDED_BY(mMutex);
 };
 
 } // namespace android::media::psh_utils

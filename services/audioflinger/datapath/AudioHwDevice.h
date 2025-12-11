@@ -72,7 +72,7 @@ public:
 
    [[nodiscard]] audio_module_handle_t handle() const { return mHandle; }
    [[nodiscard]] const char *moduleName() const { return mModuleName; }
-   [[nodiscard]] sp<DeviceHalInterface> hwDevice() const { return mHwDevice; }
+   [[nodiscard]] const sp<DeviceHalInterface>& hwDevice() const { return mHwDevice; }
 
     /** This method creates and opens the audio hardware output stream.
      * The "address" parameter qualifies the "devices" audio device type if needed.
@@ -88,7 +88,8 @@ public:
             audio_output_flags_t *flags,
             struct audio_config *config,
             const char *address,
-            const std::vector<playback_track_metadata_v7_t>& sourceMetadata);
+            const std::vector<playback_track_metadata_v7_t>& sourceMetadata,
+            int32_t mixPortHalId);
 
     status_t openInputStream(
             AudioStreamIn **ppStreamIn,
@@ -99,7 +100,8 @@ public:
             const char *address,
             audio_source_t source,
             audio_devices_t outputDevice,
-            const char *outputDeviceAddress);
+            const char *outputDeviceAddress,
+            int32_t mixPortHalId);
 
     [[nodiscard]] bool supportsAudioPatches() const;
 
@@ -114,7 +116,8 @@ public:
     [[nodiscard]] int32_t getAAudioHardwareBurstMinUsec() const;
 
     [[nodiscard]] status_t getAudioMixPort(const struct audio_port_v7 *devicePort,
-                                           struct audio_port_v7 *mixPort) const;
+                                           struct audio_port_v7 *mixPort,
+                                           int32_t mixPortHalId) const;
 
 private:
     const audio_module_handle_t mHandle;

@@ -37,12 +37,12 @@ using android::media::audio::common::AudioMMapPolicyType;
 static aaudio_policy_t g_MMapPolicy = AAUDIO_UNSPECIFIED;
 
 aaudio_policy_t AudioGlobal_getMMapPolicy() {
-  return g_MMapPolicy;
+    return g_MMapPolicy;
 }
 
 aaudio_result_t AudioGlobal_setMMapPolicy(aaudio_policy_t policy) {
     aaudio_result_t result = AAUDIO_OK;
-    switch(policy) {
+    switch (policy) {
         case AAUDIO_UNSPECIFIED:
         case AAUDIO_POLICY_NEVER:
         case AAUDIO_POLICY_AUTO:
@@ -63,13 +63,13 @@ const char* AudioGlobal_convertResultToText(aaudio_result_t returnCode) {
         AAUDIO_CASE_ENUM(AAUDIO_OK);
         AAUDIO_CASE_ENUM(AAUDIO_ERROR_DISCONNECTED);
         AAUDIO_CASE_ENUM(AAUDIO_ERROR_ILLEGAL_ARGUMENT);
-        // reserved
+            // reserved
         AAUDIO_CASE_ENUM(AAUDIO_ERROR_INTERNAL);
         AAUDIO_CASE_ENUM(AAUDIO_ERROR_INVALID_STATE);
-        // reserved
-        // reserved
+            // reserved
+            // reserved
         AAUDIO_CASE_ENUM(AAUDIO_ERROR_INVALID_HANDLE);
-         // reserved
+            // reserved
         AAUDIO_CASE_ENUM(AAUDIO_ERROR_UNIMPLEMENTED);
         AAUDIO_CASE_ENUM(AAUDIO_ERROR_UNAVAILABLE);
         AAUDIO_CASE_ENUM(AAUDIO_ERROR_NO_FREE_HANDLES);
@@ -86,7 +86,7 @@ const char* AudioGlobal_convertResultToText(aaudio_result_t returnCode) {
 }
 
 const char* AudioGlobal_convertFormatToText(aaudio_format_t format) {
-      switch (format) {
+    switch (format) {
         AAUDIO_CASE_ENUM(AAUDIO_FORMAT_UNSPECIFIED);
         AAUDIO_CASE_ENUM(AAUDIO_FORMAT_INVALID);
         AAUDIO_CASE_ENUM(AAUDIO_FORMAT_PCM_I16);
@@ -99,7 +99,7 @@ const char* AudioGlobal_convertFormatToText(aaudio_format_t format) {
 }
 
 const char* AudioGlobal_convertDirectionToText(aaudio_direction_t direction) {
-      switch (direction) {
+    switch (direction) {
         AAUDIO_CASE_ENUM(AAUDIO_DIRECTION_INPUT);
         AAUDIO_CASE_ENUM(AAUDIO_DIRECTION_OUTPUT);
     }
@@ -107,7 +107,7 @@ const char* AudioGlobal_convertDirectionToText(aaudio_direction_t direction) {
 }
 
 const char* AudioGlobal_convertPerformanceModeToText(aaudio_performance_mode_t mode) {
-      switch (mode) {
+    switch (mode) {
         AAUDIO_CASE_ENUM(AAUDIO_PERFORMANCE_MODE_POWER_SAVING);
         AAUDIO_CASE_ENUM(AAUDIO_PERFORMANCE_MODE_NONE);
         AAUDIO_CASE_ENUM(AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
@@ -115,8 +115,28 @@ const char* AudioGlobal_convertPerformanceModeToText(aaudio_performance_mode_t m
     return "Unrecognized";
 }
 
+const char* AudioGlobal_convertPerformanceModeToShortText(aaudio_performance_mode_t mode) {
+    switch (mode) {
+        case AAUDIO_PERFORMANCE_MODE_NONE:
+            return "NO";
+            break;
+        case AAUDIO_PERFORMANCE_MODE_POWER_SAVING:
+            return "PS";
+            break;
+        case AAUDIO_PERFORMANCE_MODE_LOW_LATENCY:
+            return "LL";
+            break;
+        case AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED:
+            return "OF";
+            break;
+        default:
+            return "??";
+            break;
+    }
+}
+
 const char* AudioGlobal_convertSharingModeToText(aaudio_sharing_mode_t mode) {
-      switch (mode) {
+    switch (mode) {
         AAUDIO_CASE_ENUM(AAUDIO_SHARING_MODE_SHARED);
         AAUDIO_CASE_ENUM(AAUDIO_SHARING_MODE_EXCLUSIVE);
     }
@@ -124,7 +144,7 @@ const char* AudioGlobal_convertSharingModeToText(aaudio_sharing_mode_t mode) {
 }
 
 const char* AudioGlobal_convertStreamStateToText(aaudio_stream_state_t state) {
-      switch (state) {
+    switch (state) {
         AAUDIO_CASE_ENUM(AAUDIO_STREAM_STATE_UNINITIALIZED);
         AAUDIO_CASE_ENUM(AAUDIO_STREAM_STATE_UNKNOWN);
         AAUDIO_CASE_ENUM(AAUDIO_STREAM_STATE_OPEN);

@@ -28,12 +28,13 @@ namespace android {
 namespace companion {
 namespace virtualcamera {
 
-// Construct the Metadata for the Capture result based on the request
-// settings, timestamp and reported sensore size
+// Construct the Metadata for the CaptureResult based on the request
+// settings, timestamp, reported sensors size, and optional custom metadata.
 std::unique_ptr<::aidl::android::hardware::camera::device::CameraMetadata>
-createCaptureResultMetadata(std::chrono::nanoseconds timestamp,
+createCaptureResultMetadata(const std::chrono::nanoseconds timestamp,
                             const RequestSettings& requestSettings,
-                            Resolution reportedSensorSize);
+                            const Resolution reportedSensorSize,
+                            const camera_metadata_t* customMetadata = nullptr);
 
 }  // namespace virtualcamera
 }  // namespace companion

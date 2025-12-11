@@ -547,6 +547,7 @@ bool C2SoftDav1dDec::initDecoder() {
 
     Dav1dSettings lib_settings;
     dav1d_default_settings(&lib_settings);
+    lib_settings.all_layers = 0;
     int cpu_count = GetCPUCoreCount();
     lib_settings.n_threads = std::max(cpu_count / 2, 1);  // use up to half the cores by default.
 
@@ -964,6 +965,25 @@ bool C2SoftDav1dDec::outputBuffer(const std::shared_ptr<C2BlockPool>& pool,
         return false;
     }
 
+    const int width = img.p.w;
+    const int height = img.p.h;
+    if (width != mWidth || height != mHeight) {
+        mWidth = width;
+        mHeight = height;
+
+        C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+        c2_status_t err = mIntf->config({&size}, C2_MAY_BLOCK, &failures);
+        if (err == C2_OK) {
+            work->worklets.front()->output.configUpdate.push_back(
+                C2Param::Copy(size));
+        } else {
+            ALOGE("Config update size failed");
+            setError(work, err);
+            return false;
+        }
+    }
+
     getVuiParams(&img);
 
     // out_frameIndex that the decoded picture returns from dav1d.
@@ -996,10 +1016,8 @@ bool C2SoftDav1dDec::outputBuffer(const std::shared_ptr<C2BlockPool>& pool,
             work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(pixelFormat));
         } else {
             ALOGE("Config update pixelFormat failed");
-            mSignalledError = true;
-            work->workletsProcessed = 1u;
-            work->result = C2_CORRUPTED;
-            return UNKNOWN_ERROR;
+            setError(work, err);
+            return false;
         }
         mHalPixelFormat = format;
     }
@@ -1014,7 +1032,7 @@ bool C2SoftDav1dDec::outputBuffer(const std::shared_ptr<C2BlockPool>& pool,
 
     if (err != C2_OK) {
         ALOGE("fetchGraphicBlock for Output failed with status %d", err);
-        work->result = err;
+        setError(work, err);
         return false;
     }
 
@@ -1022,7 +1040,7 @@ bool C2SoftDav1dDec::outputBuffer(const std::shared_ptr<C2BlockPool>& pool,
 
     if (wView.error()) {
         ALOGE("graphic view map failed %d", wView.error());
-        work->result = C2_CORRUPTED;
+        setError(work, wView.error());
         return false;
     }
 

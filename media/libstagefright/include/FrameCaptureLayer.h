@@ -17,16 +17,22 @@
 #ifndef FRAME_CAPTURE_LAYER_H_
 #define FRAME_CAPTURE_LAYER_H_
 
+#include <com_android_graphics_libgui_flags.h>
 #include <media/stagefright/foundation/ABase.h>
+#include <gui/BufferItemConsumer.h>
 #include <gui/IConsumerListener.h>
 #include <ui/GraphicTypes.h>
 #include <utils/Mutex.h>
 #include <utils/Condition.h>
+#include "gui/BufferItemConsumer.h"
 
 namespace android {
 
-class GraphicBuffer;
+#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
 class IGraphicBufferConsumer;
+#endif
+
+class GraphicBuffer;
 class Rect;
 class Surface;
 
@@ -36,14 +42,20 @@ class Surface;
  * buffer is then sent to FrameCaptureProcessor to be converted
  * to sRGB properly.
  */
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+struct FrameCaptureLayer : public BufferItemConsumer::FrameAvailableListener {
+#else
 struct FrameCaptureLayer : public ConsumerListener {
+#endif
     FrameCaptureLayer();
     ~FrameCaptureLayer() = default;
 
     // ConsumerListener
     void onFrameAvailable(const BufferItem& /*item*/) override;
+#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
     void onBuffersReleased() override;
     void onSidebandStreamChanged() override;
+#endif
 
     status_t init();
 
@@ -58,9 +70,13 @@ private:
     // GraphicBufferSource is holding an sp to us, holding any sp ref
     // to GraphicBufferSource will cause circular dependency and both
     // object will not be released.
-    sp<IGraphicBufferConsumer> mConsumer;
     sp<Surface> mSurface;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    sp<BufferItemConsumer> mConsumer;
+#else
+    sp<IGraphicBufferConsumer> mConsumer;
     std::map<int32_t, sp<GraphicBuffer> > mSlotToBufferMap;
+#endif
 
     Mutex mLock;
     Condition mCondition;

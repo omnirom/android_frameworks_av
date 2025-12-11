@@ -32,10 +32,8 @@
 #include <codec2/common/HalSelection.h>
 #include <codec2/hidl/client.h>
 #include <com_android_graphics_libgui_flags.h>
-#include <gui/BufferQueue.h>
-#include <gui/IConsumerListener.h>
-#include <gui/IProducerListener.h>
 #include <system/window.h>
+#include <gui/BufferItemConsumer.h>
 #include <gui/GLConsumer.h>
 #include <gui/Surface.h>
 #include <gui/SurfaceComposerClient.h>
@@ -573,30 +571,10 @@ TEST_P(Codec2VideoDecHidlTest, configureTunnel) {
     using namespace android;
     sp<NativeHandle> nativeHandle = NativeHandle::create(sidebandStream, true);
 
-    sp<IGraphicBufferProducer> producer;
-    sp<IGraphicBufferConsumer> consumer;
-    BufferQueue::createBufferQueue(&producer, &consumer);
+    auto [consumer, surface] = BufferItemConsumer::create(GRALLOC_USAGE_SW_READ_OFTEN);
 
-    class DummyConsumerListener : public IConsumerListener {
-      public:
-        DummyConsumerListener() : IConsumerListener() {}
-        void onFrameAvailable(const BufferItem&) override {}
-        void onBuffersReleased() override {}
-        void onSidebandStreamChanged() override {}
-    };
-    consumer->consumerConnect(new DummyConsumerListener(), false);
-
-    class DummyProducerListener : public BnProducerListener {
-      public:
-        DummyProducerListener() : BnProducerListener() {}
-        virtual void onBufferReleased() override {}
-        virtual bool needsReleaseNotify() override { return false; }
-        virtual void onBuffersDiscarded(const std::vector<int32_t>&) override {}
-    };
-    IGraphicBufferProducer::QueueBufferOutput qbo{};
-    producer->connect(new DummyProducerListener(), NATIVE_WINDOW_API_MEDIA, false, &qbo);
-
-    ASSERT_EQ(producer->setSidebandStream(nativeHandle), NO_ERROR);
+    surface->connect(NATIVE_WINDOW_API_MEDIA, new StubSurfaceListener(), false);
+    surface->setSidebandStream(nativeHandle);
 }
 
 // Config output pixel format
@@ -985,7 +963,6 @@ TEST_P(Codec2VideoDecHidlTest, DecodeTestEmptyBuffersInserted) {
     uint32_t flags = 0;
     uint32_t vtsFlags = 0;
     uint32_t timestamp = 0;
-    bool codecConfig = false;
     // This test introduces empty CSD after every 20th frame
     // and empty input frames at an interval of 5 frames.
     while (1) {
@@ -998,7 +975,6 @@ TEST_P(Codec2VideoDecHidlTest, DecodeTestEmptyBuffersInserted) {
             vtsFlags = mapInfoFlagstoVtsFlags(flags);
             ASSERT_NE(vtsFlags, 0xFF) << "unrecognized flag entry in info file: " << mInfoFile;
             eleInfo >> timestamp;
-            codecConfig = (vtsFlags & (1 << VTS_BIT_FLAG_CSD_FRAME)) != 0;
         }
         Info.push_back({bytesCount, vtsFlags, timestamp, {}});
         frameId++;
@@ -1052,7 +1028,6 @@ TEST_P(Codec2VideoDecCsdInputTests, CSDFlushTest) {
     std::ifstream eleStream;
     eleStream.open(mInputFile, std::ifstream::binary);
     ASSERT_EQ(eleStream.is_open(), true);
-    bool flushedDecoder = false;
     bool signalEOS = false;
     bool keyFrame = false;
     bool flushCsd = std::get<2>(GetParam());
@@ -1071,7 +1046,6 @@ TEST_P(Codec2VideoDecCsdInputTests, CSDFlushTest) {
 
         err = mComponent->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
         ASSERT_EQ(err, C2_OK);
-        flushedDecoder = true;
         waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
                                MAX_INPUT_BUFFERS - flushedWork.size());
         ASSERT_NO_FATAL_FAILURE(

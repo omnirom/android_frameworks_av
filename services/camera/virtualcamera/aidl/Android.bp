@@ -9,12 +9,14 @@ aidl_interface {
     unstable: true,
     srcs: [
         "android/companion/virtualcamera/Format.aidl",
-        "android/companion/virtualcamera/LensFacing.aidl",
+        "android/companion/virtualcamera/ICaptureResultConsumer.aidl",
         "android/companion/virtualcamera/IVirtualCameraCallback.aidl",
         "android/companion/virtualcamera/IVirtualCameraService.aidl",
-        "android/companion/virtualcamera/VirtualCameraConfiguration.aidl",
+        "android/companion/virtualcamera/LensFacing.aidl",
         "android/companion/virtualcamera/SensorOrientation.aidl",
         "android/companion/virtualcamera/SupportedStreamConfiguration.aidl",
+        "android/companion/virtualcamera/VirtualCameraConfiguration.aidl",
+        "android/companion/virtualcamera/VirtualCameraMetadata.aidl",
     ],
     local_include_dir: ".",
     include_dirs: [

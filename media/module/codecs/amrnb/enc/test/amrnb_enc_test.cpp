@@ -63,7 +63,6 @@ int encode(int mode, const char *srcFile, const char *dstFile) {
     FILE          *fSrc      = NULL;
     FILE          *fDst      = NULL;
     int           frameNum   = 0;
-    bool          eofReached = false;
     uint16_t      *inputBuf  = NULL;
     uint8_t       *outputBuf = NULL;
     AmrNbEncState *amr       = NULL;
@@ -111,7 +110,6 @@ int encode(int mode, const char *srcFile, const char *dstFile) {
             fprintf(stderr, "Error reading input file\n");
             goto safe_exit;
         } else if (feof(fSrc) && bytesRead == 0) {
-            eofReached = true;
             break;
         }
 

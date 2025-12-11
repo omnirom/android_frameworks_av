@@ -16,12 +16,14 @@
 
 package aaudio;
 
+import aaudio.IAAudioClientCallback;
 import aaudio.StreamParameters;
 import android.content.AttributionSourceState;
 
 parcelable StreamRequest {
     StreamParameters       params;
     AttributionSourceState attributionSource;
+    IAAudioClientCallback  callback;
     boolean                sharingModeMatchRequired; // = false;
     boolean                inService; // = false; // Stream opened by AAudioservice
 }

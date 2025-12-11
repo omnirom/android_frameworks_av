@@ -83,6 +83,9 @@ AAudioStreamConfiguration::AAudioStreamConfiguration(const StreamParameters& par
         ALOGE("hardwareAudioFormat (%s) aidl2legacy conversion failed",
               parcelable.hardwareAudioFormat.toString().c_str());
     }
+
+    static_assert(sizeof(aaudio_performance_mode_t) == sizeof(parcelable.performanceMode));
+    setPerformanceMode(parcelable.performanceMode);
 }
 
 AAudioStreamConfiguration&
@@ -150,5 +153,7 @@ StreamParameters AAudioStreamConfiguration::parcelable() const {
         result.hardwareAudioFormat.type =
                 android::media::audio::common::AudioFormatType::SYS_RESERVED_INVALID;
     }
+    static_assert(sizeof(aaudio_performance_mode_t) == sizeof(result.performanceMode));
+    result.performanceMode = getPerformanceMode();
     return result;
 }

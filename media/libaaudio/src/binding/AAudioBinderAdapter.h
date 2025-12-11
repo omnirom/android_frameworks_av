@@ -60,6 +60,22 @@ public:
     aaudio_result_t exitStandby(const AAudioHandleInfo& streamHandleInfo,
                                 AudioEndpointParcelable &parcelable) override;
 
+    aaudio_result_t updateTimestamp(const AAudioHandleInfo& streamHandleInfo) override;
+
+    aaudio_result_t drainStream(const AAudioHandleInfo& streamHandleInfo,
+                                int64_t wakeUpNanos,
+                                bool allowSoftWakeUp,
+                                android::audio_utils::TimerQueue::handle_t* handle) override;
+
+    aaudio_result_t activateStream(const AAudioHandleInfo& streamHandleInfo,
+                                   android::audio_utils::TimerQueue::handle_t handle) override;
+
+    aaudio_result_t setPlaybackParameters(const AAudioHandleInfo& streamHandleInfo,
+                                          const android::AudioPlaybackRate& rate) override;
+
+    aaudio_result_t getPlaybackParameters(const AAudioHandleInfo& streamHandleInfo,
+                                          android::AudioPlaybackRate* rate) override;
+
 private:
     IAAudioService* const mDelegate;
     // A unique id to recognize the service that the adapter connected to.

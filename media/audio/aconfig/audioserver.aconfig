@@ -5,6 +5,16 @@
 package: "com.android.media.audioserver"
 container: "system"
 
+flag {
+    name: "cap_engine_preferred_device_improvement"
+    namespace: "media_audio"
+    description:
+        "Enables improvements in the CAP engine for preferred audio input and output "
+        "device selection, including sound settings control and Bluetooth A2DP/SCO "
+        "switching behavior."
+    bug: "436398891"
+}
+
 # shipped 24Q3
 flag {
     name: "conditionally_ignore_preferred_input_device"
@@ -16,15 +26,6 @@ flag {
 }
 
 flag {
-    name: "direct_track_reprioritization"
-    namespace: "media_audio"
-    description:
-        "Modify opening a direct output on a mixport to disrupt existing clients instead "
-        "of failing to open when resource limit is reached"
-    bug: "294525897"
-}
-
-flag {
     name: "effect_chain_callback_improve"
     namespace: "media_audio"
     description: "Improve effect chain callback mutex logic."
@@ -32,50 +33,10 @@ flag {
 }
 
 flag {
-    name: "enable_audio_input_device_routing"
+    name: "enable_strict_port_routing_checks"
     namespace: "media_audio"
-    description: "Allow audio input devices routing control."
-    bug: "364923030"
-}
-
-flag {
-    name: "enable_gmap_mode"
-    namespace: "media_audio"
-    description: "enable track metadata tag generation for GMAP."
-    bug: "366456949"
-}
-
-# shipped 24Q3
-flag {
-    name: "fdtostring_timeout_fix"
-    namespace: "media_audio"
-    description: "Improve fdtostring implementation to properly handle timing out."
-    bug: "306283018"
-}
-
-flag {
-    name: "fix_aaudio_stream_reopen_in_libaudiohal_aidl"
-    namespace: "media_audio"
-    description:
-        "Support reopening of AAudio streams in the libaudiohal@aidl layer"
-    bug: "274456992"
-}
-
-flag {
-    name: "fix_call_audio_patch"
-    namespace: "media_audio"
-    description:
-        "optimize creation and release of audio patches for call routing"
-    bug: "292492229"
-}
-
-flag {
-    name: "fix_concurrent_playback_behavior_with_bit_perfect_client"
-    namespace: "media_audio"
-    description:
-        "Treat playback use cases differently when bit-perfect client is active to improve the "
-        "user experience with bit-perfect playback."
-    bug: "339515899"
+    description: "Enables strict routing checks on associating ports"
+    bug: "367117623"
 }
 
 flag {
@@ -88,29 +49,18 @@ flag {
 }
 
 flag {
-    name: "mutex_priority_inheritance"
+    name: "mmap_pcm_offload_support"
     namespace: "media_audio"
     description:
-        "Enable mutex priority inheritance in audioserver (std::mutex does not normally transfer "
-        "priority from the blocked thread to the blocking thread). "
-        "This feature helps reduce audio glitching caused by low priority blocking threads."
-    bug: "209491695"
+        "Add pcm offload support on mmap path."
+    bug: "409798445"
 }
 
 flag {
-    name: "portid_volume_management"
+    name: "remove_stream_suspend"
     namespace: "media_audio"
-    description:
-        "Allows to manage volume by port id within audio flinger instead of legacy stream type."
-    bug: "317212590"
-}
-
-flag {
-    name: "power_stats"
-    namespace: "media_audio"
-    description:
-        "Add power stats tracking and management."
-    bug: "350114693"
+    description: "Remove the output stream suspend state and control mechanism"
+    bug: "409706525"
 }
 
 flag {

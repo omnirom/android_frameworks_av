@@ -19,11 +19,9 @@
 #include <android-base/logging.h>
 
 #include <codec2/hidl/1.1/ComponentStore.h>
-#include <codec2/hidl/1.1/InputSurface.h>
 #include <codec2/hidl/1.1/types.h>
 
 #include <android-base/file.h>
-#include <media/stagefright/bqhelper/GraphicBufferSource.h>
 #include <utils/Errors.h>
 
 #include <C2PlatformSupport.h>
@@ -51,7 +49,6 @@ namespace V1_1 {
 namespace utils {
 
 using namespace ::android;
-using ::android::GraphicBufferSource;
 using namespace ::android::hardware::media::bufferpool::V2_0::implementation;
 
 namespace /* unnamed */ {
@@ -324,19 +321,7 @@ Return<void> ComponentStore::listComponents(listComponents_cb _hidl_cb) {
 }
 
 Return<void> ComponentStore::createInputSurface(createInputSurface_cb _hidl_cb) {
-    sp<GraphicBufferSource> source = new GraphicBufferSource();
-    if (source->initCheck() != OK) {
-        _hidl_cb(Status::CORRUPTED, nullptr);
-        return Void();
-    }
-    using namespace std::placeholders;
-    sp<InputSurface> inputSurface = new InputSurface(
-            mParameterCache,
-            std::make_shared<C2ReflectorHelper>(),
-            source->getHGraphicBufferProducer(),
-            source);
-    _hidl_cb(inputSurface ? Status::OK : Status::NO_MEMORY,
-             inputSurface);
+    _hidl_cb(Status::OMITTED, nullptr);
     return Void();
 }
 

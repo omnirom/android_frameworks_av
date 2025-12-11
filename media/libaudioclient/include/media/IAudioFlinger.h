@@ -224,13 +224,6 @@ public:
     virtual     status_t    setMasterBalance(float balance) = 0;
     virtual     status_t    getMasterBalance(float *balance) const = 0;
 
-    /* set/get stream type state. This will probably be used by
-     * the preference panel, mostly.
-     */
-    virtual     status_t    setStreamVolume(audio_stream_type_t stream, float value,
-                                    bool muted, audio_io_handle_t output) = 0;
-    virtual     status_t    setStreamMute(audio_stream_type_t stream, bool muted) = 0;
-
     /**
      * Set volume for given AudioTrack port ids on specified output
      * @param portIds to consider
@@ -267,6 +260,8 @@ public:
 
     virtual status_t openOutput(const media::OpenOutputRequest& request,
                                 media::OpenOutputResponse* response) = 0;
+    virtual status_t openMmapStream(const media::OpenMmapRequest& request,
+                                    media::OpenMmapResponse* response) = 0;
     virtual audio_io_handle_t openDuplicateOutput(audio_io_handle_t output1,
                                     audio_io_handle_t output2) = 0;
     virtual status_t closeOutput(audio_io_handle_t output) = 0;
@@ -397,7 +392,8 @@ public:
     virtual status_t getAudioPolicyConfig(media::AudioPolicyConfig* output) = 0;
 
     virtual status_t getAudioMixPort(const struct audio_port_v7 *devicePort,
-                                     struct audio_port_v7 *mixPort) const = 0;
+                                     struct audio_port_v7 *mixPort,
+                                     int32_t mixPortHalId) const = 0;
 
     virtual status_t setTracksInternalMute(
             const std::vector<media::TrackInternalMuteInfo>& tracksInternalMute) = 0;
@@ -432,9 +428,6 @@ public:
     bool masterMute() const override;
     status_t setMasterBalance(float balance) override;
     status_t getMasterBalance(float* balance) const override;
-    status_t setStreamVolume(audio_stream_type_t stream, float value,
-                             bool muted, audio_io_handle_t output) override;
-    status_t setStreamMute(audio_stream_type_t stream, bool muted) override;
     status_t setPortsVolume(const std::vector<audio_port_handle_t>& portIds, float volume,
             bool muted, audio_io_handle_t output) override;
     status_t setMode(audio_mode_t mode) override;
@@ -450,6 +443,8 @@ public:
                               audio_channel_mask_t channelMask) const override;
     status_t openOutput(const media::OpenOutputRequest& request,
                         media::OpenOutputResponse* response) override;
+    status_t openMmapStream(const media::OpenMmapRequest& request,
+                            media::OpenMmapResponse* response) override;
     audio_io_handle_t openDuplicateOutput(audio_io_handle_t output1,
                                           audio_io_handle_t output2) override;
     status_t closeOutput(audio_io_handle_t output) override;
@@ -519,7 +514,8 @@ public:
     status_t invalidateTracks(const std::vector<audio_port_handle_t>& portIds) override;
     status_t getAudioPolicyConfig(media::AudioPolicyConfig* output) override;
     status_t getAudioMixPort(const struct audio_port_v7 *devicePort,
-                             struct audio_port_v7 *mixPort) const override;
+                             struct audio_port_v7 *mixPort,
+                             int32_t mixPortHalId) const override;
     status_t setTracksInternalMute(
             const std::vector<media::TrackInternalMuteInfo>& tracksInternalMute) override;
     status_t resetReferencesForTest() override;
@@ -557,8 +553,6 @@ public:
             SET_MASTER_MUTE = media::BnAudioFlingerService::TRANSACTION_setMasterMute,
             MASTER_VOLUME = media::BnAudioFlingerService::TRANSACTION_masterVolume,
             MASTER_MUTE = media::BnAudioFlingerService::TRANSACTION_masterMute,
-            SET_STREAM_VOLUME = media::BnAudioFlingerService::TRANSACTION_setStreamVolume,
-            SET_STREAM_MUTE = media::BnAudioFlingerService::TRANSACTION_setStreamMute,
             SET_PORTS_VOLUME = media::BnAudioFlingerService::TRANSACTION_setPortsVolume,
             SET_MODE = media::BnAudioFlingerService::TRANSACTION_setMode,
             SET_MIC_MUTE = media::BnAudioFlingerService::TRANSACTION_setMicMute,
@@ -679,9 +673,6 @@ public:
     Status masterMute(bool* _aidl_return) override;
     Status setMasterBalance(float balance) override;
     Status getMasterBalance(float* _aidl_return) override;
-    Status setStreamVolume(media::audio::common::AudioStreamType stream,
-                           float value, bool muted, int32_t output) override;
-    Status setStreamMute(media::audio::common::AudioStreamType stream, bool muted) override;
     Status setPortsVolume(const std::vector<int32_t>& portIds, float volume, bool muted,
                           int32_t output) override;
     Status setMode(media::audio::common::AudioMode mode) override;
@@ -698,6 +689,8 @@ public:
                               int64_t* _aidl_return) override;
     Status openOutput(const media::OpenOutputRequest& request,
                       media::OpenOutputResponse* _aidl_return) override;
+    Status openMmapStream(const media::OpenMmapRequest& request,
+                      media::OpenMmapResponse* _aidl_return) override;
     Status openDuplicateOutput(int32_t output1, int32_t output2, int32_t* _aidl_return) override;
     Status closeOutput(int32_t output) override;
     Status suspendOutput(int32_t output) override;
@@ -761,6 +754,7 @@ public:
     Status getAudioPolicyConfig(media::AudioPolicyConfig* _aidl_return) override;
     Status getAudioMixPort(const media::AudioPortFw& devicePort,
                            const media::AudioPortFw& mixPort,
+                           int32_t mixPortHalId,
                            media::AudioPortFw* _aidl_return) override;
     Status setTracksInternalMute(
             const std::vector<media::TrackInternalMuteInfo>& tracksInternalMute) override;

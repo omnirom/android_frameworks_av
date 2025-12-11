@@ -65,6 +65,7 @@ prebuilt_etc {
         },
     },
     required: [
+        "crash_dump.no_mmap_mprotect_prctl.policy",
         "crash_dump.policy",
         "code_coverage.policy",
     ],

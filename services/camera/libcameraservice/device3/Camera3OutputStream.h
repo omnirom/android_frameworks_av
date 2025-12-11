@@ -149,7 +149,7 @@ class Camera3OutputStream :
      * Set the transform on the output stream; one of the
      * HAL_TRANSFORM_* / NATIVE_WINDOW_TRANSFORM_* constants.
      */
-    virtual status_t setTransform(int transform, bool mayChangeMirror, int surfaceId = 0);
+    virtual status_t setTransform(int transform, int surfaceId = 0);
 
     /**
      * Return if this output stream is for video encoding.
@@ -187,7 +187,10 @@ class Camera3OutputStream :
 
             /**
             * Implementation of IProducerListener, used to notify this stream that the consumer
-            * has returned a buffer and it is ready to return to Camera3BufferManager for reuse.
+            * has triggered a certain action that's of interest to the producer:
+            * - returned a buffer and it is ready to return to Camera3BufferManager for reuse.
+            * - discarded a number of buffers (after release)
+            * - detached a buffer (after acquire)
             */
             virtual void onBufferReleased();
             virtual bool needsReleaseNotify() { return mNeedsReleaseNotify; }
@@ -228,6 +231,8 @@ class Camera3OutputStream :
      * Query the ouput surface id.
      */
     virtual ssize_t getSurfaceId(const sp<Surface> &/*surface*/) { return 0; }
+
+    virtual int getMirrorMode() const override { return  mMirrorMode; };
 
     virtual status_t getUniqueSurfaceIds(const std::vector<size_t>&,
             /*out*/std::vector<size_t>*) { return INVALID_OPERATION; };
@@ -405,13 +410,6 @@ class Camera3OutputStream :
      */
     void onBuffersRemovedLocked(const std::vector<sp<GraphicBuffer>>&);
     status_t detachBufferLocked(sp<GraphicBuffer>* buffer, int* fenceFd);
-    // Call this after each dequeueBuffer/attachBuffer/detachNextBuffer call to get update on
-    // removed buffers. Set notifyBufferManager to false when the call is initiated by buffer
-    // manager so buffer manager doesn't need to be notified.
-    void checkRemovedBuffersLocked(bool notifyBufferManager = true);
-
-    // Check return status of IGBP calls and set abandoned state accordingly
-    void checkRetAndSetAbandonedLocked(status_t res);
 
     // If the status indicates abandonded stream, only log when state hasn't been updated to
     // STATE_ABANDONED

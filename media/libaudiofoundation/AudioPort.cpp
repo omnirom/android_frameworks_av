@@ -180,6 +180,7 @@ void AudioPort::dump(std::string *dst, int spaces, const char* extraInfo, bool v
     if (!mName.empty() || extraInfo != nullptr) {
         dst->append("\n");
     }
+    dst->append(base::StringPrintf("%*sPort Hal ID: %d\n", spaces, "", mHalId));
     if (verbose) {
         std::string profilesStr;
         mProfiles.dump(&profilesStr, spaces);
@@ -231,6 +232,7 @@ bool AudioPort::equals(const sp<AudioPort> &other) const
 }
 
 status_t AudioPort::writeToParcelable(media::AudioPortFw* parcelable) const {
+    parcelable->hal.id = mHalId;
     parcelable->hal.name = mName;
     parcelable->sys.type = VALUE_OR_RETURN_STATUS(
             legacy2aidl_audio_port_type_t_AudioPortType(mType));
@@ -279,6 +281,7 @@ status_t AudioPort::readFromParcelable(const media::AudioPortFw& parcelable) {
         maxActiveCount = mixExt.maxActiveStreamCount;
         recommendedMuteDurationMs = mixExt.recommendedMuteDurationMs;
     }
+    mHalId = parcelable.hal.id;
     return OK;
 }
 

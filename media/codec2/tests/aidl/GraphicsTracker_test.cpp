@@ -18,14 +18,16 @@
 #include <unistd.h>
 
 #include <android/hardware_buffer.h>
-#include <codec2/aidl/GraphicsTracker.h>
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
 #include <binder/ProcessState.h>
+#include <codec2/aidl/GraphicsTracker.h>
 #include <gtest/gtest.h>
+#include <gui/BufferItemConsumer.h>
 #include <gui/BufferQueue.h>
-#include <gui/IProducerListener.h>
 #include <gui/IConsumerListener.h>
+#include <gui/IGraphicBufferProducer.h>
+#include <gui/IProducerListener.h>
 #include <gui/Surface.h>
 #include <private/android/AHardwareBufferHelpers.h>
 
@@ -39,15 +41,16 @@
 
 using ::aidl::android::hardware::media::c2::implementation::GraphicsTracker;
 using ::android::BufferItem;
+using ::android::BufferItemConsumer;
 using ::android::BufferQueue;
 using ::android::Fence;
 using ::android::GraphicBuffer;
-using ::android::IGraphicBufferProducer;
-using ::android::IGraphicBufferConsumer;
-using ::android::IProducerListener;
 using ::android::IConsumerListener;
+using ::android::IGraphicBufferProducer;
+using ::android::IProducerListener;
 using ::android::OK;
 using ::android::sp;
+using ::android::Surface;
 using ::android::wp;
 
 namespace {
@@ -76,29 +79,24 @@ struct BqStatistics {
     }
 };
 
-struct DummyConsumerListener : public android::IConsumerListener {
+struct DummyConsumerListener : public BufferItemConsumer::FrameAvailableListener {
     void onFrameAvailable(const BufferItem& /* item */) override {}
-    void onBuffersReleased() override {}
-    void onSidebandStreamChanged() override {}
 };
 
-struct TestConsumerListener : public android::IConsumerListener {
-    TestConsumerListener(const sp<IGraphicBufferConsumer>& consumer)
-        : IConsumerListener(), mConsumer(consumer) {}
+struct TestConsumerListener : public BufferItemConsumer::FrameAvailableListener {
+    TestConsumerListener(const sp<BufferItemConsumer>& consumer) : mConsumer(consumer) {}
     void onFrameAvailable(const BufferItem&) override {
         constexpr static int kRenderDelayUs = 1000000/30; // 30fps
         BufferItem buffer;
         // consume buffer
-        sp<IGraphicBufferConsumer> consumer = mConsumer.promote();
+        sp<BufferItemConsumer> consumer = mConsumer.promote();
         if (consumer != nullptr && consumer->acquireBuffer(&buffer, 0) == android::NO_ERROR) {
             ::usleep(kRenderDelayUs);
-            consumer->releaseBuffer(buffer.mSlot, buffer.mFrameNumber, buffer.mFence);
+            consumer->releaseBuffer(buffer.mGraphicBuffer, buffer.mFence);
         }
     }
-    void onBuffersReleased() override {}
-    void onSidebandStreamChanged() override {}
 
-    wp<IGraphicBufferConsumer> mConsumer;
+    wp<BufferItemConsumer> mConsumer;
 };
 
 struct TestProducerListener : public android::BnProducerListener {
@@ -256,37 +254,36 @@ public:
     }
 
 protected:
-    bool init(int maxDequeueCount) {
-        mTracker = GraphicsTracker::CreateGraphicsTracker(maxDequeueCount);
-        if (!mTracker) {
-            return false;
-        }
-        BufferQueue::createBufferQueue(&mProducer, &mConsumer);
-        if (!mProducer || !mConsumer) {
-            return false;
-        }
-        return true;
-    }
-    bool configure(sp<IProducerListener> producerListener,
-                   sp<IConsumerListener> consumerListener,
-                   int maxAcquiredCount = 1, bool controlledByApp = true) {
-        if (mConsumer->consumerConnect(
-                consumerListener, controlledByApp) != ::android::NO_ERROR) {
-            return false;
-        }
-        if (mConsumer->setMaxAcquiredBufferCount(maxAcquiredCount) != ::android::NO_ERROR) {
-            return false;
-        }
-        IGraphicBufferProducer::QueueBufferOutput qbo{};
-        if (mProducer->connect(producerListener,
-                          NATIVE_WINDOW_API_MEDIA, true, &qbo) != ::android::NO_ERROR) {
-            return false;
-        }
-        if (mProducer->setDequeueTimeout(0) != ::android::NO_ERROR) {
-            return false;
-        }
-        return true;
-    }
+  bool init(int maxDequeueCount, bool controlledByApp = true) {
+      mTracker = GraphicsTracker::CreateGraphicsTracker(maxDequeueCount);
+      if (!mTracker) {
+          return false;
+      }
+      sp<Surface> surface;
+      std::tie(mConsumer, surface) = BufferItemConsumer::create(
+              kTestUsageFlag, BufferItemConsumer::DEFAULT_MAX_BUFFERS, controlledByApp);
+      mProducer = surface->getIGraphicBufferProducer();
+
+      return true;
+  }
+  bool configure(sp<IProducerListener> producerListener,
+                 sp<BufferItemConsumer::FrameAvailableListener> consumerListener,
+                 int maxAcquiredCount = 1) {
+      mConsumerListener = consumerListener;
+      mConsumer->setFrameAvailableListener(mConsumerListener);
+      if (mConsumer->setMaxAcquiredBufferCount(maxAcquiredCount) != ::android::NO_ERROR) {
+          return false;
+      }
+      IGraphicBufferProducer::QueueBufferOutput qbo{};
+      if (mProducer->connect(producerListener, NATIVE_WINDOW_API_MEDIA, true, &qbo) !=
+          ::android::NO_ERROR) {
+          return false;
+      }
+      if (mProducer->setDequeueTimeout(0) != ::android::NO_ERROR) {
+          return false;
+      }
+      return true;
+  }
 
     virtual void TearDown() override {
         mBqStat->log();
@@ -306,7 +303,8 @@ protected:
 protected:
     std::shared_ptr<BqStatistics> mBqStat = std::make_shared<BqStatistics>();
     sp<IGraphicBufferProducer> mProducer;
-    sp<IGraphicBufferConsumer> mConsumer;
+    sp<BufferItemConsumer> mConsumer;
+    sp<BufferItemConsumer::FrameAvailableListener> mConsumerListener;
     std::shared_ptr<GraphicsTracker> mTracker;
 };
 
@@ -437,7 +435,8 @@ TEST_F(GraphicsTrackerTest, DropAndReleaseTest) {
     // Consume one buffer and release
     BufferItem item;
     ASSERT_EQ(OK, mConsumer->acquireBuffer(&item, 0));
-    ASSERT_EQ(OK, mConsumer->releaseBuffer(item.mSlot, item.mFrameNumber, item.mFence));
+    ASSERT_EQ(OK, mConsumer->releaseBuffer(item.mGraphicBuffer, item.mFence));
+
     // Nothing to consume
     ASSERT_NE(OK, mConsumer->acquireBuffer(&item, 0));
 
@@ -451,9 +450,9 @@ TEST_F(GraphicsTrackerTest, RenderTest) {
     const int maxDequeueCount = 10;
     const int maxNumAlloc = 20;
 
-    ASSERT_TRUE(init(maxDequeueCount));
+    ASSERT_TRUE(init(maxDequeueCount, /*controlledByApp=*/false));
     ASSERT_TRUE(configure(new TestProducerListener(mTracker, mBqStat, generation),
-                          new TestConsumerListener(mConsumer), 1, false));
+                          new TestConsumerListener(mConsumer), 1));
 
     ASSERT_EQ(OK, mProducer->setGenerationNumber(generation));
 
@@ -512,9 +511,9 @@ TEST_F(GraphicsTrackerTest, StopAndWaitTest) {
     uint32_t generation = 1;
     const int maxDequeueCount = 2;
 
-    ASSERT_TRUE(init(maxDequeueCount));
+    ASSERT_TRUE(init(maxDequeueCount, /*controlledByApp=*/false));
     ASSERT_TRUE(configure(new TestProducerListener(mTracker, mBqStat, generation),
-                          new TestConsumerListener(mConsumer), 1, false));
+                          new TestConsumerListener(mConsumer), 1));
 
     ASSERT_EQ(OK, mProducer->setGenerationNumber(generation));
 
@@ -556,9 +555,9 @@ TEST_F(GraphicsTrackerTest, SurfaceChangeTest) {
     const int firstPassAlloc = 12;
     const int firstPassRender = 8;
 
-    ASSERT_TRUE(init(maxDequeueCount));
+    ASSERT_TRUE(init(maxDequeueCount, /*controlledByApp=*/false));
     ASSERT_TRUE(configure(new TestProducerListener(mTracker, mBqStat, generation),
-                          new TestConsumerListener(mConsumer), 1, false));
+                          new TestConsumerListener(mConsumer), 1));
 
     ASSERT_EQ(OK, mProducer->setGenerationNumber(generation));
 
@@ -607,16 +606,19 @@ TEST_F(GraphicsTrackerTest, SurfaceChangeTest) {
 
     // switching surface
     sp<IGraphicBufferProducer> oldProducer = mProducer;
-    sp<IGraphicBufferConsumer> oldConsumer = mConsumer;
+    sp<BufferItemConsumer> oldConsumer = mConsumer;
+    sp<BufferItemConsumer::FrameAvailableListener> oldConsumerListener = mConsumerListener;
     mProducer.clear();
     mConsumer.clear();
-    BufferQueue::createBufferQueue(&mProducer, &mConsumer);
-    ASSERT_TRUE((bool)mProducer && (bool)mConsumer);
+    sp<Surface> surface;
+    std::tie(mConsumer, surface) = BufferItemConsumer::create(
+            kTestUsageFlag, BufferItemConsumer::DEFAULT_MAX_BUFFERS, /*controlledByApp=*/false);
+    mProducer = surface->getIGraphicBufferProducer();
 
     generation += 1;
 
     ASSERT_TRUE(configure(new TestProducerListener(mTracker, mBqStat, generation),
-                          new TestConsumerListener(mConsumer), 1, false));
+                          new TestConsumerListener(mConsumer), 1));
     ASSERT_EQ(OK, mProducer->setGenerationNumber(generation));
     ASSERT_EQ(C2_OK, mTracker->configureGraphics(mProducer, generation));
     ASSERT_EQ(C2_OK, mTracker->configureMaxDequeueCount(maxDequeueCount));
@@ -690,9 +692,9 @@ TEST_F(GraphicsTrackerTest, maxDequeueIncreaseTest) {
 
     int numAlloc = 0;
 
-    ASSERT_TRUE(init(maxDequeueCount));
+    ASSERT_TRUE(init(maxDequeueCount, /*controlledByApp=*/false));
     ASSERT_TRUE(configure(new TestProducerListener(mTracker, mBqStat, generation),
-                          new TestConsumerListener(mConsumer), 1, false));
+                          new TestConsumerListener(mConsumer), 1));
 
     ASSERT_EQ(OK, mProducer->setGenerationNumber(generation));
     ASSERT_EQ(C2_OK, mTracker->configureGraphics(mProducer, generation));
@@ -757,9 +759,9 @@ TEST_F(GraphicsTrackerTest, maxDequeueDecreaseTest) {
 
     int numAlloc = 0;
 
-    ASSERT_TRUE(init(maxDequeueCount));
+    ASSERT_TRUE(init(maxDequeueCount, /*controlledByApp=*/false));
     ASSERT_TRUE(configure(new TestProducerListener(mTracker, mBqStat, generation),
-                          new TestConsumerListener(mConsumer), 1, false));
+                          new TestConsumerListener(mConsumer), 1));
 
     ASSERT_EQ(OK, mProducer->setGenerationNumber(generation));
     ASSERT_EQ(C2_OK, mTracker->configureGraphics(mProducer, generation));

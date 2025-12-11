@@ -245,6 +245,45 @@ status_t AidlProviderInfo::setUpVendorTags() {
     return OK;
 }
 
+struct CArgsManager {
+    CArgsManager(const Vector<String16> &args) {
+        // Allocate array of char* pointers
+        if (args.size() == 0) {
+            return;
+        }
+        mNumArgs = args.size();
+        mString8Args.reserve(mNumArgs);
+        mArgs.reserve(mNumArgs);
+        for (const auto &string16 : args) {
+            mString8Args.push_back(String8(string16));
+            mArgs.push_back(mString8Args.back().c_str());
+        }
+    }
+    const char** getCArgs() { return mArgs.data();}
+    uint32_t getNumArgs() { return mNumArgs; }
+private:
+    std::vector<const char*> mArgs;
+    std::vector<String8> mString8Args;
+    uint32_t mNumArgs = 0;
+};
+
+status_t AidlProviderInfo::dumpInterface(int fd, const Vector<String16>& argsP) {
+    const std::shared_ptr<ICameraProvider> interface = startProviderInterface();
+    if (interface == nullptr) {
+        return DEAD_OBJECT;
+    }
+    CArgsManager cArgsManager(argsP);
+    const char **args = cArgsManager.getCArgs();
+    auto ret = interface->dump(fd, args, /*numArgs*/cArgsManager.getNumArgs());
+    if (ret != OK) {
+        ALOGE("%s: Transaction error calling dump() on provider '%s'",
+                __FUNCTION__, mProviderName.c_str());
+        return ret;
+    }
+
+    return OK;
+}
+
 status_t AidlProviderInfo::notifyDeviceStateChange(int64_t newDeviceState) {
 
     mDeviceState = newDeviceState;
@@ -497,20 +536,17 @@ AidlProviderInfo::AidlDeviceInfo3::AidlDeviceInfo3(
     int resV = validate_camera_metadata_structure(buffer, &expectedSize);
     if (resV == OK || resV == CAMERA_METADATA_VALIDATION_SHIFTED) {
         set_camera_metadata_vendor_id(buffer, mProviderTagid);
-        if (flags::metadata_resize_fix()) {
-            //b/379388099: Create a CameraCharacteristics object slightly larger
-            //to accommodate framework addition/modification. This is to
-            //optimize memory because the CameraMetadata::update() doubles the
-            //memory footprint, which could be significant if original
-            //CameraCharacteristics is already large.
-            mCameraCharacteristics = {
-                    get_camera_metadata_entry_count(buffer) + CHARACTERISTICS_EXTRA_ENTRIES,
-                    get_camera_metadata_data_count(buffer) + CHARACTERISTICS_EXTRA_DATA_SIZE
-            };
-            mCameraCharacteristics.append(buffer);
-        } else {
-            mCameraCharacteristics = buffer;
-        }
+
+        //b/379388099: Create a CameraCharacteristics object slightly larger
+        //to accommodate framework addition/modification. This is to
+        //optimize memory because the CameraMetadata::update() doubles the
+        //memory footprint, which could be significant if original
+        //CameraCharacteristics is already large.
+        mCameraCharacteristics = {
+                get_camera_metadata_entry_count(buffer) + CHARACTERISTICS_EXTRA_ENTRIES,
+                get_camera_metadata_data_count(buffer) + CHARACTERISTICS_EXTRA_DATA_SIZE
+        };
+        mCameraCharacteristics.append(buffer);
     } else {
         ALOGE("%s: Malformed camera metadata received from HAL", __FUNCTION__);
         return;
@@ -716,20 +752,17 @@ AidlProviderInfo::AidlDeviceInfo3::AidlDeviceInfo3(
             int res = validate_camera_metadata_structure(pBuffer, &expectedSize);
             if (res == OK || res == CAMERA_METADATA_VALIDATION_SHIFTED) {
                 set_camera_metadata_vendor_id(pBuffer, mProviderTagid);
-                if (flags::metadata_resize_fix()) {
-                    //b/379388099: Create a CameraCharacteristics object slightly larger
-                    //to accommodate framework addition/modification. This is to
-                    //optimize memory because the CameraMetadata::update() doubles the
-                    //memory footprint, which could be significant if original
-                    //CameraCharacteristics is already large.
-                    mPhysicalCameraCharacteristics[id] = {
-                          get_camera_metadata_entry_count(pBuffer) + CHARACTERISTICS_EXTRA_ENTRIES,
-                          get_camera_metadata_data_count(pBuffer) + CHARACTERISTICS_EXTRA_DATA_SIZE
-                    };
-                    mPhysicalCameraCharacteristics[id].append(pBuffer);
-                } else {
-                    mPhysicalCameraCharacteristics[id] = pBuffer;
-                }
+
+                //b/379388099: Create a CameraCharacteristics object slightly larger
+                //to accommodate framework addition/modification. This is to
+                //optimize memory because the CameraMetadata::update() doubles the
+                //memory footprint, which could be significant if original
+                //CameraCharacteristics is already large.
+                mPhysicalCameraCharacteristics[id] = {
+                      get_camera_metadata_entry_count(pBuffer) + CHARACTERISTICS_EXTRA_ENTRIES,
+                      get_camera_metadata_data_count(pBuffer) + CHARACTERISTICS_EXTRA_DATA_SIZE
+                };
+                mPhysicalCameraCharacteristics[id].append(pBuffer);
             } else {
                 ALOGE("%s: Malformed camera metadata received from HAL", __FUNCTION__);
                 return;
@@ -1066,7 +1099,7 @@ status_t AidlProviderInfo::convertToAidlHALStreamCombinationAndCameraIdsLocked(
                 SessionConfigurationUtils::targetPerfClassPrimaryCamera(
                         perfClassPrimaryCameraIds, cameraId, targetSdkVersion);
         res = mManager->getCameraCharacteristicsLocked(cameraId, overrideForPerfClass, &deviceInfo,
-                hardware::ICameraService::ROTATION_OVERRIDE_NONE);
+                CameraCompatibilityInfo());
         if (res != OK) {
             return res;
         }
@@ -1075,7 +1108,7 @@ status_t AidlProviderInfo::convertToAidlHALStreamCombinationAndCameraIdsLocked(
                     CameraMetadata physicalDeviceInfo;
                     mManager->getCameraCharacteristicsLocked(
                             id, overrideForPerfClass, &physicalDeviceInfo,
-                            hardware::ICameraService::ROTATION_OVERRIDE_NONE);
+                            CameraCompatibilityInfo());
                     return physicalDeviceInfo;
                 };
         std::vector<std::string> physicalCameraIds;

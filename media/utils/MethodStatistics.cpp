@@ -16,6 +16,13 @@
 
 #include <mediautils/MethodStatistics.h>
 
+#include <functional>
+#include <map>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
 namespace android::mediautils {
 
 // Repository for MethodStatistics Objects

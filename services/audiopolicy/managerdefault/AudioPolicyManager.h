@@ -19,6 +19,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <set>
 #include <unordered_set>
 
 #include <stdint.h>
@@ -28,7 +29,6 @@
 #include <utils/Timers.h>
 #include <utils/Errors.h>
 #include <utils/KeyedVector.h>
-#include <utils/SortedVector.h>
 #include <media/AudioParameter.h>
 #include <media/AudioPolicy.h>
 #include <media/AudioProfile.h>
@@ -129,12 +129,14 @@ public:
                                   std::vector<audio_io_handle_t> *secondaryOutputs,
                                   output_type_t *outputType,
                                   bool *isSpatialized,
-                                  bool *isBitPerfect,
-                                  float *volume,
-                                  bool *muted) override;
-        virtual status_t startOutput(audio_port_handle_t portId);
+                                  bool *isBitPerfect) override;
+        virtual status_t startOutput(
+                audio_port_handle_t portId, float* volume, bool* muted);
         virtual status_t stopOutput(audio_port_handle_t portId);
         virtual bool releaseOutput(audio_port_handle_t portId);
+        virtual status_t forceReleaseDirectOutput(audio_io_handle_t output);
+
+        void addRoutableDeviceToProfiles(const sp<DeviceDescriptor> &device);
 
         base::expected<media::GetInputForAttrResponse, std::variant<binder::Status,
             media::audio::common::AudioConfigBase>>
@@ -187,6 +189,65 @@ public:
         virtual status_t getMaxVolumeIndexForAttributes(const audio_attributes_t &attr, int &index);
 
         virtual status_t getMinVolumeIndexForAttributes(const audio_attributes_t &attr, int &index);
+
+        /**
+         * Set the volume index for a given volume group and device.
+         *
+         * @param groupId the volume group id
+         * @param index the volume index to set
+         * @param muted state of the volume group
+         * @param device the device to set the volume index for
+         * @return NO_ERROR if the call is successful, otherwise an error code
+         */
+        virtual status_t setVolumeIndexForGroup(volume_group_t groupId, int index,
+                bool muted, audio_devices_t device);
+
+        /**
+         * Get the volume index for a given volume group and device.
+         *
+         * @param groupId the volume group id
+         * @param index the volume index to get
+         * @param device the device to get the volume index for
+         * @return NO_ERROR if the call is successful, otherwise an error code
+         */
+        virtual status_t getVolumeIndexForGroup(volume_group_t groupId, int &index,
+                audio_devices_t device);
+
+        /**
+         * Get the maximum volume index for a given volume group
+         *
+         * @param groupId the volume group id
+         * @param index the max volume index to get
+         * @return NO_ERROR if the call is successful, otherwise an error code
+         */
+        virtual status_t getMaxVolumeIndexForGroup(volume_group_t groupId, int &index);
+
+        /**
+         * Set the maximum volume index for a given volume group
+         *
+         * @param groupId the volume group id
+         * @param index the max volume index to set
+         * @return NO_ERROR if the call is successful, otherwise an error code
+         */
+        virtual status_t setMaxVolumeIndexForGroup(volume_group_t groupId, int index);
+
+        /**
+         * Get the minimum volume index for a given volume group.
+         *
+         * @param groupId
+         * @param index the min volume index to get
+         * @return NO_ERROR if the call is successful, otherwise an error code
+         */
+        virtual status_t getMinVolumeIndexForGroup(volume_group_t groupId, int &index);
+
+        /**
+         * Set the minimum volume index for a given volume group.
+         *
+         * @param groupId
+         * @param index the min volume index to set
+         * @return NO_ERROR if the call is successful, otherwise an error code
+         */
+        virtual status_t setMinVolumeIndexForGroup(volume_group_t groupId, int index);
 
         status_t setVolumeCurveIndex(int index,
                                      bool muted,
@@ -301,8 +362,8 @@ public:
             return mSoundTriggerSessions.releaseSession(session);
         }
 
-        virtual status_t registerPolicyMixes(const Vector<AudioMix>& mixes);
-        virtual status_t unregisterPolicyMixes(Vector<AudioMix> mixes);
+        status_t registerPolicyMixes(const std::vector<AudioMix>& mixes) override;
+        status_t unregisterPolicyMixes(const std::vector<AudioMix>& mixes) override;
         virtual status_t getRegisteredPolicyMixes(std::vector<AudioMix>& mixes) override;
         virtual status_t updatePolicyMix(
                 const AudioMix& mix,
@@ -376,6 +437,15 @@ public:
         virtual bool isUltrasoundSupported();
 
         bool isHotwordStreamSupported(bool lookbackAudio) override;
+
+        virtual audio_attributes_t getAttributesForStreamType(audio_stream_type_t streamType) {
+            return mEngine->getAttributesForStreamType(streamType);
+        }
+
+        virtual audio_stream_type_t getStreamTypeForAttributes(
+                const audio_attributes_t &attributes) {
+            return mEngine->getStreamTypeForAttributes(attributes);
+        }
 
         virtual status_t listAudioProductStrategies(AudioProductStrategyVector &strategies)
         {
@@ -522,12 +592,15 @@ protected:
             return toVolumeSource(mEngine->getVolumeGroupForStreamType(
                 stream, fallbackOnDefault));
         }
+        IVolumeCurves &getVolumeCurves(volume_group_t volumeGroupId)
+        {
+            auto *curves = mEngine->getVolumeCurvesForVolumeGroup(volumeGroupId);
+            ALOG_ASSERT(curves != nullptr, "No curves for volume group %d", volumeGroupId);
+            return *curves;
+        }
         IVolumeCurves &getVolumeCurves(VolumeSource volumeSource)
         {
-          auto *curves = mEngine->getVolumeCurvesForVolumeGroup(
-              static_cast<volume_group_t>(volumeSource));
-          ALOG_ASSERT(curves != nullptr, "No curves for volume source %d", volumeSource);
-          return *curves;
+          return getVolumeCurves(static_cast<volume_group_t>(volumeSource));
         }
         IVolumeCurves &getVolumeCurves(const audio_attributes_t &attr)
         {
@@ -624,23 +697,16 @@ protected:
         virtual status_t checkAndSetVolume(IVolumeCurves &curves,
                                            VolumeSource volumeSource, int index,
                                            const sp<AudioOutputDescriptor>& outputDesc,
-                                           DeviceTypeSet deviceTypes,
+                                           DeviceTypeSet deviceTypes, bool adjustAttenuation,
                                            int delayMs = 0, bool force = false);
 
         void setVoiceVolume(int index, IVolumeCurves &curves, bool isVoiceVolSrc, int delayMs);
 
-        // returns true if the supplied set of volume source and devices are consistent with
-        // call volume rules:
-        // if Bluetooth SCO and voice call use different volume curves:
-        // - do not apply voice call volume if Bluetooth SCO is used for call
-        // - do not apply Bluetooth SCO volume if SCO or Hearing Aid is not used for call.
-        // Also updates the booleans isVoiceVolSrc and isBtScoVolSrc according to the
+        // Updates the booleans isVoiceVolSrc and isBtScoVolSrc according to the
         // volume source supplied.
-        bool isVolumeConsistentForCalls(VolumeSource volumeSource,
-                                       const DeviceTypeSet& deviceTypes,
-                                       bool& isVoiceVolSrc,
-                                       bool& isBtScoVolSrc,
-                                       const char* caller);
+        void updateVoiceBtScoVolumeSrcForCalls(VolumeSource volumeSource,
+                                              bool& isVoiceVolSrc,
+                                              bool& isBtScoVolSrc);
         // apply all stream volumes to the specified output and device
         void applyStreamVolumes(const sp<AudioOutputDescriptor>& outputDesc,
                                 const DeviceTypeSet& deviceTypes,
@@ -696,7 +762,7 @@ protected:
         // transfers the audio tracks and effects from one output thread to another accordingly.
         status_t checkOutputsForDevice(const sp<DeviceDescriptor>& device,
                                        audio_policy_dev_state_t state,
-                                       SortedVector<audio_io_handle_t>& outputs);
+                                       std::set<audio_io_handle_t>& outputs);
 
         status_t checkInputsForDevice(const sp<DeviceDescriptor>& device,
                                       audio_policy_dev_state_t state);
@@ -806,7 +872,7 @@ protected:
             return mEffects.getMaxEffectsMemory();
         }
 
-        SortedVector<audio_io_handle_t> getOutputsForDevices(
+        std::set<audio_io_handle_t> getOutputsForDevices(
                 const DeviceVector &devices, const SwAudioOutputCollection& openOutputs);
 
         /**
@@ -823,7 +889,7 @@ protected:
                                                    const DeviceVector &prevDevices,
                                                    uint32_t delayMs);
 
-        audio_io_handle_t selectOutput(const SortedVector<audio_io_handle_t>& outputs,
+        audio_io_handle_t selectOutput(const std::set<audio_io_handle_t>& outputs,
                                        audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
                                        audio_format_t format = AUDIO_FORMAT_INVALID,
                                        audio_channel_mask_t channelMask = AUDIO_CHANNEL_NONE,
@@ -923,7 +989,8 @@ protected:
                              const sp<TrackClientDescriptor>& client,
                              uint32_t *delayMs);
         status_t stopSource(const sp<SwAudioOutputDescriptor>& outputDesc,
-                            const sp<TrackClientDescriptor>& client);
+                            const sp<TrackClientDescriptor>& client,
+                            uint32_t delayMs);
 
         void clearAudioPatches(uid_t uid);
         void clearSessionRoutes(uid_t uid);
@@ -984,6 +1051,10 @@ protected:
                                           bool internal,
                                           bool isCallRx,
                                           uint32_t delayMs);
+
+        void checkSpatializedClientsReroute(const sp<SwAudioOutputDescriptor>& outputDesc,
+                                            const DeviceVector &devices);
+
         const uid_t mUidCached;                         // AID_AUDIOSERVER
         sp<const AudioPolicyConfig> mConfig;
         EngineInstance mEngine;                         // Audio Policy Engine instance

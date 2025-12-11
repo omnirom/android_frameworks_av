@@ -27,7 +27,7 @@ import android.media.ClientConfigParcel;
  * owned by clients, and reclaims resources based on configured policies
  * when necessary.
  *
- * {@hide}
+ * @hide
  */
 interface IResourceManagerService {
     const @utf8InCpp String kPolicySupportsMultipleSecureCodecs

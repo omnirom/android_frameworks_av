@@ -26,6 +26,7 @@
 #include <C2Debug.h>
 #include <C2ParamInternal.h>
 
+#include <android-base/hex.h>
 #include <codec2/hidl/plugin/FilterPlugin.h>
 
 #include <FilterWrapper.h>
@@ -48,6 +49,7 @@ public:
             std::vector<FilterWrapper::Component> &&filters,
             std::weak_ptr<FilterWrapper> filterWrapper)
         : mIntf(intf), mFilterWrapper(filterWrapper) {
+        LOG(VERBOSE) << "WrappedDecoderInterface: " << mIntf->getName() << " created";
         takeFilters(std::move(filters));
     }
 
@@ -487,6 +489,7 @@ public:
         std::vector<FilterWrapper::Component> filtersDup(mFilters);
         mIntf = std::make_shared<WrappedDecoderInterface>(
                 comp->intf(), std::move(filtersDup), filterWrapper);
+        LOG(VERBOSE) << "WrappedDecoder: " << mIntf->getName() << " created";
     }
 
     ~WrappedDecoder() override = default;
@@ -645,9 +648,11 @@ private:
         PassingListener(
                 std::shared_ptr<C2Component> wrappedComponent,
                 const std::shared_ptr<Listener> &wrappedComponentListener,
+                const std::initializer_list<C2Param::Type> &nextControlParams,
                 std::shared_ptr<C2Component> nextComponent)
             : mWrappedComponent(wrappedComponent),
               mWrappedComponentListener(wrappedComponentListener),
+              mNextControlParams(nextControlParams),
               mNextComponent(nextComponent) {
         }
 
@@ -675,7 +680,25 @@ private:
                     }
                     C2FrameData &output = work->worklets.front()->output;
                     c2_cntr64_t customOrdinal = work->input.ordinal.customOrdinal;
+                    std::vector<std::unique_ptr<C2Param>> controlParams;
+                    // retain control params from the input
+                    for (const std::unique_ptr<C2Param> &param : work->input.configUpdate) {
+                        if (std::count(mNextControlParams.begin(),
+                                       mNextControlParams.end(),
+                                       param->type()) == 0) {
+                            LOG(VERBOSE) << "Skipping params "
+                                         << android::base::HexString(param.get(), param->size());
+                            continue;
+                        }
+                        LOG(VERBOSE) << "Passing control params to next component: "
+                                     << android::base::HexString(param.get(), param->size());
+                        controlParams.push_back(C2Param::Copy(*param));
+                    }
                     work->input = std::move(output);
+                    work->input.configUpdate.insert(
+                            work->input.configUpdate.end(),
+                            std::make_move_iterator(controlParams.begin()),
+                            std::make_move_iterator(controlParams.end()));
                     work->input.ordinal.customOrdinal = customOrdinal;
                     output.flags = C2FrameData::flags_t(0);
                     output.buffers.clear();
@@ -717,6 +740,7 @@ private:
     private:
         std::weak_ptr<C2Component> mWrappedComponent;
         std::weak_ptr<Listener> mWrappedComponentListener;
+        std::initializer_list<C2Param::Type> mNextControlParams;
         std::weak_ptr<C2Component> mNextComponent;
     };
 
@@ -783,6 +807,7 @@ private:
         std::shared_ptr passingListener = std::make_shared<PassingListener>(
                 shared_from_this(),
                 listener,
+                filters.front().desc.controlParams,
                 filters.front().comp);
         mComp->setListener_vb(passingListener, mayBlock);
         for (size_t i = 0; i < filters.size() - 1; ++i) {
@@ -790,6 +815,7 @@ private:
                     std::make_shared<PassingListener>(
                             shared_from_this(),
                             listener,
+                            filters[i + 1].desc.controlParams,
                             filters[i + 1].comp),
                     mayBlock);
         }

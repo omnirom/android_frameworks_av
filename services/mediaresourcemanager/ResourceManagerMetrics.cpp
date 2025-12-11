@@ -20,6 +20,7 @@
 #include <utils/Log.h>
 #include <mediautils/ProcessInfo.h>
 
+#include <android_media_codec.h>
 #include <stats_media_metrics.h>
 
 #include "UidObserver.h"
@@ -33,10 +34,7 @@ namespace android {
 using stats::media_metrics::stats_write;
 using stats::media_metrics::MEDIA_CODEC_STARTED;
 using stats::media_metrics::MEDIA_CODEC_STOPPED;
-// Disabling this for now.
-#ifdef ENABLE_MEDIA_CODEC_CONCURRENT_USAGE_REPORTED
-using stats::media_metrics::MEDIA_CODEC_CONCURRENT_USAGE_REPORTED;
-#endif
+using stats::media_metrics::APP_MEDIA_CODEC_USAGE_REPORTED;
 using stats::media_metrics::MEDIA_CODEC_RECLAIM_REQUEST_COMPLETED;
 using stats::media_metrics::MEDIA_CODEC_RECLAIM_REQUEST_COMPLETED__RECLAIM_STATUS__RECLAIM_SUCCESS;
 using stats::media_metrics::\
@@ -151,9 +149,11 @@ void ResourceManagerMetrics::notifyClientCreated(const ClientInfoParcel& clientI
     } else {
         found->second++;
     }
+    ++mTotalClientsCreated;
 }
 
-void ResourceManagerMetrics::notifyClientReleased(const ClientInfoParcel& clientInfo) {
+void ResourceManagerMetrics::notifyClientReleased(const ClientInfoParcel& clientInfo,
+                                                  bool releasedByClient) {
     bool stopCalled = true;
     ClientConfigParcel clientConfig;
     {
@@ -180,6 +180,12 @@ void ResourceManagerMetrics::notifyClientReleased(const ClientInfoParcel& client
             if (found->second > 0) {
                 found->second--;
             }
+        }
+        // If releasedByClient is false, this client has been killed.
+        if (!releasedByClient) {
+            ++mTotalClientsKilled;
+            // Add it to the list of killed pids.
+            mKilledPids.insert(clientInfo.pid);
         }
     }
 }
@@ -356,8 +362,14 @@ void ResourceManagerMetrics::notifyClientStopped(const ClientConfigParcel& clien
 
 void ResourceManagerMetrics::onProcessTerminated(int32_t pid, uid_t uid) {
     std::scoped_lock lock(mLock);
-    // post MediaCodecConcurrentUsageReported for this terminated pid.
-    pushConcurrentUsageReport(pid, uid);
+    int reason = mKilledPids.find(pid) == mKilledPids.end() ?
+            1 : // Application process exit normally by itself.
+            0;  // Application process died due to unknown reason.
+    ALOGI("%s: Application/Process(%d:%d) terminated with reason: %d. "
+          "TotalClientsCreated: %d  TotalClientsKilled: %d",
+          __func__, pid, uid, reason, mTotalClientsCreated, mTotalClientsKilled);
+    // post Codec Usage metrics for this terminated pid.
+    pushCodecUsageMetrics(pid, uid, reason);
     // Remove all the metrics associated with this process.
     std::map<int32_t, ConcurrentCodecs>::iterator it1 = mProcessConcurrentCodecsMap.find(pid);
     if (it1 != mProcessConcurrentCodecsMap.end()) {
@@ -367,16 +379,20 @@ void ResourceManagerMetrics::onProcessTerminated(int32_t pid, uid_t uid) {
     if (it2 != mProcessPixelsMap.end()) {
         mProcessPixelsMap.erase(it2);
     }
+
+    // Since this process has been handled, remove the entry.
+    mKilledPids.erase(pid);
 }
 
-void ResourceManagerMetrics::pushConcurrentUsageReport(int32_t pid, uid_t uid) {
+void ResourceManagerMetrics::pushCodecUsageMetrics(int32_t pid, uid_t uid, int exitReason) {
     // Process/Application peak concurrent codec usage
     std::map<int32_t, ConcurrentCodecs>::iterator found = mProcessConcurrentCodecsMap.find(pid);
     if (found == mProcessConcurrentCodecsMap.end()) {
-        ALOGI("%s: No MEDIA_CODEC_CONCURRENT_USAGE_REPORTED atom Entry for: "
+        ALOGI("%s: No APP_MEDIA_CODEC_USAGE_REPORTED atom Entry for: "
               "Application[pid(%d): uid(%d)]", __func__, pid, uid);
         return;
     }
+    // Process/Application's peak codec usage.
     const ConcurrentCodecsMap& codecsMap = found->second.mPeak;
     int peakHwAudioEncoderCount = codecsMap[HwAudioEncoder];
     int peakHwAudioDecoderCount = codecsMap[HwAudioDecoder];
@@ -391,6 +407,7 @@ void ResourceManagerMetrics::pushConcurrentUsageReport(int32_t pid, uid_t uid) {
     int peakSwImageEncoderCount = codecsMap[SwImageEncoder];
     int peakSwImageDecoderCount = codecsMap[SwImageDecoder];
 
+    // Process/Application's peak pixel count.
     long peakPixels = 0;
     std::map<int32_t, PixelCount>::iterator it = mProcessPixelsMap.find(pid);
     if (it == mProcessPixelsMap.end()) {
@@ -430,30 +447,42 @@ void ResourceManagerMetrics::pushConcurrentUsageReport(int32_t pid, uid_t uid) {
     }
     peakCodecLog << "}";
 
-#ifdef ENABLE_MEDIA_CODEC_CONCURRENT_USAGE_REPORTED
-    int result = stats_write(
-        MEDIA_CODEC_CONCURRENT_USAGE_REPORTED,
-        uid,
-        peakHwVideoDecoderCount,
-        peakHwVideoEncoderCount,
-        peakSwVideoDecoderCount,
-        peakSwVideoEncoderCount,
-        peakHwAudioDecoderCount,
-        peakHwAudioEncoderCount,
-        peakSwAudioDecoderCount,
-        peakSwAudioEncoderCount,
-        peakHwImageDecoderCount,
-        peakHwImageEncoderCount,
-        peakSwImageDecoderCount,
-        peakSwImageEncoderCount,
-        peakPixels);
-    ALOGI("%s: Pushed MEDIA_CODEC_CONCURRENT_USAGE_REPORTED atom: "
-          "Process[pid(%d): uid(%d)] %s %s result: %d",
-          __func__, pid, uid, peakCodecLog.str().c_str(), peakPixelsLog.c_str(), result);
-#else
-    ALOGI("%s: Concurrent Codec Usage Report for the Process[pid(%d): uid(%d)] is %s %s",
-          __func__, pid, uid, peakCodecLog.str().c_str(), peakPixelsLog.c_str());
-#endif
+    // TODO: Once RM starts tracking codec memory, set this up accordingly.
+    long peakMemory = peakPixels;
+    if (android::media::codec::app_codec_usage_metrics()) {
+        int result = stats_write(
+            APP_MEDIA_CODEC_USAGE_REPORTED,
+            uid,
+            exitReason,
+            peakHwVideoDecoderCount,
+            peakHwVideoEncoderCount,
+            peakSwVideoDecoderCount,
+            peakSwVideoEncoderCount,
+            peakHwAudioDecoderCount,
+            peakHwAudioEncoderCount,
+            peakSwAudioDecoderCount,
+            peakSwAudioEncoderCount,
+            peakHwImageDecoderCount,
+            peakHwImageEncoderCount,
+            peakSwImageDecoderCount,
+            peakSwImageEncoderCount,
+            peakPixels,
+            peakMemory,
+            mTotalClientsCreated,
+            mTotalClientsKilled);
+        ALOGI("%s: Pushed APP_MEDIA_CODEC_USAGE_REPORTED atom: "
+              "Process[pid(%d): uid(%d) is %s] is %s %s. "
+              "Peak Codec Memory: %ld Total Codecs: %d Killed Codec: %d. Result: %d",
+              __func__, pid, uid, exitReason == 1 ? "Ended" : "Killed",
+              peakCodecLog.str().c_str(), peakPixelsLog.c_str(),
+              peakMemory, mTotalClientsCreated, mTotalClientsKilled, result);
+    } else {
+        ALOGI("%s: Concurrent Codec Usage Report for the Process[pid(%d): uid(%d) is %s] "
+              "is %s %s. Peak Codec Memory: %ld Total Codecs: %d Killed Codec: %d",
+              __func__, pid, uid, exitReason == 1 ? "Ended" : "Killed",
+              peakCodecLog.str().c_str(), peakPixelsLog.c_str(),
+              peakMemory, mTotalClientsCreated, mTotalClientsKilled);
+    }
 }
 
 inline void pushReclaimStats(int32_t callingPid,

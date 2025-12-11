@@ -451,13 +451,15 @@ c2_status_t C2SoftGav1Dec::onStop() {
 
 void C2SoftGav1Dec::onReset() {
   (void)onStop();
-  c2_status_t err = onFlush_sm();
-  if (err != C2_OK) {
-    ALOGW("Failed to flush the av1 decoder. Trying to hard reset.");
-    destroyDecoder();
-    if (!initDecoder()) {
-      ALOGE("Hard reset failed.");
-    }
+  if (mCodecCtx) {
+      c2_status_t err = onFlush_sm();
+      if (err != C2_OK) {
+          ALOGW("Failed to flush the av1 decoder. Trying to hard reset.");
+          destroyDecoder();
+          if (!initDecoder()) {
+              ALOGE("Hard reset failed.");
+          }
+      }
   }
 }
 

@@ -42,8 +42,11 @@ cc_library {
 
     srcs: ["C2SoftFlacEnc.cpp"],
 
-    static_libs: [
+    shared_libs: [
         "libFLAC",
+    ],
+
+    static_libs: [
         "libaudioutils",
     ],
 }

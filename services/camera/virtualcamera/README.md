@@ -121,6 +121,23 @@ Client Surface[1-n] (Consumer)
 7.  The Camera client is notified of the "shutter" event and the `CaptureResult`
     is sent to the consumer.
 
+### Timeout and frame duplication
+
+Most camera applications are made to handle only the on-device camera. When an
+application runs on a virtual device with a virtual camera, the client might not
+expect potential remote camera latency and/or disconnections.
+For [CAPTURE_INTENT_PREVIEW](https://developer.android.com/reference/android/hardware/camera2/CameraMetadata#CONTROL_CAPTURE_INTENT_PREVIEW)
+use case, to counterbalance these disruptions, virtual camera duplicates
+the last frames if the producer does not post a new frame in time.
+
+When a frame is duplicated, the timestamp must increase to meet the camera framework
+expectations. In some use cases, this frame duplication is not wanted, like for motion
+tracking, where the timestamp must match the graphic data.
+
+No frame duplication takes place for other capture intents. The virtual camera
+waits at most `1/minFps` second (see CaptureRequest#CONTROL_AE_TARGET_FPS_RANGE) or the
+current FPS range and notifies the framework of a timeout.
+
 ## EGL Rendering
 
 ### The render thread

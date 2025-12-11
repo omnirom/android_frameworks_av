@@ -57,7 +57,8 @@ status_t AudioPolicyService::AudioPolicyClient::openOutput(audio_module_handle_t
                                                            const sp<DeviceDescriptorBase>& device,
                                                            uint32_t *latencyMs,
                                                            audio_output_flags_t *flags,
-                                                           audio_attributes_t attributes)
+                                                           audio_attributes_t attributes,
+                                                           int32_t mixPortHalId)
 {
     sp<IAudioFlinger> af = AudioSystem::get_audio_flinger();
     if (af == 0) {
@@ -77,6 +78,7 @@ status_t AudioPolicyService::AudioPolicyClient::openOutput(audio_module_handle_t
     request.flags = VALUE_OR_RETURN_STATUS(legacy2aidl_audio_output_flags_t_int32_t_mask(*flags));
     request.attributes = VALUE_OR_RETURN_STATUS(
             legacy2aidl_audio_attributes_t_AudioAttributes(attributes));
+    request.mixPortHalId = mixPortHalId;
 
     status_t status = af->openOutput(request, &response);
     if (status == OK) {
@@ -146,7 +148,8 @@ status_t AudioPolicyService::AudioPolicyClient::openInput(audio_module_handle_t 
                                                           audio_devices_t *device,
                                                           const String8& address,
                                                           audio_source_t source,
-                                                          audio_input_flags_t flags)
+                                                          audio_input_flags_t flags,
+                                                          int32_t mixPortHalId)
 {
     sp<IAudioFlinger> af = AudioSystem::get_audio_flinger();
     if (af == 0) {
@@ -164,6 +167,7 @@ status_t AudioPolicyService::AudioPolicyClient::openInput(audio_module_handle_t 
     request.device = VALUE_OR_RETURN_STATUS(legacy2aidl_AudioDeviceTypeAddress(deviceTypeAddr));
     request.source = VALUE_OR_RETURN_STATUS(legacy2aidl_audio_source_t_AudioSource(source));
     request.flags = VALUE_OR_RETURN_STATUS(legacy2aidl_audio_input_flags_t_int32_t_mask(flags));
+    request.mixPortHalId = mixPortHalId;
 
     media::OpenInputResponse response;
     status_t status = af->openInput(request, &response);
@@ -183,12 +187,6 @@ status_t AudioPolicyService::AudioPolicyClient::closeInput(audio_io_handle_t inp
     }
 
     return af->closeInput(input);
-}
-
-status_t AudioPolicyService::AudioPolicyClient::setStreamVolume(audio_stream_type_t stream,
-                     float volume, bool muted, audio_io_handle_t output, int delay_ms)
-{
-    return mAudioPolicyService->setStreamVolume(stream, volume, muted, output, delay_ms);
 }
 
 status_t AudioPolicyService::AudioPolicyClient::setPortsVolume(
@@ -357,12 +355,13 @@ status_t AudioPolicyService::AudioPolicyClient::invalidateTracks(
 
 status_t AudioPolicyService::AudioPolicyClient::getAudioMixPort(
         const struct audio_port_v7 *devicePort,
-        struct audio_port_v7 *port) {
+        struct audio_port_v7 *port,
+        int32_t mixPortHalId) {
     sp<IAudioFlinger> af = AudioSystem::get_audio_flinger();
     if (af == 0) {
         return PERMISSION_DENIED;
     }
-    return af->getAudioMixPort(devicePort, port);
+    return af->getAudioMixPort(devicePort, port, mixPortHalId);
 }
 
 status_t AudioPolicyService::AudioPolicyClient::setTracksInternalMute(

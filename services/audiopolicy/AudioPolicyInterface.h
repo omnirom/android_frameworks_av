@@ -152,17 +152,17 @@ public:
                                       std::vector<audio_io_handle_t> *secondaryOutputs,
                                       output_type_t *outputType,
                                       bool *isSpatialized,
-                                      bool *isBitPerfect,
-                                      float *volume,
-                                      bool *muted) = 0;
+                                      bool *isBitPerfect) = 0;
     // indicates to the audio policy manager that the output starts being used by corresponding
     // stream.
-    virtual status_t startOutput(audio_port_handle_t portId) = 0;
+    virtual status_t startOutput(
+            audio_port_handle_t portId, float* volume, bool* muted) = 0;
     // indicates to the audio policy manager that the output stops being used by corresponding
     // stream.
     virtual status_t stopOutput(audio_port_handle_t portId) = 0;
     // releases the output, return true if the output descriptor is reopened.
     virtual bool releaseOutput(audio_port_handle_t portId) = 0;
+    virtual status_t forceReleaseDirectOutput(audio_io_handle_t output) = 0;
 
     // Request an input appropriate for record from the supplied device with supplied parameters.
     // attr -- attributes for the requested record
@@ -235,6 +235,65 @@ public:
     virtual status_t getMinVolumeIndexForAttributes(const audio_attributes_t &attr,
                                                     int &index) = 0;
 
+    /**
+    * Set the volume index for a given volume group and device.
+    *
+    * @param groupId the volume group id
+    * @param index the volume index to set
+    * @param muted state of the volume group
+    * @param device the device to set the volume index for
+    * @return NO_ERROR if the call is successful, otherwise an error code
+    */
+    virtual status_t setVolumeIndexForGroup(volume_group_t groupId, int index,
+            bool muted, audio_devices_t device) = 0;
+
+    /**
+     * Get the volume index for a given volume group and device.
+     *
+     * @param groupId the volume group id
+     * @param index the volume index to get
+     * @param device the device to get the volume index for
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    virtual status_t getVolumeIndexForGroup(volume_group_t groupId, int &index,
+            audio_devices_t device) = 0;
+
+    /**
+     * Get the maximum volume index for a given volume group
+     *
+     * @param groupId the volume group id
+     * @param index the max volume index to get
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    virtual status_t getMaxVolumeIndexForGroup(volume_group_t groupId, int &index) = 0;
+
+    /**
+     * Set the maximum volume index for a given volume group
+     *
+     * @param groupId the volume group id
+     * @param index the max volume index to set
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    virtual status_t setMaxVolumeIndexForGroup(volume_group_t groupId, int index) = 0;
+
+    /**
+     * Get the minimum volume index for a given volume group.
+     *
+     * @param groupId
+     * @param index the min volume index to get
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    virtual status_t getMinVolumeIndexForGroup(volume_group_t groupId, int &index) = 0;
+
+    /**
+     * Set the minimum volume index for a given volume group.
+     *
+     * @param groupId
+     * @param index the min volume index to set
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    virtual status_t setMinVolumeIndexForGroup(volume_group_t groupId, int index) = 0;
+
     // return the strategy corresponding to a given stream type
     virtual product_strategy_t getStrategyForStream(audio_stream_type_t stream) = 0;
 
@@ -292,8 +351,8 @@ public:
 
     virtual status_t releaseSoundTriggerSession(audio_session_t session) = 0;
 
-    virtual status_t registerPolicyMixes(const Vector<AudioMix>& mixes) = 0;
-    virtual status_t unregisterPolicyMixes(Vector<AudioMix> mixes) = 0;
+    virtual status_t registerPolicyMixes(const std::vector<AudioMix>& mixes) = 0;
+    virtual status_t unregisterPolicyMixes(const std::vector<AudioMix>& mixes) = 0;
     virtual status_t getRegisteredPolicyMixes(std::vector<AudioMix>& mixes) = 0;
 
     virtual status_t updatePolicyMix(
@@ -339,6 +398,11 @@ public:
                 audio_devices_t device, std::vector<audio_format_t> *formats) = 0;
 
     virtual void     setAppState(audio_port_handle_t portId, app_state_t state) = 0;
+
+    virtual audio_attributes_t getAttributesForStreamType(audio_stream_type_t streamType) = 0;
+
+    virtual audio_stream_type_t getStreamTypeForAttributes(
+                const audio_attributes_t &attributes) = 0;
 
     virtual status_t listAudioProductStrategies(AudioProductStrategyVector &strategies) = 0;
 
@@ -502,7 +566,8 @@ public:
                                 const sp<DeviceDescriptorBase>& device,
                                 uint32_t *latencyMs,
                                 audio_output_flags_t *flags,
-                                audio_attributes_t audioAttributes) = 0;
+                                audio_attributes_t audioAttributes,
+                                int32_t mixPortHalId) = 0;
     // creates a special output that is duplicated to the two outputs passed as arguments.
     // The duplication is performed by a special mixer thread in the AudioFlinger.
     virtual audio_io_handle_t openDuplicateOutput(audio_io_handle_t output1,
@@ -527,18 +592,14 @@ public:
                                audio_devices_t *device,
                                const String8& address,
                                audio_source_t source,
-                               audio_input_flags_t flags) = 0;
+                               audio_input_flags_t flags,
+                               int32_t mixPortHalId) = 0;
     // closes an audio input
     virtual status_t closeInput(audio_io_handle_t input) = 0;
     //
     // misc control functions
     //
 
-    // set a stream volume for a particular output. For the same user setting, a given stream type
-    // can have different volumes
-    // for each output (destination device) it is attached to.
-    virtual status_t setStreamVolume(audio_stream_type_t stream, float volume, bool muted,
-                                     audio_io_handle_t output, int delayMs = 0) = 0;
     /**
      * Set volume for given AudioTrack port ids for a particular output.
      * For the same user setting, a given volume group and associated output port id
@@ -627,8 +688,11 @@ public:
     virtual status_t invalidateTracks(const std::vector<audio_port_handle_t>& portIds) = 0;
 
     // Get the attributes of the mix port when connecting to the given device port.
+    // If `mixPortHalId` is not `AUDIO_PORT_HANDLE_NONE`, it will be used to determine
+    // the mix port. Otherwise, `mixPort->ext.mix.handle` will be used.
     virtual status_t getAudioMixPort(const struct audio_port_v7 *devicePort,
-                                     struct audio_port_v7 *mixPort) = 0;
+                                     struct audio_port_v7 *mixPort,
+                                     int32_t mixPortHalId) = 0;
 
     virtual status_t setTracksInternalMute(
             const std::vector<media::TrackInternalMuteInfo>& tracksInternalMute) = 0;

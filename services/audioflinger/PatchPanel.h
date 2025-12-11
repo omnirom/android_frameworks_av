@@ -76,7 +76,9 @@ public:
     /**
      * Get the attributes of the mix port when connecting to the given device port
      */
-    status_t getAudioMixPort_l(const audio_port_v7* devicePort, audio_port_v7* mixPort) final
+    status_t getAudioMixPort_l(const audio_port_v7* devicePort,
+                               audio_port_v7* mixPort,
+                               int32_t mixPortHalId) final
             REQUIRES(audio_utils::AudioFlinger_Mutex);
 
 private:

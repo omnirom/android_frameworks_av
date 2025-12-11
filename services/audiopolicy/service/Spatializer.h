@@ -569,7 +569,7 @@ private:
     static const std::vector<const char*> sHeadPoseKeys;
 
     // Local log for command messages.
-    static constexpr int mMaxLocalLogLine = 10;
+    static constexpr int mMaxLocalLogLine = 20;
     SimpleLog mLocalLog{mMaxLocalLogLine};
 
     /**

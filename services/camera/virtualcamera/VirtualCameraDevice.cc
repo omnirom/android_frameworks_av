@@ -18,16 +18,18 @@
 #define LOG_TAG "VirtualCameraDevice"
 #include "VirtualCameraDevice.h"
 
+#include <android_companion_virtualdevice_flags.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <iterator>
-#include <numeric>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "CameraMetadata.h"
 #include "VirtualCameraService.h"
 #include "VirtualCameraSession.h"
 #include "aidl/android/companion/virtualcamera/SupportedStreamConfiguration.h"
@@ -37,8 +39,8 @@
 #include "aidl/android/hardware/camera/device/StreamConfiguration.h"
 #include "android/binder_auto_utils.h"
 #include "android/binder_status.h"
-#include "log/log.h"
 #include "system/camera_metadata.h"
+#include "util/AidlUtil.h"
 #include "util/MetadataUtil.h"
 #include "util/Util.h"
 
@@ -52,9 +54,11 @@ using ::aidl::android::companion::virtualcamera::LensFacing;
 using ::aidl::android::companion::virtualcamera::SensorOrientation;
 using ::aidl::android::companion::virtualcamera::SupportedStreamConfiguration;
 using ::aidl::android::companion::virtualcamera::VirtualCameraConfiguration;
+using ::aidl::android::companion::virtualcamera::VirtualCameraMetadata;
 using ::aidl::android::hardware::camera::common::CameraResourceCost;
 using ::aidl::android::hardware::camera::common::Status;
-using ::aidl::android::hardware::camera::device::CameraMetadata;
+using AidlCameraMetadata =
+    ::aidl::android::hardware::camera::device::CameraMetadata;
 using ::aidl::android::hardware::camera::device::ICameraDeviceCallback;
 using ::aidl::android::hardware::camera::device::ICameraDeviceSession;
 using ::aidl::android::hardware::camera::device::ICameraInjectionSession;
@@ -63,15 +67,19 @@ using ::aidl::android::hardware::camera::device::StreamConfiguration;
 using ::aidl::android::hardware::camera::device::StreamRotation;
 using ::aidl::android::hardware::camera::device::StreamType;
 using ::aidl::android::hardware::graphics::common::PixelFormat;
+using HelperCameraMetadata =
+    ::android::hardware::camera::common::helper::CameraMetadata;
 
 namespace {
 
 using namespace std::chrono_literals;
 
+namespace flags = ::android::companion::virtualdevice::flags;
+
 // Prefix of camera name - "device@1.1/virtual/{camera_id}"
 const char* kDevicePathPrefix = "device@1.1/virtual/";
 
-constexpr int32_t kMaxJpegSize = 3 * 1024 * 1024 /*3MiB*/;
+constexpr int32_t kMaxJpegSize = 13 * 1024 * 1024 /* 13MiB */;
 
 constexpr std::chrono::nanoseconds kMaxFrameDuration =
     std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -217,155 +225,18 @@ std::map<Resolution, int> getResolutionToMaxFpsMap(
   return resolutionToMaxFpsMap;
 }
 
-// TODO(b/301023410) - Populate camera characteristics according to camera configuration.
-std::optional<CameraMetadata> initCameraCharacteristics(
+// Populates the maxResolution and the outputConfigurations
+// from the list of supported stream configs
+status_t convertSupportedStreams(
     const std::vector<SupportedStreamConfiguration>& supportedInputConfig,
-    const SensorOrientation sensorOrientation, const LensFacing lensFacing,
-    const int32_t deviceId) {
-  if (!std::all_of(supportedInputConfig.begin(), supportedInputConfig.end(),
-                   [](const SupportedStreamConfiguration& config) {
-                     return isFormatSupportedForInput(
-                         config.width, config.height, config.pixelFormat,
-                         config.maxFps);
-                   })) {
-    ALOGE("%s: input configuration contains unsupported format", __func__);
-    return std::nullopt;
+    Resolution& maxResolution,
+    std::vector<MetadataBuilder::StreamConfiguration>& outputConfigurations) {
+  std::optional<Resolution> resolution = getMaxResolution(supportedInputConfig);
+  if (!resolution.has_value()) {
+    return BAD_VALUE;
   }
-
-  MetadataBuilder builder =
-      MetadataBuilder()
-          .setSupportedHardwareLevel(
-              ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL)
-          .setDeviceId(deviceId)
-          .setFlashAvailable(false)
-          .setLensFacing(
-              static_cast<camera_metadata_enum_android_lens_facing>(lensFacing))
-          .setAvailableFocalLengths({VirtualCameraDevice::kFocalLength})
-          .setSensorOrientation(static_cast<int32_t>(sensorOrientation))
-          .setSensorReadoutTimestamp(
-              ANDROID_SENSOR_READOUT_TIMESTAMP_NOT_SUPPORTED)
-          .setSensorTimestampSource(ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE_UNKNOWN)
-          .setSensorPhysicalSize(36.0, 24.0)
-          .setAvailableAberrationCorrectionModes(
-              {ANDROID_COLOR_CORRECTION_ABERRATION_MODE_OFF})
-          .setAvailableNoiseReductionModes({ANDROID_NOISE_REDUCTION_MODE_OFF})
-          .setAvailableFaceDetectModes({ANDROID_STATISTICS_FACE_DETECT_MODE_OFF})
-          .setAvailableStreamUseCases(
-              {ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_DEFAULT,
-               ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW,
-               ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE,
-               ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD,
-               ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW_VIDEO_STILL,
-               ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_CALL})
-          .setAvailableTestPatternModes({ANDROID_SENSOR_TEST_PATTERN_MODE_OFF})
-          .setAvailableMaxDigitalZoom(1.0)
-          .setControlAvailableModes({ANDROID_CONTROL_MODE_AUTO})
-          .setControlAfAvailableModes({ANDROID_CONTROL_AF_MODE_OFF})
-          .setControlAvailableSceneModes({ANDROID_CONTROL_SCENE_MODE_DISABLED})
-          .setControlAvailableEffects({ANDROID_CONTROL_EFFECT_MODE_OFF})
-          .setControlAvailableVideoStabilizationModes(
-              {ANDROID_CONTROL_VIDEO_STABILIZATION_MODE_OFF})
-          .setControlAeAvailableModes({ANDROID_CONTROL_AE_MODE_ON})
-          .setControlAeAvailableAntibandingModes(
-              {ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO})
-          .setControlAeAvailableFpsRanges(
-              fpsRangesForInputConfig(supportedInputConfig))
-          .setControlMaxRegions(0, 0, 0)
-          .setControlAfRegions({kDefaultEmptyControlRegion})
-          .setControlAeRegions({kDefaultEmptyControlRegion})
-          .setControlAwbRegions({kDefaultEmptyControlRegion})
-          .setControlAeCompensationRange(0, 0)
-          .setControlAeCompensationStep(camera_metadata_rational_t{0, 1})
-          .setControlAwbLockAvailable(false)
-          .setControlAeLockAvailable(false)
-          .setControlAvailableAwbModes({ANDROID_CONTROL_AWB_MODE_AUTO})
-          .setControlZoomRatioRange(/*min=*/1.0, /*max=*/1.0)
-          .setCroppingType(ANDROID_SCALER_CROPPING_TYPE_CENTER_ONLY)
-          .setJpegAvailableThumbnailSizes(
-              getSupportedJpegThumbnailSizes(supportedInputConfig))
-          .setMaxJpegSize(kMaxJpegSize)
-          .setMaxFaceCount(0)
-          .setMaxFrameDuration(kMaxFrameDuration)
-          .setMaxNumberOutputStreams(
-              VirtualCameraDevice::kMaxNumberOfRawStreams,
-              VirtualCameraDevice::kMaxNumberOfProcessedStreams,
-              VirtualCameraDevice::kMaxNumberOfStallStreams)
-          .setRequestPartialResultCount(1)
-          .setPipelineMaxDepth(kPipelineMaxDepth)
-          .setSyncMaxLatency(ANDROID_SYNC_MAX_LATENCY_UNKNOWN)
-          .setAvailableRequestKeys({ANDROID_COLOR_CORRECTION_ABERRATION_MODE,
-                                    ANDROID_CONTROL_CAPTURE_INTENT,
-                                    ANDROID_CONTROL_AE_MODE,
-                                    ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION,
-                                    ANDROID_CONTROL_AE_TARGET_FPS_RANGE,
-                                    ANDROID_CONTROL_AE_ANTIBANDING_MODE,
-                                    ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER,
-                                    ANDROID_CONTROL_AF_TRIGGER,
-                                    ANDROID_CONTROL_AF_MODE,
-                                    ANDROID_CONTROL_AWB_MODE,
-                                    ANDROID_SCALER_CROP_REGION,
-                                    ANDROID_CONTROL_EFFECT_MODE,
-                                    ANDROID_CONTROL_MODE,
-                                    ANDROID_CONTROL_SCENE_MODE,
-                                    ANDROID_CONTROL_VIDEO_STABILIZATION_MODE,
-                                    ANDROID_CONTROL_ZOOM_RATIO,
-                                    ANDROID_FLASH_MODE,
-                                    ANDROID_JPEG_AVAILABLE_THUMBNAIL_SIZES,
-                                    ANDROID_JPEG_ORIENTATION,
-                                    ANDROID_JPEG_QUALITY,
-                                    ANDROID_JPEG_THUMBNAIL_QUALITY,
-                                    ANDROID_JPEG_THUMBNAIL_SIZE,
-                                    ANDROID_NOISE_REDUCTION_MODE,
-                                    ANDROID_STATISTICS_FACE_DETECT_MODE})
-          .setAvailableResultKeys({
-              ANDROID_COLOR_CORRECTION_ABERRATION_MODE,
-              ANDROID_CONTROL_AE_ANTIBANDING_MODE,
-              ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION,
-              ANDROID_CONTROL_AE_LOCK,
-              ANDROID_CONTROL_AE_MODE,
-              ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER,
-              ANDROID_CONTROL_AE_STATE,
-              ANDROID_CONTROL_AE_TARGET_FPS_RANGE,
-              ANDROID_CONTROL_AF_MODE,
-              ANDROID_CONTROL_AF_STATE,
-              ANDROID_CONTROL_AF_TRIGGER,
-              ANDROID_CONTROL_AWB_LOCK,
-              ANDROID_CONTROL_AWB_MODE,
-              ANDROID_CONTROL_AWB_STATE,
-              ANDROID_CONTROL_CAPTURE_INTENT,
-              ANDROID_CONTROL_EFFECT_MODE,
-              ANDROID_CONTROL_MODE,
-              ANDROID_CONTROL_SCENE_MODE,
-              ANDROID_CONTROL_VIDEO_STABILIZATION_MODE,
-              ANDROID_STATISTICS_FACE_DETECT_MODE,
-              ANDROID_FLASH_MODE,
-              ANDROID_FLASH_STATE,
-              ANDROID_JPEG_AVAILABLE_THUMBNAIL_SIZES,
-              ANDROID_JPEG_QUALITY,
-              ANDROID_JPEG_THUMBNAIL_QUALITY,
-              ANDROID_LENS_FOCAL_LENGTH,
-              ANDROID_LENS_OPTICAL_STABILIZATION_MODE,
-              ANDROID_NOISE_REDUCTION_MODE,
-              ANDROID_REQUEST_PIPELINE_DEPTH,
-              ANDROID_SENSOR_TIMESTAMP,
-              ANDROID_STATISTICS_HOT_PIXEL_MAP_MODE,
-              ANDROID_STATISTICS_LENS_SHADING_MAP_MODE,
-              ANDROID_STATISTICS_SCENE_FLICKER,
-          })
-          .setAvailableCapabilities(
-              {ANDROID_REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE});
-
-  // Active array size must correspond to largest supported input resolution.
-  std::optional<Resolution> maxResolution =
-      getMaxResolution(supportedInputConfig);
-  if (!maxResolution.has_value()) {
-    return std::nullopt;
-  }
-  builder.setSensorActiveArraySize(0, 0, maxResolution->width,
-                                   maxResolution->height);
-  builder.setSensorPixelArraySize(maxResolution->width, maxResolution->height);
-
-  std::vector<MetadataBuilder::StreamConfiguration> outputConfigurations;
+  maxResolution.width = resolution.value().width;
+  maxResolution.height = resolution.value().height;
 
   // TODO(b/301023410) Add also all "standard" resolutions we can rescale the
   // streams to (all standard resolutions with same aspect ratio).
@@ -389,16 +260,294 @@ std::optional<CameraMetadata> initCameraCharacteristics(
         });
   }
 
-  ALOGV("Adding %zu output configurations", outputConfigurations.size());
-  builder.setAvailableOutputStreamConfigurations(outputConfigurations);
+  return OK;
+}
 
-  auto metadata = builder.setAvailableCharacteristicKeys().build();
-  if (metadata == nullptr) {
-    ALOGE("Failed to build metadata!");
-    return CameraMetadata();
+std::unique_ptr<AidlCameraMetadata> createDefaultCameraCharacteristics(
+    const std::vector<SupportedStreamConfiguration>& supportedInputConfig,
+    const SensorOrientation sensorOrientation, const LensFacing lensFacing,
+    const int32_t deviceId) {
+  MetadataBuilder builder;
+  builder
+      .setSupportedHardwareLevel(ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL)
+      .setDeviceId(deviceId)
+      .setFlashAvailable(false)
+      .setLensFacing(
+          static_cast<camera_metadata_enum_android_lens_facing>(lensFacing))
+      .setAvailableFocalLengths({VirtualCameraDevice::kFocalLength})
+      .setSensorOrientation(static_cast<int32_t>(sensorOrientation))
+      .setSensorReadoutTimestamp(ANDROID_SENSOR_READOUT_TIMESTAMP_NOT_SUPPORTED)
+      .setSensorTimestampSource(ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE_UNKNOWN)
+      .setSensorPhysicalSize(36.0, 24.0)
+      .setAvailableAberrationCorrectionModes(
+          {ANDROID_COLOR_CORRECTION_ABERRATION_MODE_OFF})
+      .setAvailableNoiseReductionModes({ANDROID_NOISE_REDUCTION_MODE_OFF})
+      .setAvailableFaceDetectModes({ANDROID_STATISTICS_FACE_DETECT_MODE_OFF})
+      .setAvailableStreamUseCases(
+          {ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_DEFAULT,
+           ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW,
+           ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE,
+           ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD,
+           ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW_VIDEO_STILL,
+           ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_CALL})
+      .setAvailableTestPatternModes({ANDROID_SENSOR_TEST_PATTERN_MODE_OFF})
+      .setAvailableMaxDigitalZoom(1.0)
+      .setControlAvailableModes({ANDROID_CONTROL_MODE_AUTO})
+      .setControlAfAvailableModes({ANDROID_CONTROL_AF_MODE_OFF})
+      .setControlAvailableSceneModes({ANDROID_CONTROL_SCENE_MODE_DISABLED})
+      .setControlAvailableEffects({ANDROID_CONTROL_EFFECT_MODE_OFF})
+      .setControlAvailableVideoStabilizationModes(
+          {ANDROID_CONTROL_VIDEO_STABILIZATION_MODE_OFF})
+      .setControlAeAvailableModes({ANDROID_CONTROL_AE_MODE_ON})
+      .setControlAeAvailableAntibandingModes(
+          {ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO})
+      .setControlAeAvailableFpsRanges(
+          fpsRangesForInputConfig(supportedInputConfig))
+      .setControlMaxRegions(0, 0, 0)
+      .setControlAfRegions({kDefaultEmptyControlRegion})
+      .setControlAeRegions({kDefaultEmptyControlRegion})
+      .setControlAwbRegions({kDefaultEmptyControlRegion})
+      .setControlAeCompensationRange(0, 0)
+      .setControlAeCompensationStep(camera_metadata_rational_t{0, 1})
+      .setControlAwbLockAvailable(false)
+      .setControlAeLockAvailable(false)
+      .setControlAvailableAwbModes({ANDROID_CONTROL_AWB_MODE_AUTO})
+      .setControlZoomRatioRange(/*min=*/1.0, /*max=*/1.0)
+      .setCroppingType(ANDROID_SCALER_CROPPING_TYPE_CENTER_ONLY)
+      .setJpegAvailableThumbnailSizes(
+          getSupportedJpegThumbnailSizes(supportedInputConfig))
+      .setMaxJpegSize(kMaxJpegSize)
+      .setMaxFaceCount(0)
+      .setMaxFrameDuration(kMaxFrameDuration)
+      .setMaxNumberOutputStreams(
+          VirtualCameraDevice::kMaxNumberOfRawStreams,
+          VirtualCameraDevice::kMaxNumberOfProcessedStreams,
+          VirtualCameraDevice::kMaxNumberOfStallStreams)
+      .setRequestPartialResultCount(1)
+      .setPipelineMaxDepth(kPipelineMaxDepth)
+      .setSyncMaxLatency(ANDROID_SYNC_MAX_LATENCY_UNKNOWN)
+      .setAvailableRequestKeys({ANDROID_COLOR_CORRECTION_ABERRATION_MODE,
+                                ANDROID_CONTROL_CAPTURE_INTENT,
+                                ANDROID_CONTROL_AE_MODE,
+                                ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION,
+                                ANDROID_CONTROL_AE_TARGET_FPS_RANGE,
+                                ANDROID_CONTROL_AE_ANTIBANDING_MODE,
+                                ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER,
+                                ANDROID_CONTROL_AF_TRIGGER,
+                                ANDROID_CONTROL_AF_MODE,
+                                ANDROID_CONTROL_AWB_MODE,
+                                ANDROID_SCALER_CROP_REGION,
+                                ANDROID_CONTROL_EFFECT_MODE,
+                                ANDROID_CONTROL_MODE,
+                                ANDROID_CONTROL_SCENE_MODE,
+                                ANDROID_CONTROL_VIDEO_STABILIZATION_MODE,
+                                ANDROID_CONTROL_ZOOM_RATIO,
+                                ANDROID_FLASH_MODE,
+                                ANDROID_JPEG_AVAILABLE_THUMBNAIL_SIZES,
+                                ANDROID_JPEG_ORIENTATION,
+                                ANDROID_JPEG_QUALITY,
+                                ANDROID_JPEG_THUMBNAIL_QUALITY,
+                                ANDROID_JPEG_THUMBNAIL_SIZE,
+                                ANDROID_NOISE_REDUCTION_MODE,
+                                ANDROID_STATISTICS_FACE_DETECT_MODE})
+      .setAvailableResultKeys({
+          ANDROID_COLOR_CORRECTION_ABERRATION_MODE,
+          ANDROID_CONTROL_AE_ANTIBANDING_MODE,
+          ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION,
+          ANDROID_CONTROL_AE_LOCK,
+          ANDROID_CONTROL_AE_MODE,
+          ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER,
+          ANDROID_CONTROL_AE_STATE,
+          ANDROID_CONTROL_AE_TARGET_FPS_RANGE,
+          ANDROID_CONTROL_AF_MODE,
+          ANDROID_CONTROL_AF_STATE,
+          ANDROID_CONTROL_AF_TRIGGER,
+          ANDROID_CONTROL_AWB_LOCK,
+          ANDROID_CONTROL_AWB_MODE,
+          ANDROID_CONTROL_AWB_STATE,
+          ANDROID_CONTROL_CAPTURE_INTENT,
+          ANDROID_CONTROL_EFFECT_MODE,
+          ANDROID_CONTROL_MODE,
+          ANDROID_CONTROL_SCENE_MODE,
+          ANDROID_CONTROL_VIDEO_STABILIZATION_MODE,
+          ANDROID_STATISTICS_FACE_DETECT_MODE,
+          ANDROID_FLASH_MODE,
+          ANDROID_FLASH_STATE,
+          ANDROID_JPEG_AVAILABLE_THUMBNAIL_SIZES,
+          ANDROID_JPEG_QUALITY,
+          ANDROID_JPEG_THUMBNAIL_QUALITY,
+          ANDROID_LENS_FOCAL_LENGTH,
+          ANDROID_LENS_OPTICAL_STABILIZATION_MODE,
+          ANDROID_NOISE_REDUCTION_MODE,
+          ANDROID_REQUEST_PIPELINE_DEPTH,
+          ANDROID_SENSOR_TIMESTAMP,
+          ANDROID_STATISTICS_HOT_PIXEL_MAP_MODE,
+          ANDROID_STATISTICS_LENS_SHADING_MAP_MODE,
+          ANDROID_STATISTICS_SCENE_FLICKER,
+      })
+      .setAvailableCapabilities(
+          {ANDROID_REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE});
+
+  std::vector<MetadataBuilder::StreamConfiguration> outputConfigurations;
+  Resolution maxResolution;
+  if (convertSupportedStreams(supportedInputConfig, maxResolution,
+                              outputConfigurations) != OK) {
+    ALOGE(
+        "Can not get max resolution from the input stream configs, output "
+        "streams not configured!");
+    return nullptr;
   }
 
-  return std::move(*metadata);
+  builder.setSensorActiveArraySize(0, 0, maxResolution.width,
+                                   maxResolution.height);
+  builder.setSensorPixelArraySize(maxResolution.width, maxResolution.height);
+
+  ALOGV("Adding %zu output configurations to default CameraCharacteristics.",
+        outputConfigurations.size());
+  builder.setAvailableOutputStreamConfigurations(outputConfigurations);
+
+  return builder.setAvailableCharacteristicKeys().build();
+}
+
+status_t updateStreamConfigurations(
+    HelperCameraMetadata& metadataHelper,
+    const std::vector<SupportedStreamConfiguration>& supportedInputConfig) {
+  std::vector<MetadataBuilder::StreamConfiguration> outputConfigurations;
+  Resolution maxResolution;
+
+  status_t ret = convertSupportedStreams(supportedInputConfig, maxResolution,
+                                         outputConfigurations);
+  if (ret != OK) {
+    ALOGE(
+        "Can not get max resolution from the input stream configs, output "
+        "streams not configured!");
+    return ret;
+  }
+
+  auto activeArraySizeVec =
+      std::vector<int32_t>({0, 0, maxResolution.width, maxResolution.height});
+  ret = metadataHelper.update(ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE,
+                              activeArraySizeVec.data(),
+                              activeArraySizeVec.size());
+  if (ret != OK) {
+    ALOGE("Can not set SENSOR_INFO_ACTIVE_ARRAY_SIZE!");
+    return ret;
+  }
+  auto pixelArraySizeVec =
+      std::vector<int32_t>({maxResolution.width, maxResolution.height});
+  ret =
+      metadataHelper.update(ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE,
+                            pixelArraySizeVec.data(), pixelArraySizeVec.size());
+  if (ret != OK) {
+    ALOGE("Can not set ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE!");
+    return ret;
+  }
+
+  ALOGV("Adding %zu output configurations to configured CameraCharacteristics.",
+        outputConfigurations.size());
+  std::vector<int32_t> metadataStreamConfigs;
+  std::vector<int64_t> metadataMinFrameDurations;
+  std::vector<int64_t> metadataStallDurations;
+
+  convertStreamConfigurationsToMetadataValues(
+      outputConfigurations, metadataStreamConfigs, metadataMinFrameDurations,
+      metadataStallDurations);
+  ret = metadataHelper.update(ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS,
+                              metadataStreamConfigs.data(),
+                              metadataStreamConfigs.size());
+  if (ret != OK) {
+    ALOGE("Can not set ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS!");
+    return ret;
+  }
+
+  ret = metadataHelper.update(ANDROID_SCALER_AVAILABLE_MIN_FRAME_DURATIONS,
+                              metadataMinFrameDurations.data(),
+                              metadataMinFrameDurations.size());
+  if (ret != OK) {
+    ALOGE("Can not set ANDROID_SCALER_AVAILABLE_MIN_FRAME_DURATIONS!");
+    return ret;
+  }
+
+  ret = metadataHelper.update(ANDROID_SCALER_AVAILABLE_STALL_DURATIONS,
+                              metadataStallDurations.data(),
+                              metadataStallDurations.size());
+  if (ret != OK) {
+    ALOGE("Can not set ANDROID_SCALER_AVAILABLE_STALL_DURATIONS!");
+    return ret;
+  }
+
+  return ret;
+}
+
+std::optional<AidlCameraMetadata> initCameraCharacteristics(
+    const std::vector<SupportedStreamConfiguration>& supportedInputConfig,
+    const SensorOrientation sensorOrientation, const LensFacing lensFacing,
+    const std::optional<VirtualCameraMetadata>& configCameraCharacteristics,
+    const int32_t deviceId) {
+  if (!std::all_of(supportedInputConfig.begin(), supportedInputConfig.end(),
+                   [](const SupportedStreamConfiguration& config) {
+                     return isFormatSupportedForInput(
+                         config.width, config.height, config.pixelFormat,
+                         config.maxFps);
+                   })) {
+    ALOGE("%s: input configuration contains unsupported format", __func__);
+    return std::nullopt;
+  }
+
+  std::unique_ptr<AidlCameraMetadata> aidlMetadata;
+  // If the camera metadata is set by the VD owner, add the deviceId and pass it as it is
+  if (configCameraCharacteristics.has_value()) {
+    ALOGD("VirtualCameraDevice - using config CameraCharacteristics");
+    AidlCameraMetadata deviceCameraMetadata;
+    status_t ret = convertVirtualToDeviceCameraMetadata(
+        configCameraCharacteristics.value(), deviceCameraMetadata);
+    if (ret != OK) {
+      ALOGE("Failed to convert virtual to device camera characteristics!");
+      return AidlCameraMetadata();
+    }
+
+    HelperCameraMetadata metadataHelper = HelperCameraMetadata(
+        clone_camera_metadata(reinterpret_cast<const camera_metadata_t*>(
+            deviceCameraMetadata.metadata.data())));
+
+    auto deviceIdVec = std::vector<int32_t>({deviceId});
+    ret = metadataHelper.update(ANDROID_INFO_DEVICE_ID, deviceIdVec.data(),
+                                deviceIdVec.size());
+    if (ret != OK) {
+      ALOGE(
+          "Failed to update ANDROID_INFO_DEVICE_ID for camera "
+          "characteristics!");
+    }
+
+    // internal values that can't be configured from external metadata
+    auto jpegMaxSizeVec = std::vector<int32_t>({kMaxJpegSize});
+    ret = metadataHelper.update(ANDROID_JPEG_MAX_SIZE, jpegMaxSizeVec.data(),
+                                jpegMaxSizeVec.size());
+    if (ret != OK) {
+      ALOGE(
+          "Failed to update ANDROID_JPEG_MAX_SIZE for camera characteristics!");
+    }
+
+    ret = updateStreamConfigurations(metadataHelper, supportedInputConfig);
+    if (ret != OK) {
+      ALOGE(
+          "Failed to update output stream configurations for camera "
+          "characteristics!");
+    }
+
+    aidlMetadata = cameraMetadataToHal(metadataHelper);
+  } else {
+    ALOGD("VirtualCameraDevice - createDefaultCameraCharacteristics");
+    aidlMetadata = createDefaultCameraCharacteristics(
+        supportedInputConfig, sensorOrientation, lensFacing, deviceId);
+  }
+
+  if (aidlMetadata == nullptr) {
+    ALOGE("Failed to build metadata!");
+    return AidlCameraMetadata();
+  }
+
+  return std::move(*aidlMetadata);
 }
 
 }  // namespace
@@ -408,10 +557,18 @@ VirtualCameraDevice::VirtualCameraDevice(
     const VirtualCameraConfiguration& configuration, int32_t deviceId)
     : mCameraId(cameraId),
       mVirtualCameraClientCallback(configuration.virtualCameraCallback),
-      mSupportedInputConfigurations(configuration.supportedStreamConfigs) {
-  std::optional<CameraMetadata> metadata = initCameraCharacteristics(
+      mSupportedInputConfigurations(configuration.supportedStreamConfigs),
+      mPerFrameCameraMetadataEnabled(
+          flags::virtual_camera_metadata()
+              ? configuration.perFrameCameraMetadataEnabled
+              : false),
+      mConfigCameraCharacteristics(flags::virtual_camera_metadata()
+                                       ? configuration.cameraCharacteristics
+                                       : std::nullopt) {
+  std::optional<AidlCameraMetadata> metadata = initCameraCharacteristics(
       mSupportedInputConfigurations, configuration.sensorOrientation,
-      configuration.lensFacing, deviceId);
+      configuration.lensFacing, mConfigCameraCharacteristics, deviceId);
+
   if (metadata.has_value()) {
     mCameraCharacteristics = *metadata;
   } else {
@@ -423,7 +580,7 @@ VirtualCameraDevice::VirtualCameraDevice(
 }
 
 ndk::ScopedAStatus VirtualCameraDevice::getCameraCharacteristics(
-    CameraMetadata* _aidl_return) {
+    AidlCameraMetadata* _aidl_return) {
   ALOGV("%s", __func__);
   if (_aidl_return == nullptr) {
     return cameraStatus(Status::ILLEGAL_ARGUMENT);
@@ -434,7 +591,7 @@ ndk::ScopedAStatus VirtualCameraDevice::getCameraCharacteristics(
 }
 
 ndk::ScopedAStatus VirtualCameraDevice::getPhysicalCameraCharacteristics(
-    const std::string& in_physicalCameraId, CameraMetadata* _aidl_return) {
+    const std::string& in_physicalCameraId, AidlCameraMetadata* _aidl_return) {
   ALOGV("%s: physicalCameraId %s", __func__, in_physicalCameraId.c_str());
   (void)_aidl_return;
 
@@ -550,6 +707,12 @@ ndk::ScopedAStatus VirtualCameraDevice::open(
 
   *_aidl_return = ndk::SharedRefBase::make<VirtualCameraSession>(
       sharedFromThis(), in_callback, mVirtualCameraClientCallback);
+
+  if (virtualdevice::flags::virtual_camera_on_open()) {
+    if (mVirtualCameraClientCallback != nullptr) {
+      mVirtualCameraClientCallback->onOpenCamera();
+    }
+  }
 
   return ndk::ScopedAStatus::ok();
 };

@@ -237,7 +237,8 @@ status_t AudioInputDescriptor::open(const audio_config_t *config,
                                                   String8(mDevice->address().c_str()),
                                                   source,
                                                   static_cast<audio_input_flags_t>(
-                                                          flags & mProfile->getFlags()));
+                                                          flags & mProfile->getFlags()),
+                                                  mProfile->getHalId());
     LOG_ALWAYS_FATAL_IF(mDevice->type() != deviceType,
                         "%s openInput returned device %08x when given device %08x",
                         __FUNCTION__, mDevice->type(), deviceType);
@@ -305,6 +306,9 @@ void AudioInputDescriptor::close()
                 "%s(%d): mProfile->curOpenCount %d < mProfile->curActiveCount %d.",
                 __func__, mId, mProfile->curOpenCount, mProfile->curActiveCount);
         mIoHandle = AUDIO_IO_HANDLE_NONE;
+        if (mDevice != nullptr) {
+            mDevice->setPreferredConfig(nullptr);
+        }
     }
 }
 
@@ -512,6 +516,22 @@ void AudioInputDescriptor::checkSuspendEffects()
                                                  effect->mSession,
                                                  effect->mSuspended);
         }
+    }
+}
+
+void AudioInputDescriptor::setDevice(const sp<DeviceDescriptor> &device) {
+    mDevice = device;
+    if (mDevice == nullptr) {
+        return;
+    }
+    audio_config_base_t config = {
+            .sample_rate = mSamplingRate,
+            .channel_mask = mChannelMask,
+            .format = mFormat
+    };
+    if (!mDevice->setPreferredConfig(&config)) {
+        ALOGE("%s failed to set preferred config for device %s",
+              __func__, device->toString().c_str());
     }
 }
 

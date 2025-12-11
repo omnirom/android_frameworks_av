@@ -174,16 +174,11 @@ status_t AidlConversionSpatializer::getParameter(EffectParamWriter& param) {
 
         switch (command) {
             case SPATIALIZER_PARAM_SUPPORTED_LEVELS: {
-                const auto& range = getRange<Range::spatializer, Range::SpatializerRange>(
-                        mDesc.capability, Spatializer::spatializationLevel);
-                if (!range) {
-                    return BAD_VALUE;
-                }
                 std::vector<Spatialization::Level> levels;
                 for (const auto level : ::ndk::enum_range<Spatialization::Level>()) {
                     const auto spatializer =
                             Spatializer::make<Spatializer::spatializationLevel>(level);
-                    if (spatializer >= range->min && spatializer <= range->max) {
+                    if (inRange<Range::spatializer>(spatializer, mDesc.capability)) {
                         levels.emplace_back(level);
                     }
                 }
@@ -252,16 +247,11 @@ status_t AidlConversionSpatializer::getParameter(EffectParamWriter& param) {
                 return OK;
             }
             case SPATIALIZER_PARAM_SUPPORTED_SPATIALIZATION_MODES: {
-                const auto& range = getRange<Range::spatializer, Range::SpatializerRange>(
-                        mDesc.capability, Spatializer::spatializationMode);
-                if (!range) {
-                    return BAD_VALUE;
-                }
                 std::vector<Spatialization::Mode> modes;
                 for (const auto mode : ::ndk::enum_range<Spatialization::Mode>()) {
                     if (const auto spatializer =
                                 Spatializer::make<Spatializer::spatializationMode>(mode);
-                        spatializer >= range->min && spatializer <= range->max) {
+                        inRange<Range::spatializer>(spatializer, mDesc.capability)) {
                         modes.emplace_back(mode);
                     }
                 }
@@ -273,16 +263,11 @@ status_t AidlConversionSpatializer::getParameter(EffectParamWriter& param) {
                 return OK;
             }
             case SPATIALIZER_PARAM_SUPPORTED_HEADTRACKING_CONNECTION: {
-                const auto& range = getRange<Range::spatializer, Range::SpatializerRange>(
-                        mDesc.capability, Spatializer::headTrackingConnectionMode);
-                if (!range) {
-                    return BAD_VALUE;
-                }
                 std::vector<HeadTracking::ConnectionMode> modes;
                 for (const auto mode : ::ndk::enum_range<HeadTracking::ConnectionMode>()) {
                     if (const auto spatializer =
                                 Spatializer::make<Spatializer::headTrackingConnectionMode>(mode);
-                        spatializer < range->min || spatializer > range->max) {
+                        inRange<Range::spatializer>(spatializer, mDesc.capability)) {
                         modes.emplace_back(mode);
                     }
                 }

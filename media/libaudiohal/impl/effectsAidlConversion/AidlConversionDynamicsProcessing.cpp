@@ -232,8 +232,9 @@ status_t AidlConversionDp::getParameter(EffectParamWriter& param) {
 
 ConversionResult<DynamicsProcessing::ChannelConfig>
 AidlConversionDp::readChannelConfigFromParam(EffectParamReader& param) {
-    int32_t enable, channel;
+    int32_t inUse, enable, channel;
     RETURN_IF_ERROR(param.readFromParameter(&channel));
+    RETURN_IF_ERROR(param.readFromValue(&inUse));
     RETURN_IF_ERROR(param.readFromValue(&enable));
 
     return DynamicsProcessing::ChannelConfig(

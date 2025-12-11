@@ -92,8 +92,7 @@ class AttributionAndPermissionUtils {
     virtual void restoreCallingIdentity(int64_t token);
 
     /**
-     * If flags::data_delivery_permission_checks() is enabled, check the calling attribution
-     * source and resolve its package name, or fill in the pid/uid/package name if necessary.
+     * Check the calling attribution source and resolve its package name.
      *
      * @param resolvedAttributionSource The resolved attribution source.
      * @param methodName The name of the method calling this function (for logging only).

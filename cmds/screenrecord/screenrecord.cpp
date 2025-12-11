@@ -48,6 +48,7 @@
 #include <gui/Surface.h>
 #include <gui/SurfaceComposerClient.h>
 #include <gui/ISurfaceComposer.h>
+#include <gui/Flags.h> // Remove with MediaSurfaceType
 #include <media/MediaCodecBuffer.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormatPriv.h>
@@ -78,6 +79,7 @@ using android::IGraphicBufferProducer;
 using android::ISurfaceComposer;
 using android::MediaCodec;
 using android::MediaCodecBuffer;
+using android::MediaSurfaceType;
 using android::Overlay;
 using android::PersistentSurface;
 using android::PhysicalDisplayId;
@@ -184,7 +186,7 @@ static status_t configureSignals() {
  * from the codec.
  */
 static status_t prepareEncoder(float displayFps, sp<MediaCodec>* pCodec,
-        sp<IGraphicBufferProducer>* pBufferProducer) {
+        sp<MediaSurfaceType>* pSurface) {
     status_t err;
 
     if (gVerbose) {
@@ -238,13 +240,13 @@ static status_t prepareEncoder(float displayFps, sp<MediaCodec>* pCodec,
     }
 
     ALOGV("Creating encoder input surface");
-    sp<IGraphicBufferProducer> bufferProducer;
+    sp<MediaSurfaceType> surface;
     if (gPersistentSurface) {
-        sp<PersistentSurface> surface = MediaCodec::CreatePersistentInputSurface();
-        bufferProducer = surface->getBufferProducer();
-        err = codec->setInputSurface(surface);
+        sp<PersistentSurface> persistentSurface = MediaCodec::CreatePersistentInputSurface();
+        surface = persistentSurface->getSurface();
+        err = codec->setInputSurface(persistentSurface);
     } else {
-        err = codec->createInputSurface(&bufferProducer);
+        err = codec->createInputSurface(&surface);
     }
     if (err != NO_ERROR) {
         fprintf(stderr,
@@ -265,7 +267,7 @@ static status_t prepareEncoder(float displayFps, sp<MediaCodec>* pCodec,
 
     ALOGV("Codec prepared");
     *pCodec = codec;
-    *pBufferProducer = bufferProducer;
+    *pSurface = surface;
     return 0;
 }
 
@@ -360,7 +362,7 @@ static status_t getPhysicalDisplayId(PhysicalDisplayId& outDisplayId) {
  */
 static status_t prepareVirtualDisplay(
         const ui::DisplayState& displayState,
-        const sp<IGraphicBufferProducer>& bufferProducer,
+        const sp<MediaSurfaceType>& surface,
         sp<IBinder>* pDisplayHandle, sp<SurfaceControl>* mirrorRoot) {
     std::string displayName = gPhysicalDisplayId
       ? "ScreenRecorder " + to_string(*gPhysicalDisplayId)
@@ -369,7 +371,8 @@ static status_t prepareVirtualDisplay(
 
     sp<IBinder> dpy = SurfaceComposerClient::createVirtualDisplay(kDisplayName, gSecureDisplay);
     SurfaceComposerClient::Transaction t;
-    t.setDisplaySurface(dpy, bufferProducer);
+    // Update SurfaceComposerClient::Transaction to use a Surface in a follow up CL (b/424789949).
+    t.setDisplaySurface(dpy, android::mediaflagtools::surfaceTypeToIGBP(surface));
     setDisplayProjection(t, dpy, displayState);
 
     // ensures that random layer stack assigned to virtual display changes
@@ -811,11 +814,11 @@ struct RecordingData {
 
     ~RecordingData() {
         if (dpy != nullptr) SurfaceComposerClient::destroyVirtualDisplay(dpy);
-        if (overlay != nullptr) overlay->stop();
         if (encoder != nullptr) {
             encoder->stop();
             encoder->release();
         }
+        if (overlay != nullptr) overlay->stop();
     }
 };
 
@@ -897,8 +900,8 @@ static status_t recordScreen(const char* fileName) {
         return err;
     }
 
-    if (displayState.layerStack == ui::INVALID_LAYER_STACK) {
-        fprintf(stderr, "ERROR: INVALID_LAYER_STACK, please check your display state.\n");
+    if (displayState.layerStack == ui::UNASSIGNED_LAYER_STACK) {
+        fprintf(stderr, "ERROR: UNASSIGNED_LAYER_STACK, please check your display state.\n");
         return INVALID_OPERATION;
     }
 
@@ -923,7 +926,7 @@ static status_t recordScreen(const char* fileName) {
     RecordingData recordingData = RecordingData();
     // Configure and start the encoder.
     sp<FrameOutput> frameOutput;
-    sp<IGraphicBufferProducer> encoderInputSurface;
+    sp<MediaSurfaceType> encoderInputSurface;
     if (gOutputFormat != FORMAT_FRAMES && gOutputFormat != FORMAT_RAW_FRAMES) {
         err = prepareEncoder(displayMode.peakRefreshRate, &recordingData.encoder,
                              &encoderInputSurface);
@@ -952,7 +955,10 @@ static status_t recordScreen(const char* fileName) {
         // We're not using an encoder at all.  The "encoder input surface" we hand to
         // SurfaceFlinger will just feed directly to us.
         frameOutput = new FrameOutput();
-        err = frameOutput->createInputSurface(gVideoWidth, gVideoHeight, &encoderInputSurface);
+        // Change FrameOutput to use Surface too in a follow up CL.
+        sp<IGraphicBufferProducer> igbp =
+                android::mediaflagtools::surfaceTypeToIGBP(encoderInputSurface);
+        err = frameOutput->createInputSurface(gVideoWidth, gVideoHeight, &igbp);
         if (err != NO_ERROR) {
             return err;
         }
@@ -962,15 +968,23 @@ static status_t recordScreen(const char* fileName) {
     // it directly to the encoder.
     // TODO: consider displaying this as a regular layer to avoid b/11697754
     if (gWantInfoScreen) {
-        Overlay::drawInfoPage(encoderInputSurface);
+        // Change FrameOutput to use Surface too in a follow up CL.
+        sp<IGraphicBufferProducer> igbp =
+                android::mediaflagtools::surfaceTypeToIGBP(encoderInputSurface);
+        Overlay::drawInfoPage(igbp);
     }
 
     // Configure optional overlay.
-    sp<IGraphicBufferProducer> bufferProducer;
+    sp<MediaSurfaceType> surface;
     if (gWantFrameTime) {
         // Send virtual display frames to an external texture.
         recordingData.overlay = new Overlay(gMonotonicTime);
-        err = recordingData.overlay->start(encoderInputSurface, &bufferProducer);
+        // Change recordingData to use Surface too in a follow up CL.
+        sp<IGraphicBufferProducer> igbp =
+                android::mediaflagtools::surfaceTypeToIGBP(encoderInputSurface);
+        sp<IGraphicBufferProducer> bufferProducer;
+        err = recordingData.overlay->start(igbp, &bufferProducer);
+        surface = android::mediaflagtools::igbpToSurfaceType(bufferProducer);
         if (err != NO_ERROR) {
             return err;
         }
@@ -980,7 +994,7 @@ static status_t recordScreen(const char* fileName) {
         }
     } else {
         // Use the encoder's input surface as the virtual display surface.
-        bufferProducer = encoderInputSurface;
+        surface = encoderInputSurface;
     }
 
     // We need to hold a reference to mirrorRoot during the entire recording to ensure it's not
@@ -988,7 +1002,7 @@ static status_t recordScreen(const char* fileName) {
     // the resource.
     sp<SurfaceControl> mirrorRoot;
     // Configure virtual display.
-    err = prepareVirtualDisplay(displayState, bufferProducer, &recordingData.dpy, &mirrorRoot);
+    err = prepareVirtualDisplay(displayState, surface, &recordingData.dpy, &mirrorRoot);
     if (err != NO_ERROR) {
         return err;
     }

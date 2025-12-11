@@ -53,6 +53,11 @@ enum CodecBucket {
     CodecBucketMaxSize = 13,
 };
 
+/**
+ * A client means any (binder) requester that communicates with the Resource Manager Service for
+ * tracking resource usage.
+ * Currently DRM session and MediaCodec are the clients managed by the ResourceManagerService.
+ */
 // Map of client id and client configuration, when it was started last.
 typedef std::map<int64_t, ClientConfigParcel> ClientConfigMap;
 
@@ -146,7 +151,10 @@ public:
     void notifyClientCreated(const ClientInfoParcel& clientInfo);
 
     // To be called when a client is released.
-    void notifyClientReleased(const ClientInfoParcel& clientInfo);
+    // The argument releasedByClient is set to true when the Application releases
+    // the client gracefully. And set to false if the client was released for a
+    // killed application.
+    void notifyClientReleased(const ClientInfoParcel& clientInfo, bool releasedByClient = true);
 
     // To be called when a client is started.
     void notifyClientStarted(const ClientConfigParcel& clientConfig);
@@ -192,11 +200,17 @@ private:
     // Issued when the process/application with given pid/uid is terminated.
     void onProcessTerminated(int32_t pid, uid_t uid);
 
-    // To push conccuret codec usage of a process/application.
-    void pushConcurrentUsageReport(int32_t pid, uid_t uid);
+    // push codec usage metrics for the process/application.
+    void pushCodecUsageMetrics(int32_t pid, uid_t uid, int exitReason);
 
 private:
     std::mutex mLock;
+
+    // Total number of clients created.
+    uint32_t mTotalClientsCreated = 0;
+
+    // Total number of clients killed.
+    uint32_t mTotalClientsKilled = 0;
 
     // Map of client id and the configuration.
     ClientConfigMap mClientConfigMap;
@@ -214,6 +228,9 @@ private:
 
     // Uid Observer to monitor the application termination.
     sp<UidObserver> mUidObserver;
+
+    // list of killed apps
+    std::set<int32_t> mKilledPids;
 };
 
 } // namespace android

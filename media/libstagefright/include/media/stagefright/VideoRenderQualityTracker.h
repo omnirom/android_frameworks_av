@@ -53,6 +53,15 @@ struct VideoRenderQualityMetrics {
     // The number of frames that were intentionally dropped/skipped by the app.
     int64_t frameSkippedCount;
 
+    // The number of frames that have content time that does not advance.
+    int64_t frameStagnantCount;
+
+    // The number of frames that have content time that jumps backwards.
+    int64_t frameJumpBackwardCount;
+
+    // The number of frames that have content time that jumps forwards.
+    int64_t frameJumpForwardCount;
+
     // The frame rate as detected by looking at the position timestamp from the content stream.
     float contentFrameRate;
 

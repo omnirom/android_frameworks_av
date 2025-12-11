@@ -127,6 +127,10 @@ public:
 
     void dumpHistogram() const;
 
+    void setPlaybackSpeed(float playbackSpeed) {
+        mPlaybackSpeed = playbackSpeed;
+    }
+
 private:
 
     void driftForward(int64_t latenessNanos,
@@ -184,6 +188,7 @@ private:
     // distribution of timestamps relative to earliest
     std::unique_ptr<android::audio_utils::Histogram>   mHistogramMicros;
 
+    float               mPlaybackSpeed = 1.0f;
 };
 
 } /* namespace aaudio */

@@ -65,6 +65,13 @@ public class MultiAccessUnitBlockModelDecoder extends BlockModelDecoder {
         throws IOException, InterruptedException {
         setExtraConfigureFlags(MediaCodec.CONFIGURE_FLAG_USE_BLOCK_MODEL);
         configureMaxInputSize(format);
+        if (format.containsKey(MediaFormat.KEY_MIME)) {
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            if (!mime.startsWith("audio")) {
+                Log.d(TAG, "Multi access unit decoders are valid only for audio");
+                return -1;
+            }
+        }
         return super.decode(inputBuffer, inputBufferInfo, asyncMode, format, codecName);
     }
 
@@ -116,10 +123,11 @@ public class MultiAccessUnitBlockModelDecoder extends BlockModelDecoder {
             public void onOutputBuffersAvailable(
                     @NonNull MediaCodec mediaCodec,
                             int outputBufferId, @NonNull ArrayDeque<MediaCodec.BufferInfo> infos) {
-                int i = 0;
-                while(i++ < infos.size()) {
-                    mStats.addOutputTime();
+                double size = 0;
+                for (MediaCodec.BufferInfo info : infos) {
+                    size += info.size;
                 }
+                mStats.addOutputTime(size / DEFAULT_AUDIO_FRAME_SIZE);
                 onOutputsAvailable(mediaCodec, outputBufferId, infos);
                 if (mSawOutputEOS) {
                     synchronized (mLock) { mLock.notify(); }
@@ -217,11 +225,18 @@ public class MultiAccessUnitBlockModelDecoder extends BlockModelDecoder {
         if (mSawOutputEOS || outputBufferId < 0) {
             return;
         }
+        // Since this is only about audio, we should always check for
+        // a valid linear block.
         MediaCodec.OutputFrame outFrame = mediaCodec.getOutputFrame(outputBufferId);
         ByteBuffer outputBuffer = null;
         try {
             if (outFrame.getLinearBlock() != null) {
                 outputBuffer = outFrame.getLinearBlock().map();
+                if (DEBUG) {
+                    Log.d(TAG, "onOutputsAvailable ID : " + outputBufferId
+                            + " output info size: " + infos.size()
+                            + " Output remaining: " + outputBuffer.remaining());
+                }
             }
         } catch(IllegalStateException e) {
             // buffer may not be linear, this is ok
@@ -229,7 +244,11 @@ public class MultiAccessUnitBlockModelDecoder extends BlockModelDecoder {
         }
         if (mOutputStream != null) {
             try {
-                if (outputBuffer != null) {
+                if (outFrame.getLinearBlock() != null) {
+                    if (outputBuffer == null) {
+                        outputBuffer = outFrame.getLinearBlock().map();
+                    }
+                    int savedPosition = outputBuffer.position();
                     byte[] bytesOutput = new byte[outputBuffer.remaining()];
                     outputBuffer.get(bytesOutput);
                     mOutputStream.write(bytesOutput);
@@ -237,6 +256,7 @@ public class MultiAccessUnitBlockModelDecoder extends BlockModelDecoder {
                         Log.d(TAG, "Received outputs buffer size : " + outputBuffer.remaining()
                                 + " infos size " + infos.size());
                     }
+                    outputBuffer.position(savedPosition);
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -248,15 +268,36 @@ public class MultiAccessUnitBlockModelDecoder extends BlockModelDecoder {
         if (last != null) {
             mSawOutputEOS |= ((last.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0);
         }
-        int bytesRemaining = 0;
-        if (outputBuffer != null) {
-            bytesRemaining = outputBuffer.remaining();
-            outFrame.getLinearBlock().recycle();
-            outputBuffer = null;
-        }
-        if (mFrameReleaseQueue != null) {
-            mFrameReleaseQueue.pushFrame(outputBufferId, bytesRemaining);
-        } else if (mIBufferSend == null) {
+        if (mConsumer != null) {
+            if (outFrame.getLinearBlock() != null) {
+                if (outputBuffer == null) {
+                    outputBuffer = outFrame.getLinearBlock().map();
+                }
+            }
+            DecoderData data = prepareDecoderData(outputBufferId, outputBuffer, infos);
+            if (data != null) {
+                ArrayDeque<IBufferXfer.IProducerData> buffers = new ArrayDeque<>();
+                data.mOutputFrame = outFrame;
+                buffers.add(data);
+                sendToConsumer(buffers);
+            } else if (outputBuffer != null) {
+                outFrame.getLinearBlock().recycle();
+            }
+        } else if (mFrameReleaseQueue != null) {
+            // Should not come here for a video stream.
+            int bytesRemaining = 0;
+            if (outFrame.getLinearBlock() != null) {
+                if (outputBuffer == null) {
+                    outputBuffer = outFrame.getLinearBlock().map();
+                }
+                bytesRemaining = outputBuffer.remaining();
+            }
+            mFrameReleaseQueue.pushFrame(outputBufferId, outFrame, bytesRemaining);
+        } else {
+            if (outFrame != null && outFrame.getLinearBlock() != null) {
+                outFrame.getLinearBlock().recycle();
+                outputBuffer = null;
+            }
             mediaCodec.releaseOutputBuffer(outputBufferId, mRender);
         }
         if (mSawOutputEOS) {

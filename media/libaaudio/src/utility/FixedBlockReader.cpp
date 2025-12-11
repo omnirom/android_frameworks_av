@@ -25,17 +25,22 @@
 FixedBlockReader::FixedBlockReader(FixedBlockProcessor &fixedBlockProcessor)
     : FixedBlockAdapter(fixedBlockProcessor) {
     mPosition = mSize;
+    mAvailable = 0;
 }
 
 int32_t FixedBlockReader::open(int32_t bytesPerFixedBlock) {
     int32_t result = FixedBlockAdapter::open(bytesPerFixedBlock);
     mPosition = mSize; // Indicate no data in storage.
+    mAvailable = 0;
     return result;
 }
 
 int32_t FixedBlockReader::readFromStorage(uint8_t *buffer, int32_t numBytes) {
+    if (mAvailable <= mPosition) {
+        return 0;
+    }
     int32_t bytesToRead = numBytes;
-    int32_t dataAvailable = mSize - mPosition;
+    int32_t dataAvailable = mAvailable - mPosition;
     if (bytesToRead > dataAvailable) {
         bytesToRead = dataAvailable;
     }
@@ -44,32 +49,54 @@ int32_t FixedBlockReader::readFromStorage(uint8_t *buffer, int32_t numBytes) {
     return bytesToRead;
 }
 
+void FixedBlockReader::flush() {
+    mPosition = mAvailable;
+}
+
 AdapterProcessResult FixedBlockReader::processVariableBlock(uint8_t *buffer, int32_t numBytes) {
-    int32_t result = 0;
+    aaudio_data_callback_result_t result = AAUDIO_CALLBACK_RESULT_CONTINUE;
     int32_t bytesLeft = numBytes;
-    int32_t bytesProcessed = 0;
-    while(bytesLeft > 0 && result == 0) {
-        if (mPosition < mSize) {
+    int32_t totalBytesProcessed = 0;
+    while (bytesLeft > 0) {
+        if (mPosition < mAvailable) {
             // Use up bytes currently in storage.
             int32_t bytesRead = readFromStorage(buffer, bytesLeft);
             buffer += bytesRead;
             bytesLeft -= bytesRead;
-            bytesProcessed += bytesRead;
+            totalBytesProcessed += bytesRead;
         } else if (bytesLeft >= mSize) {
             // Read through if enough for a complete block.
-            result = mFixedBlockProcessor.onProcessFixedBlock(buffer, mSize);
-            if (result != 0) {
+            int32_t bytesProcessed = mFixedBlockProcessor.onProcessFixedBlock(buffer, mSize);
+            if (bytesProcessed < 0) {
+                result = AAUDIO_CALLBACK_RESULT_STOP;
                 break;
             }
-            buffer += mSize;
-            bytesLeft -= mSize;
-            bytesProcessed += mSize;
+            buffer += bytesProcessed;
+            bytesLeft -= bytesProcessed;
+            totalBytesProcessed += bytesProcessed;
+            if (bytesProcessed != mSize) {
+                // The client my not be able to process all data. Let's return earlier
+                // and come back later.
+                break;
+            }
         } else {
             // Just need a partial block so we have to use storage.
-            result = mFixedBlockProcessor.onProcessFixedBlock(mStorage.get(), mSize);
-            mPosition = 0;
+            mAvailable = mFixedBlockProcessor.onProcessFixedBlock(
+                    mStorage.get(), mSize);
+            if (mAvailable < 0) {
+                result = AAUDIO_CALLBACK_RESULT_STOP;
+                mAvailable = 0;
+                break;
+            } else {
+                mPosition = 0;
+                if (mAvailable != mSize) {
+                    // The client my not be able to process all data. Let's return earlier
+                    // and come back later.
+                    break;
+                }
+            }
         }
     }
-    return {result, bytesProcessed};
+    return {result, totalBytesProcessed};
 }
 

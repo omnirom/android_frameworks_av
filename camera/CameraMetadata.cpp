@@ -24,6 +24,8 @@
 #include <camera/CameraMetadata.h>
 #include <camera_metadata_hidden.h>
 
+#include <algorithm>
+
 namespace android {
 
 #define ALIGN_TO(val, alignment) \

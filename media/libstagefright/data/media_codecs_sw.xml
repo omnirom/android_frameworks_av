@@ -99,6 +99,19 @@
             <Limit name="bitrate" range="13000" />
             <Attribute name="software-codec" />
         </MediaCodec>
+        <MediaCodec name="c2.android.iamf.decoder" type="audio/iamf" minsdk="36" variant="!slow-cpu">
+            <!-- IAMF v1.0 (Simple and Base profiles) support up to 18 input channels.
+                 See https://aomediacodec.github.io/iamf/v1.0.0-errata.html#syntax-layout. -->
+            <Limit name="channel-count" max="18" />
+            <!-- The decoder currently supports Opus and PCM which are limited to 48k and
+                 16, 32, 44.1, 48, and 96k, respectively, by the IAMF spec.
+                 This will need to be updated when AAC and FLAC are added. -->
+            <Limit name="sample-rate" ranges="16000,32000,44100,48000,96000" />
+            <!-- Permissive bitrate range, representing the max range of FLAC, the
+                 widest range of the IAMF encoding types. -->
+            <Limit name="bitrate" range="1-21000000" />
+            <Attribute name="software-codec" />
+        </MediaCodec>
         <MediaCodec name="c2.android.mpeg4.decoder" type="video/mp4v-es">
             <Alias name="OMX.google.mpeg4.decoder" />
             <!-- profiles and levels:  ProfileSimple : Level3 -->
@@ -125,10 +138,10 @@
             <Limit name="alignment" value="2x2" />
             <Limit name="block-size" value="16x16" />
             <Variant name="!slow-cpu">
-                <Limit name="size" min="2x2" max="4080x4080" />
+                <Limit name="size" min="2x2" max="4096x4096" />
                 <!-- profiles and levels:  ProfileHigh : Level52 -->
-                <Limit name="block-count" range="1-32768" /> <!-- max 4096x2048 equivalent -->
-                <Limit name="blocks-per-second" range="1-1966080" />
+                <Limit name="block-count" range="1-34560" /> <!-- max 4096x2160 equivalent -->
+                <Limit name="blocks-per-second" range="1-2073600" />
                 <Limit name="bitrate" range="1-48000000" />
             </Variant>
             <Variant name="slow-cpu">

@@ -32,7 +32,7 @@
 #include <stats_media_metrics.h>
 
 #include "MediaMetricsService.h"
-#include "frameworks/proto_logging/stats/message/mediametrics_message.pb.h"
+#include "frameworks/proto_logging/stats/message/mediametrics/mediametrics_message.pb.h"
 #include "iface_statsd.h"
 
 namespace android {

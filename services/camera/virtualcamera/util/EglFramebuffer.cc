@@ -82,7 +82,7 @@ EglFrameBuffer::~EglFrameBuffer() {
     glDeleteTextures(1, &mTextureId);
   }
   if (mEglImageKhr != EGL_NO_IMAGE_KHR) {
-    eglDestroyImageKHR(mEglDisplay, mEglDisplay);
+    eglDestroyImageKHR(mEglDisplay, mEglImageKhr);
   }
 }
 

@@ -26,6 +26,9 @@
 #include <gtest/gtest.h>
 #include <utils/Log.h>
 
+#include <thread>
+#include <vector>
+
 using namespace android;
 
 /**
@@ -65,6 +68,37 @@ struct TestServiceTraits : public mediautils::DefaultServiceTraits<Service> {
     }
 };
 
+// SetServiceTraits just increments a counter for each onNewService called.
+// This is used to check calling set on the service.
+template <typename Service>
+struct SetServiceTraits : public mediautils::DefaultServiceTraits<Service> {
+    static constexpr const char* getServiceName() { return ""; }
+    static constexpr void onNewService(const mediautils::InterfaceType<Service>&) {
+        ++newCounter;
+    }
+    static constexpr void onServiceDied(const mediautils::InterfaceType<Service>&) {
+        ++diedCounter;
+    }
+    static inline std::atomic_int32_t newCounter = 0;
+    static inline std::atomic_int32_t diedCounter = 0;
+};
+
+// ConcurrentServiceTraits checks that concurrent requests to get the service
+// return only after the onNewService callback has completed.
+template <typename Service>
+struct ConcurrentServiceTraits : public mediautils::DefaultServiceTraits<Service> {
+    static constexpr const char* getServiceName() { return ""; }
+    static constexpr void onNewService(const mediautils::InterfaceType<Service>&) {
+        sleep(1); // delay - this ensures that a concurrent request that doesn't block sees 0.
+        ++newCounter;
+    }
+    static constexpr void onServiceDied(const mediautils::InterfaceType<Service>&) {
+        ++diedCounter;
+    }
+    static inline std::atomic_int32_t newCounter = 0;
+    static inline std::atomic_int32_t diedCounter = 0;
+};
+
 // Here we have an alternative set of service traits,
 // used to validate that we can switch traits for the service singleton.
 static std::atomic_int32_t sNewService2 = 0;
@@ -87,11 +121,11 @@ struct TestServiceTraits2 : public mediautils::DefaultServiceTraits<Service> {
  * The WorkerThread is used to launch and kill the ServiceThread in a remote process.
  */
 static void ServiceThread(audio_utils::RunRemote& runRemote) {
-    int c = runRemote.getc();  // requires any character to launch
+    int c = runRemote.getChar();  // requires any character to launch
     auto service = sp<IServiceSingletonTest>::cast(sp<ServiceSingletonTestCpp>::make());
     mediautils::addService(service);
     ProcessState::self()->startThreadPool();
-    runRemote.putc(c);  // echo character.
+    runRemote.putChar(c);  // echo character.
     IPCThreadState::self()->joinThreadPool();
 }
 
@@ -102,30 +136,52 @@ static void ServiceThread(audio_utils::RunRemote& runRemote) {
 static void WorkerThread(audio_utils::RunRemote& runRemote) {
     std::shared_ptr<audio_utils::RunRemote> remoteService;
     while (true) {
-        const int c = runRemote.getc();
+        const int c = runRemote.getChar();
         switch (c) {
             case 'a':  // launch a new service.
                 // if the old service isn't destroyed, it will be destroyed here
                 // when the RunRemote is replaced.
                 remoteService = std::make_shared<audio_utils::RunRemote>(ServiceThread);
                 remoteService->run();
-                remoteService->putc('a');  // create service.
-                (void)remoteService->getc(); // ensure it is created.
-                runRemote.putc(c);  // echo
+                remoteService->putChar('a');  // create service.
+                (void)remoteService->getChar(); // ensure it is created.
+                runRemote.putChar(c);  // echo
                 break;
             case 'b':  // destroys the old service.
                 remoteService.reset();  // this kills the service.
-                runRemote.putc(c);  // echo
+                runRemote.putChar(c);  // echo
                 break;
             default:  // respond that we don't know what happened!
-                runRemote.putc('?');
+                runRemote.putChar('?');
                 break;
         }
     }
 }
 
+class ServiceSingletonTests : public ::testing::Test {
+protected:
+    std::shared_ptr<audio_utils::RunRemote> mRemoteWorker = getRemoteWorker();
+
+    // Use a worker singleton because once we set up binder,
+    // we can't spawn the remote worker again.
+    static std::shared_ptr<audio_utils::RunRemote> getRemoteWorker() {
+        [[clang::no_destroy]]
+        static std::shared_ptr<audio_utils::RunRemote> remoteWorker = []() {
+            // create worker that spawns service in a different process.
+            const auto worker = std::make_shared<audio_utils::RunRemote>(WorkerThread);
+            worker->run();
+
+            // now we are ready for binder.
+            ProcessState::self()->startThreadPool();
+
+            return worker;
+        }();
+        return remoteWorker;
+    }
+};
+
 // This is a monolithic test.
-TEST(service_singleton_tests, one_and_only) {
+TEST_F(ServiceSingletonTests, Basic) {
     std::atomic_int32_t listenerServiceCreated = 0;
     std::atomic_int32_t listenerServiceDied = 0;
 
@@ -134,13 +190,6 @@ TEST(service_singleton_tests, one_and_only) {
         IServiceSingletonTest, TestServiceTraits<IServiceSingletonTest>>({});
     mediautils::initService<
         aidl::IServiceSingletonTest, TestServiceTraits<aidl::IServiceSingletonTest>>({});
-
-    // start the worker thread that spawns the services.
-    auto remoteWorker = std::make_shared<audio_utils::RunRemote>(WorkerThread);
-    remoteWorker->run();
-
-    // now we are ready for binder.
-    ProcessState::self()->startThreadPool();
 
     // check that our service isn't preexisting.
     {
@@ -176,8 +225,8 @@ TEST(service_singleton_tests, one_and_only) {
     EXPECT_EQ(0, sServiceDied);
 
     // now spawn the service.
-    remoteWorker->putc('a');
-    EXPECT_EQ('a', remoteWorker->getc());
+    mRemoteWorker->putChar('a');
+    EXPECT_EQ('a', mRemoteWorker->getChar());
 
     sleep(1);  // In the background, 2 services were fetched.
 
@@ -216,8 +265,8 @@ TEST(service_singleton_tests, one_and_only) {
     EXPECT_EQ(0, sServiceDied);
 
     // destroy the service.
-    remoteWorker->putc('b');
-    EXPECT_EQ('b', remoteWorker->getc());
+    mRemoteWorker->putChar('b');
+    EXPECT_EQ('b', mRemoteWorker->getChar());
 
     sleep(1);
 
@@ -235,8 +284,8 @@ TEST(service_singleton_tests, one_and_only) {
                 ++listenerServiceCreated; });
 
     // Spawn the service again.
-    remoteWorker->putc('a');
-    EXPECT_EQ('a', remoteWorker->getc());
+    mRemoteWorker->putChar('a');
+    EXPECT_EQ('a', mRemoteWorker->getChar());
 
     sleep(1);  // In the background, 2 services were fetched.
 
@@ -294,8 +343,8 @@ TEST(service_singleton_tests, one_and_only) {
 
     // destroy the service.
 
-    remoteWorker->putc('b');
-    EXPECT_EQ('b', remoteWorker->getc());
+    mRemoteWorker->putChar('b');
+    EXPECT_EQ('b', mRemoteWorker->getChar());
 
     sleep(1);
 
@@ -315,8 +364,8 @@ TEST(service_singleton_tests, one_and_only) {
     mediautils::skipService<aidl::IServiceSingletonTest>();
 
     // Spawn the service again.
-    remoteWorker->putc('a');
-    EXPECT_EQ('a', remoteWorker->getc());
+    mRemoteWorker->putChar('a');
+    EXPECT_EQ('a', mRemoteWorker->getChar());
 
     sleep(1);
 
@@ -362,8 +411,8 @@ TEST(service_singleton_tests, one_and_only) {
     }
 
     // remove service
-    remoteWorker->putc('b');
-    EXPECT_EQ('b', remoteWorker->getc());
+    mRemoteWorker->putChar('b');
+    EXPECT_EQ('b', mRemoteWorker->getChar());
 
     sleep(1);
 
@@ -404,8 +453,8 @@ TEST(service_singleton_tests, one_and_only) {
     EXPECT_EQ(0, sServiceDied2);
 
     // Spawn the service again.
-    remoteWorker->putc('a');
-    EXPECT_EQ('a', remoteWorker->getc());
+    mRemoteWorker->putChar('a');
+    EXPECT_EQ('a', mRemoteWorker->getChar());
 
     sleep(1);
 
@@ -424,8 +473,8 @@ TEST(service_singleton_tests, one_and_only) {
     EXPECT_TRUE(stale_service2);  // not stale yet.
 
     // Release the service.
-    remoteWorker->putc('b');
-    EXPECT_EQ('b', remoteWorker->getc());
+    mRemoteWorker->putChar('b');
+    EXPECT_EQ('b', mRemoteWorker->getChar());
 
     sleep(1);
 
@@ -444,4 +493,149 @@ TEST(service_singleton_tests, one_and_only) {
         EXPECT_FALSE(handle2);
         EXPECT_EQ(0, postDied);  // no callbacks issued.
     }
+
+    // Cancel the singleton cache.
+    mediautils::skipService<IServiceSingletonTest>();
+    mediautils::skipService<aidl::IServiceSingletonTest>();
+}
+
+TEST_F(ServiceSingletonTests, Set) {
+    // Initialize the service cache with a custom handler for set service request
+
+    mediautils::initService<
+            IServiceSingletonTest,
+            SetServiceTraits<IServiceSingletonTest>>({});
+    mediautils::initService<
+            aidl::IServiceSingletonTest,
+            SetServiceTraits<aidl::IServiceSingletonTest>>({});
+
+    constexpr int32_t kThreads = 4;
+    std::vector<std::shared_ptr<std::thread>> threads;
+    std::atomic_int32_t services = 0;
+
+    auto test1 = [&]() {
+        auto service = mediautils::getService<IServiceSingletonTest>(std::chrono::seconds(2000));
+        EXPECT_TRUE(service);
+        EXPECT_EQ(1, SetServiceTraits<IServiceSingletonTest>::newCounter);
+        ++services;
+    };
+
+    for (int32_t i = 0; i < kThreads; ++i) {
+        threads.push_back(std::make_shared<std::thread>(test1));
+    }
+    EXPECT_EQ(0, services);
+    EXPECT_EQ(0, SetServiceTraits<IServiceSingletonTest>::newCounter);
+    EXPECT_EQ(0, SetServiceTraits<IServiceSingletonTest>::diedCounter);
+
+    // The threads are blocked since there is no registered service.
+    // Once we set the service, then we are able to join.
+    sp<IServiceSingletonTest> testLocalService = sp<ServiceSingletonTestCpp>::make();
+    mediautils::setService<IServiceSingletonTest>(testLocalService);
+
+    for (auto& thread : threads) {
+        thread->join();
+    }
+    threads.clear();
+    EXPECT_EQ(kThreads, services);
+    EXPECT_EQ(0, SetServiceTraits<IServiceSingletonTest>::diedCounter);
+
+    // Test concurrent getService (AIDL).
+    // A slightly different test, we check if we can cancel the service.
+
+    std::atomic_int32_t services2 = 0;
+    auto test2 = [&]() {
+        auto service = mediautils::getService<aidl::IServiceSingletonTest>(
+                std::chrono::seconds(2000));
+        // we expect to cancel the request, so no service is obtained.
+        EXPECT_FALSE(service);
+        EXPECT_EQ(0, SetServiceTraits<aidl::IServiceSingletonTest>::newCounter);
+        ++services2;
+    };
+    for (size_t i = 0; i < kThreads; ++i) {
+        threads.push_back(std::make_shared<std::thread>(test2));
+    }
+
+    EXPECT_EQ(0, services2);
+    EXPECT_EQ(0, SetServiceTraits<aidl::IServiceSingletonTest>::newCounter);
+
+    // The threads are blocked since there is no registered service.
+    // Once we cancel the service, then we are able to join.
+
+    // Cancel the singleton cache.
+    mediautils::skipService<IServiceSingletonTest>();
+    mediautils::skipService<aidl::IServiceSingletonTest>();
+
+    for (auto& thread : threads) {
+        thread->join();
+    }
+    threads.clear();
+
+    EXPECT_EQ(4, services2);
+    EXPECT_EQ(0, SetServiceTraits<aidl::IServiceSingletonTest>::newCounter);
+    EXPECT_EQ(0, SetServiceTraits<aidl::IServiceSingletonTest>::diedCounter);
+}
+
+TEST_F(ServiceSingletonTests, ConcurrentWait) {
+    // Initialize the service cache with a custom handler for concurrent service request
+    // testing.  ConcurrentServiceTraits has a very slow onNewService(),
+    // and all concurrent service requests must wait for the onNewService to complete.
+
+    mediautils::initService<
+            IServiceSingletonTest,
+            ConcurrentServiceTraits<IServiceSingletonTest>>({});
+    mediautils::initService<
+            aidl::IServiceSingletonTest,
+            ConcurrentServiceTraits<aidl::IServiceSingletonTest>>({});
+
+    // Spawn the service again.
+    mRemoteWorker->putChar('a');
+    EXPECT_EQ('a', mRemoteWorker->getChar());
+
+    constexpr size_t kThreads = 4;
+    std::vector<std::shared_ptr<std::thread>> threads;
+
+    // Test concurrent getService.
+    auto test1 = []() {
+        auto service = mediautils::getService<IServiceSingletonTest>(std::chrono::seconds(2));
+        EXPECT_TRUE(service);
+        EXPECT_EQ(1, ConcurrentServiceTraits<IServiceSingletonTest>::newCounter);
+    };
+    for (size_t i = 0; i < kThreads; ++i) {
+        threads.push_back(std::make_shared<std::thread>(test1));
+    }
+    for (auto& thread : threads) {
+        thread->join();
+    }
+    threads.clear();
+
+    // Test concurrent getService (AIDL).
+    auto test2 = []() {
+        auto service = mediautils::getService<aidl::IServiceSingletonTest>(
+                std::chrono::seconds(2));
+        EXPECT_TRUE(service);
+        EXPECT_EQ(1, ConcurrentServiceTraits<aidl::IServiceSingletonTest>::newCounter);
+    };
+    for (size_t i = 0; i < kThreads; ++i) {
+        threads.push_back(std::make_shared<std::thread>(test2));
+    }
+    for (auto& thread : threads) {
+        thread->join();
+    }
+    threads.clear();
+
+    EXPECT_EQ(0, ConcurrentServiceTraits<IServiceSingletonTest>::diedCounter);
+    EXPECT_EQ(0, ConcurrentServiceTraits<aidl::IServiceSingletonTest>::diedCounter);
+
+    // Release the service.
+    mRemoteWorker->putChar('b');
+    EXPECT_EQ('b', mRemoteWorker->getChar());
+
+    sleep(1);
+
+    EXPECT_EQ(1, ConcurrentServiceTraits<IServiceSingletonTest>::diedCounter);
+    EXPECT_EQ(1, ConcurrentServiceTraits<aidl::IServiceSingletonTest>::diedCounter);
+
+    // Cancel the singleton cache.
+    mediautils::skipService<IServiceSingletonTest>();
+    mediautils::skipService<aidl::IServiceSingletonTest>();
 }

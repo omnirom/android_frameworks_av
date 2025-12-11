@@ -24,7 +24,6 @@
 #include <cutils/misc.h>
 #include <media/AudioEffect.h>
 #include <media/EffectsConfig.h>
-#include <mediautils/ServiceUtilities.h>
 #include <system/audio.h>
 #include <system/audio_effects/audio_effects_conf.h>
 #include <utils/Vector.h>
@@ -347,7 +346,8 @@ status_t AudioPolicyEffects::addStreamDefaultEffect(const effect_uuid_t *type,
         ALOGE("addStreamDefaultEffect(): Null uuid or type uuid pointer");
         return BAD_VALUE;
     }
-    audio_stream_type_t stream = AudioSystem::attributesToStreamType(attributes_initializer(usage));
+    audio_stream_type_t stream;
+    AudioSystem::getStreamTypeForAttributes(attributes_initializer(usage), stream);
 
     if (stream < AUDIO_STREAM_MIN || stream >= AUDIO_STREAM_PUBLIC_CNT) {
         ALOGE("addStreamDefaultEffect(): Unsupported stream type %d", stream);

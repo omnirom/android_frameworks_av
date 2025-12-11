@@ -19,6 +19,7 @@ package com.android.media.benchmark.library;
 import android.media.MediaCodec;
 import android.media.MediaCodec.CodecException;
 import android.media.MediaFormat;
+import android.media.MediaMuxer;
 import android.view.Surface;
 import android.util.Log;
 
@@ -29,17 +30,40 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-public class Encoder implements IBufferXfer.IReceiveBuffer {
+import java.util.ArrayDeque;
+import java.util.Iterator;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+
+import com.android.media.benchmark.library.IBufferXfer;
+import com.android.media.benchmark.library.Muxer;
+import com.android.media.benchmark.library.BlockModelDecoder.LinearBlockWrapper;
+
+public class Encoder implements IBufferXfer.IConsumer {
     // Change in AUDIO_ENCODE_DEFAULT_MAX_INPUT_SIZE should also be taken to
     // kDefaultAudioEncodeFrameSize present in BenchmarkCommon.h
+    private static final int TIMEOUT_IN_SEC_FOR_TASK = 2;
     private static final int AUDIO_ENCODE_DEFAULT_MAX_INPUT_SIZE = 4096;
     private static final String TAG = "Encoder";
     private static final boolean DEBUG = false;
     private static final int kQueueDequeueTimeoutUs = 1000;
     private final Object mLock = new Object();
+    private final Object mFuturesLock = new Object();
+    private MediaFormat mConfiguredInputFormat = null;
     private MediaCodec mCodec = null;
+    private Muxer mMuxer = null;
+    int mTrackIndex = -1;
     private String mMime;
     private Stats mStats;
+    private long mInitTimeFragment = 0;
+    private int mFlags = 0;
 
     private int mOffset;
     private int mFrameSize;
@@ -47,7 +71,8 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
     private int mNumFrames = 0;
     private int mFrameRate;
     private int mSampleRate;
-    private long mInputBufferSize;
+    private long mInputBufferSize = 0;
+    private int mMaxInputSizeForBlockModel = 4096;
 
     private int mMinOutputBuffers = 0;
     private int mNumOutputBuffers = 0;
@@ -59,7 +84,20 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
 
     private FileInputStream mInputStream = null;
     private FileOutputStream mOutputStream = null;
-    private IBufferXfer.ISendBuffer mIBufferSend = null;
+
+    private boolean mHandleSingleInfo = true;
+    private boolean mFeederActive = false;
+    final private ArrayDeque<MediaCodec.BufferInfo> mPendingInfos = new ArrayDeque<>();
+    private final ArrayDeque<IBufferXfer.IProducerData> mReturnBuffers = new ArrayDeque<>();
+    private final ArrayDeque<QueueData> mQueueDeque = new ArrayDeque<>();
+    private final ArrayDeque<IBufferXfer.IProducerData> mProducerDataQueue = new ArrayDeque<>();
+    private final ArrayDeque<Integer> mEncoderInputBufferQueue = new ArrayDeque<>();
+    private final ArrayDeque<Future<?>> mSchedulerFutures = new ArrayDeque<>();
+    private IBufferXfer.IProducer mProducer = null;
+
+    // Need a thread to make sure that this works independently
+    private final ExecutorService mScheduler = Executors.newFixedThreadPool(1);
+
     /* success for encoder */
     public static final int ENCODE_SUCCESS = 0;
     /* some error happened during encoding */
@@ -73,24 +111,356 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
         mSawOutputEOS = false;
         mSignalledError = false;
     }
-    @Override
-    public boolean receiveBuffer(IBufferXfer.BufferXferInfo info) {
-        if (DEBUG) {
-            Log.d(TAG,"Encoder Getting buffers from external: "
-                + " Bytes Read: " + info.bytesRead
-                + " PresentationUs " + info.presentationTimeUs
-                + " flags: " + info.flag);
+
+    private boolean isCodecInBlockModel() {
+            return ((mFlags & MediaCodec.CONFIGURE_FLAG_USE_BLOCK_MODEL) != 0);
+    }
+
+    private class CodecBuffer {
+        private LinearBlockWrapper mLinearBlock = null;
+        private int mIdx = -1;
+        private ByteBuffer mBuffer = null;
+
+        CodecBuffer(int idx, int size) {
+            recycle(idx, size);
         }
-        MediaCodec codec = (MediaCodec)info.obj;
-        codec.queueInputBuffer(info.idx, 0, info.bytesRead,
-            info.presentationTimeUs, info.flag);
-        return true;
+
+        public int getId() {
+            return mIdx;
+        }
+
+        public LinearBlockWrapper getLinearBlock() {
+            return mLinearBlock;
+        }
+
+        public int remaining() {
+            if (isCodecInBlockModel()) {
+                return isBufferValidInBlockModel() ? mLinearBlock.getBuffer().remaining() : 0;
+            } else if (mBuffer != null) {
+                return mBuffer.remaining();
+            }
+            return 0;
+        }
+
+        public void recycle(int bufferIdx, int size) {
+            if (mLinearBlock != null) {
+                release();
+            }
+            setBuffer(bufferIdx, size);
+        }
+
+        public void release() {
+            if (mLinearBlock != null) {
+                mLinearBlock.recycle();
+            }
+            mLinearBlock = null;
+            mBuffer = null;
+            mIdx = -1;
+        }
+
+        public boolean put(ByteBuffer buffer) {
+            if (buffer == null) {
+                return true;
+            }
+            if (isCodecInBlockModel()) {
+                if (isBufferValidInBlockModel()) {
+                    int size = buffer.remaining();
+                    mLinearBlock.getBuffer().put(buffer);
+                    mLinearBlock.setOffset(mLinearBlock.getOffset() + size);
+                    return true;
+                }
+
+            } else if (mBuffer != null) {
+                mBuffer.put(buffer);
+                return true;
+            }
+            return false;
+        }
+
+        public boolean put(byte[] buffer, int offset, int size) {
+            if (buffer == null) {
+                return true;
+            }
+            if (isCodecInBlockModel()) {
+                if (isBufferValidInBlockModel()) {
+                    mLinearBlock.getBuffer().put(buffer, offset, size);
+                    mLinearBlock.setOffset(offset + size);
+                    return true;
+                }
+
+            } else if (mBuffer != null) {
+                mBuffer.put(buffer, offset, size);
+                return true;
+            }
+            return false;
+        }
+
+        private void setBuffer(int bufferIdx, int size) {
+            if (isCodecInBlockModel()) {
+                if (isBufferValidInBlockModel() == false) {
+                    mLinearBlock = new LinearBlockWrapper();
+                }
+                if ((mLinearBlock.getBufferCapacity() - mLinearBlock.getOffset()) < size) {
+                    mLinearBlock.allocateBlock(mCodec.getCanonicalName(), size);
+                }
+            } else {
+                mBuffer = mCodec.getInputBuffer(bufferIdx);
+            }
+            mIdx = bufferIdx;
+        }
+
+        private boolean isBufferValidInBlockModel() {
+            return (mLinearBlock != null);
+        }
     }
+
+    public void handleFuture(Future<?> future) {
+        synchronized(mFuturesLock) {
+            if (future != null) {
+                mSchedulerFutures.add(future);
+            }
+            while (mSchedulerFutures.isEmpty() == false
+                && mSchedulerFutures.peekFirst().isDone() == true) {
+                Future<?> task = mSchedulerFutures.pollFirst();
+                try {
+                    task.get();
+                } catch(Exception e) {
+                    Log.d (TAG, "Scheduler encountered an exception " + e.toString());
+                }
+            }
+        }
+    }
+
+    private static class QueueData {
+        public CodecBuffer mBuffer;
+        public ArrayDeque<MediaCodec.BufferInfo> mInfo;
+    }
+
     @Override
-    public boolean connect(IBufferXfer.ISendBuffer receiver) {
-        mIBufferSend = receiver;
+    public boolean setProducer(@NonNull IBufferXfer.IProducer producer) {
+        mProducer = producer;
         return true;
     }
+
+    @Override
+    public boolean consume(final ArrayDeque<IBufferXfer.IProducerData> buffers) {
+        boolean shouldSchedule = false;
+        synchronized(mLock) {
+            mProducerDataQueue.addAll(buffers);
+            shouldSchedule = (mEncoderInputBufferQueue.isEmpty() == false)
+                    && (mFeederActive == false);
+            if (shouldSchedule) {
+                mFeederActive = true;
+            }
+        }
+        if (shouldSchedule == true) {
+            Future<?> future = mScheduler.submit(() -> { feedBuffersToEncoder(); });
+            handleFuture(future);
+        }
+        return true;
+    }
+
+    private boolean queueBuffersArrayToCodec(ArrayDeque<QueueData> buffers) {
+        if (buffers == null) {
+            return false;
+        }
+        for (QueueData buffer : buffers) {
+            queueBuffersToCodec(buffer.mBuffer, buffer.mInfo);
+        }
+        return true;
+    }
+
+    private boolean queueBuffersToCodec(
+            CodecBuffer buffer, ArrayDeque<MediaCodec.BufferInfo> infos) {
+        if (infos == null || infos.isEmpty()) {
+            Log.d(TAG, "Problem with infos Cannot send buffers to codec");
+            return false;
+        }
+        int nBuffers = infos.size();
+        if (nBuffers == 1) {
+            MediaCodec.BufferInfo info = infos.getFirst();
+            if (isCodecInBlockModel()) {
+                MediaCodec.QueueRequest request = mCodec.getQueueRequest(buffer.getId());
+                request.setLinearBlock(
+                        buffer.getLinearBlock().getBlock(), info.offset, info.size);
+                request.setPresentationTimeUs(info.presentationTimeUs);
+                request.setFlags(info.flags);
+                request.queue();
+            } else {
+                mCodec.queueInputBuffer(
+                        buffer.getId(),
+                        info.offset,
+                        info.size,
+                        info.presentationTimeUs,
+                        info.flags);
+            }
+         } else {
+            if (isCodecInBlockModel()) {
+                MediaCodec.QueueRequest request = mCodec.getQueueRequest(buffer.getId());
+                request.setMultiFrameLinearBlock(buffer.getLinearBlock().getBlock(), infos);
+                request.queue();
+            } else {
+                mCodec.queueInputBuffers(buffer.getId(), infos);
+            }
+         }
+         mNumInputFrame += nBuffers;
+         return true;
+    }
+
+    // Called from a thread
+    private void feedBuffersToEncoder() {
+        int processedBuffers = 0;
+        synchronized(mLock) {
+            mFeederActive = false;
+            mQueueDeque.clear();
+            mReturnBuffers.clear();
+            if (mProducerDataQueue.isEmpty() == true
+                    || mEncoderInputBufferQueue.isEmpty() == true) {
+                Log.d(TAG, "Nothing to process, produced " + mProducerDataQueue.size()
+                        + " # codec buffers " + mEncoderInputBufferQueue.size());
+                return;
+            }
+            ArrayDeque<MediaCodec.BufferInfo> codecInfos = new ArrayDeque<>();
+            IBufferXfer.IProducerData pData = null;
+            ByteBuffer pBuffer = null;
+            Iterator<MediaCodec.BufferInfo> pInfoCheck = null;
+            Iterator<Integer> encoderBufIt = mEncoderInputBufferQueue.iterator();
+            // first handle any pending infos
+            if (mPendingInfos.isEmpty() == false) {
+                // Log.d(TAG, "loading with pending size " + mPendingInfos.size());
+                pData = mProducerDataQueue.peekFirst();
+                pBuffer = pData.getBuffer();
+                pInfoCheck = (pData != null && mPendingInfos.isEmpty() == false) ?
+                        mPendingInfos.iterator() : null;
+            } else {
+                pData = mProducerDataQueue.peekFirst();
+                pInfoCheck = (pData != null && pData.getInfo().isEmpty() == false) ?
+                        pData.getInfo().iterator() : null;
+                // Log.d(TAG, "loading with normal " + pData.getInfo().size());
+                pBuffer = pData.getBuffer();
+            }
+            if (pInfoCheck == null || pInfoCheck.hasNext() == false) {
+                Log.d(TAG, "Something wrong with input data, no infos found");
+                return;
+            }
+            int encoderIdx = encoderBufIt.next();
+            encoderBufIt.remove();
+            //TODO for blockmodel
+            if (pBuffer != null) {
+                mMaxInputSizeForBlockModel = Math.max(
+                        mMaxInputSizeForBlockModel, pBuffer.remaining());
+            }
+            CodecBuffer codecBuffer = new CodecBuffer(encoderIdx, mMaxInputSizeForBlockModel);
+            if (DEBUG) {
+                Log.d(TAG, "MaxInputSize for BlockModel " + mMaxInputSizeForBlockModel);
+            }
+            MediaCodec.BufferInfo currentPInfo = null;
+            while (encoderIdx != -1) {
+                int toCopy = 0;
+                boolean handleSingleInfo = mHandleSingleInfo;
+                boolean isArrayBackedBuffer =
+                        (pBuffer != null && pBuffer.hasArray()) ? true : false;
+                codecInfos.clear();
+                if (currentPInfo == null && pInfoCheck.hasNext()) {
+                    currentPInfo = pInfoCheck.next();
+                }
+                if (isArrayBackedBuffer == false) {
+                    handleSingleInfo = false;
+                }
+                while (currentPInfo != null &&
+                        ((toCopy + currentPInfo.size) <= codecBuffer.remaining())) {
+                    toCopy += currentPInfo.size;
+                    codecInfos.add(currentPInfo);
+                    if (mPendingInfos.isEmpty() == false) {
+                        pInfoCheck.remove();
+                    }
+                    currentPInfo = null;
+                    if (handleSingleInfo == false && pInfoCheck.hasNext()) {
+                        currentPInfo = pInfoCheck.next();
+                    }
+                }
+                if (toCopy > 0) {
+                    if (isArrayBackedBuffer == true) {
+                        codecBuffer.put(pBuffer.array(), pBuffer.arrayOffset(), toCopy);
+                    } else {
+                        if (currentPInfo != null) {
+                            Log.d(TAG,"Butter without backing size " + currentPInfo.size
+                                    + "cannot fit into codec buffer size "
+                                    + codecBuffer.remaining());
+                            return;
+                        }
+                        codecBuffer.put(pBuffer);
+                    }
+                }
+                if (codecInfos.isEmpty()) {
+                    Log.d(TAG, "Cannot find any infos for codec id " + encoderIdx
+                        + ", problem with input."
+                        + " Codec Buffer size " + codecBuffer.remaining()
+                        + " toCopy " + toCopy);
+                    return;
+                }
+                QueueData qData = new QueueData();
+                qData.mBuffer = codecBuffer;
+                qData.mInfo = codecInfos.clone();
+                mQueueDeque.add(qData);
+                codecInfos.clear(); encoderIdx = -1;
+
+                if (currentPInfo == null && pInfoCheck.hasNext() == false) {
+                    mReturnBuffers.add(pData);
+                    mProducerDataQueue.removeFirst();
+                    processedBuffers++;
+                }
+
+                if (mPendingInfos.isEmpty() == true && encoderBufIt.hasNext() == false) {
+                    if (currentPInfo != null) {
+                        mPendingInfos.add(currentPInfo);
+                        currentPInfo = null;
+                    }
+                    while (pInfoCheck.hasNext()) {
+                        currentPInfo = pInfoCheck.next();
+                        mPendingInfos.add(currentPInfo);
+                        currentPInfo = null;
+                    }
+                }
+
+                if (mProducerDataQueue.isEmpty() == false && encoderBufIt.hasNext() == true) {
+                    // Continue if we have more producer and encoder buffer
+                    encoderIdx = encoderBufIt.hasNext() ? encoderBufIt.next() : -1;
+                    if (encoderIdx != -1) {
+                        codecBuffer = new CodecBuffer(encoderIdx, mMaxInputSizeForBlockModel);
+                        encoderBufIt.remove();
+                        pData = mProducerDataQueue.peekFirst();
+                        pBuffer = pData.getBuffer();
+                        if (pData.getInfo() == null) {
+                            Log.d(TAG, "Corrupted input data, wrong infos");
+                            return;
+                        }
+                        if (currentPInfo == null && pInfoCheck.hasNext() == false) {
+                            pInfoCheck = pData.getInfo().iterator();
+                        }
+                    }
+                }
+            }
+        }
+        if (mQueueDeque.isEmpty() == false) {
+            queueBuffersArrayToCodec(mQueueDeque);
+            for (QueueData data : mQueueDeque) {
+                data.mBuffer.release();
+            }
+            mQueueDeque.clear();
+        }
+        if (mReturnBuffers.isEmpty() == false) {
+            if (DEBUG) {
+                Log.d(TAG, "Returning " + mReturnBuffers.size() + " buffers to producer");
+            }
+            mProducer.returnBuffers(mReturnBuffers);
+        }
+        if (DEBUG) {
+            Log.d(TAG, "Processed " + processedBuffers + " during this call "
+                    +  "remain: " + mProducerDataQueue.size());
+        }
+    }
+
     public Stats getStats() { return mStats; };
 
     /**
@@ -116,7 +486,7 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
         this.mMinOutputBuffers = numOutputBuffers;
     }
 
-    private MediaCodec createCodec(String codecName, String mime) throws IOException {
+    private MediaCodec createCodec_l(String codecName, String mime) throws IOException {
         try {
             MediaCodec codec;
             if (codecName.isEmpty()) {
@@ -147,44 +517,138 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
      * use for encode.
      *
      * @param codecName    Will create the encoder with codecName
-     * @param encodeFormat Format of the output data
      * @param mime         For creating encode format
      * @return ENCODE_SUCCESS if encode was successful,
      *         ENCODE_CREATE_ERROR for encoder not created
      * @throws IOException If the codec cannot be created.
      */
 
-    public int createAndConfigure(String codecName, MediaFormat encodeFormat,
-                                  String mime) throws IOException {
+    public int createCodec(String codecName, String mime) throws IOException {
         if (mCodec == null) {
+            long sTime = mStats.getCurTime();
             mMime = mime;
-            mCodec = createCodec(codecName, mime);
+            mCodec = createCodec_l(codecName, mime);
             if (mCodec == null) {
                 return ENCODE_CREATE_ERROR;
             }
-            /*Configure Codec*/
-            try {
-                mCodec.configure(encodeFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-            } catch(IllegalArgumentException
-                  | IllegalStateException
-                  | MediaCodec.CryptoException e) {
-                Log.e(TAG, "Failed to configure " + mCodec.getName() + " encoder.");
-                e.printStackTrace();
-                return ENCODE_CREATE_ERROR;
-            }
+            mInitTimeFragment += mStats.getTimeDiff(sTime, mStats.getCurTime());
         }
         return ENCODE_SUCCESS;
+    }
+    public MediaFormat getInputFormat() {
+        return mConfiguredInputFormat;
+    }
+    public int configureCodec(MediaFormat encodeFormat, boolean asyncMode, int flags) {
+        mFlags = flags;
+        return configureCodec(encodeFormat, asyncMode);
+    }
+    public int configureCodec(MediaFormat encodeFormat, boolean asyncMode) {
+        if (mCodec == null) {
+            Log.d(TAG, "Cannot configure without a valid codec");
+            return ENCODE_CREATE_ERROR;
+        }
+        long sTime = mStats.getCurTime();
+        if (asyncMode) {
+            setCallback();
+        }
+        /*Configure Codec*/
+        try {
+            mCodec.configure(encodeFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE | mFlags);
+        } catch(IllegalArgumentException
+              | IllegalStateException
+              | MediaCodec.CryptoException e) {
+            Log.e(TAG, "Failed to configure " + mCodec.getName() + " encoder.");
+            e.printStackTrace();
+            return ENCODE_CREATE_ERROR;
+        }
+        mInitTimeFragment += mStats.getTimeDiff(sTime, mStats.getCurTime());
+        mConfiguredInputFormat = mCodec.getInputFormat();
+        return ENCODE_SUCCESS;
+    }
+    public void setCallback() {
+        mCodec.setCallback(new MediaCodec.Callback() {
+            @Override
+            public void onInputBufferAvailable(@NonNull MediaCodec mediaCodec,
+                                               int inputBufferId) {
+                try {
+                    mStats.addInputTime();
+                    onInputAvailable(mediaCodec, inputBufferId);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    Log.e(TAG, e.toString());
+                }
+            }
+
+            @Override
+            public void onOutputBufferAvailable(@NonNull MediaCodec mediaCodec,
+                                                int outputBufferId,
+                                                @NonNull MediaCodec.BufferInfo bufferInfo) {
+                mStats.addOutputTime();
+                onOutputAvailable(mediaCodec, outputBufferId, bufferInfo);
+                if (mSawOutputEOS) {
+                    Log.i(TAG, "Saw output EOS");
+                    synchronized (mLock) { mLock.notify(); }
+                }
+            }
+
+            @Override
+            public void onOutputBuffersAvailable(@NonNull MediaCodec mediaCodec,
+                                                int outputBufferId,
+                                                @NonNull ArrayDeque<MediaCodec.BufferInfo> infos) {
+                mStats.addOutputTime(infos.size());
+                onOutputsAvailable(mediaCodec, outputBufferId, infos);
+                if (mSawOutputEOS) {
+                    Log.i(TAG, "Saw output EOS");
+                    synchronized (mLock) { mLock.notify(); }
+                }
+            }
+
+            @Override
+            public void onError(@NonNull MediaCodec mediaCodec, @NonNull CodecException e) {
+                mSignalledError = true;
+                Log.e(TAG, "Codec Error: " + e.toString());
+                e.printStackTrace();
+                synchronized (mLock) { mLock.notify(); }
+            }
+
+            @Override
+            public void onOutputFormatChanged(@NonNull MediaCodec mediaCodec,
+                                              @NonNull MediaFormat format) {
+                Log.i(TAG, "Output format changed. Format: " + format.toString());
+                if (format != null) {
+                    if (format.containsKey(MediaFormat.KEY_BUFFER_BATCH_MAX_OUTPUT_SIZE)) {
+                        int maxOutputSize = format.getInteger(
+                                MediaFormat.KEY_BUFFER_BATCH_MAX_OUTPUT_SIZE);
+                        if (maxOutputSize > 0) {
+                            Log.d(TAG, "Output format Large Audio max " + maxOutputSize);
+                            mHandleSingleInfo = false;
+                        }
+                    }
+                    if (mMuxer != null) {
+                        try {
+                            mTrackIndex = mMuxer.setUpMuxer(mOutputStream.getFD(),
+                                    MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4, format);
+                        } catch (IOException e) {
+                            Log.d(TAG, "Muxer initialization failed.");
+                            mTrackIndex = -1;
+                            mMuxer.deInitMuxer();
+                            mMuxer = null;
+                        }
+                    }
+                }
+            }
+        });
     }
     /**
      * Requests the surface to use as input to the encoder
      * @return a valid surface or null if not called after configure.
      */
     public Surface getInputSurface() {
-        Surface inputSurface = null;
-        if (mCodec != null) {
-            inputSurface = mCodec.createInputSurface();
+        if (mCodec == null) {
+            Log.d(TAG, "Codec is null, cannot get input surface");
+            return null;
         }
-        return inputSurface;
+        return mCodec.createInputSurface();
     }
     /**
      * Encodes the given raw input file and measures the performance of encode operation,
@@ -206,12 +670,24 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
         mOffset = 0;
         mFrameRate = frameRate;
         mSampleRate = sampleRate;
-        long sTime = mStats.getCurTime();
         if (mCodec == null) {
-            int status = createAndConfigure(codecName, encodeFormat, mime);
+            long sTime = mStats.getCurTime();
+            int status = createCodec(codecName, mime);
             if(status != ENCODE_SUCCESS) {
               return status;
             }
+            if (asyncMode) {
+                setCallback();
+            }
+            status = configureCodec(encodeFormat, asyncMode);
+            if (status != ENCODE_SUCCESS) {
+                return status;
+            }
+            mInitTimeFragment += mStats.getTimeDiff(sTime, mStats.getCurTime());
+
+        }
+        if (mOutputStream != null) {
+            mMuxer = new Muxer();
         }
         if (!mUseSurface) {
             if (mMime.startsWith("video/")) {
@@ -229,50 +705,11 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
             }
             mNumFrames = (int) ((mInputBufferSize + mFrameSize - 1) / mFrameSize);
         }
-        if (asyncMode) {
-            mCodec.setCallback(new MediaCodec.Callback() {
-                @Override
-                public void onInputBufferAvailable(@NonNull MediaCodec mediaCodec,
-                                                   int inputBufferId) {
-                    try {
-                        mStats.addInputTime();
-                        onInputAvailable(mediaCodec, inputBufferId);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        Log.e(TAG, e.toString());
-                    }
-                }
-
-                @Override
-                public void onOutputBufferAvailable(@NonNull MediaCodec mediaCodec,
-                                                    int outputBufferId,
-                                                    @NonNull MediaCodec.BufferInfo bufferInfo) {
-                    mStats.addOutputTime();
-                    onOutputAvailable(mediaCodec, outputBufferId, bufferInfo);
-                    if (mSawOutputEOS) {
-                        Log.i(TAG, "Saw output EOS");
-                        synchronized (mLock) { mLock.notify(); }
-                    }
-                }
-
-                @Override
-                public void onError(@NonNull MediaCodec mediaCodec, @NonNull CodecException e) {
-                    mSignalledError = true;
-                    Log.e(TAG, "Codec Error: " + e.toString());
-                    e.printStackTrace();
-                    synchronized (mLock) { mLock.notify(); }
-                }
-
-                @Override
-                public void onOutputFormatChanged(@NonNull MediaCodec mediaCodec,
-                                                  @NonNull MediaFormat format) {
-                    Log.i(TAG, "Output format changed. Format: " + format.toString());
-                }
-            });
-        }
         mCodec.start();
-        long eTime = mStats.getCurTime();
-        mStats.setInitTime(mStats.getTimeDiff(sTime, eTime));
+        if (mInitTimeFragment != 0) {
+            mStats.setInitTime(mInitTimeFragment);
+            mInitTimeFragment = 0;
+        }
         mStats.setStartTime();
         if (asyncMode) {
             try {
@@ -307,6 +744,17 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
                 if (outputBufferId < 0) {
                     if (outputBufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         MediaFormat outFormat = mCodec.getOutputFormat();
+                        if (mMuxer != null) {
+                            try {
+                                mTrackIndex = mMuxer.setUpMuxer(mOutputStream.getFD(),
+                                    MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4, outFormat);
+                            } catch (IOException e) {
+                                Log.d(TAG, "Muxer initialization failed.");
+                                mTrackIndex = -1;
+                                mMuxer.deInitMuxer();
+                                mMuxer = null;
+                            }
+                        }
                         Log.i(TAG, "Output format changed. Format: " + outFormat.toString());
                     } else if (outputBufferId != MediaCodec.INFO_TRY_AGAIN_LATER) {
                         Log.e(TAG, "MediaCodec.dequeueOutputBuffer" + " returned invalid index " +
@@ -322,7 +770,79 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
                 }
             }
         }
+        if (mMuxer != null && mTrackIndex != -1) {
+            mMuxer.deInitMuxer();
+            mMuxer.resetMuxer();
+        }
         return ENCODE_SUCCESS;
+    }
+
+    private void onOutputsAvailable(MediaCodec mediaCodec, int outputBufferId,
+                                   ArrayDeque<MediaCodec.BufferInfo> infos) {
+        if (mSawOutputEOS || outputBufferId < 0) {
+            if (mSawOutputEOS) {
+                Log.i(TAG, "Saw output EOS");
+            }
+            return;
+        }
+        ByteBuffer outputBuffer = null;
+        MediaCodec.OutputFrame outFrame = null;
+        if (isCodecInBlockModel()) {
+            outFrame = mediaCodec.getOutputFrame(outputBufferId);
+            try {
+                if (outFrame.getLinearBlock() != null) {
+                    outputBuffer = outFrame.getLinearBlock().map();
+                }
+            } catch(IllegalStateException e) {
+                // buffer may not be linear, this is ok
+                // as we are handling non-linear buffers below.
+            }
+
+        } else {
+            outputBuffer = mediaCodec.getOutputBuffer(outputBufferId);
+        }
+        if (outputBuffer != null) {
+            mStats.addFrameSize(outputBuffer.remaining());
+            if (DEBUG) {
+                Log.d(TAG,
+                        "In OutputBufferAvailable ,"
+                        + " info size = " + infos.size()
+                        + " info first ts " + infos.getFirst().presentationTimeUs
+                        + " total size = " + outputBuffer.remaining());
+            }
+        }
+
+        if (mOutputStream != null) {
+            if (mMuxer != null && mTrackIndex != -1) {
+                mMuxer.mux(mTrackIndex, outputBuffer, infos);
+            } else {
+                try {
+                    if (outputBuffer != null) {
+                        byte[] bytesOutput = new byte[outputBuffer.remaining()];
+                        outputBuffer.get(bytesOutput);
+                        mOutputStream.write(bytesOutput);
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Log.d(TAG, "Error Dumping File: Exception " + e.toString());
+                    return;
+                }
+            }
+        }
+        if (outFrame != null && (outFrame.getLinearBlock() != null)) {
+            outFrame.getLinearBlock().recycle();
+        }
+        mNumOutputBuffers += infos.size();
+        int flag = 0;
+        if (!infos.isEmpty()) {
+            flag = infos.peekLast().flags;
+        }
+
+        mediaCodec.releaseOutputBuffer(outputBufferId, false);
+        mSawOutputEOS = (flag & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+        if (mUseSurface && !mSawOutputEOS) {
+            mSawOutputEOS = (mNumOutputBuffers >= mMinOutputBuffers) ? true : false;
+        }
     }
 
     private void onOutputAvailable(MediaCodec mediaCodec, int outputBufferId,
@@ -333,29 +853,55 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
             }
             return;
         }
-        ByteBuffer outputBuffer = mediaCodec.getOutputBuffer(outputBufferId);
-        if (mOutputStream != null) {
+        ByteBuffer outputBuffer = null;
+        MediaCodec.OutputFrame outFrame = null;
+        if (isCodecInBlockModel()) {
+            outFrame = mediaCodec.getOutputFrame(outputBufferId);
             try {
-
-                byte[] bytesOutput = new byte[outputBuffer.remaining()];
-                outputBuffer.get(bytesOutput);
-                mOutputStream.write(bytesOutput);
-            } catch (IOException e) {
-                e.printStackTrace();
-                Log.d(TAG, "Error Dumping File: Exception " + e.toString());
-                return;
+                if (outFrame.getLinearBlock() != null) {
+                    outputBuffer = outFrame.getLinearBlock().map();
+                }
+            } catch(IllegalStateException e) {
+                // buffer may not be linear, this is ok
+                // as we are handling non-linear buffers below.
             }
+        } else {
+            outputBuffer = mediaCodec.getOutputBuffer(outputBufferId);
         }
+        if (outputBuffer != null) {
+            mStats.addFrameSize(outputBuffer.remaining());
+        }
+        if (mOutputStream != null) {
+            if (mMuxer != null && mTrackIndex != -1) {
+                ArrayDeque<MediaCodec.BufferInfo> infos = new ArrayDeque<>();
+                infos.add(outputBufferInfo);
+                mMuxer.mux(mTrackIndex, outputBuffer, infos);
+            } else {
+                try {
+                    byte[] bytesOutput = new byte[outputBuffer.remaining()];
+                    outputBuffer.get(bytesOutput);
+                    mOutputStream.write(bytesOutput);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Log.d(TAG, "Error Dumping File: Exception " + e.toString());
+                    return;
+                }
+            }
+
+        }
+        if ((outFrame != null) && (outFrame.getLinearBlock() != null)) {
+            outFrame.getLinearBlock().recycle();
+        }
+
         mNumOutputBuffers++;
         if (DEBUG) {
             Log.d(TAG,
-                "In OutputBufferAvailable ,"
-                + " timestamp = " + outputBufferInfo.presentationTimeUs
-                + " size = " + outputBufferInfo.size
-                + " flags = " + outputBufferInfo.flags);
+                    "In OutputBufferAvailable ,"
+                    + " timestamp = " + outputBufferInfo.presentationTimeUs
+                    + " size = " + outputBufferInfo.size
+                    + " flags = " + outputBufferInfo.flags);
         }
 
-        mStats.addFrameSize(outputBuffer.remaining());
         mediaCodec.releaseOutputBuffer(outputBufferId, false);
         mSawOutputEOS = (outputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
         if (mUseSurface && !mSawOutputEOS) {
@@ -375,17 +921,29 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
             mSignalledError = true;
             return;
         }
+        if (DEBUG) {
+            Log.d(TAG, "onInputAvailable ID " + inputBufferId);
+        }
+
+        if (mProducer != null) {
+            boolean shouldSchedule = false;
+            synchronized(mLock) {
+                mEncoderInputBufferQueue.add(inputBufferId);
+                if ((mProducerDataQueue.isEmpty() == false)
+                        && (mFeederActive == false)) {
+                    shouldSchedule = true;
+                    mFeederActive = true;
+                }
+            }
+            if (shouldSchedule == true) {
+                Future<?> future = mScheduler.submit(() -> { feedBuffersToEncoder(); });
+                handleFuture(future);
+            }
+            return;
+        }
         ByteBuffer inputBuffer = mCodec.getInputBuffer(inputBufferId);
         if (inputBuffer == null) {
             mSignalledError = true;
-            return;
-        }
-        if (mIBufferSend != null) {
-            IBufferXfer.BufferXferInfo info = new IBufferXfer.BufferXferInfo();
-            info.buf = inputBuffer;
-            info.idx = inputBufferId;
-            info.obj = mediaCodec;
-            mIBufferSend.sendBuffer(this, info);
             return;
         }
         int bufSize = inputBuffer.capacity();
@@ -468,5 +1026,21 @@ public class Encoder implements IBufferXfer.IReceiveBuffer {
         mSignalledError = false;
         mUseSurface = false;
         mStats.reset();
+        synchronized(mFuturesLock) {
+            while (mSchedulerFutures.isEmpty() == false) {
+                Future<?> future = mSchedulerFutures.pollFirst();
+                try {
+                    future.get(TIMEOUT_IN_SEC_FOR_TASK, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    Log.d(TAG, "Future timed-out in scheduler " +  e.toString());
+                    future.cancel(true);
+                } catch (InterruptedException | ExecutionException e) {
+                    Log.d(TAG, "Future exception in scheduler " + e.toString());
+                }
+            }
+        }
+        if (mScheduler != null) {
+            mScheduler.shutdownNow();
+        }
     }
 }

@@ -23,13 +23,13 @@
 #include <binder/IPCThreadState.h>
 #include <binder/PermissionCache.h>
 #include <binder/IServiceManager.h>
+#include <bionic/dlext_namespaces.h>
 #include <media/DataSource.h>
 #include <media/stagefright/InterfaceUtils.h>
 #include <media/stagefright/MediaExtractor.h>
 #include <media/stagefright/MediaExtractorFactory.h>
 #include <android/IMediaExtractor.h>
 #include <android/IMediaExtractorService.h>
-#include <nativeloader/dlext_namespaces.h>
 #include <private/android_filesystem_config.h>
 #include <cutils/properties.h>
 #include <utils/String8.h>

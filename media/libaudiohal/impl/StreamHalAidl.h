@@ -33,6 +33,7 @@
 #include <media/AidlConversionUtil.h>
 #include <media/AudioParameter.h>
 #include <mediautils/Synchronization.h>
+#include <audio_utils/mutex.h>
 
 #include "ConversionHelperAidl.h"
 #include "StreamPowerLog.h"
@@ -128,8 +129,13 @@ class StreamContextAidl {
     bool mHasClipTransitionSupport;
 };
 
+class StreamCloseHandler;
+
 class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelperAidl {
   public:
+    // Closes the HAL stream and releases underlying hardware resources.
+    status_t close() override;
+
     // Return size of input/output buffer in bytes for this stream - eg. 4800.
     status_t getBufferSize(size_t *size) override;
 
@@ -155,8 +161,6 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
     // Put the audio hardware input/output into standby mode.
     status_t standby() override;
 
-    status_t dump(int fd, const Vector<String16>& args) override;
-
     // Start a stream operating in mmap mode.
     status_t start() override;
 
@@ -181,9 +185,6 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
     status_t legacyReleaseAudioPatch() override;
 
   protected:
-    // For tests.
-    friend class sp<StreamHalAidl>;
-
     struct FrameCounters {
         int64_t framesAtFlushOrDrain;
         int64_t framesAtStandby;
@@ -206,9 +207,12 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
             int32_t nominalLatency,
             StreamContextAidl&& context,
             const std::shared_ptr<::aidl::android::hardware::audio::core::IStreamCommon>& stream,
-            const std::shared_ptr<::aidl::android::media::audio::IHalAdapterVendorExtension>& vext);
+            const std::shared_ptr<::aidl::android::media::audio::IHalAdapterVendorExtension>& vext,
+            const sp<StreamCloseHandler>& streamCloseHandler);
 
     ~StreamHalAidl() override;
+
+    status_t dumpImpl(int fd, const Vector<String16>& args, ::ndk::ICInterface* stream);
 
     ::aidl::android::hardware::audio::core::StreamDescriptor::State getState() {
         std::lock_guard l(mLock);
@@ -291,8 +295,12 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
     void onAsyncDrainReady();
     void onAsyncError();
 
+    status_t parseAndGetVendorParameters(const AudioParameter& parameterKeys, String8* values);
+    status_t parseAndSetVendorParameters(const AudioParameter& parameters);
+
     const bool mIsInput;
     const audio_config_base_t mConfig;
+    const wp<StreamCloseHandler> mStreamCloseHandler;
     StreamContextAidl mContext;
     // This lock is used to make sending of a command and receiving a reply an atomic
     // operation. Otherwise, when two threads are trying to send a command, they may both advance to
@@ -302,7 +310,7 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
     // Note that only access to command and reply MQs needs to be protected because the data MQ is
     // only accessed by the I/O thread. Also, there is no need to protect lookup operations on the
     // queues as they are thread-safe, only send/receive operation must be protected.
-    std::mutex mCommandReplyLock;
+    audio_utils::fair_mutex mCommandReplyLock;
 
   private:
     static audio_config_base_t configToBase(const audio_config& config) {
@@ -318,7 +326,7 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
             const ::aidl::android::hardware::audio::core::StreamDescriptor::Command& command,
             ::aidl::android::hardware::audio::core::StreamDescriptor::Reply* reply = nullptr,
             bool safeFromNonWorkerThread = false,
-            StatePositions* statePositions = nullptr);
+            StatePositions* statePositions = nullptr) EXCLUDES(mLock);
     status_t updateCountersIfNeeded(
             ::aidl::android::hardware::audio::core::StreamDescriptor::Reply* reply = nullptr,
             StatePositions* statePositions = nullptr);
@@ -342,6 +350,7 @@ class StreamHalAidl : public virtual StreamHalInterface, public ConversionHelper
     // Cached values of observable positions when the stream last entered certain state.
     // Updated for output streams only.
     StatePositions mStatePositions GUARDED_BY(mLock) = {};
+    bool mIsClosed GUARDED_BY(mLock) = false;
     // mStreamPowerLog is used for audio signal power logging.
     StreamPowerLog mStreamPowerLog;
     std::atomic<pid_t> mWorkerTid = -1;

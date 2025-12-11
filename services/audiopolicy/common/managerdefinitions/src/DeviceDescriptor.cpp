@@ -197,12 +197,24 @@ void DeviceDescriptor::setEncapsulationInfoFromHal(
     }
 }
 
-void DeviceDescriptor::setPreferredConfig(const audio_config_base_t* preferredConfig) {
+bool DeviceDescriptor::setPreferredConfig(const audio_config_base_t* preferredConfig) {
     if (preferredConfig == nullptr) {
-        mPreferredConfig.reset();
-    } else {
+        if (--mPreferredConfigUsedCount <= 0) {
+            mPreferredConfig.reset();
+        }
+    } else if (mPreferredConfig.has_value()) {
+        ALOGI("%s, ignore, there is existing preferred configuration", __func__);
+        mPreferredConfigUsedCount++;
+    } else if (checkIdenticalProfile(getAudioProfiles(),
+                                     preferredConfig->sample_rate,
+                                     preferredConfig->channel_mask,
+                                     preferredConfig->format) == NO_ERROR) {
         mPreferredConfig = *preferredConfig;
+    } else {
+        ALOGW("%s, failed, the device does not support requested value", __func__);
+        return false;
     }
+    return true;
 }
 
 void DeviceDescriptor::dump(String8 *dst, int spaces, bool verbose) const
@@ -510,13 +522,10 @@ std::string DeviceVector::toString(bool includeSensitiveInfo) const
 
 DeviceVector DeviceVector::filter(const DeviceVector &devices) const
 {
-    DeviceVector filteredDevices;
-    for (const auto &device : *this) {
-        if (devices.contains(device)) {
-            filteredDevices.add(device);
-        }
-    }
-    return filteredDevices;
+    auto intersects = [&devices](const sp<DeviceDescriptor> &device) {
+        return devices.contains(device);
+    };
+    return filter(intersects);
 }
 
 bool DeviceVector::containsAtLeastOne(const DeviceVector &devices) const

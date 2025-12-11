@@ -70,6 +70,10 @@ struct AImageReader : public RefBase {
     media_status_t setImageListener(AImageReader_ImageListener* listener);
     media_status_t setBufferRemovedListener(AImageReader_BufferRemovedListener* listener);
     media_status_t setUsage(uint64_t usage);
+    media_status_t setMaxImages(int32_t maxImages);
+    media_status_t setDefaultBufferSize(int32_t width, int32_t height);
+    media_status_t setDefaultBufferDataSpace(android_dataspace dataSpace);
+    media_status_t setDefaultAHardwareBufferFormat(int32_t format);
 
     media_status_t acquireNextImage(/*out*/AImage** image, /*out*/int* fenceFd);
     media_status_t acquireLatestImage(/*out*/AImage** image, /*out*/int* fenceFd);
@@ -120,11 +124,11 @@ struct AImageReader : public RefBase {
     sp<ALooper>         mCbLooper; // Looper thread where callbacks actually happen on
     List<BufferItem*>   mBuffers;
 
-    const int32_t mWidth;
-    const int32_t mHeight;
+    int32_t mWidth;
+    int32_t mHeight;
     int32_t mFormat;
     uint64_t mUsage;  // AHARDWAREBUFFER_USAGE_* flags.
-    const int32_t mMaxImages;
+    int32_t mMaxImages;
 
     // TODO(jwcai) Seems completely unused in AImageReader class.
     const int32_t mNumPlanes;
@@ -164,9 +168,6 @@ struct AImageReader : public RefBase {
 
     uint64_t mHalUsage;
 
-#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
-    sp<IGraphicBufferProducer> mProducer;
-#endif  // !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     sp<Surface>                mSurface;
     sp<BufferItemConsumer>     mBufferItemConsumer;
     sp<ANativeWindow>          mWindow;

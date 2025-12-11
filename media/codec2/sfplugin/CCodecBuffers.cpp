@@ -877,7 +877,11 @@ void BuffersArrayImpl::realloc(std::function<sp<Codec2Buffer>()> alloc) {
 
 void BuffersArrayImpl::grow(
         size_t newSize, std::function<sp<Codec2Buffer>()> alloc) {
-    CHECK_LT(mBuffers.size(), newSize);
+    if (mBuffers.size() > newSize) {
+        ALOGD("[%s] grow() called with newSize=%zu, but current size is %zu; nothing to do here",
+              mName, newSize, mBuffers.size());
+        return;
+    }
     while (mBuffers.size() < newSize) {
         mBuffers.push_back({ alloc(), std::weak_ptr<C2Buffer>(), false });
     }
@@ -1336,6 +1340,9 @@ status_t OutputBuffersArray::registerBuffer(
         ALOGD("[%s] grabBuffer failed: %d", mName, err);
         return err;
     }
+    if (buffer) {
+        mBufferType = buffer->data().type();
+    }
     c2Buffer->setFormat(mFormat);
     if (!convert(buffer, &c2Buffer) && !c2Buffer->copy(buffer)) {
         ALOGD("[%s] copy buffer failed", mName);
@@ -1401,15 +1408,26 @@ size_t OutputBuffersArray::numActiveSlots() const {
 }
 
 void OutputBuffersArray::realloc(const std::shared_ptr<C2Buffer> &c2buffer) {
-    switch (c2buffer->data().type()) {
+    // Handle cases where c2buffer is nullptr (e.g., during EOS events)
+    // by using a default buffer type and relying on subsequent buffers for type information
+    if (c2buffer != nullptr) {
+        mBufferType = c2buffer->data().type();
+    }
+    switch (mBufferType) {
         case C2BufferData::LINEAR: {
             uint32_t size = kLinearBufferSize;
-            const std::vector<C2ConstLinearBlock> &linear_blocks = c2buffer->data().linearBlocks();
-            const uint32_t block_size = linear_blocks.front().size();
-            if (block_size < kMaxLinearBufferSize / 2) {
-                size = block_size * 2;
+            if (c2buffer != nullptr) {
+                const std::vector<C2ConstLinearBlock> &linear_blocks =
+                        c2buffer->data().linearBlocks();
+                const uint32_t block_size = linear_blocks.front().size();
+                if (block_size < kMaxLinearBufferSize / 2) {
+                    size = block_size * 2;
+                } else {
+                    size = kMaxLinearBufferSize;
+                }
             } else {
-                size = kMaxLinearBufferSize;
+                // This is done to satisfy the allocator.
+                size = 0;
             }
             mAlloc = [format = mFormat, size] {
                 return new LocalLinearBuffer(format, new ABuffer(size));
@@ -1437,7 +1455,7 @@ void OutputBuffersArray::realloc(const std::shared_ptr<C2Buffer> &c2buffer) {
         case C2BufferData::LINEAR_CHUNKS:   [[fallthrough]];
         case C2BufferData::GRAPHIC_CHUNKS:  [[fallthrough]];
         default:
-            ALOGD("Unsupported type: %d", (int)c2buffer->data().type());
+            ALOGD("Unsupported type: %d", (int)mBufferType);
             return;
     }
     mImpl.realloc(mAlloc);
@@ -1454,6 +1472,8 @@ void OutputBuffersArray::transferFrom(OutputBuffers* source) {
     mReorderStash = std::move(source->mReorderStash);
     mDepth = source->mDepth;
     mKey = source->mKey;
+    mBufferType = source->getPixelFormatIfApplicable() != PIXEL_FORMAT_UNKNOWN ?
+            C2BufferData::GRAPHIC : C2BufferData::LINEAR;
 }
 
 // FlexOutputBuffers

@@ -18,17 +18,24 @@
 #include <android/hardware/power/stats/IPowerStats.h>
 #include <android-base/logging.h>
 #include <mediautils/ServiceSingleton.h>
+#include <psh_utils/AudioPowerManager.h>
 #include <unordered_map>
 
 using ::android::hardware::power::stats::IPowerStats;
 
 namespace android::media::psh_utils {
 
-static auto getPowerStatsService() {
+static sp<IPowerStats> getPowerStatsService() {
+    if (!AudioPowerManager::enabled()) {
+        LOG(ERROR) << __func__ << ": should not be called if not enabled";
+        return {};
+    }
     return mediautils::getService<IPowerStats>();
 }
 
 status_t RailEnergyDataProvider::fill(PowerStats *stat) const {
+    if (!AudioPowerManager::enabled()) return NO_INIT;
+
     if (stat == nullptr) return BAD_VALUE;
     auto powerStatsService = getPowerStatsService();
     if (powerStatsService == nullptr) {
@@ -74,6 +81,8 @@ status_t RailEnergyDataProvider::fill(PowerStats *stat) const {
 }
 
 status_t PowerEntityResidencyDataProvider::fill(PowerStats* stat) const {
+    if (!AudioPowerManager::enabled()) return NO_INIT;
+
     if (stat == nullptr) return BAD_VALUE;
     auto powerStatsService = getPowerStatsService();
     if (powerStatsService == nullptr) {

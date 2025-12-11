@@ -41,24 +41,6 @@ bool isAppOpSource(audio_source_t source) {
     }
     return true;
 }
-
-int getTargetSdkForPackageName(std::string_view packageName) {
-    const auto binder = defaultServiceManager()->checkService(String16{"package_native"});
-    int targetSdk = -1;
-    if (binder != nullptr) {
-        const auto pm = interface_cast<content::pm::IPackageManagerNative>(binder);
-        if (pm != nullptr) {
-            const auto status = pm->getTargetSdkVersionForPackage(
-                    String16{packageName.data(), packageName.size()}, &targetSdk);
-            return status.isOk() ? targetSdk : __ANDROID_API_FUTURE__;
-        }
-    }
-    return targetSdk;
-}
-
-bool doesPackageTargetAtLeastU(std::string_view packageName) {
-    return getTargetSdkForPackageName(packageName) >= __ANDROID_API_U__;
-}
 } // anonymous
 
 // static
@@ -67,6 +49,7 @@ OpRecordAudioMonitor::createIfNeeded(
         const AttributionSourceState &attributionSource,
         const uint32_t virtualDeviceId,
         const audio_attributes_t &attr,
+        bool shouldExemptFgListening,
         wp<AudioPolicyService::AudioCommandThread> commandThread)
 {
     if (isAudioServerOrRootUid(attributionSource.uid)) {
@@ -89,6 +72,7 @@ OpRecordAudioMonitor::createIfNeeded(
     return new OpRecordAudioMonitor(attributionSource, virtualDeviceId, attr,
                                     getOpForSource(attr.source),
                                     isRecordOpRequired(attr.source),
+                                    shouldExemptFgListening,
                                     commandThread);
 }
 
@@ -111,12 +95,14 @@ OpRecordAudioMonitor::OpRecordAudioMonitor(
         const uint32_t virtualDeviceId, const audio_attributes_t &attr,
         int32_t appOp,
         bool shouldMonitorRecord,
+        bool shouldExemptFgListening,
         wp<AudioPolicyService::AudioCommandThread> commandThread) :
         mHasOp(true),
         mAttributionSource(overwriteVdi(attributionSource, virtualDeviceId)),
         mVirtualDeviceId(virtualDeviceId), mAttr(attr),
         mAppOp(appOp),
         mShouldMonitorRecord(shouldMonitorRecord),
+        mShouldExemptFgListening(shouldExemptFgListening),
         mCommandThread(commandThread) {}
 
 OpRecordAudioMonitor::~OpRecordAudioMonitor()
@@ -136,9 +122,7 @@ void OpRecordAudioMonitor::onFirstRef()
     mOpCallback = new RecordAudioOpCallback(this);
     ALOGV("start watching op %d for %s", mAppOp, mAttributionSource.toString().c_str());
 
-    int flags = doesPackageTargetAtLeastU(mAttributionSource.packageName.value_or(""))
-                        ? AppOpsManager::WATCH_FOREGROUND_CHANGES
-                        : 0;
+    int flags = mShouldExemptFgListening ? 0 : AppOpsManager::WATCH_FOREGROUND_CHANGES;
 
     const auto reg = [&](int32_t op) {
         std::for_each(cbegin(mAttributionSource), cend(),

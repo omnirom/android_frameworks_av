@@ -39,8 +39,8 @@ public:
     virtual ~AudioStreamRecord();
 
     aaudio_result_t open(const AudioStreamBuilder & builder) override;
-    aaudio_result_t release_l() override;
-    void close_l() override;
+    aaudio_result_t release_l() REQUIRES(mStreamMutex) override;
+    void close_l() REQUIRES(mStreamMutex) override;
 
     virtual aaudio_result_t getTimestamp(clockid_t clockId,
                                          int64_t *framePosition,
@@ -77,8 +77,8 @@ public:
 
 protected:
 
-    aaudio_result_t requestStart_l() REQUIRES(mStreamLock) override;
-    aaudio_result_t requestStop_l() REQUIRES(mStreamLock) override;
+    aaudio_result_t requestStart_l() REQUIRES(mStreamMutex) override;
+    aaudio_result_t requestStop_l() REQUIRES(mStreamMutex) override;
 
     int32_t getFramesPerBurstFromDevice() const override;
     int32_t getBufferCapacityFromDevice() const override;

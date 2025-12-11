@@ -120,7 +120,8 @@ public:
                          AAudioStream_dataCallback dataCallback = nullptr,
                          AAudioStream_errorCallback errorCallback = nullptr,
                          void *userContext = nullptr,
-                         AAudioStream_presentationEndCallback presentationEndCallback = nullptr) {
+                         AAudioStream_presentationEndCallback presentationEndCallback = nullptr,
+                         AAudioStream_partialDataCallback partialDataCallback = nullptr) {
         aaudio_result_t result = AAUDIO_OK;
 
         // Use an AAudioStreamBuilder to contain requested parameters.
@@ -142,6 +143,9 @@ public:
             AAudioStreamBuilder_setPresentationEndCallback(
                     builder, presentationEndCallback, userContext);
         }
+        if (partialDataCallback != nullptr) {
+            AAudioStreamBuilder_setPartialDataCallback(builder, partialDataCallback, userContext);
+        }
         //AAudioStreamBuilder_setFramesPerDataCallback(builder, CALLBACK_SIZE_FRAMES);
         //AAudioStreamBuilder_setBufferCapacityInFrames(builder, 48 * 8);
 
@@ -150,9 +154,14 @@ public:
 
         if (result == AAUDIO_OK) {
             int32_t sizeInBursts = parameters.getNumberOfBursts();
-            int32_t framesPerBurst = AAudioStream_getFramesPerBurst(mStream);
-            int32_t bufferSizeFrames = sizeInBursts * framesPerBurst;
-            AAudioStream_setBufferSizeInFrames(mStream, bufferSizeFrames);
+            if (sizeInBursts < 0) {
+                printf("Requested size in bursts is negative, %d", sizeInBursts);
+            } else if (sizeInBursts > 0) {
+                int32_t framesPerBurst = AAudioStream_getFramesPerBurst(mStream);
+                int32_t bufferSizeFrames = sizeInBursts * framesPerBurst;
+                AAudioStream_setBufferSizeInFrames(mStream, bufferSizeFrames);
+            }
+            // When the requested size in bursts is 0, use the default value set by the framework.
         }
 
         AAudioStreamBuilder_delete(builder);
@@ -195,7 +204,7 @@ public:
         return result;
     }
 
-    aaudio_result_t close() {
+    virtual aaudio_result_t close() {
         if (mStream != nullptr) {
             AAudioStream_close(mStream);
             mStream = nullptr;

@@ -71,6 +71,7 @@ cc_defaults {
         "libprocessgroup",
         "libprocinfo",
         "libsensorprivacy",
+        "libcameracompatbilityinfo",
         "libstagefright",
         "libstagefright_foundation",
         "libtinyxml2",
@@ -78,6 +79,7 @@ cc_defaults {
         "libxml2",
         "libyuv",
         "android.companion.virtual.virtualdevice_aidl-cpp",
+        "android.companion.virtualdevice.flags-aconfig-cc",
         "android.hardware.camera.common@1.0",
         "android.hardware.camera.device@1.0",
         "android.hardware.camera.device@3.2",
@@ -93,6 +95,7 @@ cc_defaults {
         "camera_platform_flags_c_lib",
         "com.android.window.flags.window-aconfig_flags_c_lib",
         "media_permission-aidl-cpp",
+        "process_info_service_aidl-cpp",
     ],
 
     static_libs: [

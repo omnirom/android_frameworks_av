@@ -23,12 +23,13 @@
 #include <media/stagefright/foundation/Mutexed.h>
 #include <media/stagefright/PersistentSurface.h>
 
+#include <gui/Flags.h> // Remove with MediaSurfaceType
+
 namespace android {
 
 struct ALooper;
 struct AMessage;
 struct AReplyToken;
-class IGraphicBufferProducer;
 struct MediaCodec;
 
 struct MediaCodecSource : public MediaSource,
@@ -46,7 +47,7 @@ struct MediaCodecSource : public MediaSource,
             uint32_t flags = 0);
 
     bool isVideo() const { return mIsVideo; }
-    sp<IGraphicBufferProducer> getGraphicBufferProducer();
+    sp<MediaSurfaceType> getSurface();
     status_t setInputBufferTimeOffset(int64_t timeOffsetUs);
     int64_t getFirstSampleSystemTimeUs();
 
@@ -137,7 +138,7 @@ private:
     int32_t mEncoderFormat;
     int32_t mEncoderDataSpace;
     sp<AMessage> mEncoderActivityNotify;
-    sp<IGraphicBufferProducer> mGraphicBufferProducer;
+    sp<MediaSurfaceType> mSurface;
     sp<PersistentSurface> mPersistentSurface;
     List<MediaBufferBase *> mInputBufferQueue;
     List<size_t> mAvailEncoderInputIndices;

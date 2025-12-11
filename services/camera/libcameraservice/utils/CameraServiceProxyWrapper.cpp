@@ -239,8 +239,9 @@ int64_t CameraServiceProxyWrapper::encodeSessionConfiguration(
 
         camera_metadata_ro_entry stabEntry =
                 parameters.find(ANDROID_CONTROL_VIDEO_STABILIZATION_MODE);
-        if (stabEntry.count == 1 && stabEntry.data.u8[0] ==
-                ANDROID_CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION) {
+        if (stabEntry.count == 1 && (stabEntry.data.u8[0] ==
+                ANDROID_CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION ||
+                stabEntry.data.u8[0] == ANDROID_CONTROL_VIDEO_STABILIZATION_MODE_ON)) {
             features |= CameraFeatureCombinationStats::CAMERA_FEATURE_STABILIZATION;
         }
     }

@@ -19,14 +19,13 @@
 #define LOG_TAG "BufLog"
 //#define LOG_NDEBUG 0
 
+#include <algorithm>
 #include <errno.h>
 #include "log/log.h"
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <audio_utils/string.h>
-
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 namespace android {
 
@@ -151,7 +150,7 @@ size_t BufLogStream::write(const void *buf, size_t size) {
         if (size > 0 && buf != nullptr) {
             const std::lock_guard autoLock(mLock);
             if (mMaxBytes > 0) {
-                size = MIN(size, mMaxBytes - mByteCount);
+                size = std::min(size, mMaxBytes - mByteCount);
             }
             bytes = fwrite(buf, 1, size, mFile);
             mByteCount += bytes;

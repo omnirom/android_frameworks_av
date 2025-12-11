@@ -20,6 +20,7 @@ import android.companion.virtualcamera.IVirtualCameraCallback;
 import android.companion.virtualcamera.LensFacing;
 import android.companion.virtualcamera.SensorOrientation;
 import android.companion.virtualcamera.SupportedStreamConfiguration;
+import android.companion.virtualcamera.VirtualCameraMetadata;
 
 /**
  * Configuration of virtual camera instance.
@@ -31,4 +32,6 @@ parcelable VirtualCameraConfiguration {
     IVirtualCameraCallback virtualCameraCallback;
     SensorOrientation sensorOrientation = SensorOrientation.ORIENTATION_0;
     LensFacing lensFacing;
+    boolean perFrameCameraMetadataEnabled;
+    @nullable VirtualCameraMetadata cameraCharacteristics;
 }

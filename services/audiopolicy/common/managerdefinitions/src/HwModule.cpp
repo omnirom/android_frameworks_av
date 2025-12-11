@@ -18,6 +18,7 @@
 //#define LOG_NDEBUG 0
 
 #include <android-base/stringprintf.h>
+#include <cutils/properties.h>
 #include <policy.h>
 #include <system/audio.h>
 
@@ -44,9 +45,11 @@ HwModule::~HwModule()
 {
     for (size_t i = 0; i < mOutputProfiles.size(); i++) {
         mOutputProfiles[i]->clearSupportedDevices();
+        mOutputProfiles[i]->clearRoutableDevices();
     }
     for (size_t i = 0; i < mInputProfiles.size(); i++) {
         mInputProfiles[i]->clearSupportedDevices();
+        mInputProfiles[i]->clearRoutableDevices();
     }
 }
 
@@ -72,7 +75,7 @@ status_t HwModule::addOutputProfile(const std::string& name, const audio_config_
     addDynamicDevice(devDesc);
     // Reciprocally attach the device to the module
     devDesc->attach(this);
-    profile->addSupportedDevice(devDesc);
+    profile->addSupportedRoutableDevice(devDesc);
 
     return addOutputProfile(profile);
 }
@@ -142,7 +145,7 @@ status_t HwModule::addInputProfile(const std::string& name, const audio_config_t
     addDynamicDevice(devDesc);
     // Reciprocally attach the device to the module
     devDesc->attach(this);
-    profile->addSupportedDevice(devDesc);
+    profile->addSupportedRoutableDevice(devDesc);
 
     ALOGV("addInputProfile() name %s rate %d mask 0x%08x",
           name.c_str(), config->sample_rate, config->channel_mask);
@@ -223,6 +226,7 @@ void HwModule::refreshSupportedDevices()
             continue;
         }
         stream->setSupportedDevices(sourceDevices);
+        stream->setRoutableDevices(sourceDevices);
     }
     for (const auto& stream : mOutputProfiles) {
         DeviceVector sinkDevices;
@@ -240,6 +244,7 @@ void HwModule::refreshSupportedDevices()
             sinkDevices.add(sinkDevice);
         }
         stream->setSupportedDevices(sinkDevices);
+        stream->setRoutableDevices(sinkDevices);
     }
 }
 
@@ -257,6 +262,42 @@ bool HwModule::supportsPatch(const sp<PolicyAudioPort> &srcPort,
         }
     }
     return false;
+}
+
+void HwModule::updateMutuallyExclusiveOutputProfiles(uint32_t flags1, uint32_t flags2) {
+    LOG_ALWAYS_FATAL_IF(flags1 == flags2, "%s(%#x, %#x), two flags must not be the same",
+                        __func__, flags1, flags2);
+    if ((flags1 & flags2) == flags1) {
+        // If flags2 is a superset of flag1, swap the two flags so that the following logic
+        // of getting flags set can work correctly.
+        std::swap(flags1, flags2);
+    }
+    std::set<uint32_t> flagSet1;
+    std::set<uint32_t> flagSet2;
+    for (const auto& profile : mOutputProfiles) {
+        if ((profile->getFlags() & flags1) == flags1) {
+            flagSet1.insert(profile->getFlags());
+        } else if ((profile->getFlags() & flags2) == flags2) {
+            flagSet2.insert(profile->getFlags());
+        }
+    }
+    for (const auto& flag : flagSet1) {
+        mMutuallyExclusiveFlags[flag].insert(flagSet2.begin(), flagSet2.end());
+    }
+    for (const auto& flag : flagSet2) {
+        mMutuallyExclusiveFlags[flag].insert(flagSet1.begin(), flagSet1.end());
+    }
+}
+
+bool HwModule::isAnyMutuallyExclusiveProfileOpened(const sp<android::IOProfile> &profile) const {
+    const auto it = mMutuallyExclusiveFlags.find(profile->getFlags());
+    if (it == mMutuallyExclusiveFlags.end()) {
+        return false;
+    }
+    return std::any_of(mOutputProfiles.begin(), mOutputProfiles.end(),
+                       [&it, &profile](const sp<IOProfile>& p) {
+        return profile != p && p->curOpenCount > 0 && it->second.count(p->getFlags()) > 0;
+    });
 }
 
 void HwModule::dump(String8 *dst, int spaces) const
@@ -281,6 +322,22 @@ void HwModule::dump(String8 *dst, int spaces) const
     mDeclaredDevices.dump(dst, String8("- Declared"), spaces - 2, true);
     mDynamicDevices.dump(dst, String8("- Dynamic"),  spaces - 2, true);
     dumpAudioRouteVector(mRoutes, dst, spaces);
+    if (!mMutuallyExclusiveFlags.empty()) {
+        dst->appendFormat("%*s- Mutually Exclusive MixPorts (%zu):\n",
+                          spaces - 2, "", mMutuallyExclusiveFlags.size());
+        for (const auto&[flags, flagSet] : mMutuallyExclusiveFlags) {
+            std::stringstream ss;
+            ss << std::hex;
+            for (auto it = flagSet.begin(); it != flagSet.end(); ++it) {
+                if (it != flagSet.begin()) {
+                    ss << ", ";
+                }
+                ss << "0x" << *it;
+            }
+            dst->appendFormat("%*s- %#x: [%s]\n",
+                              spaces, "", flags, ss.str().c_str());
+        }
+    }
 }
 
 sp<HwModule> HwModuleCollection::getModuleFromHandle(audio_module_handle_t handle) const
@@ -478,6 +535,10 @@ void HwModuleCollection::cleanUpForDevice(const sp<DeviceDescriptor> &device)
         const IOProfileCollection &profiles = audio_is_output_device(device->type()) ?
                     hwModule->getOutputProfiles() : hwModule->getInputProfiles();
         for (const auto &profile : profiles) {
+            if (profile->routesToDevice(device)) {
+                profile->removeRoutableDevice(device);
+            }
+
             // For cleanup, strong match is required
             if (profile->supportsDevice(device, true /*matchAdress*/)) {
                 ALOGV("%s: removing device %s from profile %s", __FUNCTION__,

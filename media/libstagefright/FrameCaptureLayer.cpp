@@ -19,6 +19,7 @@
 
 #include <include/FrameCaptureLayer.h>
 #include <media/stagefright/FrameCaptureProcessor.h>
+#include <gui/BufferItemConsumer.h>
 #include <gui/BufferQueue.h>
 #include <gui/GLConsumer.h>
 #include <gui/IGraphicBufferConsumer.h>
@@ -123,6 +124,11 @@ status_t FrameCaptureLayer::init() {
         return ERROR_UNSUPPORTED;
     }
 
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    std::tie(mConsumer, mSurface) = BufferItemConsumer::create(GraphicBuffer::USAGE_HW_TEXTURE);
+    mConsumer->setName(String8("FrameDecoder"));
+    mConsumer->setFrameAvailableListener(this);
+#else
     // Mimic surfaceflinger's BufferQueueLayer::onFirstRef() to create a
     // BufferQueue for encoder output
     sp<IGraphicBufferProducer> producer;
@@ -143,6 +149,7 @@ status_t FrameCaptureLayer::init() {
 
     mConsumer = consumer;
     mSurface = sp<Surface>::make(producer);
+#endif
 
     return OK;
 }
@@ -187,6 +194,7 @@ void FrameCaptureLayer::onFrameAvailable(const BufferItem& /*item*/) {
     mCondition.signal();
 }
 
+#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
 void FrameCaptureLayer::onBuffersReleased() {
     ALOGV("onBuffersReleased");
     Mutex::Autolock _lock(mLock);
@@ -203,6 +211,7 @@ void FrameCaptureLayer::onBuffersReleased() {
 void FrameCaptureLayer::onSidebandStreamChanged() {
     ALOGV("onSidebandStreamChanged");
 }
+#endif
 
 status_t FrameCaptureLayer::acquireBuffer(BufferItem *bi) {
     ALOGV("acquireBuffer");
@@ -225,16 +234,19 @@ status_t FrameCaptureLayer::acquireBuffer(BufferItem *bi) {
         return err;
     }
 
+#if !COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
     if (bi->mGraphicBuffer != nullptr) {
         mSlotToBufferMap[bi->mSlot] = bi->mGraphicBuffer;
     } else {
         bi->mGraphicBuffer = mSlotToBufferMap[bi->mSlot];
     }
+#endif
 
     if (bi->mGraphicBuffer == nullptr) {
         ALOGE("acquired null buffer!");
         return BAD_VALUE;
     }
+
     return OK;
 }
 
@@ -242,7 +254,11 @@ status_t FrameCaptureLayer::releaseBuffer(const BufferItem &bi) {
     ALOGV("releaseBuffer");
     Mutex::Autolock _lock(mLock);
 
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    return mConsumer->releaseBuffer(bi.mGraphicBuffer, bi.mFence);
+#else
     return mConsumer->releaseBuffer(bi.mSlot, bi.mFrameNumber, bi.mFence);
+#endif
 }
 
 }  // namespace android

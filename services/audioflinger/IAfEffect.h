@@ -259,6 +259,8 @@ public:
             REQUIRES(audio_utils::ThreadBase_Mutex) EXCLUDES_EffectChain_Mutex = 0;
     virtual sp<IAfEffectModule> getEffectFromType_l(const effect_uuid_t* type) const
             REQUIRES(audio_utils::ThreadBase_Mutex) EXCLUDES_EffectChain_Mutex = 0;
+    virtual sp<IAfEffectModule> getEffectFromUuid_l(const effect_uuid_t* uuid) const
+            REQUIRES(audio_utils::ThreadBase_Mutex) EXCLUDES_EffectChain_Mutex = 0;
     virtual std::vector<int> getEffectIds_l() const = 0;
     virtual bool setVolume(uint32_t* left, uint32_t* right,
                            bool force = false) EXCLUDES_EffectChain_Mutex = 0;

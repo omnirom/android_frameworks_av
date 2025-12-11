@@ -400,9 +400,9 @@ sp<MetaData> MediaCodecSource::getFormat() {
     return *meta;
 }
 
-sp<IGraphicBufferProducer> MediaCodecSource::getGraphicBufferProducer() {
+sp<MediaSurfaceType> MediaCodecSource::getSurface() {
     CHECK(mFlags & FLAG_USE_SURFACE_INPUT);
-    return mGraphicBufferProducer;
+    return mSurface;
 }
 
 status_t MediaCodecSource::read(
@@ -579,7 +579,7 @@ status_t MediaCodecSource::initEncoder() {
             // pass consumer over messages (similar to BufferProducerWrapper)
             err = mEncoder->setInputSurface(mPersistentSurface);
         } else {
-            err = mEncoder->createInputSurface(&mGraphicBufferProducer);
+            err = mEncoder->createInputSurface(&mSurface);
         }
 
         if (err != OK) {

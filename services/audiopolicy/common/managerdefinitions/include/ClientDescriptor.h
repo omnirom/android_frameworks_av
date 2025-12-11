@@ -110,11 +110,13 @@ public:
                           audio_output_flags_t flags,
                           bool isPreferredDeviceForExclusiveUse,
                           std::vector<wp<SwAudioOutputDescriptor>> secondaryOutputs,
-                          wp<AudioPolicyMix> primaryMix) :
+                          wp<AudioPolicyMix> primaryMix,
+                          bool isSpatialized) :
         ClientDescriptor(portId, uid, sessionId, attributes, config, preferredDeviceId,
                          isPreferredDeviceForExclusiveUse),
         mStream(stream), mStrategy(strategy), mVolumeSource(volumeSource), mFlags(flags),
-        mSecondaryOutputs(std::move(secondaryOutputs)), mPrimaryMix(primaryMix) {}
+        mSecondaryOutputs(std::move(secondaryOutputs)), mPrimaryMix(primaryMix),
+        mIsSpatialized(isSpatialized) {}
     ~TrackClientDescriptor() override = default;
 
     using ClientDescriptor::dump;
@@ -179,6 +181,10 @@ public:
         return result;
     }
 
+    bool isSpatialized() const {
+        return mIsSpatialized;
+    }
+
 private:
     const audio_stream_type_t mStream;
     const product_strategy_t mStrategy;
@@ -193,6 +199,7 @@ private:
     uint32_t mActivityCount = 0;
     bool mIsInvalid = false;
     bool mInternalMute = false;
+    const bool mIsSpatialized;
 };
 
 class RecordClientDescriptor: public ClientDescriptor

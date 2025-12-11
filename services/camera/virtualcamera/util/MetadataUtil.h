@@ -21,10 +21,13 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <variant>
 #include <vector>
 
+#include "CameraMetadata.h"
 #include "aidl/android/hardware/camera/device/CameraMetadata.h"
+#include "android-base/thread_annotations.h"
 #include "system/camera_metadata.h"
 #include "util/Util.h"
 
@@ -60,7 +63,13 @@ class MetadataBuilder {
   };
 
   MetadataBuilder() = default;
-  ~MetadataBuilder() = default;
+  ~MetadataBuilder() {
+    std::lock_guard<std::mutex> lock(mLock);
+    if (mCustomMetadata != nullptr) {
+      free_camera_metadata(mCustomMetadata);
+      mCustomMetadata = nullptr;
+    }
+  };
 
   // See ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL in CameraMetadataTag.aidl.
   MetadataBuilder& setSupportedHardwareLevel(
@@ -411,6 +420,12 @@ class MetadataBuilder {
   // See ANDROID_RESULT_AVAILABLE_REQUEST_KEYS in CameraMetadataTag.aidl.
   MetadataBuilder& setAvailableResultKeys(const std::vector<int32_t>& keys);
 
+  // A list of all keys that the camera device has available to use with
+  // SessionConfiguration params as part of the capture session initialization.
+  //
+  // See ANDROID_REQUEST_AVAILABLE_SESSION_KEYS in CameraMetadataTag.aidl.
+  MetadataBuilder& setAvailableSessionKeys(const std::vector<int32_t>& keys);
+
   // See ANDROID_REQUEST_AVAILABLE_CAPABILITIES in CameraMetadataTag.aidl.
   MetadataBuilder& setAvailableCapabilities(
       const std::vector<
@@ -426,6 +441,12 @@ class MetadataBuilder {
   // Extends metadata with ANDROID_REQUEST_AVAILABLE_CHARACTERISTICS_KEYS
   // containing all set tags.
   MetadataBuilder& setAvailableCharacteristicKeys();
+
+  // Add custom metadata to the built metadata.
+  //
+  // Its keys and values have priority and will update the Builder set values
+  // when build() is called.
+  MetadataBuilder& setCustomMetadata(const camera_metadata_t* customMetadata);
 
   // Build CameraMetadata instance.
   //
@@ -443,6 +464,11 @@ class MetadataBuilder {
       mEntryMap;
   // Extend metadata with ANDROID_REQUEST_AVAILABLE_CHARACTERISTICS_KEYS.
   bool mExtendWithAvailableCharacteristicsKeys = false;
+
+  std::mutex mLock;
+  // Additional custom metadata to be added to the built metadata.
+  // Its keys and values have priority and will update the Builder set values.
+  camera_metadata_t* mCustomMetadata GUARDED_BY(mLock) = nullptr;
 };
 
 // Returns JPEG_QUALITY from metadata, or nullopt if the key is not present.
@@ -492,6 +518,18 @@ std::optional<int32_t> getDeviceId(
 // present (which is equivalent to a orientation of 0).
 std::optional<int32_t> getSensorOrientation(
     const aidl::android::hardware::camera::device::CameraMetadata& cameraMetadata);
+
+void convertStreamConfigurationsToMetadataValues(
+    const std::vector<MetadataBuilder::StreamConfiguration>& streamConfigurations,
+    std::vector<int32_t>& metadataStreamConfigs,
+    std::vector<int64_t>& metadataMinFrameDurations,
+    std::vector<int64_t>& metadataStallDurations);
+
+// Converts a HelperCameraMetadata object to a HAL AidlCameraMetadata.
+std::unique_ptr<aidl::android::hardware::camera::device::CameraMetadata>
+cameraMetadataToHal(
+    const android::hardware::camera::common::helper::CameraMetadata&
+        metadataHelper);
 
 }  // namespace virtualcamera
 }  // namespace companion

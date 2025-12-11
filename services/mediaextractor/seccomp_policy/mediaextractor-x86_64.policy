@@ -53,5 +53,17 @@ sched_yield: 1
 getpid: 1
 gettid: 1
 
+# Required by MemoryHeapBase for shared memory allocations when libcutils uses
+# memfd.
+#
+# memfd_create() is used for allocating a memfd, fsetxattr() is used to change
+# the security context of the memfd, ftruncate() is used to specify its size,
+# and fcntl() is used to set file seals on the memfd, such as seals to
+# prevent the file from changing in size and from being written to.
+memfd_create: 1
+fsetxattr: 1
+ftruncate: 1
+fcntl: 1
+
 @include /apex/com.android.media/etc/seccomp_policy/crash_dump.x86_64.policy
 @include /apex/com.android.media/etc/seccomp_policy/code_coverage.x86_64.policy

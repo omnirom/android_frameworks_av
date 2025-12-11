@@ -37,6 +37,7 @@
 #include <media/stagefright/foundation/ABase.h>
 #include <mediautils/Synchronization.h>
 #include <android/content/AttributionSourceState.h>
+#include <gui/Flags.h> // Remove with MediaSurfaceType
 
 #include <system/audio.h>
 
@@ -329,8 +330,7 @@ private:
     class Client : public BnMediaPlayer {
         // IMediaPlayer interface
         virtual void            disconnect();
-        virtual status_t        setVideoSurfaceTexture(
-                                        const sp<IGraphicBufferProducer>& bufferProducer);
+        virtual status_t        setVideoSurfaceTexture(const sp<MediaSurfaceType>& surface);
         virtual status_t        setBufferingSettings(const BufferingSettings& buffering) override;
         virtual status_t        getBufferingSettings(
                                         BufferingSettings* buffering /* nonnull */) override;
@@ -478,7 +478,11 @@ private:
                     audio_session_t               mAudioSessionId;
                     audio_attributes_t *          mAudioAttributes;
                     sp<ANativeWindow>             mConnectedWindow;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+                    uint64_t                      mConnectedWindowSurfaceID;
+#else
                     sp<IBinder>                   mConnectedWindowBinder;
+#endif
                     struct sockaddr_in            mRetransmitEndpoint;
                     bool                          mRetransmitEndpointValid;
                     sp<Client>                    mNextClient;

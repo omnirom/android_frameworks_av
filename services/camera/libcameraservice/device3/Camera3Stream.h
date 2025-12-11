@@ -383,13 +383,7 @@ class Camera3Stream :
      */
     status_t         returnInputBuffer(const camera_stream_buffer &buffer);
 
-#if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
     status_t         getInputSurface(sp<Surface> *producer);
-#else
-    // get the buffer producer of the input buffer queue.
-    // only apply to input streams.
-    status_t         getInputBufferProducer(sp<IGraphicBufferProducer> *producer);
-#endif
 
     /**
      * Whether any of the stream's buffers are currently in use by the HAL,
@@ -539,12 +533,7 @@ class Camera3Stream :
     virtual status_t returnInputBufferLocked(
             const camera_stream_buffer &buffer);
     virtual bool     hasOutstandingBuffersLocked() const = 0;
-#if WB_CAMERA3_AND_PROCESSORS_WITH_DEPENDENCIES
     virtual status_t getInputSurfaceLocked(sp<Surface> *surface);
-#else
-    // Get the buffer producer of the input buffer queue. Only apply to input streams.
-    virtual status_t getInputBufferProducerLocked(sp<IGraphicBufferProducer> *producer);
-#endif
 
     // Can return -ENOTCONN when we are already disconnected (not an error)
     virtual status_t disconnectLocked() = 0;

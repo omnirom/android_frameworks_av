@@ -65,14 +65,26 @@ class VirtualCameraTestInstance
  public:
   explicit VirtualCameraTestInstance(int fps = 30);
 
+  ::ndk::ScopedAStatus onOpenCamera();
+
+  ::ndk::ScopedAStatus onConfigureSession(
+      const ::aidl::android::companion::virtualcamera::VirtualCameraMetadata&
+          sessionParameters,
+      const std::shared_ptr<
+          ::aidl::android::companion::virtualcamera::ICaptureResultConsumer>&
+          captureResultConsumer) override;
+
   ::ndk::ScopedAStatus onStreamConfigured(
       int32_t streamId, const ::aidl::android::view::Surface& surface,
       int32_t width, int32_t height,
       ::aidl::android::companion::virtualcamera::Format pixelFormat) override
       EXCLUDES(mLock);
 
-  ::ndk::ScopedAStatus onProcessCaptureRequest(int32_t in_streamId,
-                                               int32_t in_frameId) override;
+  ::ndk::ScopedAStatus onProcessCaptureRequest(
+      int32_t streamId, int32_t frameId,
+      const std::optional<
+          ::aidl::android::companion::virtualcamera::VirtualCameraMetadata>&
+          in_captureRequestSettings) override;
 
   ::ndk::ScopedAStatus onStreamClosed(int32_t streamId) override EXCLUDES(mLock);
 

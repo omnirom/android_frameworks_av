@@ -7407,10 +7407,17 @@ void ACodec::LoadedState::onCreateInputSurface(
     }
 
     if (err == OK) {
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        mCodec->mCallback->onInputSurfaceCreated(
+                mCodec->mInputFormat,
+                mCodec->mOutputFormat,
+                sp<Surface>::make(bufferProducer, true));
+#else
         mCodec->mCallback->onInputSurfaceCreated(
                 mCodec->mInputFormat,
                 mCodec->mOutputFormat,
                 new BufferProducerWrapper(bufferProducer));
+#endif
     } else {
         // Can't use mCodec->signalError() here -- MediaCodec won't forward
         // the error through because it's in the "configured" state.  We

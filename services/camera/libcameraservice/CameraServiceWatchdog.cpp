@@ -60,10 +60,8 @@ bool CameraServiceWatchdog::threadLoop()
                         true /*deviceError*/);
                 // We use abort here so we can get a tombstone for better
                 // debugging.
-                if (flags::enable_hal_abort_from_cameraservicewatchdog()) {
-                    for (pid_t pid : mProviderPids) {
-                        kill(pid, SIGABRT);
-                    }
+                for (pid_t pid : mProviderPids) {
+                    kill(pid, SIGABRT);
                 }
 
                 abort();

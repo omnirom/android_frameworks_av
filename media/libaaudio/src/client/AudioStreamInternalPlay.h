@@ -17,8 +17,14 @@
 #ifndef ANDROID_AAUDIO_AUDIO_STREAM_INTERNAL_PLAY_H
 #define ANDROID_AAUDIO_AUDIO_STREAM_INTERNAL_PLAY_H
 
+#include <condition_variable>
+#include <mutex>
 #include <stdint.h>
+#include <thread>
+
 #include <aaudio/AAudio.h>
+#include <audio_utils/TimerQueue.h>
+#include <mediautils/SingleThreadExecutor.h>
 
 #include "binding/AAudioServiceInterface.h"
 #include "client/AudioStreamInternal.h"
@@ -26,6 +32,14 @@
 using android::sp;
 
 namespace aaudio {
+
+// Keep this the same as AUDIO_PLAYBACK_RATE_INITIALIZER;
+static constexpr AAudioPlaybackParameters AAUDIO_PLAYBACK_PARAMETERS_DEFAULT = {
+        .fallbackMode = AAUDIO_FALLBACK_MODE_FAIL,
+        .stretchMode = AAUDIO_STRETCH_MODE_DEFAULT,
+        .pitch = 1.0f,
+        .speed = 1.0f,
+};
 
 class AudioStreamInternalPlay : public AudioStreamInternal {
 public:
@@ -35,9 +49,9 @@ public:
 
     aaudio_result_t open(const AudioStreamBuilder &builder) override;
 
-    aaudio_result_t requestPause_l() override;
+    aaudio_result_t requestPause_l() REQUIRES(mStreamMutex) override;
 
-    aaudio_result_t requestFlush_l() override;
+    aaudio_result_t requestFlush_l() REQUIRES(mStreamMutex) override;
 
     bool isFlushSupported() const override {
         // Only implement FLUSH for OUTPUT streams.
@@ -51,7 +65,7 @@ public:
 
     aaudio_result_t write(const void *buffer,
                           int32_t numFrames,
-                          int64_t timeoutNanoseconds) override;
+                          int64_t timeoutNanoseconds) EXCLUDES(mStreamMutex) override;
 
     int64_t getFramesRead() override;
     int64_t getFramesWritten() override;
@@ -60,6 +74,16 @@ public:
 
     aaudio_direction_t getDirection() const override {
         return AAUDIO_DIRECTION_OUTPUT;
+    }
+
+    aaudio_result_t setOffloadEndOfStream() EXCLUDES(mStreamMutex) final;
+
+    void setPresentationEndCallbackProc(AAudioStream_presentationEndCallback proc) final {
+        mPresentationEndCallbackProc = proc;
+    }
+
+    void setPresentationEndCallbackUserData(void *userData) final {
+        mPresentationEndCallbackUserData = userData;
     }
 
 protected:
@@ -85,6 +109,26 @@ protected:
                              int32_t numFrames,
                              int64_t currentTimeNanos,
                              int64_t *wakeTimePtr) override;
+
+    aaudio_result_t requestStop_l() REQUIRES(mStreamMutex) final;
+
+    void wakeupCallbackThread_l() REQUIRES(mStreamMutex) final;
+    aaudio_result_t flushFromFrame_l(AAudio_FlushFromAccuracy accuracy, int64_t* position)
+            REQUIRES(mStreamMutex) final;
+
+    bool mayNeedToDrain() const final {
+        return getPerformanceMode() == AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED &&
+               isClockModelInControl() &&
+               getDeviceBufferSize() > getDeviceSampleRate();
+    }
+
+    aaudio_result_t setPlaybackParameters_l(const AAudioPlaybackParameters* parameters)
+            REQUIRES(mStreamMutex) final;
+    aaudio_result_t getPlaybackParameters_l(AAudioPlaybackParameters* parameters)
+            REQUIRES(mStreamMutex) final;
+
+    void onWakeUp_l(android::audio_utils::TimerQueue::handle_t handle) REQUIRES(mStreamMutex) final;
+
 private:
     /*
      * Asynchronous write with data conversion.
@@ -95,6 +139,37 @@ private:
     aaudio_result_t writeNowWithConversion(const void *buffer,
                                            int32_t numFrames);
 
+    bool shouldStopStream() EXCLUDES(mStreamMutex);
+    void maybeCallPresentationEndCallback();
+
+    void dropPresentationEndCallback_l() REQUIRES(mStreamMutex);
+
+    aaudio_result_t drainStream_l(int64_t wakeUpNanos, bool allowSoftWakeUp) REQUIRES(mStreamMutex);
+    aaudio_result_t activateStream_l() REQUIRES(mStreamMutex);
+
+    android::sp<AudioStreamInternalPlay> getPtr() { return this; }
+
+    bool mOffloadEosPending GUARDED_BY(mStreamMutex){false};
+    std::condition_variable mStreamEndCV;
+    std::optional<android::mediautils::SingleThreadExecutor> mStreamEndExecutor
+            GUARDED_BY(mStreamMutex);
+
+    AAudioStream_presentationEndCallback mPresentationEndCallbackProc = nullptr;
+    void                                *mPresentationEndCallbackUserData = nullptr;
+    std::atomic<pid_t>                   mPresentationEndCallbackThread{CALLBACK_THREAD_NONE};
+
+    static constexpr int32_t kOffloadSafeMarginMs = 1000;
+    static constexpr int32_t kOffloadFlushFromSafeMarginMs = 100;
+    int32_t mOffloadSafeMarginInFrames = 0;
+    int32_t mOffloadFlushFromSafeMarginInFrames = 0;
+    std::condition_variable mCallbackCV;
+    bool mDraining GUARDED_BY(mStreamMutex){false};
+    android::audio_utils::TimerQueue::handle_t mWakeUpHandle
+            GUARDED_BY(mStreamMutex){android::audio_utils::TimerQueue::INVALID_HANDLE};
+
+    std::mutex mEndpointMutex;
+
+    AAudioPlaybackParameters mPlaybackParameters = AAUDIO_PLAYBACK_PARAMETERS_DEFAULT;
 };
 
 } /* namespace aaudio */

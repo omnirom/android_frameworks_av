@@ -75,7 +75,9 @@ static void collectionFromString(const std::string &str, typename Traits::Collec
                                  const char *del = AudioParameter::valueListSeparator)
 {
     char *literal = strdup(str.c_str());
-    for (const char *cstr = strtok(literal, del); cstr != NULL; cstr = strtok(NULL, del)) {
+    char *saveptr;
+    for (const char *cstr = strtok_r(literal, del, &saveptr); cstr != NULL;
+        cstr = strtok_r(NULL, del, &saveptr)) {
         typename Traits::Type value;
         if (utilities::convertTo<std::string, typename Traits::Type >(cstr, value)) {
             Traits::add(collection, value);
@@ -169,7 +171,9 @@ inline void TypeConverter<Traits>::collectionFromString(const std::string &str,
 {
     char *literal = strdup(str.c_str());
 
-    for (const char *cstr = strtok(literal, del); cstr != NULL; cstr = strtok(NULL, del)) {
+    char *saveptr;
+    for (const char *cstr = strtok_r(literal, del, &saveptr); cstr != NULL;
+        cstr = strtok_r(NULL, del, &saveptr)) {
         typename Traits::Type value;
         if (fromString(cstr, value)) {
             Traits::add(collection, value);
@@ -184,7 +188,9 @@ inline typename Traits::Type TypeConverter<Traits>::maskFromString(
 {
     char *literal = strdup(str.c_str());
     uint32_t value = 0;
-    for (const char *cstr = strtok(literal, del); cstr != NULL; cstr = strtok(NULL, del)) {
+    char *saveptr;
+    for (const char *cstr = strtok_r(literal, del, &saveptr); cstr != NULL;
+        cstr = strtok_r(NULL, del, &saveptr)) {
         typename Traits::Type type;
         if (fromString(cstr, type)) {
             value |= static_cast<uint32_t>(type);

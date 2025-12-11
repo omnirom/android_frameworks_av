@@ -61,6 +61,10 @@ class RingBufferConsumer
   public:
     typedef ConsumerBase::FrameAvailableListener FrameAvailableListener;
 
+#if not WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+    void onFirstRef() override;
+#endif
+
     enum { INVALID_BUFFER_SLOT = BufferQueue::INVALID_BUFFER_SLOT };
     enum { NO_BUFFER_AVAILABLE = BufferQueue::NO_BUFFER_AVAILABLE };
 
@@ -68,12 +72,7 @@ class RingBufferConsumer
     // the consumer usage flags passed to the graphics allocator. The
     // bufferCount parameter specifies how many buffers can be pinned for user
     // access at the same time.
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
     RingBufferConsumer(uint64_t consumerUsage, int bufferCount);
-#else
-    RingBufferConsumer(const sp<IGraphicBufferConsumer>& consumer, uint64_t consumerUsage,
-            int bufferCount);
-#endif  // COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_CONSUMER_BASE_OWNS_BQ)
 
     virtual ~RingBufferConsumer();
 
@@ -201,6 +200,9 @@ class RingBufferConsumer
 
     // List of acquired buffers in our ring buffer
     List<RingBufferItem>       mBufferItemList;
+#if not WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+    uint64_t                   mConsumerUsage;
+#endif
     const int                  mBufferCount;
 
     // Timestamp of latest buffer

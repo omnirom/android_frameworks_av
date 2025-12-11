@@ -38,7 +38,8 @@ public:
                         const sp<DeviceDescriptorBase>& /*device*/,
                         uint32_t* /*latencyMs*/,
                         audio_output_flags_t* /*flags*/,
-                        audio_attributes_t /*attributes*/) override { return NO_INIT; }
+                        audio_attributes_t /*attributes*/,
+                        int32_t /*mixPortHalId*/) override { return NO_INIT; }
     audio_io_handle_t openDuplicateOutput(audio_io_handle_t /*output1*/,
                                           audio_io_handle_t /*output2*/) override {
         return AUDIO_IO_HANDLE_NONE;
@@ -52,13 +53,9 @@ public:
                        audio_devices_t* /*device*/,
                        const String8& /*address*/,
                        audio_source_t /*source*/,
-                       audio_input_flags_t /*flags*/) override { return NO_INIT; }
+                       audio_input_flags_t /*flags*/,
+                       int32_t /*mixPortHalId*/) override { return NO_INIT; }
     status_t closeInput(audio_io_handle_t /*input*/) override { return NO_INIT; }
-    status_t setStreamVolume(audio_stream_type_t /*stream*/,
-                             float /*volume*/,
-                             bool /*muted*/,
-                             audio_io_handle_t /*output*/,
-                             int /*delayMs*/) override { return NO_INIT; }
 
     status_t setPortsVolume(const std::vector<audio_port_handle_t> & /*ports*/, float /*volume*/,
                             bool /*muted*/, audio_io_handle_t /*output*/,
@@ -114,7 +111,8 @@ public:
         return NO_INIT;
     }
     status_t getAudioMixPort(const struct audio_port_v7 *devicePort __unused,
-                             struct audio_port_v7 *mixPort __unused) override {
+                             struct audio_port_v7 *mixPort __unused,
+                             int32_t mixPortHalId __unused) override {
         return INVALID_OPERATION;
     }
 

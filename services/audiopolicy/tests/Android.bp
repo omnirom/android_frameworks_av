@@ -84,8 +84,14 @@ cc_test {
 
     require_root: true,
 
+    static_libs: [
+        "com.android.media.audio-aconfig-cc",
+        "com.android.media.audioserver-aconfig-cc",
+    ],
+
     shared_libs: [
         "audioclient-types-aidl-cpp",
+        "libaconfig_storage_read_api_cc",
         "libaudioclient",
         "libaudioclient_aidl_conversion",
         "libaudiofoundation",
@@ -99,6 +105,7 @@ cc_test {
         "libstagefright_foundation",
         "libutils",
         "libxml2",
+        "server_configurable_flags",
     ],
 
     header_libs: [

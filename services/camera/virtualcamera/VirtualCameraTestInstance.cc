@@ -38,6 +38,8 @@ namespace companion {
 namespace virtualcamera {
 
 using ::aidl::android::companion::virtualcamera::Format;
+using ::aidl::android::companion::virtualcamera::ICaptureResultConsumer;
+using ::aidl::android::companion::virtualcamera::VirtualCameraMetadata;
 using ::aidl::android::view::Surface;
 using ::ndk::ScopedAStatus;
 
@@ -97,7 +99,6 @@ void TestPatternRenderer::renderThreadLoop(
       static_cast<uint64_t>(1e9 / mFps));
 
   std::chrono::nanoseconds lastFrameTs(0);
-  int frameNumber = 0;
   while (mRunning) {
     // Wait for appropriate amount of time to meet configured FPS.
     std::chrono::nanoseconds ts = getCurrentTimestamp();
@@ -117,6 +118,19 @@ void TestPatternRenderer::renderThreadLoop(
 
 VirtualCameraTestInstance::VirtualCameraTestInstance(const int fps)
     : mFps(fps) {
+}
+
+ScopedAStatus VirtualCameraTestInstance::onOpenCamera() {
+  return ScopedAStatus::ok();
+}
+
+::ndk::ScopedAStatus VirtualCameraTestInstance::onConfigureSession(
+    const VirtualCameraMetadata& sessionParameters,
+    const std::shared_ptr<ICaptureResultConsumer>& captureResultConsumer) {
+  (void)sessionParameters;
+  (void)captureResultConsumer;
+  ALOGV("%s: Not used for VirtualCameraTestInstance.", __func__);
+  return ScopedAStatus::ok();
 }
 
 ScopedAStatus VirtualCameraTestInstance::onStreamConfigured(
@@ -142,8 +156,9 @@ ScopedAStatus VirtualCameraTestInstance::onStreamConfigured(
 }
 
 ScopedAStatus VirtualCameraTestInstance::onProcessCaptureRequest(
-    const int32_t /*in_streamId*/, const int32_t /*in_frameId*/) {
-  return ScopedAStatus::ok();
+    const int32_t /*streamId*/, const int32_t /*frameId*/,
+    const std::optional<VirtualCameraMetadata>& /*in_captureRequestSettings*/) {
+  return ndk::ScopedAStatus();
 }
 
 ScopedAStatus VirtualCameraTestInstance::onStreamClosed(const int32_t streamId) {

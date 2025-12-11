@@ -100,7 +100,7 @@ public:
                 .withFields({
                     C2F(mInputMaxBufSize, value).any(),
                 })
-                .withSetter(MaxInputSizeSetter, mChannelCount, mPcmEncodingInfo)
+                .calculatedAs(MaxInputSizeSetter, mChannelCount, mPcmEncodingInfo)
                 .build());
     }
 

@@ -23,6 +23,8 @@
 #include <media/stagefright/MetaData.h>
 #include <utils/threads.h>
 
+#include <mutex>
+
 namespace android {
 
 // Convert the MediaMuxer's push model into MPEG4Writer's pull model.

@@ -180,13 +180,15 @@ class DefaultAppOpsFacade {
         }
 
       private:
+        void opChangedInner();
+
         const ValidatedAttributionSourceState mAttr;
         const Ops mOps;
         std::mutex mLock;
         std::function<void(bool)> mCb GUARDED_BY(mLock);
     };
 
-  private:
+private:
     static inline std::mutex sMapLock{};
     static inline std::unordered_map<uintptr_t, sp<OpMonitor>> sCbMap{};
 };

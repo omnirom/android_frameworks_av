@@ -1,4 +1,3 @@
 # Bug component: 48436
 jiabin@google.com
-philburk@google.com
 include platform/frameworks/av:/media/janitors/audio_OWNERS #{LAST_RESORT_SUGGESTION}

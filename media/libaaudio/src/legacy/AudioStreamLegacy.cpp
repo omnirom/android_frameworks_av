@@ -38,22 +38,22 @@ AudioStreamLegacy::AudioStreamLegacy()
 }
 
 
-aaudio_data_callback_result_t AudioStreamLegacy::callDataCallbackFrames(uint8_t *buffer,
-                                                                        int32_t numFrames) {
+int32_t AudioStreamLegacy::callDataCallbackFrames(uint8_t *buffer, int32_t numFrames) {
     void *finalAudioData = buffer;
     if (getDirection() == AAUDIO_DIRECTION_INPUT) {
-        // Increment before because we already got the data from the device.
-        incrementFramesRead(numFrames);
         finalAudioData = (void *) maybeConvertDeviceData(buffer, numFrames);
     }
 
     // Call using the AAudio callback interface.
-    aaudio_data_callback_result_t callbackResult = maybeCallDataCallback(finalAudioData, numFrames);
+    int32_t callbackResult = maybeCallDataCallback(finalAudioData, numFrames);
 
-    if (callbackResult == AAUDIO_CALLBACK_RESULT_CONTINUE
-            && getDirection() == AAUDIO_DIRECTION_OUTPUT) {
-        // Increment after because we are going to write the data to the device.
-        incrementFramesWritten(numFrames);
+    if (callbackResult >= 0) {
+        if (getDirection() == AAUDIO_DIRECTION_OUTPUT) {
+            // Increment after because we are going to write the data to the device.
+            incrementFramesWritten(callbackResult);
+        } else {
+            incrementFramesRead(callbackResult);
+        }
     }
     return callbackResult;
 }
@@ -61,7 +61,7 @@ aaudio_data_callback_result_t AudioStreamLegacy::callDataCallbackFrames(uint8_t 
 // Implement FixedBlockProcessor
 int32_t AudioStreamLegacy::onProcessFixedBlock(uint8_t *buffer, int32_t numBytes) {
     int32_t numFrames = numBytes / mBlockAdapterBytesPerFrame;
-    return (int32_t) callDataCallbackFrames(buffer, numFrames);
+    return callDataCallbackFrames(buffer, numFrames) * mBlockAdapterBytesPerFrame;
 }
 
 
@@ -78,7 +78,7 @@ size_t AudioStreamLegacy::onMoreData(const android::AudioTrack::Buffer& buffer) 
     // TODO add to API in AudioRecord and AudioTrack
     // TODO(b/216175830) cleanup size re-computation
     const size_t SIZE_STOP_CALLBACKS = SIZE_MAX;
-    aaudio_data_callback_result_t callbackResult;
+    aaudio_data_callback_result_t callbackResult = AAUDIO_CALLBACK_RESULT_CONTINUE;
     (void) checkForDisconnectRequest(true);
 
     // Note that this code assumes an AudioTrack::Buffer is the same as
@@ -109,20 +109,20 @@ size_t AudioStreamLegacy::onMoreData(const android::AudioTrack::Buffer& buffer) 
                     buffer.data(), byteCount);
         } else {
             // Call using the AAudio callback interface.
-            callbackResult = callDataCallbackFrames(buffer.data(),
-                                                    buffer.getFrameCount());
-            written = callbackResult == AAUDIO_CALLBACK_RESULT_CONTINUE ?
-                    buffer.getFrameCount() * getBytesPerDeviceFrame() : 0;
+            const int32_t framesProcessed = callDataCallbackFrames(
+                    buffer.data(), buffer.getFrameCount());
+            if (framesProcessed < 0) {
+                written = 0;
+                callbackResult = AAUDIO_CALLBACK_RESULT_STOP;
+            } else {
+                written = framesProcessed * getBytesPerDeviceFrame();
+                callbackResult = AAUDIO_CALLBACK_RESULT_CONTINUE;
+            }
         }
 
-        if (callbackResult != AAUDIO_CALLBACK_RESULT_CONTINUE) {
-            if (callbackResult == AAUDIO_CALLBACK_RESULT_STOP) {
-                ALOGD("%s() callback returned AAUDIO_CALLBACK_RESULT_STOP", __func__);
-            } else {
-                ALOGW("%s() callback returned invalid result = %d",
-                      __func__, callbackResult);
-            }
-            if (callbackResult != AAUDIO_CALLBACK_RESULT_STOP || shouldStopStream()) {
+        if (callbackResult == AAUDIO_CALLBACK_RESULT_STOP) {
+            ALOGD("%s() callback requested to stop", __func__);
+            if (shouldStopStream()) {
                 // If the callback result is STOP, stop the stream if it should be stopped.
                 // Currently, the framework will not call stop if the client is doing offload
                 // playback and waiting for stream end. The client will already be STOPPING
@@ -149,7 +149,7 @@ size_t AudioStreamLegacy::onMoreData(const android::AudioRecord::Buffer& buffer)
     // That is an undocumented behavior.
     // TODO add to API in AudioRecord and AudioTrack
     const size_t SIZE_STOP_CALLBACKS = SIZE_MAX;
-    aaudio_data_callback_result_t callbackResult;
+    aaudio_data_callback_result_t callbackResult = AAUDIO_CALLBACK_RESULT_CONTINUE;
     (void) checkForDisconnectRequest(true);
 
     // Note that this code assumes an AudioTrack::Buffer is the same as
@@ -180,18 +180,18 @@ size_t AudioStreamLegacy::onMoreData(const android::AudioRecord::Buffer& buffer)
                     buffer.data(), byteCount);
         } else {
             // Call using the AAudio callback interface.
-            callbackResult = callDataCallbackFrames(buffer.data(),
-                                                    buffer.getFrameCount());
-            written = callbackResult == AAUDIO_CALLBACK_RESULT_CONTINUE ?
-                    buffer.getFrameCount() * getBytesPerDeviceFrame() : 0;
-        }
-        if (callbackResult != AAUDIO_CALLBACK_RESULT_CONTINUE) {
-            if (callbackResult == AAUDIO_CALLBACK_RESULT_STOP) {
-                ALOGD("%s() callback returned AAUDIO_CALLBACK_RESULT_STOP", __func__);
+            const int framesProcessed = callDataCallbackFrames(
+                    buffer.data(), buffer.getFrameCount());
+            if (framesProcessed < 0) {
+                written = 0;
+                callbackResult = AAUDIO_CALLBACK_RESULT_STOP;
             } else {
-                ALOGW("%s() callback returned invalid result = %d",
-                      __func__, callbackResult);
+                written = framesProcessed * getBytesPerDeviceFrame();
+                callbackResult = AAUDIO_CALLBACK_RESULT_CONTINUE;
             }
+        }
+        if (callbackResult == AAUDIO_CALLBACK_RESULT_STOP) {
+            ALOGD("%s() callback requested to stop", __func__);
             // Always stop the recording case if callback result is not CONTINUE.
             systemStopInternal();
             // Disable the callback just in case the system keeps trying to call us.

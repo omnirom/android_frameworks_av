@@ -35,6 +35,12 @@
 
 namespace android {
 
+class StreamCloseHandler : public virtual RefBase {
+  public:
+    virtual ~StreamCloseHandler() = default;
+    virtual void streamClosed(const sp<StreamHalInterface>& stream) = 0;
+};
+
 class StreamOutHalInterfaceCallback;
 class StreamOutHalInterfaceEventCallback;
 class StreamOutHalInterfaceLatencyModeCallback;
@@ -43,7 +49,7 @@ class StreamOutHalInterfaceLatencyModeCallback;
 // with StreamOut callback implementations. Since AIDL requires all callbacks
 // to be provided upfront, while libaudiohal interfaces allow late registration,
 // there is a need to coordinate the matching process.
-class CallbackBroker : public virtual RefBase {
+class CallbackBroker : public StreamCloseHandler {
   public:
     virtual ~CallbackBroker() = default;
     // The cookie is always the stream instance pointer. We don't use weak pointers to avoid extra
@@ -62,7 +68,7 @@ class CallbackBroker : public virtual RefBase {
             void* cookie, const sp<StreamOutHalInterfaceLatencyModeCallback>&) = 0;
 };
 
-class MicrophoneInfoProvider : public virtual RefBase {
+class MicrophoneInfoProvider : public StreamCloseHandler {
   public:
     using Info = std::vector<::aidl::android::media::audio::common::MicrophoneInfo>;
     virtual ~MicrophoneInfoProvider() = default;
@@ -121,7 +127,8 @@ class DeviceHalAidl : public DeviceHalInterface, public ConversionHelperAidl,
                               audio_output_flags_t flags, struct audio_config* config,
                               const char* address, sp<StreamOutHalInterface>* outStream,
                               const std::vector<playback_track_metadata_v7_t>&
-                                                               sourceMetadata = {}) override;
+                                                               sourceMetadata = {},
+                              int32_t mixPortHalId = 0) override;
 
     // Creates and opens the audio hardware input stream. The stream is closed
     // by releasing all references to the returned object.
@@ -129,7 +136,8 @@ class DeviceHalAidl : public DeviceHalInterface, public ConversionHelperAidl,
                              struct audio_config* config, audio_input_flags_t flags,
                              const char* address, audio_source_t source,
                              audio_devices_t outputDevice, const char* outputDeviceAddress,
-                             sp<StreamInHalInterface>* inStream) override;
+                             sp<StreamInHalInterface>* inStream,
+                             int32_t mixPortHalId = 0) override;
 
     // Returns whether createAudioPatch and releaseAudioPatch operations are supported.
     status_t supportsAudioPatches(bool* supportsPatches) override;
@@ -182,7 +190,8 @@ class DeviceHalAidl : public DeviceHalInterface, public ConversionHelperAidl,
     status_t setSimulateDeviceConnections(bool enabled) override;
 
     status_t getAudioMixPort(const struct audio_port_v7* devicePort,
-                             struct audio_port_v7* mixPort) override;
+                             struct audio_port_v7* mixPort,
+                             int32_t mixPortHalId) override;
 
     status_t dump(int fd, const Vector<String16>& args) override;
 
@@ -216,6 +225,11 @@ class DeviceHalAidl : public DeviceHalInterface, public ConversionHelperAidl,
     status_t filterAndUpdateBtScoParameters(AudioParameter &parameters);
     status_t filterAndUpdateScreenParameters(AudioParameter &parameters);
     status_t filterAndUpdateTelephonyParameters(AudioParameter &parameters);
+    status_t parseAndGetVendorParameters(const AudioParameter& parameterKeys, String8* values);
+    status_t parseAndSetVendorParameters(const AudioParameter& parameters);
+
+    // StreamCloseHandler implementation
+    void streamClosed(const sp<StreamHalInterface>& stream);
 
     // CallbackBroker implementation
     void clearCallbacks(void* cookie) override;

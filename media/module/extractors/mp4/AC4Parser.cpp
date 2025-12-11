@@ -72,11 +72,11 @@ static const char* ContentClassifier[] = {
 bool AC4DSIParser::parseLanguageTag(uint32_t presentationID, uint32_t substreamID){
     CHECK_BITS_LEFT(6);
     uint32_t n_language_tag_bytes = mBitReader.getBits(6);
-    if (n_language_tag_bytes < 2 || n_language_tag_bytes >= 42) {
+    if (n_language_tag_bytes < 2 || n_language_tag_bytes > 42) {
         return false;
     }
     CHECK_BITS_LEFT(n_language_tag_bytes * 8);
-    char language_tag_bytes[42]; // TS 103 190 part 1 4.3.3.8.7
+    char language_tag_bytes[43]; // TS 103 190 part 1 4.3.3.8.7
     for (uint32_t i = 0; i < n_language_tag_bytes; i++) {
         language_tag_bytes[i] = (char)mBitReader.getBits(8);
     }
@@ -202,6 +202,7 @@ bool AC4DSIParser::parseSubstreamGroupDSI(uint32_t presentationID, uint32_t grou
                 uint32_t n_umx_objects_minus1 = mBitReader.getBits(6);
                 ALOGV("%u.%u.%u: n_umx_objects_minus1 = %u\n", presentationID, groupID, i,
                     n_umx_objects_minus1);
+                mPresentations[presentationID].mNumOfUmxObjects = n_umx_objects_minus1 + 1;
             }
             CHECK_BITS_LEFT(4);
             mBitReader.skipBits(4); // objects_assignment_mask
@@ -349,6 +350,7 @@ bool AC4DSIParser::parse() {
             CHECK_BITS_LEFT(3 + 1);
             uint32_t mdcompat = mBitReader.getBits(3);
             ALOGV("%u: mdcompat = %d\n", presentation, mdcompat);
+            mPresentations[presentation].mLevel = mdcompat;
 
             bool b_presentation_group_index = (mBitReader.getBits(1) == 1);
             ALOGV("%u: b_presentation_group_index = %s\n", presentation,
@@ -376,16 +378,15 @@ bool AC4DSIParser::parse() {
             ALOGV("%u: presentation_key_id = %d\n", presentation, presentation_key_id);
 
             if (ac4_dsi_version == 1) {
-                bool b_presentation_channel_coded = false;
                 if (presentation_version == 0) {
-                    b_presentation_channel_coded = true;
+                    mPresentations[presentation].mChannelCoded = true;
                 } else {
                     CHECK_BITS_LEFT(1);
-                    b_presentation_channel_coded = (mBitReader.getBits(1) == 1);
+                    mPresentations[presentation].mChannelCoded = (mBitReader.getBits(1) == 1);
                 }
                 ALOGV("%u: b_presentation_channel_coded = %s\n", presentation,
-                    BOOLSTR(b_presentation_channel_coded));
-                if (b_presentation_channel_coded) {
+                    BOOLSTR(mPresentations[presentation].mChannelCoded));
+                if (mPresentations[presentation].mChannelCoded) {
                     if (presentation_version == 1 || presentation_version == 2) {
                         CHECK_BITS_LEFT(5);
                         uint32_t dsi_presentation_ch_mode = mBitReader.getBits(5);
@@ -429,11 +430,10 @@ bool AC4DSIParser::parse() {
                     ALOGV("%u: b_presentation_filter = %s\n", presentation,
                         BOOLSTR(b_presentation_filter));
                     if (b_presentation_filter) {
+                        // Ignore b_enable_presentation field since this flag occurs in AC-4
+                        // elementary stream TOC and AC-4 decoder doesn't handle it either.
                         CHECK_BITS_LEFT(1 + 8);
                         bool b_enable_presentation = (mBitReader.getBits(1) == 1);
-                        if (!b_enable_presentation) {
-                            mPresentations[presentation].mEnabled = false;
-                        }
                         ALOGV("%u: b_enable_presentation = %s\n", presentation,
                             BOOLSTR(b_enable_presentation));
                         uint32_t n_filter_bytes = mBitReader.getBits(8);
@@ -612,8 +612,9 @@ bool AC4DSIParser::parse() {
 
         // we should know this or something is probably wrong
         // with the bitstream (or we don't support it)
-        if (mPresentations[presentation].mChannelMode == -1) {
-            ALOGE("could not determing channel mode of presentation %d", presentation);
+        if (mPresentations[presentation].mChannelCoded &&
+            mPresentations[presentation].mChannelMode == -1) {
+            ALOGE("could not determine channel mode of presentation %d", presentation);
             return false;
         }
     } /* each presentation */

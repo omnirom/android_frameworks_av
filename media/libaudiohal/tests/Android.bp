@@ -41,6 +41,7 @@ cc_test {
     ],
     defaults: ["libaudiohal_aidl_test_default"],
     header_libs: ["libaudiohalimpl_headers"],
+    static_libs: ["libflagtest"],
 }
 
 cc_test {

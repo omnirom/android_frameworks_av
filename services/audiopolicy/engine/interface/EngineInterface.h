@@ -286,6 +286,12 @@ public:
     virtual IVolumeCurves *getVolumeCurvesForVolumeGroup(volume_group_t group) const = 0;
 
     /**
+     * @brief Determines if the volume group is valid
+     * @return true if the volume group is valid, false otherwise
+     */
+    virtual bool isValidVolumeGroup(volume_group_t group) const = 0;
+
+    /**
      * @brief getVolumeGroups retrieves the collection of volume groups.
      * @return vector of volume groups
      */
@@ -302,6 +308,19 @@ public:
      */
     virtual volume_group_t getVolumeGroupForAttributes(
             const audio_attributes_t &attr, bool fallbackOnDefault = true) const = 0;
+
+    /**
+     * Gets the audio attributes matching the given volume group id, if none, returns the default
+     * attributes of the default volume group if fallbackOnDefault is set.
+     *
+     * @param group to consider
+     * @param fallbackOnDefault true to fallback on default volume group attributes if group not
+     * found, false otherwise.
+     * @return attributes matching the requested group, or default attributes if fallbackOnDefault
+     * is true.
+     */
+    virtual audio_attributes_t getAttributesForVolumeGroup(
+            volume_group_t group, bool fallbackOnDefault = true) const = 0;
 
     /**
      * @brief getVolumeGroupForStreamType gets the appropriate volume group to be used for a given

@@ -28,6 +28,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import java.util.ArrayDeque;
+
 import com.android.media.benchmark.library.Decoder;
 
 public class BlockModelDecoder extends Decoder {
@@ -84,6 +86,21 @@ public class BlockModelDecoder extends Decoder {
         }
     }
 
+    @Override
+    public boolean returnBuffers(ArrayDeque<IBufferXfer.IProducerData> datas) {
+        for (IBufferXfer.IProducerData data : datas) {
+            DecoderData decoderData = (DecoderData)data;
+            if (decoderData.mOutputFrame != null
+                    && decoderData.mOutputFrame.getLinearBlock() != null) {
+                decoderData.mOutputFrame.getLinearBlock().recycle();
+                decoderData.mOutputFrame  = null;
+            } else {
+                Log.d(TAG, "Error, output frame not found in decoder data");
+            }
+        }
+        return super.returnBuffers(datas);
+    }
+
     public BlockModelDecoder() {
         // empty
     }
@@ -91,6 +108,10 @@ public class BlockModelDecoder extends Decoder {
     public void tearDown() {
         mLinearInputBlock.recycle();
 
+    }
+
+    protected boolean isOutputBufferLinear() {
+        return mMime.startsWith("audio");
     }
 
     /**
@@ -112,6 +133,13 @@ public class BlockModelDecoder extends Decoder {
         @NonNull MediaFormat format, String codecName)
         throws IOException, InterruptedException {
         setExtraConfigureFlags(MediaCodec.CONFIGURE_FLAG_USE_BLOCK_MODEL);
+        if (format.containsKey(MediaFormat.KEY_MIME)) {
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            if (mConsumer != null && !mime.startsWith("audio/")) {
+                Log.e(TAG, "Non-linear input buffers cannot be instantiated for buffer transfer.");
+                throw new IOException();
+            }
+        }
         return super.decode(inputBuffer, inputBufferInfo, asyncMode, format, codecName);
     }
 
@@ -136,7 +164,7 @@ public class BlockModelDecoder extends Decoder {
         }
         codecFlags |= mSawInputEOS ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0;
         if (DEBUG) {
-            Log.v(TAG, "input: id: " + inputBufferId
+            Log.v(TAG, "Input: id: " + inputBufferId
                     + " size: " + bufInfo.size
                     + " pts: " + bufInfo.presentationTimeUs
                     + " flags: " + codecFlags);
@@ -166,26 +194,26 @@ public class BlockModelDecoder extends Decoder {
         if (mSawOutputEOS || outputBufferId < 0) {
             return;
         }
+        boolean canGetBtyeBuffer = isOutputBufferLinear();;
+
         mNumOutputFrame++;
         if (DEBUG) {
             Log.d(TAG,
                     "In OutputBufferAvailable ,"
                             + " output frame number = " + mNumOutputFrame
                             + " timestamp = " + outputBufferInfo.presentationTimeUs
-                            + " size = " + outputBufferInfo.size);
+                            + " size = " + outputBufferInfo.size
+                            + " flags = " + outputBufferInfo.flags);
         }
         MediaCodec.OutputFrame outFrame = mediaCodec.getOutputFrame(outputBufferId);
         ByteBuffer outputBuffer = null;
-        try {
-            if (outFrame.getLinearBlock() != null) {
-                outputBuffer = outFrame.getLinearBlock().map();
-            }
-        } catch(IllegalStateException e) {
-            // buffer may not be linear, this is ok
-            // as we are handling non-linear buffers below.
-        }
-        if (mOutputStream != null) {
+        if (mOutputStream != null && canGetBtyeBuffer == true) {
             try {
+                if (outputBuffer == null) {
+                    if (outFrame != null && outFrame.getLinearBlock() != null) {
+                        outputBuffer = outFrame.getLinearBlock().map();
+                    }
+                }
                 if (outputBuffer != null) {
                     byte[] bytesOutput = new byte[outputBuffer.remaining()];
                     outputBuffer.get(bytesOutput);
@@ -196,21 +224,29 @@ public class BlockModelDecoder extends Decoder {
                 Log.d(TAG, "Error Dumping File: Exception " + e.toString());
             }
         }
-        ByteBuffer copiedBuffer = null;
-        int bytesRemaining = 0;
-        if (outputBuffer != null) {
-            bytesRemaining = outputBuffer.remaining();
-            if (mIBufferSend != null) {
-                copiedBuffer = ByteBuffer.allocate(outputBuffer.remaining());
-                copiedBuffer.put(outputBuffer);
+        mSawOutputEOS = (outputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+        if (mConsumer != null && canGetBtyeBuffer == true) {
+            ArrayDeque<MediaCodec.BufferInfo> infos = new ArrayDeque<>();
+            infos.add(outputBufferInfo);
+            if (outputBuffer == null) {
+                if (outFrame != null && outFrame.getLinearBlock() != null) {
+                    outputBuffer = outFrame.getLinearBlock().map();
+                }
             }
-            outFrame.getLinearBlock().recycle();
-            outputBuffer = null;
-        }
-        if (mFrameReleaseQueue != null) {
+            DecoderData data = prepareDecoderData(outputBufferId, outputBuffer, infos);
+            if (data != null) {
+                ArrayDeque<IBufferXfer.IProducerData> buffers = new ArrayDeque<>();
+                data.mOutputFrame = outFrame;
+                buffers.add(data);
+                sendToConsumer(buffers);
+            } else if (outputBuffer != null) {
+                outFrame.getLinearBlock().recycle();
+                outputBuffer = null;
+            }
+        } else if (mFrameReleaseQueue != null) {
             if (mMime.startsWith("audio/")) {
                 try {
-                    mFrameReleaseQueue.pushFrame(outputBufferId, bytesRemaining);
+                    mFrameReleaseQueue.pushFrame(outputBufferId, outFrame, outputBufferInfo.size);
                 } catch (Exception e) {
                     Log.d(TAG, "Error in getting MediaCodec buffer" + e.toString());
                 }
@@ -218,21 +254,13 @@ public class BlockModelDecoder extends Decoder {
                 mFrameReleaseQueue.pushFrame(mNumOutputFrame, outputBufferId,
                                                 outputBufferInfo.presentationTimeUs);
             }
-
-        } else if (mIBufferSend != null) {
-            IBufferXfer.BufferXferInfo info = new IBufferXfer.BufferXferInfo();
-            // TODO: may be inefficient;
-            info.buf = copiedBuffer;
-            info.idx = outputBufferId;
-            info.obj = mediaCodec;
-            info.bytesRead = outputBufferInfo.size;
-            info.presentationTimeUs = outputBufferInfo.presentationTimeUs;
-            info.flag = outputBufferInfo.flags;
-            mIBufferSend.sendBuffer(this, info);
         } else {
+            if (canGetBtyeBuffer == true && outFrame != null && outFrame.getLinearBlock() != null) {
+                outFrame.getLinearBlock().recycle();
+                outputBuffer = null;
+            }
             mediaCodec.releaseOutputBuffer(outputBufferId, mRender);
         }
-        mSawOutputEOS = (outputBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
         if (DEBUG && mSawOutputEOS) {
             Log.i(TAG, "Saw output EOS");
         }

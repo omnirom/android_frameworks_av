@@ -24,6 +24,7 @@
     <Component Name="STRATEGY_ENFORCED_AUDIBLE" Type="ProductStrategy" Mapping="Name:STRATEGY_ENFORCED_AUDIBLE"/>
     <Component Name="STRATEGY_ACCESSIBILITY" Type="ProductStrategy" Mapping="Name:STRATEGY_ACCESSIBILITY"/>
     <Component Name="STRATEGY_SONIFICATION_RESPECTFUL" Type="ProductStrategy" Mapping="Name:STRATEGY_SONIFICATION_RESPECTFUL"/>
+    <Component Name="STRATEGY_ASSISTANT" Type="ProductStrategy" Mapping="Name:STRATEGY_ASSISTANT"/>
     <Component Name="STRATEGY_MEDIA" Type="ProductStrategy" Mapping="Name:STRATEGY_MEDIA"/>
     <Component Name="STRATEGY_DTMF" Type="ProductStrategy" Mapping="Name:STRATEGY_DTMF"/>
     <Component Name="STRATEGY_CALL_ASSISTANT" Type="ProductStrategy" Mapping="Name:STRATEGY_CALL_ASSISTANT"/>

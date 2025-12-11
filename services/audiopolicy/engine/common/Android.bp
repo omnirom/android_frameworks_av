@@ -59,6 +59,7 @@ cc_library_static {
         "libaudiopolicycomponents",
     ],
     whole_static_libs: [
+        "android.media.audiopolicy-aconfig-cc",
         "com.android.media.audio-aconfig-cc",
         "server_configurable_flags",
     ],

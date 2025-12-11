@@ -34,8 +34,10 @@ public:
     virtual void addCurrentVolumeIndex(audio_devices_t device, int index) = 0;
     virtual bool canBeMuted() const = 0;
     virtual int getVolumeIndexMin() const = 0;
+    virtual int setVolumeIndexMin(int index) = 0;
     virtual int getVolumeIndex(const DeviceTypeSet& device) const = 0;
     virtual int getVolumeIndexMax() const = 0;
+    virtual int setVolumeIndexMax(int index) = 0;
     virtual float volIndexToDb(device_category device, int indexInUi) const = 0;
     virtual bool hasVolumeIndexForDevice(audio_devices_t device) const = 0;
     virtual status_t initVolume(int indexMin, int indexMax) = 0;

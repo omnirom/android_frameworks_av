@@ -89,13 +89,9 @@ class PreProcessingContext final : public EffectContext {
     // handle on webRTC audio processing module (APM)
     rtc::scoped_refptr<webrtc::AudioProcessing> mAudioProcessingModule;
 
-    int mEnabledMsk;       // bit field containing IDs of enabled pre processors
-    int mProcessedMsk;     // bit field containing IDs of pre processors already
-                                              // processed in current round
-    int mRevEnabledMsk;    // bit field containing IDs of enabled pre processors
-                                              // with reverse channel
-    int mRevProcessedMsk;  // bit field containing IDs of pre processors with
-                           // reverse channel already processed in current round
+    int mEnabledMsk;     // bit field containing IDs of enabled pre processors
+    int mRevEnabledMsk;  // bit field containing IDs of enabled pre processors
+                         // with reverse channel
 
     webrtc::StreamConfig mInputConfig;   // input stream configuration
     webrtc::StreamConfig mOutputConfig;  // output stream configuration
@@ -117,6 +113,8 @@ class PreProcessingContext final : public EffectContext {
 
     // NoiseSuppression
     NoiseSuppression::Level mLevel = NoiseSuppression::Level::LOW;
+
+    int calculateWebrtcChunkSizeInSamples();
 };
 
 }  // namespace aidl::android::hardware::audio::effect

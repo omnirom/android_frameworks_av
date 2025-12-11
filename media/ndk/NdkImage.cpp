@@ -32,11 +32,11 @@ using namespace android;
 #define ALIGN(x, mask) ( ((x) + (mask) - 1) & ~((mask) - 1) )
 
 AImage::AImage(AImageReader* reader, int32_t format, uint64_t usage, BufferItem* buffer,
-        int64_t timestamp, int32_t width, int32_t height, int32_t numPlanes) :
+        int64_t timestamp, int32_t width, int32_t height, int32_t numPlanes,
+        android_dataspace dataspace) :
         mReader(reader), mFormat(format), mUsage(usage), mBuffer(buffer), mLockedBuffer(nullptr),
-        mTimestamp(timestamp), mWidth(width), mHeight(height), mNumPlanes(numPlanes) {
-    PublicFormat publicFormat = static_cast<PublicFormat>(format);
-    mHalDataSpace = mapPublicFormatToHalDataspace(publicFormat);
+        mTimestamp(timestamp), mWidth(width), mHeight(height), mNumPlanes(numPlanes),
+        mHalDataSpace(dataspace) {
     LOG_FATAL_IF(reader == nullptr, "AImageReader shouldn't be null while creating AImage");
 }
 
@@ -665,6 +665,17 @@ AImage::getHardwareBuffer(/*out*/AHardwareBuffer** buffer) const {
     return AMEDIA_OK;
 }
 
+media_status_t
+AImage::getTransform(/*out*/int32_t* transform) const {
+    if (mBuffer == nullptr || mBuffer->mGraphicBuffer == nullptr) {
+        ALOGE("%s: AImage %p has no buffer.", __FUNCTION__, this);
+        return AMEDIA_ERROR_INVALID_OBJECT;
+    }
+
+    *transform = mBuffer->mTransform;
+    return AMEDIA_OK;
+}
+
 EXPORT
 void AImage_delete(AImage* image) {
     ALOGV("%s", __FUNCTION__);
@@ -845,4 +856,16 @@ media_status_t AImage_getDataSpace(
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
     return image->getDataSpace((android_dataspace*)(dataSpace));
+}
+
+EXPORT
+media_status_t AImage_getTransform(
+    AImage* image, /*out*/int32_t* transform) {
+    ALOGV("%s", __FUNCTION__);
+
+    if (image == nullptr || transform == nullptr) {
+        ALOGE("%s: bad argument. image %p transform %p", __FUNCTION__, image, transform);
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    return image->getTransform(transform);
 }

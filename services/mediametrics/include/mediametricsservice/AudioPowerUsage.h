@@ -17,8 +17,8 @@
 #pragma once
 
 #include <android-base/thread_annotations.h>
-#include <deque>
 #include <media/MediaMetricsItem.h>
+#include <deque>
 #include <mutex>
 #include <thread>
 
@@ -26,12 +26,11 @@
 
 namespace android::mediametrics {
 
-
 class AudioAnalytics;
 
 class AudioPowerUsage {
-public:
-    AudioPowerUsage(AudioAnalytics *audioAnalytics, const std::shared_ptr<StatsdLog>& statsdLog);
+  public:
+    AudioPowerUsage(AudioAnalytics* audioAnalytics, const std::shared_ptr<StatsdLog>& statsdLog);
     ~AudioPowerUsage();
 
     void checkTrackRecord(const std::shared_ptr<const mediametrics::Item>& item, bool isTrack);
@@ -50,60 +49,96 @@ public:
      */
     std::pair<std::string, int32_t> dump(int32_t lines = INT32_MAX) const;
 
-    // align with message AudioPowerUsageDataReported in frameworks/proto_logging/stats/atoms.proto
-    enum AudioType {
-        UNKNOWN_TYPE = 0,
-        VOICE_CALL_TYPE = 1,            // voice call
-        VOIP_CALL_TYPE = 2,             // voip call, including uplink and downlink
-        MEDIA_TYPE = 3,                 // music and system sound
-        RINGTONE_NOTIFICATION_TYPE = 4, // ringtone and notification
-        ALARM_TYPE = 5,                 // alarm type
-        // record type
-        CAMCORDER_TYPE = 6,             // camcorder
-        RECORD_TYPE = 7,                // other recording
-    };
-
     enum AudioDevice {
-        OUTPUT_EARPIECE         = 0x1,
-        OUTPUT_SPEAKER          = 0x2,
-        OUTPUT_WIRED_HEADSET    = 0x4,
-        OUTPUT_USB_HEADSET      = 0x8,
-        OUTPUT_BLUETOOTH_SCO    = 0x10,
-        OUTPUT_BLUETOOTH_A2DP   = 0x20,
-        OUTPUT_SPEAKER_SAFE     = 0x40,
-        OUTPUT_BLUETOOTH_BLE    = 0x80,
-        OUTPUT_DOCK             = 0x100,
-        OUTPUT_HDMI             = 0x200,
-
-        INPUT_DEVICE_BIT        = 0x40000000,
-        INPUT_BUILTIN_MIC       = INPUT_DEVICE_BIT | 0x1, // non-negative positive int32.
-        INPUT_BUILTIN_BACK_MIC  = INPUT_DEVICE_BIT | 0x2,
-        INPUT_WIRED_HEADSET_MIC = INPUT_DEVICE_BIT | 0x4,
-        INPUT_USB_HEADSET_MIC   = INPUT_DEVICE_BIT | 0x8,
-        INPUT_BLUETOOTH_SCO     = INPUT_DEVICE_BIT | 0x10,
-        INPUT_BLUETOOTH_BLE     = INPUT_DEVICE_BIT | 0x20,
+        UNKNOWN_DEVICE = 0,
+        // Output Devices
+        OUTPUT_EARPIECE = 0x00000001u,
+        OUTPUT_SPEAKER = 0x00000002u,
+        OUTPUT_WIRED_HEADSET = 0x00000004u,
+        OUTPUT_WIRED_HEADPHONE = 0x00000008u,
+        OUTPUT_BLUETOOTH_SCO = 0x00000010u,
+        OUTPUT_BLUETOOTH_SCO_HEADSET = 0x00000020u,
+        OUTPUT_BLUETOOTH_SCO_CARKIT = 0x00000040u,
+        OUTPUT_BLUETOOTH_A2DP = 0x00000080u,
+        OUTPUT_BLUETOOTH_A2DP_HEADPHONES = 0x00000100u,
+        OUTPUT_BLUETOOTH_A2DP_SPEAKER = 0x00000200u,
+        OUTPUT_HDMI = 0x00000400u,
+        OUTPUT_ANLG_DOCK_HEADSET = 0x00000800u,
+        OUTPUT_DGTL_DOCK_HEADSET = 0x00001000u,
+        OUTPUT_USB_ACCESSORY = 0x00002000u,
+        OUTPUT_USB_DEVICE = 0x00004000u,
+        OUTPUT_REMOTE_SUBMIX = 0x00008000u,
+        OUTPUT_TELEPHONY_TX = 0x00010000u,
+        OUTPUT_LINE = 0x00020000u,
+        OUTPUT_HDMI_ARC = 0x00040000u,
+        OUTPUT_HDMI_EARC = 0x00040001u,
+        OUTPUT_SPDIF = 0x00080000u,
+        OUTPUT_FM = 0x00100000u,
+        OUTPUT_AUX_LINE = 0x00200000u,
+        OUTPUT_SPEAKER_SAFE = 0x00400000u,
+        OUTPUT_IP = 0x00800000u,
+        OUTPUT_MULTICHANNEL_GROUP = 0x00800001u,
+        OUTPUT_BUS = 0x01000000u,
+        OUTPUT_PROXY = 0x02000000u,
+        OUTPUT_USB_HEADSET = 0x04000000u,
+        OUTPUT_HEARING_AID = 0x08000000u,
+        OUTPUT_ECHO_CANCELLER = 0x10000000u,
+        OUTPUT_BLE_HEADSET = 0x20000000u,
+        OUTPUT_BLE_SPEAKER = 0x20000001u,
+        OUTPUT_BLE_BROADCAST = 0x20000002u,
+        // Input Devices
+        INPUT_DEVICE_BIT = 0x40000000,
+        INPUT_COMMUNICATION = 0x80000001u,
+        INPUT_AMBIENT = 0x80000002u,
+        INPUT_BUILTIN_MIC = 0x80000004u,
+        INPUT_BLUETOOTH_SCO_HEADSET = 0x80000008u,
+        INPUT_WIRED_HEADSET = 0x80000010u,
+        INPUT_HDMI = 0x80000020u,
+        INPUT_TELEPHONY_RX = 0x80000040u,
+        INPUT_BACK_MIC = 0x80000080u,
+        INPUT_REMOTE_SUBMIX = 0x80000100u,
+        INPUT_ANLG_DOCK_HEADSET = 0x80000200u,
+        INPUT_DGTL_DOCK_HEADSET = 0x80000400u,
+        INPUT_USB_ACCESSORY = 0x80000800u,
+        INPUT_USB_DEVICE = 0x80001000u,
+        INPUT_FM_TUNER = 0x80002000u,
+        INPUT_TV_TUNER = 0x80004000u,
+        INPUT_LINE = 0x80008000u,
+        INPUT_SPDIF = 0x80010000u,
+        INPUT_BLUETOOTH_A2DP = 0x80020000u,
+        INPUT_LOOPBACK = 0x80040000u,
+        INPUT_IP = 0x80080000u,
+        INPUT_BUS = 0x80100000u,
+        INPUT_PROXY = 0x81000000u,
+        INPUT_USB_HEADSET = 0x82000000u,
+        INPUT_BLUETOOTH_BLE = 0x84000000u,
+        INPUT_HDMI_ARC = 0x88000000u,
+        INPUT_HDMI_EARC = 0x88000001u,
+        INPUT_ECHO_REFERENCE = 0x90000000u,
+        INPUT_BLE_HEADSET = 0xA0000000u,
     };
 
-    static bool typeFromString(const std::string& type_string, int32_t& type);
     static bool deviceFromString(const std::string& device_string, int32_t& device);
     static int32_t deviceFromStringPairs(const std::string& device_strings);
-private:
-    bool saveAsItem_l(int32_t device, int64_t duration, int32_t type, double average_vol,
-                      int64_t max_volume_duration, double max_volume,
-                      int64_t min_volume_duration, double min_volume)
-                      REQUIRES(mLock);
+
+  private:
+    bool saveAsItem_l(int32_t device, int64_t duration, int32_t stream_type, int32_t source,
+                      int32_t usage, int32_t content_type, double average_vol,
+                      int64_t max_volume_duration, double max_volume, int64_t min_volume_duration,
+                      double min_volume) REQUIRES(mLock);
     void sendItem(const std::shared_ptr<const mediametrics::Item>& item) const;
     void collect();
-    bool saveAsItems_l(int32_t device, int64_t duration, int32_t type, double average_vol,
-                      int64_t max_volume_duration, double max_volume,
-                      int64_t min_volume_duration, double min_volume)
-                      REQUIRES(mLock);
-    void updateMinMaxVolumeAndDuration(
-            const int64_t cur_max_volume_duration_ns, const double cur_max_volume,
-            const int64_t cur_min_volume_duration_ns, const double cur_min_volume,
-            int64_t& f_max_volume_duration_ns, double& f_max_volume,
-            int64_t& f_min_volume_duration_ns, double& f_min_volume);
-    AudioAnalytics * const mAudioAnalytics;
+    bool saveAsItems_l(int32_t device, int64_t duration, int32_t stream_type, int32_t source,
+                       int32_t usage, int32_t content_type, double average_vol,
+                       int64_t max_volume_duration, double max_volume, int64_t min_volume_duration,
+                       double min_volume) REQUIRES(mLock);
+    void updateMinMaxVolumeAndDuration(const int64_t cur_max_volume_duration_ns,
+                                       const double cur_max_volume,
+                                       const int64_t cur_min_volume_duration_ns,
+                                       const double cur_min_volume,
+                                       int64_t& f_max_volume_duration_ns, double& f_max_volume,
+                                       int64_t& f_min_volume_duration_ns, double& f_min_volume);
+    AudioAnalytics* const mAudioAnalytics;
     const std::shared_ptr<StatsdLog> mStatsdLog;  // mStatsdLog is internally locked
     const bool mDisabled;
     const int32_t mIntervalHours;
@@ -117,11 +152,11 @@ private:
     double mMinVoiceVolume GUARDED_BY(mLock) = AMEDIAMETRICS_INITIAL_MIN_VOLUME;
     int64_t mMaxVoiceVolumeDurationNs GUARDED_BY(mLock) = 0;
     int64_t mMinVoiceVolumeDurationNs GUARDED_BY(mLock) = 0;
-    int64_t mStartCallNs GUARDED_BY(mLock) = 0; // advisory only
+    int64_t mStartCallNs GUARDED_BY(mLock) = 0;  // advisory only
     int64_t mVolumeTimeNs GUARDED_BY(mLock) = 0;
     int64_t mDeviceTimeNs GUARDED_BY(mLock) = 0;
     int32_t mPrimaryDevice GUARDED_BY(mLock) = OUTPUT_SPEAKER;
-    std::string mMode GUARDED_BY(mLock) {"AUDIO_MODE_NORMAL"};
+    std::string mMode GUARDED_BY(mLock){"AUDIO_MODE_NORMAL"};
 };
 
-} // namespace android::mediametrics
+}  // namespace android::mediametrics

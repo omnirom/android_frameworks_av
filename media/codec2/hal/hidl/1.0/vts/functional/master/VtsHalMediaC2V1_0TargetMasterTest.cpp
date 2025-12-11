@@ -91,6 +91,9 @@ TEST_P(Codec2MasterHalTest, MustUseAidlBeyond202404) {
     }
     ALOGV("MustUseAidlBeyond202404 Test");
 
+    if (mClient->getAidlBase() == nullptr && mClient->getHidlBase() == nullptr) {
+        GTEST_SKIP() << "Codec2Client is not communicating with the HAL";
+    }
     EXPECT_NE(mClient->getAidlBase(), nullptr) << "android.hardware.media.c2 MUST use AIDL "
                                                << "for chipsets launching at 202404 or above";
 }

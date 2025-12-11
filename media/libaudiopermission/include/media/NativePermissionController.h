@@ -17,7 +17,6 @@
 #pragma once
 
 #include <mutex>
-#include <optional>
 #include <unordered_map>
 
 #include "IPermissionProvider.h"
@@ -44,10 +43,16 @@ class NativePermissionController : public BnNativePermissionController, public I
     ::android::error::BinderResult<bool> checkPermission(PermissionEnum permission,
                                                          uid_t uid) const final;
 
+    ::android::error::BinderResult<int32_t> getHighestTargetSdkForUid(uid_t uid) const final;
+    ::android::error::BinderResult<bool> doesUidPermitPlaybackCapture(uid_t uid) const final;
+
+    std::string dumpString() const final;
+
   private:
     mutable std::mutex m_;
     // map of app_ids to the set of packages names which could run in them (should be 1)
-    std::unordered_map<uid_t, std::vector<std::string>> package_map_ GUARDED_BY(m_);
+    std::unordered_map<uid_t, std::vector<UidPackageState::PackageState>> package_map_
+            GUARDED_BY(m_);
     bool is_package_populated_ GUARDED_BY(m_);
     // (logical) map of PermissionEnum to list of uids (not appid) which hold the perm
     std::array<std::vector<uid_t>, static_cast<size_t>(PermissionEnum::ENUM_SIZE)> permission_map_

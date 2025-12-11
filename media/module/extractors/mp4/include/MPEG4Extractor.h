@@ -127,6 +127,9 @@ private:
     };
 
     static const int kTx3gGrowth = 16 * 1024;
+    // The IAMF spec limits the encoded size to a maximum of 8 bytes.
+    // https://aomediacodec.github.io/iamf/#convention-data-types
+    static const uint32_t kMaxIamfLeb128SizesBytes = 8;
 
     Vector<SidxEntry> mSidxEntries;
     off64_t mMoofOffset;
@@ -166,6 +169,10 @@ private:
     void parseID3v2MetaData(off64_t offset, uint64_t size);
     status_t parseQTMetaKey(off64_t data_offset, size_t data_size);
     status_t parseQTMetaVal(int32_t keyId, off64_t data_offset, size_t data_size);
+    int32_t readIamfUnsignedLeb128(const uint8_t *data, uint32_t numBytesToRead, uint32_t &value);
+    status_t parseIamfProfileLevelFromCsd(const uint8_t* data, uint32_t csdSize,
+                                          int8_t configVersion);
+    status_t skipIamfReservedObus(const uint8_t *data, uint32_t csdSize, int32_t &index);
 
     status_t updateAudioTrackInfoFromESDS_MPEG4Audio(
             const void *esds_data, size_t esds_size);

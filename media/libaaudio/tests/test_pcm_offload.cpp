@@ -17,8 +17,10 @@
 // PCM offload
 
 #include <memory>
+#include <mutex>
 #include <stdio.h>
 #include <stdlib.h>
+#include <thread>
 #include <vector>
 
 #include <aaudio/AAudio.h>
@@ -70,12 +72,14 @@ public:
                                               int32_t numFrames) {
         // Just handle PCM_16 and PCM_FLOAT for testing
         if (!fillData(stream, audioData, numFrames)) {
+            printf("Failed to fill data, stop the stream\n");
             return AAUDIO_CALLBACK_RESULT_STOP;
         }
         mFramesWritten += numFrames;
         if (mStreamFrames > 0 && mFramesWritten >= mStreamFrames) {
             if (auto result = setOffloadEndOfStream(); result != AAUDIO_OK) {
-                printf("Failed to set offload end of stream, stopping the stream now");
+                printf("Failed to set offload end of stream, error=%d, stopping the stream now\n",
+                       result);
                 return AAUDIO_CALLBACK_RESULT_STOP;
             }
             (void) setOffloadDelayPadding(mDelay, mPadding);
@@ -85,18 +89,33 @@ public:
     }
 
     void presentationEnd(AAudioStream* stream) {
+        if (stream != getStream()) {
+            printf("%s with a stream that is different from our stream\n", __func__);
+            return;
+        }
         printf("Presentation end\n");
         if (!mUseDataCallback) {
-            writeAllStreamData(stream);
+            std::thread(&OffloadPlayer::writeAllStreamData, this).detach();
         }
     }
 
     void writeData() {
-        writeAllStreamData(getStream());
+        writeAllStreamData();
+    }
+
+    aaudio_result_t close() override {
+        std::lock_guard _l(mMutex);
+        return AAudioSimplePlayer::close();
     }
 
 private:
-    void writeAllStreamData(AAudioStream* stream) {
+    void writeAllStreamData() {
+        // Lock to prevent the stream is released
+        std::lock_guard _l(mMutex);
+        AAudioStream* stream = getStream();
+        if (stream == nullptr) {
+            return;
+        }
         int bytesPerFrame = mChannelCount;
         std::shared_ptr<uint8_t[]> data;
         switch (AAudioStream_getFormat(stream)) {
@@ -146,6 +165,7 @@ private:
                 }
             } break;
             default:
+                printf("Unknown format=%d", AAudioStream_getFormat(stream));
                 return false;
         }
         return true;
@@ -160,6 +180,7 @@ private:
     int mChannelCount;
     std::vector<SineGenerator> mSines;
     int mFramesWritten = 0;
+    std::mutex mMutex;
 };
 
 aaudio_data_callback_result_t MyDatacallback(AAudioStream* stream,
@@ -229,6 +250,10 @@ int main(int argc, char **argv) {
 
     // Force to use offload mode
     argParser.setPerformanceMode(AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED);
+    // By default, AAudioSimplePlayer uses 2 as the number of bursts. For offload case,
+    // 2 bursts is too small if the burst size is only couple seconds. In that case, use
+    // the value set by the framework.
+    argParser.setNumberOfBursts(0);
 
     OffloadPlayer player(argParser, delay, padding, streamFrames, useDataCallback);
     if (auto result = player.open(); result != AAUDIO_OK) {
@@ -241,13 +266,15 @@ int main(int argc, char **argv) {
     (void) player.setOffloadDelayPadding(delay, padding);
 
     if (auto result = player.start(); result != AAUDIO_OK) {
-        printf("Failed to start stream, error=%d", result);
+        printf("Failed to start stream, error=%d\n", result);
         exit(EXIT_FAILURE);
     } else if (!useDataCallback) {
         player.writeData();
     }
 
     sleep(timeToRun);
+
+    player.close();
 
     return EXIT_SUCCESS;
 }

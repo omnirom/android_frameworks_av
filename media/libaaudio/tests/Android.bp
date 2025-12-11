@@ -292,3 +292,11 @@ cc_binary {
     header_libs: ["libaaudio_example_utils"],
     shared_libs: ["libaaudio"],
 }
+
+cc_binary {
+    name: "test_flush_from_frame",
+    defaults: ["libaaudio_tests_defaults"],
+    srcs: ["test_flush_from_frame.cpp"],
+    header_libs: ["libaaudio_example_utils"],
+    shared_libs: ["libaaudio"],
+}

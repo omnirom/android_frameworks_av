@@ -47,6 +47,24 @@ __BEGIN_DECLS
 media_status_t AImageReader_setUsage(
         AImageReader* _Nonnull reader, uint64_t usage) __INTRODUCED_IN(36);
 
+/**
+ * Set the max image count of this image reader.
+ *
+ * <p>Note that calling this method will replace the previously set max image count.</p>
+ *
+ * Available since API level 37.
+ *
+ * @param reader the image reader of interest.
+ * @param maxImages specifies desired max Image count of the image reader.
+ *
+ * @return <ul>
+ *         <li>{@link AMEDIA_OK} if the method call succeeds.</li>
+ *         <li>{@link AMEDIA_ERROR_INVALID_PARAMETER} if reader is NULL.</li>
+ *         <li>{@link AMEDIA_ERROR_UNKNOWN} if the method fails.</li></ul>
+ */
+media_status_t AImageReader_setMaxImages(
+        AImageReader* _Nonnull reader, int32_t maxImages) __INTRODUCED_IN(37);
+
 __END_DECLS
 
 #endif //_VNDK_IMAGE_READER_H

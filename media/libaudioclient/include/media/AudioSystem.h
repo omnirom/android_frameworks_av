@@ -126,13 +126,6 @@ public:
     static status_t setMasterMute(bool mute);
     static status_t getMasterMute(bool* mute);
 
-    // set stream volume on specified output
-    static status_t setStreamVolume(audio_stream_type_t stream, float value,
-                                    bool muted, audio_io_handle_t output);
-
-    // mute/unmute stream
-    static status_t setStreamMute(audio_stream_type_t stream, bool mute);
-
     /**
      * Set volume for given AudioTrack port ids on specified output
      * @param portIds to consider
@@ -348,12 +341,12 @@ public:
                                      audio_port_handle_t *portId,
                                      std::vector<audio_io_handle_t> *secondaryOutputs,
                                      bool *isSpatialized,
-                                     bool *isBitPerfect,
-                                     float *volume,
-                                     bool *muted);
-    static status_t startOutput(audio_port_handle_t portId);
+                                     bool *isBitPerfect);
+    static status_t startOutput(
+            audio_port_handle_t portId, float* volume, bool* muted);
     static status_t stopOutput(audio_port_handle_t portId);
     static void releaseOutput(audio_port_handle_t portId);
+    static status_t forceReleaseDirectOutput(audio_io_handle_t output);
 
     /**
      * Get input stream for given parameters.
@@ -415,6 +408,64 @@ public:
     static status_t getMaxVolumeIndexForAttributes(const audio_attributes_t &attr, int &index);
 
     static status_t getMinVolumeIndexForAttributes(const audio_attributes_t &attr, int &index);
+
+    /**
+     * Set the volume index for a given volume group and device.
+     *
+     * @param groupId the volume group id
+     * @param index the volume index to set
+     * @param muted state of the volume group
+     * @param device the device to set the volume index for
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    static status_t setVolumeIndexForGroup(volume_group_t groupId, int index,
+            bool muted, audio_devices_t device);
+
+    /**
+     * Get the volume index for a given volume group and device.
+     *
+     * @param groupId the volume group id
+     * @param index the volume index to get
+     * @param device the device to get the volume index for
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    static status_t getVolumeIndexForGroup(volume_group_t groupId, int &index,
+            audio_devices_t device);
+    /**
+     * Get the maximum volume index for a given volume group
+     *
+     * @param groupId the volume group id
+     * @param index the max volume index to get
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    static status_t getMaxVolumeIndexForGroup(volume_group_t groupId, int &index);
+
+    /**
+     * Set the maximum volume index for a given volume group
+     *
+     * @param groupId the volume group id
+     * @param index the max volume index to set
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    static status_t setMaxVolumeIndexForGroup(volume_group_t groupId, int index);
+
+    /**
+     * Get the minimum volume index for a given volume group.
+     *
+     * @param groupId
+     * @param index the min volume index to get
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    static status_t getMinVolumeIndexForGroup(volume_group_t groupId, int &index);
+
+    /**
+     * Set the minimum volume index for a given volume group.
+     *
+     * @param groupId
+     * @param index the min volume index to set
+     * @return NO_ERROR if the call is successful, otherwise an error code
+     */
+    static status_t setMinVolumeIndexForGroup(volume_group_t groupId, int index);
 
     static product_strategy_t getStrategyForStream(audio_stream_type_t stream);
     static status_t getDevicesForAttributes(const audio_attributes_t &aa,
@@ -553,8 +604,10 @@ public:
             const audio_attributes_t &aa, product_strategy_t &productStrategy,
             bool fallbackOnDefault = true);
 
-    static audio_attributes_t streamTypeToAttributes(audio_stream_type_t stream);
-    static audio_stream_type_t attributesToStreamType(const audio_attributes_t &attr);
+    static status_t getAttributesForStreamType(audio_stream_type_t stream,
+            audio_attributes_t &attributes);
+    static status_t getStreamTypeForAttributes(const audio_attributes_t &attr,
+            audio_stream_type_t &stream);
 
     static status_t listAudioVolumeGroups(AudioVolumeGroupVector &groups);
 

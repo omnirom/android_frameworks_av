@@ -31,6 +31,9 @@ public:
     virtual std::unique_ptr<ApexComponentIntf> createComponent(const char *name [[maybe_unused]]) {
         return nullptr;
     }
+    virtual std::shared_ptr<C2ParamReflector> getParamReflector() const override {
+        return nullptr;
+    }
 };
 
 }  // namespace android::apexcodecs::test

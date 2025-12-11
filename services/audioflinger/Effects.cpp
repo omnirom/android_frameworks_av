@@ -37,7 +37,6 @@
 #include <media/audiohal/EffectHalInterface.h>
 #include <media/audiohal/EffectsFactoryHalInterface.h>
 #include <mediautils/MethodStatistics.h>
-#include <mediautils/ServiceUtilities.h>
 #include <mediautils/TimeCheck.h>
 #include <system/audio_effects/audio_effects_utils.h>
 #include <system/audio_effects/effect_aec.h>
@@ -238,7 +237,7 @@ status_t EffectBase::addHandle(IAfEffectHandle *handle)
         status = ALREADY_EXISTS;
     }
     ALOGV("addHandle() %p added handle %p in position %zu", this, handle, i);
-    mHandles.insertAt(handle, i);
+    mHandles.insert(mHandles.begin() + i, handle);
     return status;
 }
 
@@ -332,7 +331,7 @@ ssize_t EffectBase::removeHandle_l(IAfEffectHandle *handle)
     }
     ALOGV("removeHandle_l() %p removed handle %p in position %zu", this, handle, i);
 
-    mHandles.removeAt(i);
+    mHandles.erase(mHandles.begin() + i);
     // if removed from first place, move effect control from this handle to next in line
     if (i == 0) {
         IAfEffectHandle *h = controlHandle_l();
@@ -1678,6 +1677,12 @@ status_t EffectModule::sendMetadata_ll(const std::vector<playback_track_metadata
     if (mStatus != NO_ERROR) {
         return mStatus;
     }
+
+    // If the metadata is empty, there is no need to send it to effects.
+    if (metadata.size() == 0) {
+        return NO_ERROR;
+    }
+
     // TODO b/307368176: send all metadata to effects if requested by the implementation.
     // For now only send channel mask to Spatializer.
     if (!isSpatializer()) {
@@ -2293,6 +2298,24 @@ sp<IAfEffectModule> EffectChain::getEffectFromType_l(
     return 0;
 }
 
+// getEffectFromUuid_l() must be called with IAfThreadBase::mutex() held
+sp<IAfEffectModule> EffectChain::getEffectFromUuid_l(const effect_uuid_t *uuid) const
+{
+    audio_utils::lock_guard _l(mutex());
+
+    if (!uuid) {
+        return 0;
+    }
+
+    for (auto& effect : mEffects) {
+        if (effect->isEffect(*uuid)) {
+            return effect;
+        }
+    }
+
+    return 0;
+}
+
 std::vector<int> EffectChain::getEffectIds_l() const
 {
     std::vector<int> ids;
@@ -2409,7 +2432,7 @@ status_t EffectChain::addEffect_l(const sp<IAfEffectModule>& effect)
     if ((desc.flags & EFFECT_FLAG_TYPE_MASK) == EFFECT_FLAG_TYPE_AUXILIARY) {
         // Auxiliary effects are inserted at the beginning of mEffects vector as
         // they are processed first and accumulated in chain input buffer
-        mEffects.insertAt(effect, idx_insert);
+        mEffects.insert(mEffects.begin() + idx_insert, effect);
 
         // the input buffer for auxiliary effect contains mono samples in
         // 32 bit format. This is to avoid saturation in AudoMixer
@@ -2435,7 +2458,7 @@ status_t EffectChain::addEffect_l(const sp<IAfEffectModule>& effect)
         }
 
         size_t previousSize = mEffects.size();
-        mEffects.insertAt(effect, idx_insert);
+        mEffects.insert(mEffects.begin() + idx_insert, effect);
 
         effect->configure_l();
 
@@ -2603,7 +2626,7 @@ size_t EffectChain::removeEffect(const sp<IAfEffectModule>& effect,
                     mEffects[i - 1]->updateAccessMode_l();      // reconfig if needed.
                 }
             }
-            mEffects.removeAt(i);
+            mEffects.erase(mEffects.begin() + i);
 
             // make sure the input buffer configuration for the new first effect in the chain
             // is updated if needed (can switch from HAL channel mask to mixer channel mask)
@@ -2844,14 +2867,14 @@ void EffectChain::setEffectSuspended_l(
     sp<SuspendedEffectDesc> desc;
     // use effect type UUID timelow as key as there is no real risk of identical
     // timeLow fields among effect type UUIDs.
-    ssize_t index = mSuspendedEffects.indexOfKey(type->timeLow);
+    auto it = mSuspendedEffects.find(type->timeLow);
     if (suspend) {
-        if (index >= 0) {
-            desc = mSuspendedEffects.valueAt(index);
+        if (it != mSuspendedEffects.end()) {
+            desc = it->second;
         } else {
-            desc = new SuspendedEffectDesc();
+            desc = sp<SuspendedEffectDesc>::make();
             desc->mType = *type;
-            mSuspendedEffects.add(type->timeLow, desc);
+            mSuspendedEffects[type->timeLow] = desc;
             ALOGV("setEffectSuspended_l() add entry for %08x", type->timeLow);
         }
 
@@ -2864,17 +2887,17 @@ void EffectChain::setEffectSuspended_l(
             }
         }
     } else {
-        if (index < 0) {
+        if (it == mSuspendedEffects.end()) {
             return;
         }
-        desc = mSuspendedEffects.valueAt(index);
+        desc = it->second;
         if (desc->mRefCount <= 0) {
             ALOGW("setEffectSuspended_l() restore refcount should not be 0 %d", desc->mRefCount);
             desc->mRefCount = 0;
             return;
         }
         if (--desc->mRefCount == 0) {
-            ALOGV("setEffectSuspended_l() remove entry for %08x", mSuspendedEffects.keyAt(index));
+            ALOGV("setEffectSuspended_l() remove entry for %08x", it->first);
             if (desc->mEffect != 0) {
                 sp<IAfEffectModule> effect = desc->mEffect.promote();
                 if (effect != 0) {
@@ -2888,7 +2911,7 @@ void EffectChain::setEffectSuspended_l(
                 }
                 desc->mEffect.clear();
             }
-            mSuspendedEffects.removeItemsAt(index);
+            mSuspendedEffects.erase(it);
         }
     }
 }
@@ -2898,45 +2921,44 @@ void EffectChain::setEffectSuspendedAll_l(bool suspend)
 {
     sp<SuspendedEffectDesc> desc;
 
-    ssize_t index = mSuspendedEffects.indexOfKey((int)kKeyForSuspendAll);
+    auto it = mSuspendedEffects.find((int)kKeyForSuspendAll);
     if (suspend) {
-        if (index >= 0) {
-            desc = mSuspendedEffects.valueAt(index);
+        if (it != mSuspendedEffects.end()) {
+            desc = it->second;
         } else {
             desc = new SuspendedEffectDesc();
-            mSuspendedEffects.add((int)kKeyForSuspendAll, desc);
+            mSuspendedEffects[(int)kKeyForSuspendAll] = desc;
             ALOGV("setEffectSuspendedAll_l() add entry for 0");
         }
         if (desc->mRefCount++ == 0) {
-            Vector< sp<IAfEffectModule> > effects;
+            std::vector<sp<IAfEffectModule>> effects;
             getSuspendEligibleEffects(effects);
-            for (size_t i = 0; i < effects.size(); i++) {
-                setEffectSuspended_l(&effects[i]->desc().type, true);
+            for (const auto& effect : effects) {
+                setEffectSuspended_l(&effect->desc().type, true);
             }
         }
     } else {
-        if (index < 0) {
+        if (it == mSuspendedEffects.end()) {
             return;
         }
-        desc = mSuspendedEffects.valueAt(index);
+        desc = it->second;
         if (desc->mRefCount <= 0) {
             ALOGW("setEffectSuspendedAll_l() restore refcount should not be 0 %d", desc->mRefCount);
             desc->mRefCount = 1;
         }
         if (--desc->mRefCount == 0) {
-            Vector<const effect_uuid_t *> types;
-            for (size_t i = 0; i < mSuspendedEffects.size(); i++) {
-                if (mSuspendedEffects.keyAt(i) == (int)kKeyForSuspendAll) {
+            std::vector<const effect_uuid_t*> types;
+            for (const auto& [key, effectDesc] : mSuspendedEffects) {
+                if (key == (int)kKeyForSuspendAll) {
                     continue;
                 }
-                types.add(&mSuspendedEffects.valueAt(i)->mType);
+                types.push_back(&effectDesc->mType);
             }
-            for (size_t i = 0; i < types.size(); i++) {
-                setEffectSuspended_l(types[i], false);
+            for (const auto& type : types) {
+                setEffectSuspended_l(type, false);
             }
-            ALOGV("setEffectSuspendedAll_l() remove entry for %08x",
-                    mSuspendedEffects.keyAt(index));
-            mSuspendedEffects.removeItem((int)kKeyForSuspendAll);
+            ALOGV("%s() remove entry for %08x", __func__, it->first);
+            mSuspendedEffects.erase((int)kKeyForSuspendAll);
         }
     }
 }
@@ -2972,14 +2994,13 @@ bool EffectChain::isEffectEligibleForSuspend(const effect_descriptor_t& desc)
     return true;
 }
 
-void EffectChain::getSuspendEligibleEffects(
-        Vector< sp<IAfEffectModule> > &effects)
+void EffectChain::getSuspendEligibleEffects(std::vector<sp<IAfEffectModule>>& effects)
 {
     effects.clear();
     audio_utils::lock_guard _l(mutex());
     for (size_t i = 0; i < mEffects.size(); i++) {
         if (isEffectEligibleForSuspend(mEffects[i]->desc())) {
-            effects.add(mEffects[i]);
+            effects.push_back(mEffects[i]);
         }
     }
 }
@@ -2991,26 +3012,26 @@ sp<IAfEffectModule> EffectChain::getEffectIfEnabled_l(const effect_uuid_t *type)
 }
 
 void EffectChain::checkSuspendOnEffectEnabled_l(const sp<IAfEffectModule>& effect, bool enabled) {
-    ssize_t index = mSuspendedEffects.indexOfKey(effect->desc().type.timeLow);
+    auto it = mSuspendedEffects.find(effect->desc().type.timeLow);
     if (enabled) {
-        if (index < 0) {
+        if (it == mSuspendedEffects.end()) {
             // if the effect is not suspend check if all effects are suspended
-            index = mSuspendedEffects.indexOfKey((int)kKeyForSuspendAll);
-            if (index < 0) {
+            it = mSuspendedEffects.find((int)kKeyForSuspendAll);
+            if (it == mSuspendedEffects.end()) {
                 return;
             }
             if (!isEffectEligibleForSuspend(effect->desc())) {
                 return;
             }
             setEffectSuspended_l(&effect->desc().type, enabled);
-            index = mSuspendedEffects.indexOfKey(effect->desc().type.timeLow);
-            if (index < 0) {
+            it = mSuspendedEffects.find(effect->desc().type.timeLow);
+            if (it == mSuspendedEffects.end()) {
                 ALOGW("%s Fx should be suspended here!", __func__);
                 return;
             }
         }
         ALOGV("%s enable suspending fx %08x", __func__, effect->desc().type.timeLow);
-        sp<SuspendedEffectDesc> desc = mSuspendedEffects.valueAt(index);
+        const sp<SuspendedEffectDesc>& desc = it->second;
         // if effect is requested to suspended but was not yet enabled, suspend it now.
         if (desc->mEffect == 0) {
             desc->mEffect = effect;
@@ -3018,11 +3039,11 @@ void EffectChain::checkSuspendOnEffectEnabled_l(const sp<IAfEffectModule>& effec
             effect->setSuspended(true);
         }
     } else {
-        if (index < 0) {
+        if (it == mSuspendedEffects.end()) {
             return;
         }
         ALOGV("%s disable restoring fx %08x", __func__, effect->desc().type.timeLow);
-        sp<SuspendedEffectDesc> desc = mSuspendedEffects.valueAt(index);
+        const sp<SuspendedEffectDesc>& desc = it->second;
         desc->mEffect.clear();
         effect->setSuspended(false);
     }
@@ -3216,23 +3237,15 @@ bool EffectChain::EffectCallback::isOutput() const {
 }
 
 bool EffectChain::EffectCallback::isOffload() const {
-    return mThreadType == IAfThreadBase::OFFLOAD;
+    return mIsOffload;
 }
 
 bool EffectChain::EffectCallback::isOffloadOrDirect() const {
-    return mThreadType == IAfThreadBase::OFFLOAD
-            || mThreadType == IAfThreadBase::DIRECT;
+    return mIsOffloadOrDirect;
 }
 
 bool EffectChain::EffectCallback::isOffloadOrMmap() const {
-    switch (mThreadType) {
-    case IAfThreadBase::OFFLOAD:
-    case IAfThreadBase::MMAP_PLAYBACK:
-    case IAfThreadBase::MMAP_CAPTURE:
-        return true;
-    default:
-        return false;
-    }
+    return mIsOffloadOrMmap;
 }
 
 bool EffectChain::EffectCallback::isSpatializer() const {
@@ -3375,7 +3388,19 @@ void EffectChain::EffectCallback::checkSuspendOnEffectEnabled(const sp<IAfEffect
         return;
     }
     // in EffectChain context, an EffectBase is always from an EffectModule so static cast is safe
-    c->checkSuspendOnEffectEnabled_l(effect->asEffectModule(), enabled);
+    if (!threadLocked) {
+        t->mutex().lock();
+    }
+
+    sp<IAfEffectModule> em = effect->asEffectModule();
+    if (em == nullptr) {
+        return;
+    }
+    c->checkSuspendOnEffectEnabled_l(em, enabled);
+
+    if (!threadLocked) {
+        t->mutex().unlock();
+    }
 }
 
 void EffectChain::EffectCallback::onEffectEnable(const sp<IAfEffectBase>& effect) {
@@ -3394,7 +3419,7 @@ void EffectChain::EffectCallback::onEffectDisable(const sp<IAfEffectBase>& effec
     if (t == nullptr) {
         return;
     }
-    t->onEffectDisable();
+    t->onEffectDisable(effect->asEffectModule());
 }
 
 bool EffectChain::EffectCallback::disconnectEffectHandle(IAfEffectHandle *handle,

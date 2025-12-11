@@ -21,7 +21,7 @@ import android.media.audio.common.AudioDevice;
 import android.media.audio.common.AudioSource;
 
 /**
- * {@hide}
+ * @hide
  */
 parcelable OpenInputRequest {
     /** Interpreted as audio_module_handle_t. */
@@ -33,4 +33,5 @@ parcelable OpenInputRequest {
     AudioSource source;
     /** Bitmask, indexed by AudioInputFlag. */
     int flags;
+    int mixPortHalId;
 }

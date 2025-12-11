@@ -22,10 +22,6 @@
 #include <com_android_internal_camera_flags.h>
 #include <gui/BufferItemConsumer.h>
 #include <gui/IGraphicBufferConsumer.h>
-#include <gui/Flags.h> // remove with WB_PLATFORM_API_IMPROVEMENTS
-#if not COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
-#include <gui/IGraphicBufferProducer.h>
-#endif
 #include <gui/Surface.h>
 #include <ui/Fence.h>
 #include <ui/GraphicBuffer.h>
@@ -155,12 +151,7 @@ TEST_F(Camera3StreamSplitterTest, TestProcessSingleBuffer) {
                                      kHeight, kFormat, &inputSurface, kDynamicRangeProfile));
     sp<TestSurfaceListener> surfaceListener = sp<TestSurfaceListener>::make();
     EXPECT_EQ(OK, inputSurface->connect(NATIVE_WINDOW_API_CAMERA, surfaceListener, false));
-    // TODO: Do this with the surface itself once the API is available.
-#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
     EXPECT_EQ(OK, inputSurface->allowAllocation(false));
-#else
-    EXPECT_EQ(OK, inputSurface->getIGraphicBufferProducer()->allowAllocation(false));
-#endif
 
     //
     // Create a buffer to use:
@@ -181,4 +172,52 @@ TEST_F(Camera3StreamSplitterTest, TestProcessSingleBuffer) {
     EXPECT_EQ(1u, consumerListener1->mNumBuffersAcquired);
     EXPECT_EQ(1u, consumerListener2->mNumBuffersAcquired);
     EXPECT_EQ(1u, surfaceListener->mNumBuffersReleased);
+}
+
+TEST_F(Camera3StreamSplitterTest, AddingSameBufferManyTimes) {
+    //
+    // Set up output consumers:
+    //
+    constexpr auto kSurfaceId1 = 1;
+    auto [bufferItemConsumer1, surface1] = createConsumerAndSurface();
+    sp<TestConsumerListener> consumerListener1 =
+            sp<TestConsumerListener>::make(bufferItemConsumer1);
+    bufferItemConsumer1->setFrameAvailableListener(consumerListener1);
+
+    constexpr auto kSurfaceId2 = 2;
+    auto [bufferItemConsumer2, surface2] = createConsumerAndSurface();
+    sp<TestConsumerListener> consumerListener2 =
+            sp<TestConsumerListener>::make(bufferItemConsumer2);
+    bufferItemConsumer2->setFrameAvailableListener(consumerListener2);
+
+    //
+    // Connect it to the splitter, get the input surface, and set it up:
+    //
+    sp<Surface> inputSurface;
+    EXPECT_EQ(OK, mSplitter->connect({{kSurfaceId1, surface1}, {kSurfaceId2, surface2}},
+                                     kConsumerUsage, kProducerUsage, kHalMaxBuffers, kWidth,
+                                     kHeight, kFormat, &inputSurface, kDynamicRangeProfile));
+    sp<TestSurfaceListener> surfaceListener = sp<TestSurfaceListener>::make();
+    EXPECT_EQ(OK, inputSurface->connect(NATIVE_WINDOW_API_CAMERA, surfaceListener, false));
+    // TODO: Do this with the surface itself once the API is available.
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_PLATFORM_API_IMPROVEMENTS)
+    EXPECT_EQ(OK, inputSurface->allowAllocation(false));
+#else
+    EXPECT_EQ(OK, inputSurface->getIGraphicBufferProducer()->allowAllocation(false));
+#endif
+
+    //
+    // Create a buffer to use:
+    //
+    sp<GraphicBuffer> singleBuffer = new GraphicBuffer(kWidth, kHeight, kFormat, kProducerUsage);
+    EXPECT_NE(nullptr, singleBuffer);
+
+    //
+    // When we attach the same buffer multiple times, it shouldn't be attached if it had been
+    // already.
+    //
+    for (int i = 0; i < 1000; i++) {
+        EXPECT_EQ(OK, mSplitter->attachBufferToOutputs(singleBuffer->getNativeBuffer(),
+                                                       {kSurfaceId1, kSurfaceId2}));
+    }
 }

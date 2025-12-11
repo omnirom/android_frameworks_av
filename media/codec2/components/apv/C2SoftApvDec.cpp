@@ -334,10 +334,11 @@ class C2SoftApvDec::IntfImpl : public SimpleInterface<void>::BaseParams {
                                   const C2P<C2StreamMaxPictureSizeTuning::output>& maxSize) {
         (void)mayBlock;
         ALOGV("%s", __FUNCTION__);
-        // assume compression ratio of 2, but enforce a floor
+        // assume 1.25x compression as a worst case. Enforce the floor.
         me.set().value =
-                c2_max((((maxSize.v.width + 63) / 64) * ((maxSize.v.height + 63) / 64) * 3072),
-                       kMinInputBufferSize);
+                /* 20 / 8 / 1.25 = 2: 20 is a bpp for 422 10 bit, 1.25 assumed min compression.*/
+                c2_max((ALIGN_VAL(maxSize.v.width, 16) * ALIGN_VAL(maxSize.v.height, 16) * 2),
+                     kMinInputBufferSize);
         return C2R::Ok();
     }
 
@@ -1294,7 +1295,11 @@ status_t C2SoftApvDec::outputBuffer(const std::shared_ptr<C2BlockPool>& pool,
     uint32_t format = HAL_PIXEL_FORMAT_YV12;
     std::shared_ptr<C2StreamColorAspectsInfo::output> codedColorAspects;
     if (mPixelFormatInfo->value != HAL_PIXEL_FORMAT_YCBCR_420_888) {
-        if (isHalPixelFormatSupported((AHardwareBuffer_Format)AHARDWAREBUFFER_FORMAT_YCbCr_P210)) {
+        if ((mPixelFormatInfo->value != HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) &&
+            isHalPixelFormatSupported((AHardwareBuffer_Format)mPixelFormatInfo->value)) {
+            format = mPixelFormatInfo->value;
+        } else if (isHalPixelFormatSupported(
+                        (AHardwareBuffer_Format)AHARDWAREBUFFER_FORMAT_YCbCr_P210)) {
             format = AHARDWAREBUFFER_FORMAT_YCbCr_P210;
         } else if (isHalPixelFormatSupported(
                         (AHardwareBuffer_Format)HAL_PIXEL_FORMAT_YCBCR_P010)) {

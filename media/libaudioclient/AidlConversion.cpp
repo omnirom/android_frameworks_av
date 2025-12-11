@@ -710,6 +710,10 @@ legacy2aidl_audio_port_v7_AudioPortFw(const audio_port_v7& legacy) {
     // These get filled by the call to 'legacy2aidl_AudioPortExt' below.
     aidl.sys.profiles.resize(legacy.num_audio_profiles);
     aidl.sys.gains.resize(legacy.num_gains);
+    for (int i = 0; i < legacy.num_gains; i++) {
+        aidl.sys.gains[i].isInput = isInput;
+        aidl.sys.gains[i].index = i;
+    }
     aidl.sys.activeConfig = VALUE_OR_RETURN(
             legacy2aidl_audio_port_config_AudioPortConfigFw(legacy.active_config, legacy.id));
     aidl.sys.activeConfig.hal.portId = aidl.hal.id;
@@ -875,6 +879,18 @@ legacy2aidl_audio_microphone_characteristic_t_MicrophoneInfoFw(
     RETURN_IF_ERROR(legacy2aidl_audio_microphone_characteristic_t_MicrophoneInfos(
                     legacy, &aidl.info, &aidl.dynamic));
     aidl.portId = VALUE_OR_RETURN(legacy2aidl_audio_port_handle_t_int32_t(legacy.id));
+    return aidl;
+}
+
+ConversionResult<audio_utils::TimerQueue::handle_t>
+aidl2legacy_TimerQueueHandle_timer_queue_handle_t(media::TimerQueueHandle aidl) {
+    return convertReinterpret<audio_utils::TimerQueue::handle_t>(aidl.handle);
+}
+
+ConversionResult<media::TimerQueueHandle>
+legacy2aidl_timer_queue_handle_t_TimerQueueHandle(audio_utils::TimerQueue::handle_t legacy) {
+    media::TimerQueueHandle aidl;
+    aidl.handle = VALUE_OR_RETURN(convertReinterpret<int64_t>(legacy));
     return aidl;
 }
 

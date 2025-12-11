@@ -773,9 +773,9 @@ public:
             const T volume = computeVolumeFromXOffset(mDelayXOffset);
             VS_LOG("delayed VolumeShaper, using cached offset:%f for volume:%f",
                     mDelayXOffset, volume);
-            return new VolumeShaper::State(volume, mDelayXOffset);
+            return sp<VolumeShaper::State>::make(volume, mDelayXOffset);
         } else {
-            return new VolumeShaper::State(mLastVolume, mLastXOffset);
+            return sp<VolumeShaper::State>::make(mLastVolume, mLastXOffset);
         }
     }
 
@@ -934,7 +934,7 @@ public:
             const sp<VolumeShaper::Configuration> &configuration,
             const sp<VolumeShaper::Operation> &operation_in) {
         // make a local copy of operation, as we modify it.
-        sp<VolumeShaper::Operation> operation(new VolumeShaper::Operation(operation_in));
+        auto operation = sp<VolumeShaper::Operation>::make(operation_in);
         VS_LOG("applyVolumeShaper:configuration: %s", configuration->toString().c_str());
         VS_LOG("applyVolumeShaper:operation: %s", operation->toString().c_str());
         AutoMutex _l(mLock);
@@ -1002,7 +1002,7 @@ public:
             }
 
             // create new VolumeShaper with default behavior.
-            mVolumeShapers.emplace_back(configuration, new VolumeShaper::Operation());
+            mVolumeShapers.emplace_back(configuration, sp<VolumeShaper::Operation>::make());
             VS_LOG("after adding, number of volumeShapers:%zu", mVolumeShapers.size());
         }
         // fall through to handle the operation

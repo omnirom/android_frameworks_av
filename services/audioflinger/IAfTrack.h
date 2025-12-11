@@ -22,6 +22,7 @@
 #include <audiomanager/IAudioManager.h>
 #include <binder/IMemory.h>
 #include <media/AppOpsSession.h>
+#include <media/AudioBufferProvider.h>
 #include <mediautils/SingleThreadExecutor.h>
 #include <datapath/VolumePortInterface.h>
 #include <fastpath/FastMixerDumpState.h>
@@ -42,22 +43,108 @@ class ResamplerBufferProvider;
 struct Source;
 
 class IAfDuplicatingThread;
+class IAfMmapTrack;
+class IAfOutputTrack;
 class IAfPatchRecord;
 class IAfPatchTrack;
 class IAfPlaybackThread;
 class IAfRecordThread;
+class IAfRecordTrack;
 class IAfThreadBase;
 class IAfThreadCallback;
+class IAfTrack;
+
+/**
+ * Create an iterable view on an existing container of sp<IAfTrackBase>
+ * that automatically converts to a derived interface (i.e. sp<IAfTrack>)
+ * suitable for range based fors.
+ *
+ * We place this view in derived Thread classes (ie. PlaybackThread), where we
+ * know that the Track interface must be compatible with a given Track type
+ * (i.e. IAfTrack).
+ */
+template <typename C, typename T>
+class ContainerView {
+public:
+    using I = std::decay_t<decltype(std::begin(std::declval<C&>()))>;
+
+    explicit ContainerView(C& container) : mContainer(container) {}
+
+    class Iterator {
+    public:
+        explicit Iterator(const I& it) : mIterator(it) {}
+
+        bool operator==(const Iterator& it) const = default;
+
+        bool operator!=(const Iterator& it) const = default;
+
+        Iterator& operator++() {
+             ++mIterator;
+             return *this;
+        }
+
+        // There is no automatic casting here as we use virtual base classes.
+        auto operator*() {
+            if constexpr (std::is_same_v<std::decay_t<T>, sp<IAfTrack>>) {
+                return (*mIterator)->asIAfTrack();
+            } else if constexpr (std::is_same_v<std::decay_t<T>, sp<IAfRecordTrack>>) {
+                return (*mIterator)->asIAfRecordTrack();
+            } else if constexpr (std::is_same_v<std::decay_t<T>, sp<IAfMmapTrack>>) {
+                return (*mIterator)->asIAfMmapTrack();
+            }
+            // Omit IAfOutputTrack, IAfPatchRecord, IAfPatchTrack as not needed at the moment.
+        }
+
+    private:
+        I mIterator;
+    };
+
+    auto begin() {
+        return Iterator(mContainer.begin());
+    }
+
+    auto end() {
+        return Iterator(mContainer.end());
+    }
+
+    auto begin() const {
+        return Iterator(mContainer.begin());
+    }
+
+    auto end() const {
+        return Iterator(mContainer.end());
+    }
+
+private:
+    C& mContainer;
+};
 
 struct TeePatch {
     sp<IAfPatchRecord> patchRecord;
     sp<IAfPatchTrack> patchTrack;
 };
 
+class VolumePortImpl {
+public:
+    // VolumePortInterface implementation
+    // for now the secondary patch tracks will always be not muted
+    // TODO(b/388241142): use volume capture rules to forward the vol/mute to patch tracks
+
+    void setPortVolume(float volume) { mVolume = volume; }
+    float getPortVolume() const { return mVolume; }
+
+    void setPortMute(bool muted) { mMuted = muted; }
+    bool getPortMute() const { return mMuted; }
+
+private:
+    std::atomic<bool> mMuted = false;
+    std::atomic<float> mVolume = 0.f;
+};
+
 using TeePatches = std::vector<TeePatch>;
 
 // Common interface to all Playback and Record tracks.
-class IAfTrackBase : public virtual RefBase {
+class IAfTrackBase : public VolumePortInterface {
 public:
     enum track_state : int32_t {
         IDLE,
@@ -91,9 +178,14 @@ public:
     };
 
     virtual status_t initCheck() const = 0;
+    virtual bool isNonOffloadableEffectEnabled_l() const
+            REQUIRES(audio_utils::AudioFlinger_Mutex) = 0;
+    virtual bool isNonOffloadableEffectEnabled() const
+            EXCLUDES_AudioFlinger_Mutex = 0;
     virtual status_t start(
             AudioSystem::sync_event_t event = AudioSystem::SYNC_EVENT_NONE,
-            audio_session_t triggerSession = AUDIO_SESSION_NONE) = 0;
+            audio_session_t triggerSession = AUDIO_SESSION_NONE)
+            EXCLUDES_ThreadBase_Mutex = 0;
     virtual void stop() = 0;
     virtual sp<IMemory> getCblk() const = 0;
     virtual audio_track_cblk_t* cblk() const = 0;
@@ -260,12 +352,21 @@ public:
     virtual bool isStopping() const = 0;
     virtual bool isStopping_1() const = 0;
     virtual bool isStopping_2() const = 0;
+
+    virtual sp<IAfTrack> asIAfTrack() { return {}; }
+    virtual sp<IAfMmapTrack> asIAfMmapTrack() { return {}; }
+    virtual sp<IAfOutputTrack> asIAfOutputTrack() { return {}; }
+    virtual sp<IAfPatchTrack> asIAfPatchTrack() { return {}; }
+    virtual sp<IAfPatchRecord> asIAfPatchRecord() { return {}; }
+    virtual sp<IAfRecordTrack> asIAfRecordTrack() { return {}; }
+
+    virtual AudioBufferProvider* asAudioBufferProvider() = 0;
 };
 
 // Functionality shared between MMAP and audioflinger datapath playback tracks. Note that MMAP
 // tracks don't implement the IAfTrack, just IAfTrackBase
 // Not a pure interface since no forward declaration necessary.
-class AfPlaybackCommon : public virtual VolumePortInterface {
+class AfPlaybackCommon : public virtual RefBase {
     using AppOpsSession = media::permission::AppOpsSession<media::permission::DefaultAppOpsFacade>;
 
   public:
@@ -275,7 +376,7 @@ class AfPlaybackCommon : public virtual VolumePortInterface {
         FULL, // enforcement for CONTROL
     };
 
-    AfPlaybackCommon(IAfTrackBase& self, IAfThreadBase& thread, float volume, bool muted,
+    AfPlaybackCommon(IAfTrackBase& self, IAfThreadBase& thread,
                      const audio_attributes_t& attr,
                      const AttributionSourceState& attributionSource,
                      bool isOffloadOrMmap,
@@ -311,20 +412,6 @@ class AfPlaybackCommon : public virtual VolumePortInterface {
         }
     }
 
-    // VolumePortInterface implementation
-    // for now the secondary patch tracks will always be not muted
-    // TODO(b/388241142): use volume capture rules to forward the vol/mute to patch tracks
-
-    void setPortVolume(float volume) final { mVolume = volume; }
-
-    void setPortMute(bool muted) final {
-        mMutedFromPort = muted;
-    }
-
-    float getPortVolume() const final { return mVolume; }
-
-    bool getPortMute() const final { return mMutedFromPort; }
-
   protected:
     // The following methods are for notifying that sonifying playback intends to begin/end
     // for playback hardening purposes.
@@ -339,9 +426,6 @@ class AfPlaybackCommon : public virtual VolumePortInterface {
     std::optional<mediautils::SingleThreadExecutor> mExecutor;
     // TODO: atomic necessary if underneath thread lock?
     std::atomic<mute_state_t> mMuteState;
-    std::atomic<bool> mMutedFromPort;
-    // associated with port
-    std::atomic<float> mVolume = 0.0f;
 
     const EnforcementLevel mEnforcementLevel;
 
@@ -390,9 +474,7 @@ public:
             size_t frameCountToBeReady = SIZE_MAX,
             float speed = 1.0f,
             bool isSpatialized = false,
-            bool isBitPerfect = false,
-            float volume = 0.0f,
-            bool muted = false);
+            bool isBitPerfect = false);
 
     static constexpr std::string_view getLogHeader() {
         using namespace std::literals;
@@ -403,6 +485,8 @@ public:
                         "  Server FrmCnt  FrmRdy F Underruns  Flushed BitPerfect InternalMute"
                         "   Latency\n"sv;
     }
+
+    sp<IAfTrack> asIAfTrack() final { return this; }
 
     virtual void pause() = 0;
     virtual void flush() = 0;
@@ -436,7 +520,7 @@ public:
     virtual sp<media::VolumeShaper::State> getVolumeShaperState(int id) const = 0;
     virtual sp<media::VolumeHandler> getVolumeHandler() const = 0;
     /** Set the computed normalized final volume of the track.
-     * !masterMute * masterVolume * streamVolume * averageLRVolume */
+     * !masterMute * masterVolume * portVolume * averageLRVolume */
     virtual void setFinalVolume(float volumeLeft, float volumeRight) = 0;
     virtual float getFinalVolume() const = 0;
     virtual void getFinalVolume(float* left, float* right) const = 0;
@@ -489,6 +573,8 @@ public:
 
     virtual bool isPlaybackRestricted() const = 0;
 
+    virtual bool canBypassMute() const = 0;
+
     // Used by thread only
 
     virtual bool isPausing() const = 0;
@@ -540,6 +626,8 @@ public:
     // Internal mute, this is currently only used for bit-perfect playback
     virtual bool getInternalMute() const = 0;
     virtual void setInternalMute(bool muted) = 0;
+    virtual void setTeePatchesPlaybackRate_l(const AudioPlaybackRate& playbackRate)
+            REQUIRES(audio_utils::ThreadBase_Mutex) = 0;
 };
 
 // playback track, used by DuplicatingThread
@@ -550,6 +638,8 @@ public:
             IAfDuplicatingThread* sourceThread, uint32_t sampleRate,
             audio_format_t format, audio_channel_mask_t channelMask, size_t frameCount,
             const AttributionSourceState& attributionSource);
+
+    sp<IAfOutputTrack> asIAfOutputTrack() final { return this; }
 
     virtual ssize_t write(void* data, uint32_t frames) = 0;
     virtual bool bufferQueueEmpty() const = 0;
@@ -569,18 +659,19 @@ public:
             audio_format_t format,
             audio_channel_mask_t channelMask,
             audio_session_t sessionId,
+            std::variant<audio_input_flags_t, audio_output_flags_t> flags,
             bool isOut,
             const android::content::AttributionSourceState& attributionSource,
             pid_t creatorPid,
-            audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE,
-            float volume = 0.0f,
-            bool muted = false);
+            audio_port_handle_t portId = AUDIO_PORT_HANDLE_NONE);
 
     static constexpr std::string_view getLogHeader() {
         using namespace std::literals;
         return "Client(pid/uid) Session Port Id"
                 "   Format Chn mask  SRate Flags Usg/Src PortVol dB PortMuted\n"sv;
     };
+
+    sp<IAfMmapTrack> asIAfMmapTrack() final { return this; }
 
     // protected by MMapThread::mLock
     virtual void setSilenced_l(bool silenced) = 0;
@@ -624,6 +715,8 @@ public:
                         " Format Chn mask  SRate Source  "
                         " Server FrmCnt FrmRdy Sil   Latency\n"sv;
     }
+
+    sp<IAfRecordTrack> asIAfRecordTrack() final { return this; }
 
     // clear the buffer overflow flag
     virtual void clearOverflow() = 0;
@@ -701,9 +794,11 @@ public:
                                              *  as soon as possible to have
                                              *  the lowest possible latency
                                              *  even if it might glitch. */
-            float speed = 1.0f,
-            float volume = 1.0f,
-            bool muted = false);
+            float speed = 1.0f);
+
+    sp<IAfPatchTrack> asIAfPatchTrack() final { return this; }
+
+    virtual void setPlaybackRate(const AudioPlaybackRate &playbackRate) = 0;
 };
 
 class IAfPatchRecord : public virtual IAfRecordTrack, public virtual IAfPatchTrackBase {
@@ -728,6 +823,8 @@ public:
             size_t frameCount,
             audio_input_flags_t flags,
             audio_source_t source = AUDIO_SOURCE_DEFAULT);
+
+    sp<IAfPatchRecord> asIAfPatchRecord() final { return this; }
 
     virtual Source* getSource() = 0;
     virtual size_t writeFrames(const void* src, size_t frameCount, size_t frameSize) = 0;

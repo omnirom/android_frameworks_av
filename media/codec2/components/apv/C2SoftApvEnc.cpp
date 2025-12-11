@@ -220,6 +220,9 @@ class C2SoftApvEnc::IntfImpl : public SimpleInterface<void>::BaseParams {
         if (isHalPixelFormatSupported((AHardwareBuffer_Format)AHARDWAREBUFFER_FORMAT_YCbCr_P210)) {
             pixelFormats.push_back(AHARDWAREBUFFER_FORMAT_YCbCr_P210);
         }
+        if (isHalPixelFormatSupported((AHardwareBuffer_Format)HAL_PIXEL_FORMAT_RGBA_1010102)) {
+            pixelFormats.push_back(HAL_PIXEL_FORMAT_RGBA_1010102);
+        }
         addParameter(DefineParam(mPixelFormat, C2_PARAMKEY_PIXEL_FORMAT)
                              .withDefault(new C2StreamPixelFormatInfo::input(
                                      0u, HAL_PIXEL_FORMAT_YCBCR_420_888))
@@ -310,74 +313,74 @@ class C2SoftApvEnc::IntfImpl : public SimpleInterface<void>::BaseParams {
         };
 
         constexpr LevelLimits kLimitsBand0[] = {
-                {LEVEL_APV_1_BAND_0, 3'041'280, 7'000},
-                {LEVEL_APV_1_1_BAND_0, 6'082'560, 14'000},
-                {LEVEL_APV_2_BAND_0, 15'667'200, 36'000},
-                {LEVEL_APV_2_1_BAND_0, 31'334'400, 71'000},
-                {LEVEL_APV_3_BAND_0, 66'846'720, 101'000},
-                {LEVEL_APV_3_1_BAND_0, 133'693'440, 201'000},
-                {LEVEL_APV_4_BAND_0, 265'420'800, 401'000},
-                {LEVEL_APV_4_1_BAND_0, 530'841'600, 780'000},
-                {LEVEL_APV_5_BAND_0, 1'061'683'200, 1'560'000},
-                {LEVEL_APV_5_1_BAND_0, 2'123'366'400, 3'324'000},
-                {LEVEL_APV_6_BAND_0, 4'777'574'400, 6'648'000},
-                {LEVEL_APV_6_1_BAND_0, 8'493'465'600, 13'296'000},
-                {LEVEL_APV_7_BAND_0, 16'986'931'200, 26'592'000},
-                {LEVEL_APV_7_1_BAND_0, 33'973'862'400, 53'184'000},
+            {LEVEL_APV_1_BAND_0, 3'041'280, 8'000},
+            {LEVEL_APV_1_1_BAND_0, 6'082'560, 16'000},
+            {LEVEL_APV_2_BAND_0, 15'667'200, 39'000},
+            {LEVEL_APV_2_1_BAND_0, 31'334'400, 78'000},
+            {LEVEL_APV_3_BAND_0, 66'846'720, 114'000},
+            {LEVEL_APV_3_1_BAND_0, 133'693'440, 227'000},
+            {LEVEL_APV_4_BAND_0, 265'420'800, 455'000},
+            {LEVEL_APV_4_1_BAND_0, 530'841'600, 910'000},
+            {LEVEL_APV_5_BAND_0, 1'061'683'200, 1'820'000},
+            {LEVEL_APV_5_1_BAND_0, 2'123'366'400, 3'639'000},
+            {LEVEL_APV_6_BAND_0, 4'777'574'400, 7'278'000},
+            {LEVEL_APV_6_1_BAND_0, 8'493'465'600, 14'556'000},
+            {LEVEL_APV_7_BAND_0, 16'986'931'200, 29'111'000},
+            {LEVEL_APV_7_1_BAND_0, 33'973'862'400, 58'222'000},
         };
 
         constexpr LevelLimits kLimitsBand1[] = {
-                {LEVEL_APV_1_BAND_1, 3'041'280, 11'000},
-                {LEVEL_APV_1_1_BAND_1, 6'082'560, 21'000},
-                {LEVEL_APV_2_BAND_1, 15'667'200, 53'000},
-                {LEVEL_APV_2_1_BAND_1, 31'334'400, 106'00},
-                {LEVEL_APV_3_BAND_1, 66'846'720, 151'000},
-                {LEVEL_APV_3_1_BAND_1, 133'693'440, 301'000},
-                {LEVEL_APV_4_BAND_1, 265'420'800, 602'000},
-                {LEVEL_APV_4_1_BAND_1, 530'841'600, 1'170'000},
-                {LEVEL_APV_5_BAND_1, 1'061'683'200, 2'340'000},
-                {LEVEL_APV_5_1_BAND_1, 2'123'366'400, 4'986'000},
-                {LEVEL_APV_6_BAND_1, 4'777'574'400, 9'972'000},
-                {LEVEL_APV_6_1_BAND_1, 8'493'465'600, 19'944'000},
-                {LEVEL_APV_7_BAND_1, 16'986'931'200, 39'888'000},
-                {LEVEL_APV_7_1_BAND_1, 33'973'862'400, 79'776'000},
+            {LEVEL_APV_1_BAND_1, 3'041'280, 11'000},
+            {LEVEL_APV_1_1_BAND_1, 6'082'560, 21'000},
+            {LEVEL_APV_2_BAND_1, 15'667'200, 54'000},
+            {LEVEL_APV_2_1_BAND_1, 31'334'400, 108'00},
+            {LEVEL_APV_3_BAND_1, 66'846'720, 159'000},
+            {LEVEL_APV_3_1_BAND_1, 133'693'440, 317'000},
+            {LEVEL_APV_4_BAND_1, 265'420'800, 637'000},
+            {LEVEL_APV_4_1_BAND_1, 530'841'600, 1'274'000},
+            {LEVEL_APV_5_BAND_1, 1'061'683'200, 2'548'000},
+            {LEVEL_APV_5_1_BAND_1, 2'123'366'400, 5'095'000},
+            {LEVEL_APV_6_BAND_1, 4'777'574'400, 10'189'000},
+            {LEVEL_APV_6_1_BAND_1, 8'493'465'600, 20'378'000},
+            {LEVEL_APV_7_BAND_1, 16'986'931'200, 40'756'000},
+            {LEVEL_APV_7_1_BAND_1, 33'973'862'400, 81'511'000},
         };
 
         constexpr LevelLimits kLimitsBand2[] = {
-                {LEVEL_APV_1_BAND_2, 3'041'280, 14'000},
-                {LEVEL_APV_1_1_BAND_2, 6'082'560, 28'000},
-                {LEVEL_APV_2_BAND_2, 15'667'200, 71'000},
-                {LEVEL_APV_2_1_BAND_2, 31'334'400, 141'000},
-                {LEVEL_APV_3_BAND_2, 66'846'720, 201'000},
-                {LEVEL_APV_3_1_BAND_2, 133'693'440, 401'000},
-                {LEVEL_APV_4_BAND_2, 265'420'800, 780'000},
-                {LEVEL_APV_4_1_BAND_2, 530'841'600, 1'560'000},
-                {LEVEL_APV_5_BAND_2, 1'061'683'200, 3'324'000},
-                {LEVEL_APV_5_1_BAND_2, 2'123'366'400, 6'648'000},
-                {LEVEL_APV_6_BAND_2, 4'777'574'400, 13'296'000},
-                {LEVEL_APV_6_1_BAND_2, 8'493'465'600, 26'592'000},
-                {LEVEL_APV_7_BAND_2, 16'986'931'200, 53'184'000},
-                {LEVEL_APV_7_1_BAND_2, 33'973'862'400, 106'368'000},
+            {LEVEL_APV_1_BAND_2, 3'041'280, 15'000},
+            {LEVEL_APV_1_1_BAND_2, 6'082'560, 30'000},
+            {LEVEL_APV_2_BAND_2, 15'667'200, 76'000},
+            {LEVEL_APV_2_1_BAND_2, 31'334'400, 152'000},
+            {LEVEL_APV_3_BAND_2, 66'846'720, 222'000},
+            {LEVEL_APV_3_1_BAND_2, 133'693'440, 444'000},
+            {LEVEL_APV_4_BAND_2, 265'420'800, 892'000},
+            {LEVEL_APV_4_1_BAND_2, 530'841'600, 1'784'000},
+            {LEVEL_APV_5_BAND_2, 1'061'683'200, 3'567'000},
+            {LEVEL_APV_5_1_BAND_2, 2'123'366'400, 7'133'000},
+            {LEVEL_APV_6_BAND_2, 4'777'574'400, 14'265'000},
+            {LEVEL_APV_6_1_BAND_2, 8'493'465'600, 28'529'000},
+            {LEVEL_APV_7_BAND_2, 16'986'931'200, 57'058'000},
+            {LEVEL_APV_7_1_BAND_2, 33'973'862'400, 114'115'000},
         };
 
         constexpr LevelLimits kLimitsBand3[] = {
-                {LEVEL_APV_1_BAND_3, 3'041'280, 21'000},
-                {LEVEL_APV_1_1_BAND_3, 6'082'560, 42'000},
-                {LEVEL_APV_2_BAND_3, 15'667'200, 106'000},
-                {LEVEL_APV_2_1_BAND_3, 31'334'400, 212'000},
-                {LEVEL_APV_3_BAND_3, 66'846'720, 301'000},
-                {LEVEL_APV_3_1_BAND_3, 133'693'440, 602'000},
-                {LEVEL_APV_4_BAND_3, 265'420'800, 1'170'000},
-                {LEVEL_APV_4_1_BAND_3, 530'841'600, 2'340'000},
-                {LEVEL_APV_5_BAND_3, 1'061'683'200, 4'986'000},
-                {LEVEL_APV_5_1_BAND_3, 2'123'366'400, 9'972'000},
-                {LEVEL_APV_6_BAND_3, 4'777'574'400, 19'944'000},
-                {LEVEL_APV_6_1_BAND_3, 8'493'465'600, 39'888'000},
-                {LEVEL_APV_7_BAND_3, 16'986'931'200, 79'776'000},
-                {LEVEL_APV_7_1_BAND_3, 33'973'862'400, 159'552'000},
+            {LEVEL_APV_1_BAND_3, 3'041'280, 23'000},
+            {LEVEL_APV_1_1_BAND_3, 6'082'560, 45'000},
+            {LEVEL_APV_2_BAND_3, 15'667'200, 114'000},
+            {LEVEL_APV_2_1_BAND_3, 31'334'400, 227'000},
+            {LEVEL_APV_3_BAND_3, 66'846'720, 333'000},
+            {LEVEL_APV_3_1_BAND_3, 133'693'440, 666'000},
+            {LEVEL_APV_4_BAND_3, 265'420'800, 1'338'000},
+            {LEVEL_APV_4_1_BAND_3, 530'841'600, 2'675'000},
+            {LEVEL_APV_5_BAND_3, 1'061'683'200, 5'350'000},
+            {LEVEL_APV_5_1_BAND_3, 2'123'366'400, 10'699'000},
+            {LEVEL_APV_6_BAND_3, 4'777'574'400, 21'397'000},
+            {LEVEL_APV_6_1_BAND_3, 8'493'465'600, 42'793'000},
+            {LEVEL_APV_7_BAND_3, 16'986'931'200, 85'586'000},
+            {LEVEL_APV_7_1_BAND_3, 33'973'862'400, 171'172'000},
         };
 
-        uint64_t samplesPerSec = width * height * fps;
+        uint64_t samplesPerSec = (uint64_t) width * height * fps;
         if (band == 0) {
             for (const LevelLimits& limit : kLimitsBand0) {
                 if (samplesPerSec <= limit.samplesPerSec && bitrate <= limit.kbpsOfBand * 1000) {

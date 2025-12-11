@@ -7,26 +7,9 @@ package: "android.media.audiopolicy"
 container: "system"
 
 flag {
-    name: "audio_mix_ownership"
-    namespace: "media_audio"
-    description: "Improves ownership model of AudioMixes and the relationship between AudioPolicy and AudioMix."
-    bug: "309080867"
-    is_fixed_read_only: true
-}
-
-flag {
     name: "audio_mix_policy_ordering"
     namespace: "media_audio"
     description: "Orders AudioMixes per registered AudioPolicy."
-    bug: "309080867"
-    is_fixed_read_only: true
-}
-
-flag {
-    name: "audio_mix_test_api"
-    is_exported: true
-    namespace: "media_audio"
-    description: "Enable new Test APIs that provide access to registered AudioMixes on system server and native side."
     bug: "309080867"
     is_fixed_read_only: true
 }
@@ -60,4 +43,12 @@ flag {
     description: "Enable device-aware permission handling for RECORD_AUDIO permission"
     bug: "291737188"
     is_fixed_read_only: true
+}
+
+flag {
+    name: "volume_group_management_update"
+    namespace: "media_audio"
+    description: "Improves volume group management to remove usage of legacy audio attributes and "
+                 "stream types and control by identifier."
+    bug: "270049944"
 }

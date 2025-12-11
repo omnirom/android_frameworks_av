@@ -10,12 +10,14 @@ cc_test {
         "libvirtualcamera_defaults",
     ],
     static_libs: [
+        "libflagtest",
+        "libgmock",
+        "libgtest",
         "libvirtualcamera",
         "libvirtualcamera_utils",
-        "libgtest",
-        "libgmock",
     ],
     srcs: [
+        "AidlUtilTest.cc",
         "EglUtilTest.cc",
         "JpegUtilTest.cc",
         "VirtualCameraDeviceTest.cc",

@@ -17,9 +17,11 @@
 #ifndef ANDROID_AUDIO_TRACK_SHARED_H
 #define ANDROID_AUDIO_TRACK_SHARED_H
 
+#include <algorithm>
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <audio_utils/atomic.h>
 #include <audio_utils/minifloat.h>
 #include <utils/threads.h>
 #include <utils/Log.h>
@@ -315,7 +317,12 @@ protected:
     const bool      mIsOut;             // true for AudioTrack, false for AudioRecord
     const bool      mClientInServer;    // true for OutputTrack, false for AudioTrack & AudioRecord
     bool            mIsShutdown;        // latch set to true when shared memory corruption detected
-    size_t          mUnreleased;        // unreleased frames remaining from most recent obtainBuffer
+
+    // mUnreleased is the number frames remaining from most recent obtainBuffer(s).
+    // Generally accessed by a single thread, but for Java offload,
+    // this variable may be accessed from multiple threads.  It is used to
+    // bounds check the releaseBuffer call after the obtainBuffer.
+    audio_utils::atomic<size_t, audio_utils::memory_order_relaxed>  mUnreleased;
 };
 
 // ----------------------------------------------------------------------------
@@ -426,6 +433,11 @@ public:
 
     virtual void stop() { }; // called by client in AudioTrack::stop()
 
+     void setMinMeasureMs(uint32_t measureMs) {
+         long measureNs = measureMs * 1'000'000L;
+         mMinMeasureNs = std::clamp(measureNs, kAbsoluteMinMeasureNs, kDefaultMinMeasureNs);
+     }
+
 private:
     // This is a copy of mCblk->mBufferSizeInFrames
     uint32_t   mBufferSizeInFrames;  // effective size of the buffer
@@ -437,6 +449,10 @@ private:
     // is initialized by the client constructor.
     ExtendedTimestampQueue::Observer mTimestampObserver;
     ExtendedTimestamp mTimestamp; // initialized by constructor
+    // Minimum timeout in nanoseconds for which we actually wait in obtainBuffer()
+    static constexpr long kDefaultMinMeasureNs = 10'000'000; // 10ms default
+    static constexpr long kAbsoluteMinMeasureNs = 1'000'000; // 1ms absolute min
+    long mMinMeasureNs = kDefaultMinMeasureNs;
 };
 
 // ----------------------------------------------------------------------------

@@ -18,6 +18,8 @@
 #ifndef MEDIA_CODEC_CONSTANTS_H_
 #define MEDIA_CODEC_CONSTANTS_H_
 
+#include <string>
+
 namespace {
 
 // from MediaCodecInfo.java
@@ -719,6 +721,75 @@ inline static const char *asString_APVBandLevel(int32_t i, const char *def = "??
     }
 }
 
+// IAMF ProfileLevel
+inline constexpr int32_t IAMF_CODEC_OPUS            = 0x1;
+inline constexpr int32_t IAMF_CODEC_AAC             = 0x1 << 1;
+inline constexpr int32_t IAMF_CODEC_FLAC            = 0x1 << 2;
+inline constexpr int32_t IAMF_CODEC_PCM             = 0x1 << 3;
+inline constexpr int32_t IAMF_PROFILE_SIMPLE        = 0x1 << 16;
+inline constexpr int32_t IAMF_PROFILE_BASE          = 0x1 << 17;
+inline constexpr int32_t IAMF_PROFILE_BASE_ENHANCED = 0x1 << 18;
+inline constexpr int32_t IAMF_v1                    = 0x1 << 24;
+
+inline constexpr int32_t IAMFProfileSimpleOpus = IAMF_v1 | IAMF_PROFILE_SIMPLE | IAMF_CODEC_OPUS;
+inline constexpr int32_t IAMFProfileSimpleAac = IAMF_v1 | IAMF_PROFILE_SIMPLE | IAMF_CODEC_AAC;
+inline constexpr int32_t IAMFProfileSimpleFlac = IAMF_v1 | IAMF_PROFILE_SIMPLE | IAMF_CODEC_FLAC;
+inline constexpr int32_t IAMFProfileSimplePcm = IAMF_v1 | IAMF_PROFILE_SIMPLE | IAMF_CODEC_PCM;
+inline constexpr int32_t IAMFProfileBaseOpus = IAMF_v1 | IAMF_PROFILE_BASE | IAMF_CODEC_OPUS;
+inline constexpr int32_t IAMFProfileBaseAac = IAMF_v1 | IAMF_PROFILE_BASE | IAMF_CODEC_AAC;
+inline constexpr int32_t IAMFProfileBaseFlac = IAMF_v1 | IAMF_PROFILE_BASE | IAMF_CODEC_FLAC;
+inline constexpr int32_t IAMFProfileBasePcm = IAMF_v1 | IAMF_PROFILE_BASE | IAMF_CODEC_PCM;
+inline constexpr int32_t IAMFProfileBaseEnhancedOpus =
+        IAMF_v1 | IAMF_PROFILE_BASE_ENHANCED | IAMF_CODEC_OPUS;
+inline constexpr int32_t IAMFProfileBaseEnhancedAac =
+        IAMF_v1 | IAMF_PROFILE_BASE_ENHANCED | IAMF_CODEC_AAC;
+inline constexpr int32_t IAMFProfileBaseEnhancedFlac =
+        IAMF_v1 | IAMF_PROFILE_BASE_ENHANCED | IAMF_CODEC_FLAC;
+inline constexpr int32_t IAMFProfileBaseEnhancedPcm =
+        IAMF_v1 | IAMF_PROFILE_BASE_ENHANCED | IAMF_CODEC_PCM;
+
+inline static const char* asString_IamfProfile(int32_t i, const char* def = "??") {
+    std::string version, profile, codec;
+    switch (i & (0xff << 24)) {
+        case IAMF_v1:
+            version = "IAMF v1";
+            break;
+        default:
+            version = def;
+    }
+    switch (i & (0xff << 16)) {
+        case IAMF_PROFILE_SIMPLE:
+            profile = "Simple";
+            break;
+        case IAMF_PROFILE_BASE:
+            profile = "Base";
+            break;
+        case IAMF_PROFILE_BASE_ENHANCED:
+            profile = "Base Enhanced";
+            break;
+        default:
+            profile = def;
+    }
+    switch (i & (0xff << 8)) {
+        case IAMF_CODEC_OPUS:
+            codec = "Opus";
+            break;
+        case IAMF_CODEC_AAC:
+            codec = "AAC";
+            break;
+        case IAMF_CODEC_FLAC:
+            codec = "FLAC";
+            break;
+        case IAMF_CODEC_PCM:
+            codec = "PCM";
+            break;
+        default:
+            codec = def;
+    }
+    static std::string iamfProfile = version + " " + profile + " " + codec;
+    return iamfProfile.c_str();
+}
+
 // Profiles and levels for AC-4 Codec, corresponding to the definitions in
 // "The MIME codecs parameter", Annex E.13
 // found at https://www.etsi.org/deliver/etsi_ts/103100_103199/10319002/01.02.01_60/ts_10319002v010201p.pdf
@@ -953,6 +1024,7 @@ inline constexpr char MIMETYPE_AUDIO_SCRAMBLED[] = "audio/scrambled";
 inline constexpr char MIMETYPE_AUDIO_DTS[] = "audio/vnd.dts";
 inline constexpr char MIMETYPE_AUDIO_DTS_HD[] = "audio/vnd.dts.hd";
 inline constexpr char MIMETYPE_AUDIO_DTS_UHD[] = "audio/vnd.dts.uhd";
+inline constexpr char MIMETYPE_AUDIO_IAMF[] = "audio/iamf";
 
 inline constexpr char MIMETYPE_IMAGE_ANDROID_HEIC[] = "image/vnd.android.heic";
 
@@ -992,6 +1064,7 @@ inline constexpr char KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT[] = "aac-max-output-chann
 inline constexpr char KEY_AAC_PROFILE[] = "aac-profile";
 inline constexpr char KEY_AAC_SBR_MODE[] = "aac-sbr-mode";
 inline constexpr char KEY_ALLOW_FRAME_DROP[] = "allow-frame-drop";
+inline constexpr char KEY_AUDIO_PRESENTATION_ID[] = "audio-presentation-id";
 inline constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";
 inline constexpr char KEY_BIT_RATE[] = "bitrate";
 inline constexpr char KEY_BITRATE_MODE[] = "bitrate-mode";

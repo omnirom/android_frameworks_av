@@ -1218,4 +1218,50 @@ TEST_F(VideoRenderQualityTrackerTest, capturesMaximumContentDroppedAfterPause) {
     EXPECT_EQ(h.getMetrics().maxContentDroppedAfterPauseMs, 12 * 20);
 }
 
+TEST_F(VideoRenderQualityTrackerTest, capturesStagnantContentTime) {
+    Configuration c;
+    c.enabled = true;
+    VideoRenderQualityTracker tracker(c);
+    tracker.onFrameReleased(100 * 1000);
+    tracker.onFrameRendered(100 * 1000, 100 * 1000);
+    tracker.onFrameReleased(100 * 1000);
+    tracker.onFrameRendered(100 * 1000, 120 * 1000);
+    tracker.onFrameReleased(100 * 1000);
+    tracker.onFrameRendered(100 * 1000, 140 * 1000);
+    tracker.onFrameReleased(100 * 1000);
+    tracker.onFrameRendered(100 * 1000, 160 * 1000);
+    EXPECT_EQ(tracker.getMetrics().frameStagnantCount, 3);
+}
+
+TEST_F(VideoRenderQualityTrackerTest, capturesContentTimeJumpingBackwards) {
+    Configuration c;
+    c.enabled = true;
+    VideoRenderQualityTracker tracker(c);
+    tracker.onFrameReleased(400 * 1000);
+    tracker.onFrameRendered(400 * 1000, 100 * 1000);
+    tracker.onFrameReleased(300 * 1000);
+    tracker.onFrameRendered(300 * 1000, 120 * 1000);
+    tracker.onFrameReleased(200 * 1000);
+    tracker.onFrameRendered(200 * 1000, 140 * 1000);
+    tracker.onFrameReleased(100 * 1000);
+    tracker.onFrameRendered(100 * 1000, 160 * 1000);
+    EXPECT_EQ(tracker.getMetrics().frameJumpBackwardCount, 3);
+}
+
+TEST_F(VideoRenderQualityTrackerTest, capturesContentTimeJumpingForwards) {
+    Configuration c;
+    c.enabled = true;
+    c.maxExpectedContentFrameDurationUs = 50;
+    VideoRenderQualityTracker tracker(c);
+    tracker.onFrameReleased(100 * 1000);
+    tracker.onFrameRendered(100 * 1000, 100 * 1000);
+    tracker.onFrameReleased(200 * 1000);
+    tracker.onFrameRendered(200 * 1000, 120 * 1000);
+    tracker.onFrameReleased(300 * 1000);
+    tracker.onFrameRendered(300 * 1000, 140 * 1000);
+    tracker.onFrameReleased(400 * 1000);
+    tracker.onFrameRendered(400 * 1000, 160 * 1000);
+    EXPECT_EQ(tracker.getMetrics().frameJumpForwardCount, 3);
+}
+
 } // android

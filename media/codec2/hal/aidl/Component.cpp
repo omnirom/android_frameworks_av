@@ -21,6 +21,7 @@
 #include <codec2/aidl/Component.h>
 #include <codec2/aidl/ComponentStore.h>
 #include <codec2/aidl/InputBufferManager.h>
+#include <codec2/aidl/InputSink.h>
 
 #ifndef __ANDROID_APEX__
 #include <FilterWrapper.h>
@@ -202,6 +203,7 @@ Component::Component(
         mListener{listener},
         mStore{store},
         mBufferPoolSender{clientPoolManager},
+        mReleased(false),
         mDeathContext(nullptr) {
     // Retrieve supported parameters from store
     // TODO: We could cache this per component/interface type
@@ -456,6 +458,7 @@ ScopedAStatus Component::reset() {
 }
 
 ScopedAStatus Component::release() {
+    mReleased = true;
     c2_status_t status = mComponent->release();
     {
         std::lock_guard<std::mutex> lock(mBlockPoolsMutex);
@@ -487,7 +490,8 @@ ScopedAStatus Component::configureVideoTunnel(
 ScopedAStatus Component::connectToInputSurface(
         const std::shared_ptr<IInputSurface>& inputSurface,
         std::shared_ptr<IInputSurfaceConnection> *connection) {
-    // TODO
+    // Obsolete.
+    // IInputSurface::connect instead of this interface.
     (void)inputSurface;
     (void)connection;
     return ScopedAStatus::fromServiceSpecificError(Status::OMITTED);
@@ -495,9 +499,8 @@ ScopedAStatus Component::connectToInputSurface(
 
 ScopedAStatus Component::asInputSink(
         std::shared_ptr<IInputSink> *sink) {
-    // TODO
-    (void)sink;
-    return ScopedAStatus::fromServiceSpecificError(Status::OMITTED);
+    *sink = SharedRefBase::make<InputSink>(this->ref<Component>());
+    return ScopedAStatus::ok();
 }
 
 void Component::initListener(const std::shared_ptr<Component>& self) {
@@ -553,6 +556,10 @@ void Component::OnBinderUnlinked(void *cookie) {
 }
 
 Component::~Component() {
+    if (!mReleased) {
+        this->reset();
+        this->release();
+    }
     InputBufferManager::unregisterFrameData(mListener);
     mStore->reportComponentDeath(this);
     if (mDeathRecipient.get()) {

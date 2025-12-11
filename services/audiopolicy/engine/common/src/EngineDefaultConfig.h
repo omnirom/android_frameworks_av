@@ -19,124 +19,145 @@
 #include <EngineConfig.h>
 
 #include <media/AudioProductStrategy.h>
+#include <media/AidlConversionUtil.h>
 #include <policy.h>
 #include <system/audio.h>
 
 namespace android {
 
+using AudioProductStrategyType = media::audio::common::AudioProductStrategyType;
+
 /**
  * @brief AudioProductStrategies hard coded array of strategies to fill new engine API contract.
  */
 const engineConfig::ProductStrategies gOrderedStrategies = {
-    {"STRATEGY_PHONE", STRATEGY_PHONE,
-     {
-         {AUDIO_STREAM_VOICE_CALL, "AUDIO_STREAM_VOICE_CALL",
-          {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_VOICE_COMMUNICATION, AUDIO_SOURCE_DEFAULT,
-            AUDIO_FLAG_NONE, ""}},
+    {"STRATEGY_PHONE", static_cast<int>(AudioProductStrategyType::PHONE),
+         AudioProductStrategy::DEFAULT_ZONE_ID,
+         {
+             {AUDIO_STREAM_VOICE_CALL, "AUDIO_STREAM_VOICE_CALL",
+                {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_VOICE_COMMUNICATION,
+                    AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}},
+             },
+             {AUDIO_STREAM_BLUETOOTH_SCO, "AUDIO_STREAM_BLUETOOTH_SCO",
+                {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
+                  AUDIO_FLAG_SCO,""}},
+             }
          },
-         {AUDIO_STREAM_BLUETOOTH_SCO, "AUDIO_STREAM_BLUETOOTH_SCO",
-          {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_SCO,
-            ""}},
-         }
-     },
     },
-    {"STRATEGY_SONIFICATION", STRATEGY_SONIFICATION,
-     {
-         {AUDIO_STREAM_RING, "AUDIO_STREAM_RING",
-          {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_NOTIFICATION_TELEPHONY_RINGTONE,
-            AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}}
+    {"STRATEGY_SONIFICATION", static_cast<int>(AudioProductStrategyType::SONIFICATION),
+         AudioProductStrategy::DEFAULT_ZONE_ID,
+         {
+             {AUDIO_STREAM_RING, "AUDIO_STREAM_RING",
+                {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_NOTIFICATION_TELEPHONY_RINGTONE,
+                    AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}}
+             },
+             {AUDIO_STREAM_ALARM, "AUDIO_STREAM_ALARM",
+                {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ALARM, AUDIO_SOURCE_DEFAULT,
+                    AUDIO_FLAG_NONE, ""}},
+             }
          },
-         {AUDIO_STREAM_ALARM, "AUDIO_STREAM_ALARM",
-          {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ALARM, AUDIO_SOURCE_DEFAULT,
-            AUDIO_FLAG_NONE, ""}},
-         }
-     },
     },
-    {"STRATEGY_ENFORCED_AUDIBLE", STRATEGY_ENFORCED_AUDIBLE,
-     {
-         {AUDIO_STREAM_ENFORCED_AUDIBLE, "AUDIO_STREAM_ENFORCED_AUDIBLE",
-          {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
-            AUDIO_FLAG_AUDIBILITY_ENFORCED, ""}}
-         }
-     },
-    },
-    {"STRATEGY_ACCESSIBILITY", STRATEGY_ACCESSIBILITY,
-     {
-         {AUDIO_STREAM_ACCESSIBILITY, "AUDIO_STREAM_ACCESSIBILITY",
-          {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ASSISTANCE_ACCESSIBILITY,
-            AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}}
-         }
-     },
-    },
-    {"STRATEGY_SONIFICATION_RESPECTFUL", STRATEGY_SONIFICATION_RESPECTFUL,
-     {
-         {AUDIO_STREAM_NOTIFICATION, "AUDIO_STREAM_NOTIFICATION",
-          {
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_NOTIFICATION, AUDIO_SOURCE_DEFAULT,
-               AUDIO_FLAG_NONE, ""},
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_NOTIFICATION_EVENT,
-               AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}
-          }
-         }
-     },
-    },
-    {"STRATEGY_MEDIA", STRATEGY_MEDIA,
-     {
-         {AUDIO_STREAM_ASSISTANT, "AUDIO_STREAM_ASSISTANT",
-          {{AUDIO_CONTENT_TYPE_SPEECH, AUDIO_USAGE_ASSISTANT,
-            AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}}
+    {"STRATEGY_ENFORCED_AUDIBLE", static_cast<int>(AudioProductStrategyType::ENFORCED_AUDIBLE),
+         AudioProductStrategy::DEFAULT_ZONE_ID,
+         {
+             {AUDIO_STREAM_ENFORCED_AUDIBLE, "AUDIO_STREAM_ENFORCED_AUDIBLE",
+                {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
+                    AUDIO_FLAG_AUDIBILITY_ENFORCED, ""}}
+             }
          },
-         {AUDIO_STREAM_MUSIC, "AUDIO_STREAM_MUSIC",
-          {
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_MEDIA, AUDIO_SOURCE_DEFAULT,
-               AUDIO_FLAG_NONE, ""},
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_GAME, AUDIO_SOURCE_DEFAULT,
-               AUDIO_FLAG_NONE, ""},
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ASSISTANT, AUDIO_SOURCE_DEFAULT,
-               AUDIO_FLAG_NONE, ""},
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE,
-               AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""},
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
-               AUDIO_FLAG_NONE, ""}
-          },
+    },
+    {"STRATEGY_ACCESSIBILITY", static_cast<int>(AudioProductStrategyType::ACCESSIBILITY),
+         AudioProductStrategy::DEFAULT_ZONE_ID,
+         {
+             {AUDIO_STREAM_ACCESSIBILITY, "AUDIO_STREAM_ACCESSIBILITY",
+                {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ASSISTANCE_ACCESSIBILITY,
+                    AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}}
+             }
          },
-         {AUDIO_STREAM_SYSTEM, "AUDIO_STREAM_SYSTEM",
-          {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ASSISTANCE_SONIFICATION,
-            AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}}
-         }
-     },
     },
-    {"STRATEGY_DTMF", STRATEGY_DTMF,
-     {
-         {AUDIO_STREAM_DTMF, "AUDIO_STREAM_DTMF",
-          {
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING,
-               AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}
-          }
-         }
-     },
+    {"STRATEGY_SONIFICATION_RESPECTFUL",
+         static_cast<int>(AudioProductStrategyType::SONIFICATION_RESPECTFUL),
+         AudioProductStrategy::DEFAULT_ZONE_ID,
+         {
+             {AUDIO_STREAM_NOTIFICATION, "AUDIO_STREAM_NOTIFICATION",
+                  {
+                      {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_NOTIFICATION, AUDIO_SOURCE_DEFAULT,
+                       AUDIO_FLAG_NONE, ""},
+                      {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_NOTIFICATION_EVENT,
+                       AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}
+                  }
+             }
+         },
     },
-    {"STRATEGY_CALL_ASSISTANT", STRATEGY_CALL_ASSISTANT,
-     {
-         {AUDIO_STREAM_CALL_ASSISTANT, "AUDIO_STREAM_CALL_ASSISTANT",
-          {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_CALL_ASSISTANT, AUDIO_SOURCE_DEFAULT,
-            AUDIO_FLAG_NONE, ""}}
-         }
-     },
+    {"STRATEGY_ASSISTANT", 11, //TODO b/429390420: define in AudioProductStrategyType.aidl,
+        AudioProductStrategy::DEFAULT_ZONE_ID,
+        {
+            {AUDIO_STREAM_ASSISTANT, "AUDIO_STREAM_ASSISTANT",
+                {
+                    {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ASSISTANT,
+                        AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}
+                }
+            }
+        }
     },
-    {"STRATEGY_TRANSMITTED_THROUGH_SPEAKER", STRATEGY_TRANSMITTED_THROUGH_SPEAKER,
-     {
-         {AUDIO_STREAM_TTS, "AUDIO_STREAM_TTS",
-          {
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
-                AUDIO_FLAG_BEACON, ""},
-              {AUDIO_CONTENT_TYPE_ULTRASOUND, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
-                AUDIO_FLAG_NONE, ""},
-              {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_SPEAKER_CLEANUP, AUDIO_SOURCE_DEFAULT,
-                AUDIO_FLAG_NONE, ""}
-          }
-         }
-     },
+    {"STRATEGY_MEDIA", static_cast<int>(AudioProductStrategyType::MEDIA),
+        AudioProductStrategy::DEFAULT_ZONE_ID,
+        {
+            {AUDIO_STREAM_MUSIC, "AUDIO_STREAM_MUSIC",
+                {
+                    {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_MEDIA, AUDIO_SOURCE_DEFAULT,
+                        AUDIO_FLAG_NONE, ""},
+                    {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_GAME, AUDIO_SOURCE_DEFAULT,
+                        AUDIO_FLAG_NONE, ""},
+                    {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE,
+                        AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""},
+                    {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
+                        AUDIO_FLAG_NONE, ""}
+                },
+            },
+            {AUDIO_STREAM_SYSTEM, "AUDIO_STREAM_SYSTEM",
+                        {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_ASSISTANCE_SONIFICATION,
+                                 AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}}
+            }
+        },
+    },
+    {"STRATEGY_DTMF", static_cast<int>(AudioProductStrategyType::DTMF),
+         AudioProductStrategy::DEFAULT_ZONE_ID,
+         {
+             {AUDIO_STREAM_DTMF, "AUDIO_STREAM_DTMF",
+                 {
+                      {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING,
+                       AUDIO_SOURCE_DEFAULT, AUDIO_FLAG_NONE, ""}
+                 }
+             }
+         },
+    },
+    {"STRATEGY_CALL_ASSISTANT",
+         static_cast<int>(AudioProductStrategyType::SYS_RESERVED_CALL_ASSISTANT),
+         AudioProductStrategy::DEFAULT_ZONE_ID,
+         {
+             {AUDIO_STREAM_CALL_ASSISTANT, "AUDIO_STREAM_CALL_ASSISTANT",
+                {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_CALL_ASSISTANT, AUDIO_SOURCE_DEFAULT,
+                AUDIO_FLAG_NONE, ""}}
+             }
+         },
+    },
+    {"STRATEGY_TRANSMITTED_THROUGH_SPEAKER",
+        static_cast<int>(AudioProductStrategyType::TRANSMITTED_THROUGH_SPEAKER),
+        AudioProductStrategy::DEFAULT_ZONE_ID,
+        {
+            {AUDIO_STREAM_TTS, "AUDIO_STREAM_TTS",
+                  {
+                      {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
+                        AUDIO_FLAG_BEACON, ""},
+                      {AUDIO_CONTENT_TYPE_ULTRASOUND, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,
+                        AUDIO_FLAG_NONE, ""},
+                      {AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_SPEAKER_CLEANUP,
+                        AUDIO_SOURCE_DEFAULT,
+                        AUDIO_FLAG_NONE, ""}
+                  }
+            }
+        },
     }
 };
 
@@ -145,7 +166,8 @@ const engineConfig::ProductStrategies gOrderedStrategies = {
  * For compatibility reason why apm volume config file, volume group name is the stream type.
  */
 const engineConfig::ProductStrategies gOrderedSystemStrategies = {
-    {"STRATEGY_REROUTING", STRATEGY_REROUTING,
+    {"STRATEGY_REROUTING", static_cast<int>(AudioProductStrategyType::SYS_RESERVED_REROUTING),
+     AudioProductStrategy::DEFAULT_ZONE_ID,
      {
          {AUDIO_STREAM_REROUTING, "AUDIO_STREAM_REROUTING",
           {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_VIRTUAL_SOURCE, AUDIO_SOURCE_DEFAULT,
@@ -153,7 +175,8 @@ const engineConfig::ProductStrategies gOrderedSystemStrategies = {
          }
      },
     },
-    {"STRATEGY_PATCH", STRATEGY_PATCH,
+    {"STRATEGY_PATCH", 10, //TODO b/416445424: define in AudioProductStrategyType.aidl
+     AudioProductStrategy::DEFAULT_ZONE_ID,
      {
          {AUDIO_STREAM_PATCH, "AUDIO_STREAM_PATCH",
           {{AUDIO_CONTENT_TYPE_UNKNOWN, AUDIO_USAGE_UNKNOWN, AUDIO_SOURCE_DEFAULT,

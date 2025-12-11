@@ -32,6 +32,25 @@
 
 #include <android-base/expected.h>
 
+#define VALUE_OR_RETURN_BINDER_STATUS(x) \
+    ({ auto _tmp = (x); \
+       if (!_tmp.ok()) return ::android::aidl_utils::binderStatusFromStatusT(_tmp.error()); \
+       std::move(_tmp.value()); \
+     })
+
+#define RETURN_BINDER_STATUS_IF_ERROR(x) \
+    { \
+         if (status_t _tmp = (x); _tmp != OK) { \
+             return ::android::aidl_utils::binderStatusFromStatusT(_tmp); \
+         } \
+    }
+
+#define RETURN_IF_BINDER_ERROR(x) \
+    { \
+        ::android::binder::Status _tmp = (x); \
+        if (!_tmp.isOk()) return _tmp; \
+    }
+
 #if defined(BACKEND_NDK_IMPL)
 #include <android/binder_auto_utils.h>
 #include <android/binder_enums.h>

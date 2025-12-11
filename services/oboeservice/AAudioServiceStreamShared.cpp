@@ -34,10 +34,11 @@
 using namespace android;
 using namespace aaudio;
 
+// TODO(411490458): put all aaudio constants at same place
 #define MIN_BURSTS_PER_BUFFER       2
 #define DEFAULT_BURSTS_PER_BUFFER   16
 // This is an arbitrary range. TODO review.
-#define MAX_FRAMES_PER_BUFFER       (32 * 1024)
+#define MAX_FRAMES_PER_BUFFER       (32 * 1024 * 1024)
 
 AAudioServiceStreamShared::AAudioServiceStreamShared(AAudioService &audioService)
     : AAudioServiceStreamBase(audioService)

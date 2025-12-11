@@ -165,11 +165,13 @@ void C2SoftAmrWbEnc::onRelease() {
 }
 
 c2_status_t C2SoftAmrWbEnc::onStop() {
-    for (int i = 0; i < kNumSamplesPerFrame; i++) {
-        mInputFrame[i] = 0x0008; /* EHF_MASK */
+    if (mEncoderHandle) {
+        for (int i = 0; i < kNumSamplesPerFrame; i++) {
+            mInputFrame[i] = 0x0008; /* EHF_MASK */
+        }
+        uint8_t outBuffer[kNumBytesPerInputFrame];
+        (void)encodeInput(outBuffer, kNumBytesPerInputFrame);
     }
-    uint8_t outBuffer[kNumBytesPerInputFrame];
-    (void) encodeInput(outBuffer, kNumBytesPerInputFrame);
     mIsFirst = true;
     mSignalledError = false;
     mSignalledOutputEos = false;

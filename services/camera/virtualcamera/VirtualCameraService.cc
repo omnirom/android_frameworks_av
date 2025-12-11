@@ -119,19 +119,28 @@ ndk::ScopedAStatus validateConfiguration(
     }
   }
 
-  if (configuration.sensorOrientation != SensorOrientation::ORIENTATION_0 &&
-      configuration.sensorOrientation != SensorOrientation::ORIENTATION_90 &&
-      configuration.sensorOrientation != SensorOrientation::ORIENTATION_180 &&
-      configuration.sensorOrientation != SensorOrientation::ORIENTATION_270) {
-    return ndk::ScopedAStatus::fromServiceSpecificError(
-        Status::EX_ILLEGAL_ARGUMENT);
-  }
+  // validate separate lens facing and sensor orientation only if config
+  // CameraCharacteristics is not set
+  if (!configuration.cameraCharacteristics.has_value()) {
+    if (configuration.sensorOrientation != SensorOrientation::ORIENTATION_0 &&
+        configuration.sensorOrientation != SensorOrientation::ORIENTATION_90 &&
+        configuration.sensorOrientation != SensorOrientation::ORIENTATION_180 &&
+        configuration.sensorOrientation != SensorOrientation::ORIENTATION_270) {
+      ALOGE(
+          "%s: Sensor orientation not set and no config CameraCharacteristics",
+          __func__);
+      return ndk::ScopedAStatus::fromServiceSpecificError(
+          Status::EX_ILLEGAL_ARGUMENT);
+    }
 
-  if (configuration.lensFacing != LensFacing::FRONT &&
-      configuration.lensFacing != LensFacing::BACK &&
-      configuration.lensFacing != LensFacing::EXTERNAL) {
-    return ndk::ScopedAStatus::fromServiceSpecificError(
-        Status::EX_ILLEGAL_ARGUMENT);
+    if (configuration.lensFacing != LensFacing::FRONT &&
+        configuration.lensFacing != LensFacing::BACK &&
+        configuration.lensFacing != LensFacing::EXTERNAL) {
+      ALOGE("%s: Lens facing not set and no config CameraCharacteristics",
+            __func__);
+      return ndk::ScopedAStatus::fromServiceSpecificError(
+          Status::EX_ILLEGAL_ARGUMENT);
+    }
   }
 
   return ndk::ScopedAStatus::ok();

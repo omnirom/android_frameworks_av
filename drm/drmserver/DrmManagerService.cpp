@@ -36,6 +36,7 @@ using namespace android;
 static int selinux_enabled;
 static char *drmserver_context;
 static Vector<uid_t> trustedUids;
+static Mutex selinux_lock;
 
 const char *const DrmManagerService::drm_perm_labels[] = {
     "consumeRights",
@@ -79,6 +80,7 @@ bool DrmManagerService::selinuxIsProtectedCallAllowed(pid_t spid, const char* ss
         }
     }
 
+    Mutex::Autolock l(selinux_lock);
     bool allowed = (selinux_check_access(ssid ? ssid : sctx, drmserver_context,
             selinux_class, str_perm, NULL) == 0);
     freecon(sctx);

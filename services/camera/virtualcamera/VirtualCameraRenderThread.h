@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "VirtualCameraCaptureRequest.h"
-#include "VirtualCameraDevice.h"
 #include "VirtualCameraSessionContext.h"
 #include "aidl/android/hardware/camera/device/CameraMetadata.h"
 #include "aidl/android/hardware/camera/device/ICameraDeviceCallback.h"
@@ -134,7 +133,7 @@ class VirtualCameraRenderThread {
   // other buffers will be returned to the buffer queue.
   void requestTextureUpdate() EXCLUDES(mLock);
 
-  // Equeue capture task for processing on render thread.
+  // Enqueue capture task for processing on render thread.
   void enqueueTask(std::unique_ptr<ProcessCaptureRequestTask> task)
       EXCLUDES(mLock);
 
@@ -191,14 +190,11 @@ class VirtualCameraRenderThread {
       std::optional<Rect> viewport = std::nullopt);
 
   // Throttle the current thread to ensure that we are not rendering faster than
-  // the provided maxFps.
+  // the virtual camera maxFps.
   // maxFps: The maximum fps in the capture request
   // lastAcquisitionTimestamp: timestamp of the previous frame
-  // timestamp: the current capture time
-  // Returns the time at which the capture has happened after throttling.
-  std::chrono::nanoseconds throttleRendering(
-      int maxFps, std::chrono::nanoseconds lastAcquisitionTimestamp,
-      std::chrono::nanoseconds timestamp);
+  void throttleRendering(int maxFps,
+                         std::chrono::nanoseconds lastAcquisitionTimestamp);
 
   // Fetch the timestamp of the latest buffer from the EGL Surface
   // timeSinceLastFrame: The elapsed time since the last captured frame.

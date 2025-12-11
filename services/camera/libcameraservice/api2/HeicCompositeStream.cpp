@@ -184,6 +184,8 @@ status_t HeicCompositeStream::createInternalStreams(const std::vector<SurfaceHol
     if ((dataspace == static_cast<int>(kUltraHDRDataSpace)) && flags::camera_heif_gainmap()) {
         mHDRGainmapEnabled = true;
         mInternalDataSpace = static_cast<android_dataspace_t>(HAL_DATASPACE_BT2020_HLG);
+        // APP segment and P010 streams may not be supported on all devices
+        mAppSegmentSupported = false;
     }
 
     res = initializeCodec(width, height, device);
@@ -199,9 +201,10 @@ status_t HeicCompositeStream::createInternalStreams(const std::vector<SurfaceHol
         mAppSegmentConsumer->setFrameAvailableListener(this);
         mAppSegmentConsumer->setName(String8("Camera3-HeicComposite-AppSegmentStream"));
     }
-    sp<IGraphicBufferProducer> producer = mAppSegmentSurface.get() != nullptr
-                                                  ? mAppSegmentSurface->getIGraphicBufferProducer()
-                                                  : nullptr;
+    sp<MediaSurfaceType> surface =
+            mAppSegmentSurface.get() != nullptr
+                    ? mediaflagtools::surfaceToSurfaceType(mAppSegmentSurface)
+                    : nullptr;
 
     if (mAppSegmentSupported) {
         std::vector<int> sourceSurfaceId;
@@ -225,20 +228,20 @@ status_t HeicCompositeStream::createInternalStreams(const std::vector<SurfaceHol
     }
 
     if (!mUseGrid && !mHDRGainmapEnabled) {
-        res = mCodec->createInputSurface(&producer);
+        res = mCodec->createInputSurface(&surface);
         if (res != OK) {
             ALOGE("%s: Failed to create input surface for Heic codec: %s (%d)",
                     __FUNCTION__, strerror(-res), res);
             return res;
         }
     } else {
-        sp<Surface> surface;
-        std::tie(mMainImageConsumer, surface) = CpuConsumer::create(1);
-        producer = surface->getIGraphicBufferProducer();
+        sp<Surface> cpuSurface;
+        std::tie(mMainImageConsumer, cpuSurface) = CpuConsumer::create(1);
+        surface = mediaflagtools::surfaceToSurfaceType(cpuSurface);
         mMainImageConsumer->setFrameAvailableListener(this);
         mMainImageConsumer->setName(String8("Camera3-HeicComposite-HevcInputYUVStream"));
     }
-    mMainImageSurface = new Surface(producer);
+    mMainImageSurface = mediaflagtools::surfaceTypeToSurface(surface);
 
     res = mCodec->start();
     if (res != OK) {
@@ -685,6 +688,11 @@ status_t HeicCompositeStream::configureStream() {
         return res;
     }
 
+    if ((res = setSWUsage(mMainImageStreamId, anwConsumer)) != OK ) {
+        return res;
+    }
+
+
     // Cannot use SourceSurface buffer count since it could be codec's 512*512 tile
     // buffer count.
     if ((res = native_window_set_buffer_count(
@@ -1088,6 +1096,8 @@ status_t HeicCompositeStream::processInputFrame(int64_t frameNumber,
     bool hasOutputBuffer = inputFrame.muxer != nullptr ||
             (mDequeuedOutputBufferCnt < kMaxOutputSurfaceProducerCount);
     bool hasGainmapMetadata = !inputFrame.isoGainmapMetadata.empty();
+    bool hdrGainmapFormatReady = mHDRGainmapEnabled ?
+            (inputFrame.gainmapFormat.get() != nullptr) : true;
 
     ALOGV("%s: [%" PRId64 "]: appSegmentReady %d, codecOutputReady %d, codecInputReady %d,"
             " dequeuedOutputBuffer %d, timestamp %" PRId64, __FUNCTION__, frameNumber,
@@ -1120,6 +1130,13 @@ status_t HeicCompositeStream::processInputFrame(int64_t frameNumber,
                     strerror(-res), res);
             return res;
         }
+    }
+
+    if (!hdrGainmapFormatReady) {
+        // If HDR gainmap is enabled, we need to wait until the gainmap format
+        // is received from the codec before starting the muxer. Otherwise,
+        // the muxer will not be able to add the gainmap track.
+        return OK;
     }
 
     if (!(codecOutputReady && hasOutputBuffer) && !appSegmentReady) {

@@ -1211,9 +1211,14 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
         return NO_ERROR;
     }
     if (isAfTrackOffloadedOrDirect_l()) {
+        AudioPlaybackRate servicePlaybackRate = playbackRate;
+        if (servicePlaybackRate.mFallbackMode == AUDIO_TIMESTRETCH_FALLBACK_DEFAULT) {
+            // unspecified by client, system determines behavior, set to `FAIL`.
+            servicePlaybackRate.mFallbackMode = AUDIO_TIMESTRETCH_FALLBACK_FAIL;
+        }
         const status_t status = statusTFromBinderStatus(mAudioTrack->setPlaybackRateParameters(
-                VALUE_OR_RETURN_STATUS(
-                        legacy2aidl_audio_playback_rate_t_AudioPlaybackRate(playbackRate))));
+                VALUE_OR_RETURN_STATUS(legacy2aidl_audio_playback_rate_t_AudioPlaybackRate(
+                        servicePlaybackRate))));
         if (status == NO_ERROR) {
             mPlaybackRate = playbackRate;
         } else if (status == INVALID_OPERATION
@@ -1294,8 +1299,19 @@ const AudioPlaybackRate& AudioTrack::getPlaybackRate()
         const status_t status = statusTFromBinderStatus(
                 mAudioTrack->getPlaybackRateParameters(&playbackRateTemp));
         if (status == NO_ERROR) { // update local version if changed.
-            mPlaybackRate =
+            AudioPlaybackRate servicePlaybackRate =
                     aidl2legacy_AudioPlaybackRate_audio_playback_rate_t(playbackRateTemp).value();
+            if (servicePlaybackRate.mFallbackMode == AUDIO_TIMESTRETCH_FALLBACK_DEFAULT) {
+                // This is not expected, may be an issue with HAL.
+                ALOGW("%s(%d) got 'FALLBACK_DEFAULT' from service", __func__, mPortId);
+                servicePlaybackRate.mFallbackMode = AUDIO_TIMESTRETCH_FALLBACK_FAIL;
+            }
+            if (mPlaybackRate.mFallbackMode == AUDIO_TIMESTRETCH_FALLBACK_DEFAULT &&
+                    servicePlaybackRate.mFallbackMode == AUDIO_TIMESTRETCH_FALLBACK_FAIL) {
+                // Leave the client view as 'DEFAULT'.
+                servicePlaybackRate.mFallbackMode = AUDIO_TIMESTRETCH_FALLBACK_DEFAULT;
+            }
+            mPlaybackRate = servicePlaybackRate;
         }
     }
     return mPlaybackRate;
@@ -1534,7 +1550,7 @@ status_t AudioTrack::getPosition(uint32_t *position)
     // for compressed/synced data; however, we use proxy position for pure linear pcm data
     // as we do not know the capability of the HAL for pcm position support and standby.
     // There may be some latency differences between the HAL position and the proxy position.
-    if (isOffloadedOrDirect_l() && !isPurePcmData_l()) {
+    if (isOffloaded_l() || (isDirect_l() && !isPurePcmData_l())) {
         if (isOffloaded_l() && ((mState == STATE_PAUSED) || (mState == STATE_PAUSED_STOPPING))) {
             ALOGV("%s(%d): called in paused state, return cached position %u",
                 __func__, mPortId, mPausedPosition);
@@ -1786,7 +1802,7 @@ status_t AudioTrack::createTrack_l()
     IAudioFlinger::CreateTrackInput input;
     if (mOriginalStreamType != AUDIO_STREAM_DEFAULT) {
         // Legacy: This is based on original parameters even if the track is recreated.
-        input.attr = AudioSystem::streamTypeToAttributes(mOriginalStreamType);
+        AudioSystem::getAttributesForStreamType(mOriginalStreamType, input.attr);
     } else {
         input.attr = mAttributes;
     }
@@ -1998,7 +2014,8 @@ status_t AudioTrack::createTrack_l()
         setAudioDescriptionMixLevel_l(mAudioDescriptionMixLeveldB);
     }
 
-    mDeathNotifier = new DeathNotifier(this);
+    wp<AudioTrack> wpThis(this);
+    mDeathNotifier = sp<DeathNotifier>::make(wpThis);
     IInterface::asBinder(mAudioTrack)->linkToDeath(mDeathNotifier, this);
 
     // This is the first log sent from the AudioTrack client.
@@ -2616,6 +2633,10 @@ nsecs_t AudioTrack::processAudioBuffer()
         if (err != NO_ERROR) {
             if (err == TIMED_OUT || err == WOULD_BLOCK || err == -EINTR ||
                     (isOffloaded && (err == DEAD_OBJECT))) {
+                if (writtenFrames > 0) {
+                    AutoMutex lock(mLock);
+                    mFramesWritten += writtenFrames;
+                }
                 // FIXME bug 25195759
                 return 1000000;
             }

@@ -146,10 +146,12 @@ c2_status_t C2SoftAmrDec::onInit() {
 }
 
 c2_status_t C2SoftAmrDec::onStop() {
-    if (!mIsWide) {
-        Speech_Decode_Frame_reset(mAmrHandle);
-    } else {
-        pvDecoder_AmrWb_Reset(mAmrHandle, 1 /* reset_all */);
+    if (mAmrHandle) {
+        if (!mIsWide) {
+            Speech_Decode_Frame_reset(mAmrHandle);
+        } else {
+            pvDecoder_AmrWb_Reset(mAmrHandle, 1 /* reset_all */);
+        }
     }
     mSignalledError = false;
     mSignalledOutputEos = false;

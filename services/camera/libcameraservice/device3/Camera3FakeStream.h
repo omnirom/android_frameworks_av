@@ -52,7 +52,7 @@ class Camera3FakeStream :
 
     virtual void     dump(int fd, const Vector<String16> &args);
 
-    status_t         setTransform(int transform, bool mayChangeMirror, int surfaceId);
+    status_t         setTransform(int transform, int surfaceId);
 
     virtual status_t detachBuffer(sp<GraphicBuffer>* buffer, int* fenceFd);
 
@@ -86,6 +86,8 @@ class Camera3FakeStream :
      * Query the output surface id.
      */
     virtual ssize_t getSurfaceId(const sp<Surface> &/*surface*/) { return 0; }
+
+    virtual int getMirrorMode() const override { return  OutputConfiguration::MIRROR_MODE_AUTO; };
 
     virtual status_t getUniqueSurfaceIds(const std::vector<size_t>&,
             /*out*/std::vector<size_t>*) { return INVALID_OPERATION; };

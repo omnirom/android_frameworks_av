@@ -40,6 +40,7 @@ public:
             const AttributionSourceState& attributionSource,
             uint32_t virtualDeviceId,
             const audio_attributes_t& attr,
+            bool shouldExemptFgListening,
             wp<AudioPolicyService::AudioCommandThread> commandThread);
 
 private:
@@ -48,6 +49,7 @@ private:
                          const audio_attributes_t &attr,
                          int32_t appOp,
                          bool shouldMonitorRecord,
+                         bool shouldExemptFgListening,
                          wp<AudioPolicyService::AudioCommandThread> commandThread);
 
     void onFirstRef() override;
@@ -77,6 +79,7 @@ private:
     const audio_attributes_t mAttr;
     const int32_t mAppOp;
     const bool mShouldMonitorRecord;
+    const bool mShouldExemptFgListening;
     wp<AudioPolicyService::AudioCommandThread> mCommandThread;
 };
 
@@ -92,6 +95,7 @@ public:
                       const AttributionSourceState& attributionSource,
                       const uint32_t virtualDeviceId,
                       bool canBypassConcurrentPolicy,
+                      bool shouldExemptFgListening, // if true, leave unsilenced when go to bkgd
                       wp<AudioPolicyService::AudioCommandThread> commandThread) :
                 AudioClient(attributes, io, attributionSource,
                     session, portId, deviceIds), attributionSource(attributionSource),
@@ -100,7 +104,9 @@ public:
                     silenced(false), mOpRecordAudioMonitor(
                             OpRecordAudioMonitor::createIfNeeded(attributionSource,
                                                                  virtualDeviceId,
-                                                                 attributes, commandThread)) {
+                                                                 attributes,
+                                                                 shouldExemptFgListening,
+                                                                 commandThread)) {
 
             }
             ~AudioRecordClient() override = default;

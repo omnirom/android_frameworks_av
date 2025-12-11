@@ -258,6 +258,7 @@ private:
     static const unsigned int TONEGEN_MAX_SEGMENTS = 12;  // Maximun number of segments in a tone descriptor
     static const unsigned int TONEGEN_INF = 0xFFFFFFFF;  // Represents infinite time duration
     static const CONSTEXPR float TONEGEN_GAIN = 0.9;  // Default gain passed to  WaveGenerator().
+    static const int kCadenceMs = 20;   // Unit time for generating tones
 
     // ToneDescriptor class contains all parameters needed to generate a tone:
     //    - The array waveFreq[]:

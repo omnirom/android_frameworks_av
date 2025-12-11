@@ -15,12 +15,16 @@
  *
  */
 
+#include <condition_variable>
 #include <datasource/HTTPBase.h>
+#include <functional>
 #include <fuzzer/FuzzedDataProvider.h>
 #include <media/MediaHTTPConnection.h>
 #include <media/MediaHTTPService.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/rtsp/SDPLoader.h>
+#include <mutex>
+#include <vector>
 
 using namespace android;
 

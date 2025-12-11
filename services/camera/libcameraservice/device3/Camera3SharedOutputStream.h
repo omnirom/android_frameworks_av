@@ -83,7 +83,7 @@ public:
         return false;
     }
 
-    virtual status_t  setTransform(int transform, bool mayChangeMirror, int surfaceId);
+    virtual status_t  setTransform(int transform, int surfaceId);
 
 private:
 

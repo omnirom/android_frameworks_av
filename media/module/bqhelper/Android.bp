@@ -28,7 +28,16 @@ cc_defaults {
         "media_plugin_headers",
     ],
 
+    static_libs: [
+        "libguiflags",
+    ],
+
+    export_static_lib_headers: [
+        "libguiflags",
+    ],
+
     shared_libs: [
+        "libaconfig_storage_read_api_cc",
         "libbase",
         "libcutils",
         "libhidlbase",
@@ -37,16 +46,13 @@ cc_defaults {
         "libstagefright_foundation",
         "libui",
         "libutils",
-
         "android.hardware.graphics.bufferqueue@1.0",
-        "android.hardware.graphics.bufferqueue@2.0",
     ],
 
     export_shared_lib_headers: [
         "libhidlmemory",
         "libstagefright_foundation",
         "android.hardware.graphics.bufferqueue@1.0",
-        "android.hardware.graphics.bufferqueue@2.0",
     ],
 
     cflags: [
@@ -71,7 +77,7 @@ cc_library_shared {
     vendor_available: true,
     min_sdk_version: "29",
 
-    shared_libs: [ "libgui" ],
+    shared_libs: ["libgui"],
     target: {
         vendor: {
             exclude_shared_libs: [
@@ -91,33 +97,4 @@ cc_library_shared {
             ],
         },
     },
-}
-
-// This lib is needed on devices that doesn't use vndk,
-// on these devices we still don't want libgui to be pulled
-// in onto the apex build. It should only be used by
-// libcodec2_hidl@1.x, etc. from service side. It could
-// be removed if all builds are using vndk.
-cc_library_shared {
-    name: "libstagefright_bufferqueue_helper_novndk",
-    defaults: ["libstagefright_bufferqueue-defaults"],
-    apex_available: [
-        "com.android.media.swcodec",
-        "test_com.android.media.swcodec",
-        "//apex_available:platform",
-    ],
-    vendor_available: false,
-    min_sdk_version: "29",
-    static_libs: [
-        "libgui_bufferqueue_static",
-    ],
-    shared_libs: [
-        "android.hidl.token@1.0-utils",
-        "libEGL",
-        "libnativewindow",
-        "libvndksupport",
-    ],
-    cflags: [
-        "-DNO_BINDER",
-    ],
 }

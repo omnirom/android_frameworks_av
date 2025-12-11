@@ -46,6 +46,7 @@
 #include <utils/Trace.h>
 #include <utils/Timers.h>
 #include <cutils/properties.h>
+#include <android/content/res/CameraCompatibilityInfo.h>
 #include <camera/StringUtils.h>
 #include <com_android_internal_camera_flags.h>
 
@@ -166,8 +167,8 @@ status_t HidlCamera3Device::initialize(sp<CameraProviderManager> manager,
         return res;
     }
 
-    res = manager->getCameraCharacteristics(mId, mOverrideForPerfClass, &mDeviceInfo,
-            hardware::ICameraService::ROTATION_OVERRIDE_NONE);
+    CameraCompatibilityInfo compatInfo;
+    res = manager->getCameraCharacteristics(mId, mOverrideForPerfClass, &mDeviceInfo, compatInfo);
     if (res != OK) {
         SET_ERR_L("Could not retrieve camera characteristics: %s (%d)", strerror(-res), res);
         session->close();
@@ -182,7 +183,7 @@ status_t HidlCamera3Device::initialize(sp<CameraProviderManager> manager,
             // Do not override characteristics for physical cameras
             res = manager->getCameraCharacteristics(
                     physicalId, /*overrideForPerfClass*/false, &mPhysicalDeviceInfoMap[physicalId],
-                    hardware::ICameraService::ROTATION_OVERRIDE_NONE);
+                    CameraCompatibilityInfo());
             if (res != OK) {
                 SET_ERR_L("Could not retrieve camera %s characteristics: %s (%d)",
                         physicalId.c_str(), strerror(-res), res);
@@ -375,7 +376,7 @@ hardware::Return<void> HidlCamera3Device::processCaptureResult_3_4(
         mNumPartialResults, mVendorTagId, mDeviceInfo, mPhysicalDeviceInfoMap,
         mDistortionMappers, mZoomRatioMappers, mRotateAndCropMappers,
         mTagMonitor, mInputStream, mOutputStreams, mSessionStatsBuilder, listener, *this, *this,
-        *mInterface, mLegacyClient, mMinExpectedDuration, mIsFixedFps, mRotationOverride,
+        *mInterface, mLegacyClient, mMinExpectedDuration, mIsFixedFps, mCompatInfo,
         mActivePhysicalId}, mResultMetadataQueue
     };
 
@@ -438,7 +439,7 @@ hardware::Return<void> HidlCamera3Device::processCaptureResult(
         mNumPartialResults, mVendorTagId, mDeviceInfo, mPhysicalDeviceInfoMap,
         mDistortionMappers, mZoomRatioMappers, mRotateAndCropMappers,
         mTagMonitor, mInputStream, mOutputStreams, mSessionStatsBuilder, listener, *this, *this,
-        *mInterface, mLegacyClient, mMinExpectedDuration, mIsFixedFps, mRotationOverride,
+        *mInterface, mLegacyClient, mMinExpectedDuration, mIsFixedFps, mCompatInfo,
         mActivePhysicalId}, mResultMetadataQueue
     };
 
@@ -486,7 +487,7 @@ hardware::Return<void> HidlCamera3Device::notifyHelper(
         mNumPartialResults, mVendorTagId, mDeviceInfo, mPhysicalDeviceInfoMap,
         mDistortionMappers, mZoomRatioMappers, mRotateAndCropMappers,
         mTagMonitor, mInputStream, mOutputStreams, mSessionStatsBuilder, listener, *this, *this,
-        *mInterface, mLegacyClient, mMinExpectedDuration, mIsFixedFps, mRotationOverride,
+        *mInterface, mLegacyClient, mMinExpectedDuration, mIsFixedFps, mCompatInfo,
         mActivePhysicalId}, mResultMetadataQueue
     };
     for (const auto& msg : msgs) {
@@ -722,10 +723,10 @@ sp<Camera3Device::RequestThread> HidlCamera3Device::createNewRequestThread(
                 const Vector<int32_t>& sessionParamKeys,
                 bool useHalBufManager,
                 bool supportCameraMute,
-                int rotationOverride,
+                const CameraCompatibilityInfo& compatInfo,
                 bool supportSettingsOverride) {
         return new HidlRequestThread(parent, statusTracker, interface, sessionParamKeys,
-                useHalBufManager, supportCameraMute, rotationOverride,
+                useHalBufManager, supportCameraMute, compatInfo,
                 supportSettingsOverride);
 };
 
@@ -1726,10 +1727,10 @@ HidlCamera3Device::HidlRequestThread::HidlRequestThread(wp<Camera3Device> parent
                 const Vector<int32_t>& sessionParamKeys,
                 bool useHalBufManager,
                 bool supportCameraMute,
-                int rotationOverride,
+                const CameraCompatibilityInfo& compatInfo,
                 bool supportSettingsOverride) :
           RequestThread(parent, statusTracker, interface, sessionParamKeys, useHalBufManager,
-                  supportCameraMute, rotationOverride, supportSettingsOverride) {}
+                  supportCameraMute, compatInfo, supportSettingsOverride) {}
 
 status_t HidlCamera3Device::HidlRequestThread::switchToOffline(
         const std::vector<int32_t>& streamsToKeep,

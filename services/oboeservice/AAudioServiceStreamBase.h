@@ -20,7 +20,10 @@
 #include <assert.h>
 #include <mutex>
 
+#include <aaudio/IAAudioClientCallback.h>
 #include <android-base/thread_annotations.h>
+#include <android/media/audio/common/AudioPlaybackRate.h>
+#include <audio_utils/TimerQueue.h>
 #include <media/AidlConversion.h>
 #include <media/AudioClient.h>
 #include <utils/RefBase.h>
@@ -122,6 +125,18 @@ public:
      */
     aaudio_result_t exitStandby(AudioEndpointParcelable *parcelable) EXCLUDES(mLock);
 
+    aaudio_result_t updateTimestamp() EXCLUDES(mLock);
+
+    aaudio_result_t drain(int64_t wakeUpNanos, bool allowSoftWakeUp,
+                          android::audio_utils::TimerQueue::handle_t* handle) EXCLUDES(mLock);
+
+    aaudio_result_t activate(android::audio_utils::TimerQueue::handle_t handle) EXCLUDES(mLock);
+
+    aaudio_result_t setPlaybackParameters(
+            const android::media::audio::common::AudioPlaybackRate& rate) EXCLUDES(mLock);
+    aaudio_result_t getPlaybackParameters(
+            android::media::audio::common::AudioPlaybackRate* rate) EXCLUDES(mLock);
+
     virtual aaudio_result_t startClient(const android::AudioClient& client,
                                         const audio_attributes_t *attr __unused,
                                         audio_port_handle_t *clientHandle __unused) {
@@ -194,6 +209,10 @@ public:
 
     void onVolumeChanged(float volume);
 
+    aaudio_stream_state_t onSoundDoseChanged(bool active);
+
+    void onWakeUp(android::audio_utils::TimerQueue::handle_t handle);
+
     /**
      * Set false when the stream is started.
      * Set true when data is first read from the stream.
@@ -237,6 +256,14 @@ protected:
     virtual aaudio_result_t stop_l() REQUIRES(mLock);
     void disconnect_l() REQUIRES(mLock);
     aaudio_result_t flush_l() REQUIRES(mLock);
+    aaudio_result_t activate_l(TimestampScheduler* scheduler,
+                               int64_t* nextTimestampReportTime,
+                               int64_t* nextDataReportTime,
+                               android::audio_utils::TimerQueue::handle_t handle) REQUIRES(mLock);
+    aaudio_result_t onSetPlaybackParameters_l(
+            const android::media::audio::common::AudioPlaybackRate& rate) REQUIRES(mLock);
+    aaudio_result_t onGetPlaybackParameters_l(
+            android::media::audio::common::AudioPlaybackRate* rate) REQUIRES(mLock);
 
     class RegisterAudioThreadParam : public AAudioCommandParam {
     public:
@@ -272,6 +299,24 @@ protected:
     };
     aaudio_result_t getDescription_l(AudioEndpointParcelable* parcelable)
             REQUIRES(mLock) EXCLUDES(mUpMessageQueueLock);
+
+    class SetPlaybackParametersParam : public AAudioCommandParam {
+    public:
+        explicit SetPlaybackParametersParam(
+                const android::media::audio::common::AudioPlaybackRate& rate)
+                : AAudioCommandParam(), mRate(rate) { }
+
+        const android::media::audio::common::AudioPlaybackRate mRate;
+    };
+
+    class GetPlaybackParametersParam : public AAudioCommandParam {
+    public:
+        explicit GetPlaybackParametersParam(
+                android::media::audio::common::AudioPlaybackRate* rate)
+                : AAudioCommandParam(), mRate(rate) { }
+
+        android::media::audio::common::AudioPlaybackRate* mRate;
+    };
 
     void setState(aaudio_stream_state_t state);
 
@@ -348,10 +393,41 @@ protected:
                 || mState == AAUDIO_STREAM_STATE_STOPPED;
     }
 
+    void wakeUp_l(TimestampScheduler* scheduler,
+                  int64_t* nextTimestampReportTime,
+                  int64_t* nextDataReportTime,
+                  android::audio_utils::TimerQueue::handle_t handle) REQUIRES(mLock);
+
+    void updateReportTime_l(TimestampScheduler* scheduler,
+                            int64_t* nextTimestampReportTime,
+                            int64_t* nextDataReportTime) REQUIRES(mLock);
+
     virtual int64_t nextDataReportTime_l() REQUIRES(mLock) {
         return std::numeric_limits<int64_t>::max();
     }
     virtual void reportData_l() REQUIRES(mLock) { return; }
+
+    class DrainParam : public AAudioCommandParam {
+    public:
+        DrainParam(int64_t wakeUpNanos, bool allowSoftWakeUp,
+                   android::audio_utils::TimerQueue::handle_t* handle)
+                : AAudioCommandParam(), mWakeUpNanos(wakeUpNanos),
+                  mAllowSoftWakeUp(allowSoftWakeUp), mHandle(handle) { }
+        ~DrainParam() override = default;
+
+        int64_t mWakeUpNanos;
+        bool mAllowSoftWakeUp;
+        android::audio_utils::TimerQueue::handle_t* mHandle;
+    };
+
+    class ActivateParam : public AAudioCommandParam {
+    public:
+        explicit ActivateParam(android::audio_utils::TimerQueue::handle_t handle)
+                : AAudioCommandParam(), mHandle(handle) { }
+        ~ActivateParam() override = default;
+
+        android::audio_utils::TimerQueue::handle_t mHandle;
+    };
 
     class StartClientParam : public AAudioCommandParam {
     public:
@@ -387,6 +463,27 @@ protected:
         return AAUDIO_ERROR_UNAVAILABLE;
     }
 
+    class SoundDoseChangedParam : public AAudioCommandParam {
+    public:
+        explicit SoundDoseChangedParam(bool active)
+                : AAudioCommandParam(), mActive(active) {
+        }
+        const bool mActive;
+    };
+
+    class WakeUpParam : public AAudioCommandParam {
+    public:
+        explicit WakeUpParam(android::audio_utils::TimerQueue::handle_t handle)
+                : AAudioCommandParam(), mHandle(handle) {
+        }
+        const android::audio_utils::TimerQueue::handle_t mHandle;
+    };
+
+    virtual void changeSoundDose_l(
+            bool active, int64_t* /* nextDataReportTime */ ) REQUIRES(mLock) {
+        ALOGD("AAudioServiceStreamBase::%s(%d) ignored for base class", __func__, active);
+    }
+
     pid_t                   mRegisteredClientThread = ILLEGAL_THREAD_ID;
 
     std::mutex              mUpMessageQueueLock;
@@ -405,6 +502,13 @@ protected:
         EXIT_STANDBY,
         START_CLIENT,
         STOP_CLIENT,
+        UPDATE_TIMESTAMP,
+        DRAIN,
+        ACTIVATE,
+        SET_PLAYBACK_PARAMETERS,
+        GET_PLAYBACK_PARAMETERS,
+        SOUND_DOSE_CHANGED,
+        WAKE_UP,
     };
     AAudioThread            mCommandThread;
     std::atomic_bool        mThreadEnabled{false};
@@ -426,6 +530,7 @@ protected:
     android::wp<AAudioServiceEndpoint> mServiceEndpointWeak;
 
     std::string mMetricsId;  // set once during open()
+    bool mSoundDoseActive GUARDED_BY(mLock) {false};  // true when audio data must be reported.
 
 private:
 
@@ -466,6 +571,12 @@ private:
     bool                    mDisconnected GUARDED_BY(mLock) {false};
 
     bool                    mStandby GUARDED_BY(mLock) = false;
+
+    bool                    mIsDraining GUARDED_BY(mLock) = false;
+
+    android::sp<IAAudioClientCallback> mClientCallback;
+    android::audio_utils::TimerQueue::handle_t mTQWakeUpHandle
+            GUARDED_BY(mLock){android::audio_utils::TimerQueue::INVALID_HANDLE};
 
 protected:
     // Locking order is important.

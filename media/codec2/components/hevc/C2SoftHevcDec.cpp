@@ -837,6 +837,7 @@ void C2SoftHevcDec::process(
     }
     bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
     bool hasPicture = false;
+    bool configUpdateQueued = false;
 
     ALOGV("in buffer attr. size %zu timestamp %d frameindex %d, flags %x",
           inSize, (int)work->input.ordinal.timestamp.peeku(),
@@ -960,6 +961,7 @@ void C2SoftHevcDec::process(
         hasPicture |= (1 == ps_decode_op->u4_frame_decoded_flag);
         if (ps_decode_op->u4_output_present) {
             finishWork(ps_decode_op->u4_ts, work);
+            configUpdateQueued = c2_cntr64_t(ps_decode_op->u4_ts) == work->input.ordinal.frameIndex;
         }
         if (0 == ps_decode_op->u4_num_bytes_consumed) {
             ALOGD("Bytes consumed is zero. Ignoring remaining bytes");
@@ -978,6 +980,18 @@ void C2SoftHevcDec::process(
         mSignalledOutputEos = true;
     } else if (!hasPicture) {
         fillEmptyWork(work);
+    } else if (!configUpdateQueued && work->worklets.front()->output.configUpdate.size() > 0) {
+        auto fillWork = [&work](const std::unique_ptr<C2Work>& cloneWork) {
+            cloneWork->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
+            cloneWork->worklets.front()->output.buffers.clear();
+            cloneWork->worklets.front()->output.configUpdate =
+                    std::move(work->worklets.front()->output.configUpdate);
+            cloneWork->worklets.front()->output.ordinal = work->input.ordinal;
+            cloneWork->workletsProcessed = 1u;
+            cloneWork->result = C2_OK;
+        };
+        uint64_t frameIndex = work->input.ordinal.frameIndex.peeku();
+        cloneAndSend(frameIndex, work, fillWork);
     }
 }
 

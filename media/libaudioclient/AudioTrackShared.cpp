@@ -117,8 +117,6 @@ ClientProxy::ClientProxy(audio_track_cblk_t* cblk, void *buffers, size_t frameCo
 const struct timespec ClientProxy::kForever = {INT_MAX /*tv_sec*/, 0 /*tv_nsec*/};
 const struct timespec ClientProxy::kNonBlocking = {0 /*tv_sec*/, 0 /*tv_nsec*/};
 
-#define MEASURE_NS 10000000 // attempt to provide accurate timeouts if requested >= MEASURE_NS
-
 // To facilitate quicker recovery from server failure, this value limits the timeout per each futex
 // wait.  However it does not protect infinite timeouts.  If defined to be zero, there is no limit.
 // FIXME May not be compatible with audio tunneling requirements where timeout should be in the
@@ -172,7 +170,7 @@ status_t ClientProxy::obtainBuffer(Buffer* buffer, const struct timespec *reques
         timeout = TIMEOUT_INFINITE;
     } else {
         timeout = TIMEOUT_FINITE;
-        if (requested->tv_sec > 0 || requested->tv_nsec >= MEASURE_NS) {
+        if (requested->tv_sec > 0 || requested->tv_nsec >= mMinMeasureNs) {
             measure = true;
         }
     }
@@ -267,7 +265,11 @@ status_t ClientProxy::obtainBuffer(Buffer* buffer, const struct timespec *reques
             buffer->mRaw = part1 > 0 ?
                     &((char *) mBuffers)[(mIsOut ? rear : front) * mFrameSize] : NULL;
             buffer->mNonContig = avail - part1;
-            mUnreleased = part1;
+            // If two obtainBuffers requests are concurrent (for Java Offload),
+            // take the maximum of the two mUnreleased (consistency check variable)
+            // to avoid triggering an assertion on releaseBuffer.
+            // TODO(b/419572928) improve this logic.
+            mUnreleased.max(part1);
             status = NO_ERROR;
             break;
         }
@@ -397,7 +399,7 @@ void ClientProxy::releaseBuffer(Buffer* buffer)
     LOG_ALWAYS_FATAL_IF(!(stepCount <= mUnreleased && mUnreleased <= mFrameCount),
             "%s: mUnreleased out of range, "
             "!(stepCount:%zu <= mUnreleased:%zu <= mFrameCount:%zu), BufferSizeInFrames:%u",
-            __func__, stepCount, mUnreleased, mFrameCount, getBufferSizeInFrames());
+            __func__, stepCount, mUnreleased.load(), mFrameCount, getBufferSizeInFrames());
     mUnreleased -= stepCount;
     audio_track_cblk_t* cblk = mCblk;
     // Both of these barriers are required
@@ -918,7 +920,7 @@ void ServerProxy::releaseBuffer(Buffer* buffer)
     LOG_ALWAYS_FATAL_IF(!(stepCount <= mUnreleased && mUnreleased <= mFrameCount),
             "%s: mUnreleased out of range, "
             "!(stepCount:%zu <= mUnreleased:%zu <= mFrameCount:%zu)",
-            __func__, stepCount, mUnreleased, mFrameCount);
+            __func__, stepCount, mUnreleased.load(), mFrameCount);
     mUnreleased -= stepCount;
     audio_track_cblk_t* cblk = mCblk;
     if (mIsOut) {
@@ -1231,7 +1233,7 @@ void StaticAudioTrackServerProxy::releaseBuffer(Buffer* buffer)
     LOG_ALWAYS_FATAL_IF(!(stepCount <= mUnreleased),
             "%s: stepCount out of range, "
             "!(stepCount:%zu <= mUnreleased:%zu)",
-            __func__, stepCount, mUnreleased);
+            __func__, stepCount, mUnreleased.load());
     if (stepCount == 0) {
         // prevent accidental re-use of buffer
         buffer->mRaw = NULL;

@@ -46,7 +46,8 @@ public:
             const char *address,
             audio_source_t source,
             audio_devices_t outputDevice,
-            const char* outputDeviceAddress) override;
+            const char* outputDeviceAddress,
+            int32_t mixPortHalId) override;
 
     /**
     * Read audio buffer from driver. If at least one frame was read successfully prior to the error,

@@ -60,6 +60,16 @@
                     <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
                              samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
                 </mixPort>
+                <mixPort name="mmap_offload" role="source"
+                    flags="AUDIO_OUTPUT_FLAG_DIRECT AUDIO_OUTPUT_FLAG_MMAP_NOIRQ AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                        samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </mixPort>
+                <mixPort name="compress_offload" role="source"
+                    flags="AUDIO_OUTPUT_FLAG_DIRECT AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                        samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </mixPort>
                 <mixPort name="mixport_bus_input" role="sink">
                     <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
                         samplingRates="48000"
@@ -119,7 +129,7 @@
                 <route type="mix" sink="BT A2DP Out"
                        sources="primary output,hifi_output"/>
                 <route type="mix" sink="USB Device Out"
-                       sources="primary output,hifi_output,mmap_no_irq_out"/>
+                       sources="primary output,hifi_output,mmap_no_irq_out,mmap_offload,compress_offload"/>
                 <route type="mix" sink="mixport_bus_input"
                     sources="BUS Device In"/>
                 <route type="mix" sink="hifi_input"
@@ -128,6 +138,38 @@
                        sources="Built-In Mic" />
                 <route type="mix" sink="mixport_fast_input"
                     sources="Built-In Mic"/>
+            </routes>
+        </module>
+
+        <!-- USB module -->
+        <module name="usb" halVersion="2.0">
+            <mixPorts>
+                <mixPort name="usb_headset output 1" role="source">
+                </mixPort>
+                <mixPort name="usb_headset output 2" role="source">
+                </mixPort>
+                <mixPort name="usb_headset input 1" role="sink">
+                </mixPort>
+                <mixPort name="usb_headset input 2" role="sink">
+                </mixPort>
+            </mixPorts>
+            <devicePorts>
+                <devicePort tagName="USB Headset Out" type="AUDIO_DEVICE_OUT_USB_HEADSET" role="sink">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </devicePort>
+                <devicePort tagName="USB Headset In" type="AUDIO_DEVICE_IN_USB_HEADSET" role="source">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="48000" channelMasks="AUDIO_CHANNEL_IN_STEREO"/>
+                </devicePort>
+            </devicePorts>
+            <routes>
+                <route type="mix" sink="USB Headset Out"
+                       sources="usb_headset output 1,usb_headset output 2"/>
+                <route type="mix" sink="usb_headset input 1"
+                       sources="USB Headset In"/>
+                <route type="mix" sink="usb_headset input 2"
+                       sources="USB Headset In"/>
             </routes>
         </module>
 

@@ -18,18 +18,19 @@
 #define LOG_TAG "AudioPowerUsage"
 #include <utils/Log.h>
 
-#include "AudioAnalytics.h"
-#include "MediaMetricsService.h"
-#include "StringUtils.h"
-#include <map>
-#include <sstream>
-#include <string>
-#include <audio_utils/clock.h>
 #include <audio_utils/StringUtils.h>
+#include <audio_utils/clock.h>
 #include <cutils/properties.h>
+#include <media/TypeConverter.h>
 #include <stats_media_metrics.h>
 #include <sys/timerfd.h>
 #include <system/audio.h>
+#include <map>
+#include <sstream>
+#include <string>
+#include "AudioAnalytics.h"
+#include "MediaMetricsService.h"
+#include "StringUtils.h"
 
 // property to disable audio power use metrics feature, default is enabled
 #define PROP_AUDIO_METRICS_DISABLED "persist.media.audio_metrics.power_usage_disabled"
@@ -44,7 +45,10 @@
 
 #define AUDIO_POWER_USAGE_PROP_DEVICE         "device"     // int32
 #define AUDIO_POWER_USAGE_PROP_DURATION_NS    "durationNs" // int64
-#define AUDIO_POWER_USAGE_PROP_TYPE           "type"       // int32
+#define AUDIO_POWER_USAGE_PROP_STREAM_TYPE "stream_type"   // int32
+#define AUDIO_POWER_USAGE_PROP_SOURCE "source"             // int32
+#define AUDIO_POWER_USAGE_PROP_USAGE "usage"               // int32
+#define AUDIO_POWER_USAGE_PROP_CONTENT_TYPE "content_type"  // int32
 #define AUDIO_POWER_USAGE_PROP_VOLUME         "volume"     // double
 #define AUDIO_POWER_USAGE_PROP_MIN_VOLUME_DURATION_NS "minVolumeDurationNs" // int64
 #define AUDIO_POWER_USAGE_PROP_MIN_VOLUME             "minVolume"           // double
@@ -54,70 +58,71 @@
 namespace android::mediametrics {
 
 /* static */
-bool AudioPowerUsage::typeFromString(const std::string& type_string, int32_t& type) {
-    static std::map<std::string, int32_t> typeTable = {
-        { "AUDIO_STREAM_VOICE_CALL",          VOIP_CALL_TYPE },
-        { "AUDIO_STREAM_SYSTEM",              MEDIA_TYPE },
-        { "AUDIO_STREAM_RING",                RINGTONE_NOTIFICATION_TYPE },
-        { "AUDIO_STREAM_MUSIC",               MEDIA_TYPE },
-        { "AUDIO_STREAM_ALARM",               ALARM_TYPE },
-        { "AUDIO_STREAM_NOTIFICATION",        RINGTONE_NOTIFICATION_TYPE },
-
-        { "AUDIO_CONTENT_TYPE_SPEECH",        VOIP_CALL_TYPE },
-        { "AUDIO_CONTENT_TYPE_MUSIC",         MEDIA_TYPE },
-        { "AUDIO_CONTENT_TYPE_MOVIE",         MEDIA_TYPE },
-        { "AUDIO_CONTENT_TYPE_SONIFICATION",  RINGTONE_NOTIFICATION_TYPE },
-
-        { "AUDIO_USAGE_MEDIA",                MEDIA_TYPE },
-        { "AUDIO_USAGE_VOICE_COMMUNICATION",  VOIP_CALL_TYPE },
-        { "AUDIO_USAGE_ALARM",                ALARM_TYPE },
-        { "AUDIO_USAGE_NOTIFICATION",         RINGTONE_NOTIFICATION_TYPE },
-
-        { "AUDIO_SOURCE_CAMCORDER",           CAMCORDER_TYPE },
-        { "AUDIO_SOURCE_VOICE_COMMUNICATION", VOIP_CALL_TYPE },
-        { "AUDIO_SOURCE_DEFAULT",             RECORD_TYPE },
-        { "AUDIO_SOURCE_MIC",                 RECORD_TYPE },
-        { "AUDIO_SOURCE_UNPROCESSED",         RECORD_TYPE },
-        { "AUDIO_SOURCE_VOICE_RECOGNITION",   RECORD_TYPE },
-    };
-
-    auto it = typeTable.find(type_string);
-    if (it == typeTable.end()) {
-        type = UNKNOWN_TYPE;
-        return false;
-    }
-
-    type = it->second;
-    return true;
-}
-
-/* static */
 bool AudioPowerUsage::deviceFromString(const std::string& device_string, int32_t& device) {
     static std::map<std::string, int32_t> deviceTable = {
-        { "AUDIO_DEVICE_OUT_EARPIECE",                  OUTPUT_EARPIECE },
-        { "AUDIO_DEVICE_OUT_SPEAKER_SAFE",              OUTPUT_SPEAKER_SAFE },
-        { "AUDIO_DEVICE_OUT_SPEAKER",                   OUTPUT_SPEAKER },
-        { "AUDIO_DEVICE_OUT_WIRED_HEADSET",             OUTPUT_WIRED_HEADSET },
-        { "AUDIO_DEVICE_OUT_WIRED_HEADPHONE",           OUTPUT_WIRED_HEADSET },
-        { "AUDIO_DEVICE_OUT_BLUETOOTH_SCO",             OUTPUT_BLUETOOTH_SCO },
-        { "AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET",     OUTPUT_BLUETOOTH_SCO },
-        { "AUDIO_DEVICE_OUT_BLUETOOTH_A2DP",            OUTPUT_BLUETOOTH_A2DP },
-        { "AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES", OUTPUT_BLUETOOTH_A2DP },
-        { "AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER",    OUTPUT_BLUETOOTH_A2DP },
-        { "AUDIO_DEVICE_OUT_BLE_HEADSET",               OUTPUT_BLUETOOTH_BLE },
-        { "AUDIO_DEVICE_OUT_BLE_SPEAKER",               OUTPUT_BLUETOOTH_BLE },
-        { "AUDIO_DEVICE_OUT_BLE_BROADCAST",             OUTPUT_BLUETOOTH_BLE },
-        { "AUDIO_DEVICE_OUT_USB_HEADSET",               OUTPUT_USB_HEADSET },
-        { "AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET",         OUTPUT_DOCK },
-        { "AUDIO_DEVICE_OUT_HDMI",                      OUTPUT_HDMI },
+            {"AUDIO_DEVICE_OUT_EARPIECE", OUTPUT_EARPIECE},
+            {"AUDIO_DEVICE_OUT_SPEAKER", OUTPUT_SPEAKER},
+            {"AUDIO_DEVICE_OUT_WIRED_HEADSET", OUTPUT_WIRED_HEADSET},
+            {"AUDIO_DEVICE_OUT_WIRED_HEADPHONE", OUTPUT_WIRED_HEADPHONE},
+            {"AUDIO_DEVICE_OUT_BLUETOOTH_SCO", OUTPUT_BLUETOOTH_SCO},
+            {"AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET", OUTPUT_BLUETOOTH_SCO_HEADSET},
+            {"AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT", OUTPUT_BLUETOOTH_SCO_CARKIT},
+            {"AUDIO_DEVICE_OUT_BLUETOOTH_A2DP", OUTPUT_BLUETOOTH_A2DP},
+            {"AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES", OUTPUT_BLUETOOTH_A2DP_HEADPHONES},
+            {"AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER", OUTPUT_BLUETOOTH_A2DP_SPEAKER},
+            {"AUDIO_DEVICE_OUT_HDMI", OUTPUT_HDMI},
+            {"AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET", OUTPUT_ANLG_DOCK_HEADSET},
+            {"AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET", OUTPUT_DGTL_DOCK_HEADSET},
+            {"AUDIO_DEVICE_OUT_USB_ACCESSORY", OUTPUT_USB_ACCESSORY},
+            {"AUDIO_DEVICE_OUT_USB_DEVICE", OUTPUT_USB_DEVICE},
+            {"AUDIO_DEVICE_OUT_REMOTE_SUBMIX", OUTPUT_REMOTE_SUBMIX},
+            {"AUDIO_DEVICE_OUT_TELEPHONY_TX", OUTPUT_TELEPHONY_TX},
+            {"AUDIO_DEVICE_OUT_LINE", OUTPUT_LINE},
+            {"AUDIO_DEVICE_OUT_HDMI_ARC", OUTPUT_HDMI_ARC},
+            {"AUDIO_DEVICE_OUT_HDMI_EARC", OUTPUT_HDMI_EARC},
+            {"AUDIO_DEVICE_OUT_SPDIF", OUTPUT_SPDIF},
+            {"AUDIO_DEVICE_OUT_FM", OUTPUT_FM},
+            {"AUDIO_DEVICE_OUT_AUX_LINE", OUTPUT_AUX_LINE},
+            {"AUDIO_DEVICE_OUT_SPEAKER_SAFE", OUTPUT_SPEAKER_SAFE},
+            {"AUDIO_DEVICE_OUT_IP", OUTPUT_IP},
+            {"AUDIO_DEVICE_OUT_MULTICHANNEL_GROUP", OUTPUT_MULTICHANNEL_GROUP},
+            {"AUDIO_DEVICE_OUT_BUS", OUTPUT_BUS},
+            {"AUDIO_DEVICE_OUT_PROXY", OUTPUT_PROXY},
+            {"AUDIO_DEVICE_OUT_USB_HEADSET", OUTPUT_USB_HEADSET},
+            {"AUDIO_DEVICE_OUT_HEARING_AID", OUTPUT_HEARING_AID},
+            {"AUDIO_DEVICE_OUT_ECHO_CANCELLER", OUTPUT_ECHO_CANCELLER},
+            {"AUDIO_DEVICE_OUT_BLE_HEADSET", OUTPUT_BLE_HEADSET},
+            {"AUDIO_DEVICE_OUT_BLE_SPEAKER", OUTPUT_BLE_SPEAKER},
+            {"AUDIO_DEVICE_OUT_BLE_BROADCAST", OUTPUT_BLE_BROADCAST},
 
-        { "AUDIO_DEVICE_IN_BUILTIN_MIC",           INPUT_BUILTIN_MIC },
-        { "AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET", INPUT_BLUETOOTH_SCO },
-        { "AUDIO_DEVICE_IN_BLUETOOTH_BLE",         INPUT_BLUETOOTH_BLE },
-        { "AUDIO_DEVICE_IN_BLE_HEADSET",           INPUT_BLUETOOTH_BLE },
-        { "AUDIO_DEVICE_IN_WIRED_HEADSET",         INPUT_WIRED_HEADSET_MIC },
-        { "AUDIO_DEVICE_IN_USB_DEVICE",            INPUT_USB_HEADSET_MIC },
-        { "AUDIO_DEVICE_IN_BACK_MIC",              INPUT_BUILTIN_BACK_MIC },
+            {"AUDIO_DEVICE_IN_COMMUNICATION", INPUT_COMMUNICATION},
+            {"AUDIO_DEVICE_IN_AMBIENT", INPUT_AMBIENT},
+            {"AUDIO_DEVICE_IN_BUILTIN_MIC", INPUT_BUILTIN_MIC},
+            {"AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET", INPUT_BLUETOOTH_SCO_HEADSET},
+            {"AUDIO_DEVICE_IN_WIRED_HEADSET", INPUT_WIRED_HEADSET},
+            {"AUDIO_DEVICE_IN_HDMI", INPUT_HDMI},
+            {"AUDIO_DEVICE_IN_TELEPHONY_RX", INPUT_TELEPHONY_RX},
+            {"AUDIO_DEVICE_IN_BACK_MIC", INPUT_BACK_MIC},
+            {"AUDIO_DEVICE_IN_REMOTE_SUBMIX", INPUT_REMOTE_SUBMIX},
+            {"AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET", INPUT_ANLG_DOCK_HEADSET},
+            {"AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET", INPUT_DGTL_DOCK_HEADSET},
+            {"AUDIO_DEVICE_IN_USB_ACCESSORY", INPUT_USB_ACCESSORY},
+            {"AUDIO_DEVICE_IN_USB_DEVICE", INPUT_USB_DEVICE},
+            {"AUDIO_DEVICE_IN_FM_TUNER", INPUT_FM_TUNER},
+            {"AUDIO_DEVICE_IN_TV_TUNER", INPUT_TV_TUNER},
+            {"AUDIO_DEVICE_IN_LINE", INPUT_LINE},
+            {"AUDIO_DEVICE_IN_SPDIF", INPUT_SPDIF},
+            {"AUDIO_DEVICE_IN_BLUETOOTH_A2DP", INPUT_BLUETOOTH_A2DP},
+            {"AUDIO_DEVICE_IN_LOOPBACK", INPUT_LOOPBACK},
+            {"AUDIO_DEVICE_IN_IP", INPUT_IP},
+            {"AUDIO_DEVICE_IN_BUS", INPUT_BUS},
+            {"AUDIO_DEVICE_IN_PROXY", INPUT_PROXY},
+            {"AUDIO_DEVICE_IN_USB_HEADSET", INPUT_USB_HEADSET},
+            {"AUDIO_DEVICE_IN_BLUETOOTH_BLE", INPUT_BLUETOOTH_BLE},
+            {"AUDIO_DEVICE_IN_HDMI_ARC", INPUT_HDMI_ARC},
+            {"AUDIO_DEVICE_IN_HDMI_EARC", INPUT_HDMI_EARC},
+            {"AUDIO_DEVICE_IN_ECHO_REFERENCE", INPUT_ECHO_REFERENCE},
+            {"AUDIO_DEVICE_IN_BLE_HEADSET", INPUT_BLE_HEADSET},
     };
 
     auto it = deviceTable.find(device_string);
@@ -143,8 +148,17 @@ int32_t AudioPowerUsage::deviceFromStringPairs(const std::string& device_strings
 
 void AudioPowerUsage::sendItem(const std::shared_ptr<const mediametrics::Item>& item) const
 {
-    int32_t type;
-    if (!item->getInt32(AUDIO_POWER_USAGE_PROP_TYPE, &type)) return;
+    int32_t stream_type;
+    if (!item->getInt32(AUDIO_POWER_USAGE_PROP_STREAM_TYPE, &stream_type)) return;
+
+    int32_t source;
+    if (!item->getInt32(AUDIO_POWER_USAGE_PROP_SOURCE, &source)) return;
+
+    int32_t usage;
+    if (!item->getInt32(AUDIO_POWER_USAGE_PROP_USAGE, &usage)) return;
+
+    int32_t content_type;
+    if (!item->getInt32(AUDIO_POWER_USAGE_PROP_CONTENT_TYPE, &content_type)) return;
 
     int32_t audio_device;
     if (!item->getInt32(AUDIO_POWER_USAGE_PROP_DEVICE, &audio_device)) return;
@@ -178,30 +192,23 @@ void AudioPowerUsage::sendItem(const std::shared_ptr<const mediametrics::Item>& 
 
     if (__builtin_available(android 33, *)) {
         result = stats::media_metrics::stats_write(
-                                         stats::media_metrics::AUDIO_POWER_USAGE_DATA_REPORTED,
-                                         audio_device,
-                                         duration_secs,
-                                         (float)volume,
-                                         type,
-                                         min_volume_duration_secs,
-                                         (float)min_volume,
-                                         max_volume_duration_secs,
-                                         (float)max_volume);
+                stats::media_metrics::AUDIO_POWER_USAGE_DATA_REPORTED, 0, duration_secs,
+                (float)volume, 0, min_volume_duration_secs, (float)min_volume,
+                max_volume_duration_secs, (float)max_volume, audio_device, stream_type, source,
+                usage, content_type);
     }
 
     std::stringstream log;
     log << "result:" << result << " {"
-            << " mediametrics_audio_power_usage_data_reported:"
-            << stats::media_metrics::AUDIO_POWER_USAGE_DATA_REPORTED
-            << " audio_device:" << audio_device
-            << " duration_secs:" << duration_secs
-            << " average_volume:" << (float)volume
-            << " type:" << type
-            << " min_volume_duration_secs:" << min_volume_duration_secs
-            << " min_volume:" << (float)min_volume
-            << " max_volume_duration_secs:" << max_volume_duration_secs
-            << " max_volume:" << (float)max_volume
-            << " }";
+        << " mediametrics_audio_power_usage_data_reported:"
+        << stats::media_metrics::AUDIO_POWER_USAGE_DATA_REPORTED << " audio_device:" << audio_device
+        << " duration_secs:" << duration_secs << " average_volume:" << (float)volume
+        << " stream_type: " << stream_type << " source: " << source << " usage: " << usage
+        << " content_type: " << content_type
+        << " min_volume_duration_secs:" << min_volume_duration_secs
+        << " min_volume:" << (float)min_volume
+        << " max_volume_duration_secs:" << max_volume_duration_secs
+        << " max_volume:" << (float)max_volume << " }";
     mStatsdLog->log(stats::media_metrics::AUDIO_POWER_USAGE_DATA_REPORTED, log.str());
 }
 
@@ -225,13 +232,13 @@ void AudioPowerUsage::updateMinMaxVolumeAndDuration(
     }
 }
 
-bool AudioPowerUsage::saveAsItem_l(
-        int32_t device, int64_t duration_ns, int32_t type, double average_vol,
-        int64_t max_volume_duration_ns, double max_volume,
-        int64_t min_volume_duration_ns, double min_volume)
-{
-    ALOGV("%s: (%#x, %d, %lld, %f)", __func__, device, type,
-                                   (long long)duration_ns, average_vol);
+bool AudioPowerUsage::saveAsItem_l(int32_t device, int64_t duration_ns, int32_t stream_type,
+                                   int32_t source, int32_t usage, int32_t content_type,
+                                   double average_vol, int64_t max_volume_duration_ns,
+                                   double max_volume, int64_t min_volume_duration_ns,
+                                   double min_volume) {
+    ALOGV("%s: (%#x, %d, %d, %d, %d, %lld, %f)", __func__, device, stream_type, source, usage,
+          content_type, (long long)duration_ns, average_vol);
     if (duration_ns == 0) {
         return true; // skip duration 0 usage
     }
@@ -240,16 +247,24 @@ bool AudioPowerUsage::saveAsItem_l(
     }
 
     for (const auto& item : mItems) {
-        int32_t item_type = 0, item_device = 0;
+        int32_t item_stream_type = 0;
+        int32_t item_source = 0;
+        int32_t item_usage = 0;
+        int32_t item_content_type = 0;
+        int32_t item_device = 0;
         double item_volume = 0.;
         int64_t item_duration_ns = 0;
         item->getInt32(AUDIO_POWER_USAGE_PROP_DEVICE, &item_device);
         item->getInt64(AUDIO_POWER_USAGE_PROP_DURATION_NS, &item_duration_ns);
-        item->getInt32(AUDIO_POWER_USAGE_PROP_TYPE, &item_type);
+        item->getInt32(AUDIO_POWER_USAGE_PROP_STREAM_TYPE, &item_stream_type);
+        item->getInt32(AUDIO_POWER_USAGE_PROP_SOURCE, &item_source);
+        item->getInt32(AUDIO_POWER_USAGE_PROP_USAGE, &item_usage);
+        item->getInt32(AUDIO_POWER_USAGE_PROP_CONTENT_TYPE, &item_content_type);
         item->getDouble(AUDIO_POWER_USAGE_PROP_VOLUME, &item_volume);
 
         // aggregate by device and type
-        if (item_device == device && item_type == type) {
+        if (item_device == device && item_stream_type == stream_type && item_source == source &&
+            item_usage == usage && item_content_type == content_type) {
             int64_t final_duration_ns = item_duration_ns + duration_ns;
             double final_volume = (device & INPUT_DEVICE_BIT) ? 1.0:
                             ((item_volume * (double)item_duration_ns +
@@ -282,12 +297,11 @@ bool AudioPowerUsage::saveAsItem_l(
                            final_max_volume_duration_ns);
             item->setDouble(AUDIO_POWER_USAGE_PROP_MAX_VOLUME, final_max_volume);
 
-            ALOGV("%s: update (%#x, %d, %lld, %f) --> (%lld, %f) min(%lld, %f) max(%lld, %f)",
-                  __func__,
-                  device, type,
-                  (long long)item_duration_ns, item_volume,
-                  (long long)final_duration_ns, final_volume,
-                  (long long)final_min_volume_duration_ns, final_min_volume,
+            ALOGV("%s: update (%#x, %d, %d ,%d, %d, %lld, %f) --> (%lld, %f) min(%lld, %f) "
+                  "max(%lld, %f)",
+                  __func__, device, item_stream_type, item_source, item_usage, item_content_type,
+                  (long long)item_duration_ns, item_volume, (long long)final_duration_ns,
+                  final_volume, (long long)final_min_volume_duration_ns, final_min_volume,
                   (long long)final_max_volume_duration_ns, final_max_volume);
 
             return true;
@@ -298,7 +312,10 @@ bool AudioPowerUsage::saveAsItem_l(
     sitem->setTimestamp(systemTime(SYSTEM_TIME_REALTIME));
     sitem->setInt32(AUDIO_POWER_USAGE_PROP_DEVICE, device);
     sitem->setInt64(AUDIO_POWER_USAGE_PROP_DURATION_NS, duration_ns);
-    sitem->setInt32(AUDIO_POWER_USAGE_PROP_TYPE, type);
+    sitem->setInt32(AUDIO_POWER_USAGE_PROP_STREAM_TYPE, stream_type);
+    sitem->setInt32(AUDIO_POWER_USAGE_PROP_SOURCE, source);
+    sitem->setInt32(AUDIO_POWER_USAGE_PROP_USAGE, usage);
+    sitem->setInt32(AUDIO_POWER_USAGE_PROP_CONTENT_TYPE, content_type);
     sitem->setDouble(AUDIO_POWER_USAGE_PROP_VOLUME, average_vol);
     sitem->setInt64(AUDIO_POWER_USAGE_PROP_MIN_VOLUME_DURATION_NS, min_volume_duration_ns);
     sitem->setDouble(AUDIO_POWER_USAGE_PROP_MIN_VOLUME, min_volume);
@@ -308,13 +325,13 @@ bool AudioPowerUsage::saveAsItem_l(
     return true;
 }
 
-bool AudioPowerUsage::saveAsItems_l(
-        int32_t device, int64_t duration_ns, int32_t type, double average_vol,
-        int64_t max_volume_duration, double max_volume,
-        int64_t min_volume_duration, double min_volume)
-{
-    ALOGV("%s: (%#x, %d, %lld, %f)", __func__, device, type,
-                                   (long long)duration_ns, average_vol );
+bool AudioPowerUsage::saveAsItems_l(int32_t device, int64_t duration_ns, int32_t stream_type,
+                                    int32_t source, int32_t usage, int32_t content_type,
+                                    double average_vol, int64_t max_volume_duration,
+                                    double max_volume, int64_t min_volume_duration,
+                                    double min_volume) {
+    ALOGV("%s: (%#x, %d, %d, %d, %d, %lld, %f)", __func__, device, stream_type, source, usage,
+          content_type, (long long)duration_ns, average_vol);
     if (duration_ns == 0) {
         return true; // skip duration 0 usage
     }
@@ -330,9 +347,9 @@ bool AudioPowerUsage::saveAsItems_l(
         int32_t tmp_device = device_bits & -device_bits; // get lowest bit
         device_bits ^= tmp_device;  // clear lowest bit
         tmp_device |= input_bit;    // restore input bit
-        ret = saveAsItem_l(tmp_device, duration_ns, type, average_vol,
-                           max_volume_duration, max_volume,
-                           min_volume_duration, min_volume);
+        ret = saveAsItem_l(tmp_device, duration_ns, stream_type, source, usage, content_type,
+                           average_vol, max_volume_duration, max_volume, min_volume_duration,
+                           min_volume);
 
         ALOGV("%s: device %#x recorded, remaining device_bits = %#x", __func__,
             tmp_device, device_bits);
@@ -372,25 +389,26 @@ void AudioPowerUsage::checkTrackRecord(
         }
     }
 
-    int32_t type = 0;
     std::string type_string;
-    if ((isTrack && mAudioAnalytics->mAnalyticsState->timeMachine().get(
-               key, AMEDIAMETRICS_PROP_STREAMTYPE, &type_string) == OK) ||
-        (!isTrack && mAudioAnalytics->mAnalyticsState->timeMachine().get(
-               key, AMEDIAMETRICS_PROP_SOURCE, &type_string) == OK)) {
-        typeFromString(type_string, type);
-
-        if (isTrack && type == UNKNOWN_TYPE &&
-                   mAudioAnalytics->mAnalyticsState->timeMachine().get(
-                   key, AMEDIAMETRICS_PROP_USAGE, &type_string) == OK) {
-            typeFromString(type_string, type);
-        }
-        if (isTrack && type == UNKNOWN_TYPE &&
-                   mAudioAnalytics->mAnalyticsState->timeMachine().get(
-                   key, AMEDIAMETRICS_PROP_CONTENTTYPE, &type_string) == OK) {
-            typeFromString(type_string, type);
-        }
-        ALOGV("type = %s => %d", type_string.c_str(), type);
+    audio_stream_type_t stream_type = AUDIO_STREAM_DEFAULT;
+    audio_source_t source = AUDIO_SOURCE_DEFAULT;
+    audio_usage_t usage = AUDIO_USAGE_UNKNOWN;
+    audio_content_type_t content_type = AUDIO_CONTENT_TYPE_UNKNOWN;
+    if (mAudioAnalytics->mAnalyticsState->timeMachine().get(key, AMEDIAMETRICS_PROP_STREAMTYPE,
+                                                            &type_string) == OK) {
+        TypeConverter<StreamTraits>::fromString(type_string, stream_type);
+    }
+    if (mAudioAnalytics->mAnalyticsState->timeMachine().get(key, AMEDIAMETRICS_PROP_SOURCE,
+                                                            &type_string) == OK) {
+        TypeConverter<SourceTraits>::fromString(type_string, source);
+    }
+    if (mAudioAnalytics->mAnalyticsState->timeMachine().get(key, AMEDIAMETRICS_PROP_USAGE,
+                                                            &type_string) == OK) {
+        TypeConverter<UsageTraits>::fromString(type_string, usage);
+    }
+    if (mAudioAnalytics->mAnalyticsState->timeMachine().get(key, AMEDIAMETRICS_PROP_CONTENTTYPE,
+                                                            &type_string) == OK) {
+        TypeConverter<AudioContentTraits>::fromString(type_string, content_type);
     }
 
     int32_t device = 0;
@@ -404,7 +422,7 @@ void AudioPowerUsage::checkTrackRecord(
         ALOGV("device = %s => %d", device_strings.c_str(), device);
     }
     std::lock_guard l(mLock);
-    saveAsItems_l(device, deviceTimeNs, type, deviceVolume,
+    saveAsItems_l(device, deviceTimeNs, stream_type, source, usage, content_type, deviceVolume,
                   maxVolumeDurationNs, maxVolume, minVolumeDurationNs, minVolume);
 }
 
@@ -427,9 +445,10 @@ void AudioPowerUsage::checkMode(const std::shared_ptr<const mediametrics::Item>&
                           volumeDurationNs, mVoiceVolume,
                           mMaxVoiceVolumeDurationNs, mMaxVoiceVolume,
                           mMinVoiceVolumeDurationNs, mMinVoiceVolume);
-            saveAsItems_l(mPrimaryDevice, durationNs, VOICE_CALL_TYPE, mDeviceVolume,
-                          mMaxVoiceVolumeDurationNs, mMaxVoiceVolume,
-                          mMinVoiceVolumeDurationNs, mMinVoiceVolume);
+            saveAsItems_l(mPrimaryDevice, durationNs, AUDIO_STREAM_VOICE_CALL, AUDIO_SOURCE_DEFAULT,
+                          AUDIO_USAGE_UNKNOWN, AUDIO_CONTENT_TYPE_UNKNOWN, mDeviceVolume,
+                          mMaxVoiceVolumeDurationNs, mMaxVoiceVolume, mMinVoiceVolumeDurationNs,
+                          mMinVoiceVolume);
         }
     } else if (mode == "AUDIO_MODE_IN_CALL") { // entering call mode
         mStartCallNs = item->getTimestamp(); // advisory only
@@ -498,9 +517,10 @@ void AudioPowerUsage::checkCreatePatch(const std::shared_ptr<const mediametrics:
                           volumeDurationNs, mVoiceVolume,
                           mMaxVoiceVolumeDurationNs, mMaxVoiceVolume,
                           mMinVoiceVolumeDurationNs, mMinVoiceVolume);
-            saveAsItems_l(mPrimaryDevice, durationNs, VOICE_CALL_TYPE, mDeviceVolume,
-                          mMaxVoiceVolumeDurationNs, mMaxVoiceVolume,
-                          mMinVoiceVolumeDurationNs, mMinVoiceVolume);
+            saveAsItems_l(mPrimaryDevice, durationNs, AUDIO_STREAM_VOICE_CALL, AUDIO_SOURCE_DEFAULT,
+                          AUDIO_USAGE_UNKNOWN, AUDIO_CONTENT_TYPE_UNKNOWN, mDeviceVolume,
+                          mMaxVoiceVolumeDurationNs, mMaxVoiceVolume, mMinVoiceVolumeDurationNs,
+                          mMinVoiceVolume);
         }
         // reset statistics
         mDeviceVolume = 0;

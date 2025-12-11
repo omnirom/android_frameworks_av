@@ -490,8 +490,7 @@ status_t Camera3SharedOutputStream::updateStream(const std::vector<SurfaceHolder
     return ret;
 }
 
-status_t Camera3SharedOutputStream::setTransform(
-        int transform, bool mayChangeMirror, int surfaceId) {
+status_t Camera3SharedOutputStream::setTransform(int transform, int surfaceId) {
     ATRACE_CALL();
     Mutex::Autolock l(mLock);
 
@@ -509,12 +508,6 @@ status_t Camera3SharedOutputStream::setTransform(
     }
 
     auto& surfaceHolderForId = mSurfaceUniqueIds[surfaceId];
-    if (surfaceHolderForId.mSurfaceHolder.mMirrorMode != OutputConfiguration::MIRROR_MODE_AUTO &&
-            mayChangeMirror) {
-        // If the mirroring mode is not AUTO, do not allow transform update
-        // which may change mirror.
-        return OK;
-    }
 
     surfaceHolderForId.mTransform = transform;
     if (mState == STATE_CONFIGURED) {

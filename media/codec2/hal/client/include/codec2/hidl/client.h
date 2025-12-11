@@ -23,6 +23,7 @@
 #include <C2Param.h>
 #include <C2.h>
 
+#include <android/native_window_aidl.h>
 #include <gui/FrameTimestamps.h>
 #include <gui/IGraphicBufferProducer.h>
 #include <hidl/HidlSupport.h>
@@ -69,9 +70,6 @@ struct IConfigurable;
 struct IComponent;
 struct IComponentInterface;
 struct IComponentStore;
-struct IInputSink;
-struct IInputSurface;
-struct IInputSurfaceConnection;
 }  // namespace android::hardware::media::c2::V1_0
 
 namespace android::hardware::media::c2::V1_1 {
@@ -89,6 +87,9 @@ class IComponent;
 class IComponentInterface;
 class IComponentStore;
 class IConfigurable;
+class IInputSink;
+class IInputSurface;
+class IInputSurfaceConnection;
 }  // namespace aidl::android::hardware::media::c2
 
 namespace android::hardware::media::bufferpool::V2_0 {
@@ -190,6 +191,7 @@ struct Codec2Client : public Codec2ConfigurableClient {
     typedef HidlBase1_0 HidlBase;
 
     typedef ::aidl::android::hardware::media::c2::IComponentStore AidlBase;
+    typedef ::aidl::android::hardware::media::c2::IInputSurface IInputSurface;
 
     struct Listener;
 
@@ -276,6 +278,10 @@ struct Codec2Client : public Codec2ConfigurableClient {
     static std::shared_ptr<InputSurface> CreateInputSurface(
             char const* serviceName = nullptr);
 
+    // Create an input surface from an existing interface.
+    static std::shared_ptr<InputSurface> CreateInputSurfaceFromInterface(
+            const ::ndk::SpAIBinder &interface);
+
     // Whether AIDL is selected.
     static bool IsAidlSelected();
 
@@ -358,10 +364,13 @@ struct Codec2Client::Interface : public Codec2Client::Configurable {
 
     Interface(const sp<HidlBase>& base);
     Interface(const std::shared_ptr<AidlBase>& base);
+    Interface(ApexCodec_Component* base, const C2String& name);
+    ~Interface();
 
 protected:
     sp<HidlBase> mHidlBase;
     std::shared_ptr<AidlBase> mAidlBase;
+    ApexCodec_Component *mApexBase{nullptr};
 };
 
 struct Codec2Client::Listener {
@@ -520,18 +529,6 @@ struct Codec2Client::Component : public Codec2Client::Configurable {
     void holdIgbaBlocks(
             const std::list<std::unique_ptr<C2Work>>& workList);
 
-    // Connect to a given InputSurface.
-    c2_status_t connectToInputSurface(
-            const std::shared_ptr<InputSurface>& inputSurface,
-            std::shared_ptr<InputSurfaceConnection>* connection);
-
-    c2_status_t connectToOmxInputSurface(
-            const sp<HGraphicBufferProducer1>& producer,
-            const sp<HGraphicBufferSource>& source,
-            std::shared_ptr<InputSurfaceConnection>* connection);
-
-    c2_status_t disconnectFromInputSurface();
-
     c2_status_t initApexHandler(
             const std::shared_ptr<Listener> &listener,
             const std::shared_ptr<Component> &comp);
@@ -592,44 +589,78 @@ protected:
     void handleOnWorkDone(const std::list<std::unique_ptr<C2Work>> &workItems);
 };
 
+
+// Creation of InputSurface
+// Codec2Client               --> Codec2Client::InputSurface.
+// Codec2Client::InputSurface --> Codec2Client::InputSurfaceConnection
+//
+// Codec2Client::InputSurface could have at most only one
+// Codec2Client::InputSurfaceConnection at any given time.
+//
+// A Codec2Client::InputSurfaceConnection is valid during a video encoder
+// session. After a encoder session, the end of stream can be notified by
+// Codec2Client::InputSurfaceConnection::signalEos() to the encoder.
+//
+// Codec2Client::InputSurfaceConnection::disconnect() will disconnect from the
+// encoder and notify that it is no longer valid to Codec2Client::InputSurface.
+// On disconnect() Codec2Client::InputSurface will perform clean-up, then
+// Codec2Client::InputSurface is ready to re-start with a new encoder and a new
+// Codec2Client::InputSurfaceConnection.
+
+// The class holds ::aidl::android::hardware::media::c2::IInputSurface for the
+// client framework.
 struct Codec2Client::InputSurface : public Codec2Client::Configurable {
 public:
-    typedef ::android::hardware::media::c2::V1_0::IInputSurface Base;
 
-    typedef ::android::hardware::media::c2::V1_0::IInputSurfaceConnection ConnectionBase;
+    typedef ::aidl::android::hardware::media::c2::IInputSurface Base;
+
+    typedef ::aidl::android::hardware::media::c2::IInputSurfaceConnection ConnectionBase;
 
     typedef Codec2Client::InputSurfaceConnection Connection;
 
-    typedef ::android::IGraphicBufferProducer IGraphicBufferProducer;
-
-    sp<IGraphicBufferProducer> getGraphicBufferProducer() const;
+    // Return the window which is owned by the underlying interface.
+    ANativeWindow *getNativeWindow();
 
     // Return the underlying IInputSurface.
-    sp<Base> getHalInterface() const;
+    ::ndk::SpAIBinder getHalInterface() const;
+
+    // connect to a video encoder component.
+    c2_status_t connect(
+            const std::shared_ptr<Codec2Client::Component> &comp,
+            std::shared_ptr<Connection> *connection);
 
     // base cannot be null.
-    InputSurface(const sp<Base>& base);
+    InputSurface(const std::shared_ptr<Base>& base);
 
 protected:
-    sp<Base> mBase;
+    std::shared_ptr<Base> mBase;
 
-    sp<IGraphicBufferProducer> mGraphicBufferProducer;
-
+    std::once_flag mWindowInitOnce;
+    ANativeWindow *mNativeWindow; // lazily initialized,
+                                  // for later construction params binding.
     friend struct Codec2Client;
     friend struct Component;
 };
 
-struct Codec2Client::InputSurfaceConnection : public Codec2Client::Configurable {
+// The class holds ::aidl::android::hardware::media::c2::IInputSurfaceConnection
+// for the client framework.
+struct Codec2Client::InputSurfaceConnection {
 
-    typedef ::android::hardware::media::c2::V1_0::IInputSurfaceConnection Base;
+    typedef ::aidl::android::hardware::media::c2::IInputSurfaceConnection Base;
 
+    // disconnect from a video encoder from the class.
+    // This will eventually notify Codec2Client::InputSurface that
+    // life cycle of the class is ended.
     c2_status_t disconnect();
 
+    // signal Eos to the connected video encoder.
+    c2_status_t signalEos();
+
     // base cannot be null.
-    InputSurfaceConnection(const sp<Base>& base);
+    InputSurfaceConnection(const std::shared_ptr<Base>& base);
 
 protected:
-    sp<Base> mBase;
+    std::shared_ptr<Base> mBase;
 
     friend struct Codec2Client::InputSurface;
 };

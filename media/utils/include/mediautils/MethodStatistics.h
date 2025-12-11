@@ -16,9 +16,16 @@
 
 #pragma once
 
+#include <functional>
+#include <initializer_list>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <android-base/thread_annotations.h>

@@ -20,6 +20,7 @@
 
 #include <binder/Status.h>
 #include <utils/RefBase.h>
+#include <com_android_graphics_libgui_flags.h> // Remove with WB_MEDIA_MIGRATION.
 
 #include <media/hardware/VideoAPI.h>
 #include <media/stagefright/foundation/ABase.h>
@@ -27,14 +28,19 @@
 #include <media/stagefright/foundation/ALooper.h>
 #include <media/stagefright/bqhelper/ComponentWrapper.h>
 #include <android/hardware/graphics/bufferqueue/1.0/IGraphicBufferProducer.h>
-#include <android/hardware/graphics/bufferqueue/2.0/IGraphicBufferProducer.h>
 
 namespace android {
 
 struct FrameDropper;
 class BufferItem;
 class IGraphicBufferProducer;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+class Surface;
+class BufferItemConsumer;
+#else
 class IGraphicBufferConsumer;
+#endif
+
 /*
  * This class is used to feed codecs from a Surface via BufferQueue or
  * HW producer.
@@ -71,14 +77,23 @@ class IGraphicBufferConsumer;
 class GraphicBufferSource : public RefBase {
 public:
     GraphicBufferSource();
-
     virtual ~GraphicBufferSource();
 
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    void onFirstRef() override;
+
+    // Current version does not have a way to set this to false.
+    [[deprecated("Will never return false.")]]
+    status_t initCheck() const {
+        return OK;
+    }
+#else
     // We can't throw an exception if the constructor fails, so we just set
     // this and require that the caller test the value.
     status_t initCheck() const {
         return mInitCheck;
     }
+#endif
 
     // Returns the handle to the producer side of the BufferQueue.  Buffers
     // queued on this will be received by GraphicBufferSource.
@@ -88,11 +103,6 @@ public:
     // Buffers queued on this will be received by GraphicBufferSource.
     sp<::android::hardware::graphics::bufferqueue::V1_0::IGraphicBufferProducer>
         getHGraphicBufferProducer_V1_0() const;
-
-    // Returns the handle to the bufferqueue HAL producer side of the BufferQueue.
-    // Buffers queued on this will be received by GraphicBufferSource.
-    sp<::android::hardware::graphics::bufferqueue::V2_0::IGraphicBufferProducer>
-        getHGraphicBufferProducer() const;
 
     // This is called when component transitions to running state, which means
     // we can start handing it buffers.  If we already have buffers of data
@@ -210,7 +220,17 @@ public:
     status_t setColorAspects(int32_t aspectsPacked);
 
 protected:
-
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    // ConsumerBase::FrameAvailableListener interface, called when a new frame of
+    // data is available.  If we're executing and a codec buffer is
+    // available, we acquire the buffer, copy the GraphicBuffer reference
+    // into the codec buffer, and call Empty[This]Buffer.
+    void onFrameAvailable();
+    // Similar to onFrameAvailable, but buffer item is indeed replacing a buffer
+    // in the buffer queue. This can happen when buffer queue is in droppable
+    // mode.
+    void onFrameReplaced();
+#else
     // BufferQueue::ConsumerListener interface, called when a new frame of
     // data is available.  If we're executing and a codec buffer is
     // available, we acquire the buffer, copy the GraphicBuffer reference
@@ -228,7 +248,7 @@ protected:
     // changed the sideband stream. GraphicBufferSource doesn't handle sideband
     // streams so this is a no-op (and should never be called).
     void onSidebandStreamChanged() ;
-
+#endif
 private:
     // BQ::ConsumerListener interface
     // ------------------------------
@@ -238,8 +258,10 @@ private:
     // Lock, covers all member variables.
     mutable Mutex mMutex;
 
+#if not COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
     // Used to report constructor failure.
     status_t mInitCheck;
+#endif
 
     // Graphic buffer reference objects
     // --------------------------------
@@ -250,8 +272,12 @@ private:
 
     // When we get a buffer from the producer (BQ) it designates them to be cached into specific
     // slots. Each slot owns a shared reference to the graphic buffer (we track these using
-    // CachedBuffer) that is in that slot, but the producer controls the slots.
+    // Buffer) that is in that slot, but the producer controls the slots.
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    struct Buffer;
+#else
     struct CachedBuffer;
+#endif
 
     // When we acquire a buffer, we must release it back to the producer once we (or the codec)
     // no longer uses it (as long as the buffer is still in the cache slot). We use shared
@@ -267,6 +293,7 @@ private:
         android_dataspace_t mDataspace;
     };
 
+#if not COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
     // Cached and aquired buffers
     // --------------------------------
 
@@ -274,6 +301,7 @@ private:
 
     // Maps a slot to the cached buffer in that slot
     KeyedVector<slot_id, std::shared_ptr<CachedBuffer>> mBufferSlots;
+#endif
 
     // Queue of buffers acquired in chronological order that are not yet submitted to the codec
     List<VideoBuffer> mAvailableBuffers;
@@ -293,6 +321,7 @@ private:
     // Called when a buffer was acquired from the producer
     void onBufferAcquired_l(const VideoBuffer &buffer);
 
+#if not COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
     // marks the buffer at the slot no longer cached, and accounts for the outstanding
     // acquire count. Returns true if the slot was populated; otherwise, false.
     bool discardBufferInSlot_l(slot_id i);
@@ -300,6 +329,7 @@ private:
     // marks the buffer at the slot index no longer cached, and accounts for the outstanding
     // acquire count
     void discardBufferAtSlotIndex_l(ssize_t bsi);
+#endif
 
     // release all acquired and unacquired available buffers
     // This method will return if it fails to acquire an unacquired available buffer, which will
@@ -315,7 +345,7 @@ private:
     // -------------
 
     // When we queue buffers to the encoder, we must hold the references to the graphic buffers
-    // in those buffers - as the producer may free the slots.
+    // in those buffers.
 
     typedef int32_t codec_buffer_id;
 
@@ -379,11 +409,16 @@ private:
 
     int64_t mLastFrameTimestampUs;
 
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    sp<BufferItemConsumer> mBufferItemConsumer;
+    sp<Surface> mSurface;
+#else
     // Our BufferQueue interfaces. mProducer is passed to the producer through
     // getIGraphicBufferProducer, and mConsumer is used internally to retrieve
     // the buffers queued by the producer.
     sp<IGraphicBufferProducer> mProducer;
     sp<IGraphicBufferConsumer> mConsumer;
+#endif
 
     // The time to stop sending buffers.
     int64_t mStopTimeUs;

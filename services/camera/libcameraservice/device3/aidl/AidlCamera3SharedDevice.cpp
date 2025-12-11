@@ -91,13 +91,14 @@ Mutex AidlCamera3SharedDevice::sSharedClientsLock;
 sp<AidlCamera3SharedDevice> AidlCamera3SharedDevice::getInstance(
         std::shared_ptr<CameraServiceProxyWrapper>& cameraServiceProxyWrapper,
         std::shared_ptr<AttributionAndPermissionUtils> attributionAndPermissionUtils,
-        const std::string& id, bool overrideForPerfClass, int rotationOverride,
+        const std::string& id, bool overrideForPerfClass,
+        const CameraCompatibilityInfo& compatInfo,
         bool isVendorClient, bool legacyClient) {
     Mutex::Autolock l(sSharedClientsLock);
     if (sClientsPid[id].empty()) {
         AidlCamera3SharedDevice* sharedDevice = new AidlCamera3SharedDevice(
                 cameraServiceProxyWrapper, attributionAndPermissionUtils, id, overrideForPerfClass,
-                rotationOverride, isVendorClient, legacyClient);
+                compatInfo, isVendorClient, legacyClient);
         sSharedDevices[id] = sharedDevice;
     }
     if (attributionAndPermissionUtils != nullptr) {
@@ -298,21 +299,23 @@ status_t AidlCamera3SharedDevice::beginConfigure() {
     return OK;
 }
 
-status_t AidlCamera3SharedDevice::getSharedStreamId(const OutputStreamInfo &config,
-        int *streamId) {
+status_t AidlCamera3SharedDevice::getSharedStreamIds(const OutputStreamInfo &config,
+        std::vector<int>& streamIds) {
     Mutex::Autolock l(mSharedDeviceLock);
-    if (streamId ==  nullptr) {
-        return BAD_VALUE;
-    }
+    streamIds.clear();
 
     for (const auto& streamInfo : mStreamInfoMap) {
         OutputStreamInfo info = streamInfo.second;
         if (info == config) {
-            *streamId = streamInfo.first;
-            return OK;
+            streamIds.push_back(streamInfo.first);
         }
     }
-    return INVALID_OPERATION;
+
+    if (streamIds.empty()) {
+        return NAME_NOT_FOUND;
+    } else  {
+        return OK;
+    }
 }
 
 status_t AidlCamera3SharedDevice::addSharedSurfaces(int streamId,

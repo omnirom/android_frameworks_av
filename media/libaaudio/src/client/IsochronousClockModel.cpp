@@ -253,11 +253,11 @@ void IsochronousClockModel::update() {
 }
 
 int64_t IsochronousClockModel::convertDeltaPositionToTime(int64_t framesDelta) const {
-    return (AAUDIO_NANOS_PER_SECOND * framesDelta) / mSampleRate;
+    return (AAUDIO_NANOS_PER_SECOND * framesDelta) / mSampleRate / mPlaybackSpeed;
 }
 
 int64_t IsochronousClockModel::convertDeltaTimeToPosition(int64_t nanosDelta) const {
-    return (mSampleRate * nanosDelta) / AAUDIO_NANOS_PER_SECOND;
+    return (mSampleRate * nanosDelta) / AAUDIO_NANOS_PER_SECOND * mPlaybackSpeed;
 }
 
 int64_t IsochronousClockModel::convertPositionToTime(int64_t framePosition) const {
@@ -310,6 +310,7 @@ void IsochronousClockModel::dump() const {
     ALOGD("mFramesPerBurst      = %6d", mFramesPerBurst);
     ALOGD("mMaxMeasuredLatenessNanos = %6" PRId64, mMaxMeasuredLatenessNanos);
     ALOGD("mState               = %6d", mState);
+    ALOGD("mPlaybackSpeed       = %6f", mPlaybackSpeed);
 }
 
 void IsochronousClockModel::dumpHistogram() const {

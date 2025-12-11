@@ -15,7 +15,6 @@
 futex: 1
 # ioctl calls are filtered via the selinux policy.
 ioctl: 1
-sched_yield: 1
 close: 1
 dup: 1
 ppoll: 1
@@ -27,6 +26,7 @@ fstat: 1
 newfstatat: 1
 fstatfs: 1
 memfd_create: 1
+fsetxattr: 1
 ftruncate: 1
 
 # mremap: Ensure |flags| are (MREMAP_MAYMOVE | MREMAP_FIXED) TODO: Once minijail
@@ -61,24 +61,10 @@ rt_sigreturn: 1
 getrandom: 1
 madvise: 1
 
-# crash dump policy additions
-clock_gettime: 1
+# Required by AddressSanitizer
 getpid: 1
 gettid: 1
-pipe2: 1
-recvmsg: 1
-process_vm_readv: 1
-tgkill: 1
-rt_sigaction: 1
-rt_tgsigqueueinfo: 1
-#mprotect: arg2 in 0x1|0x2
-munmap: 1
-#mmap: arg2 in 0x1|0x2
-geteuid: 1
-getgid: 1
-getegid: 1
-getgroups: 1
-sysinfo: 1
+sched_yield: 1
 
 # Android profiler (heapprofd, traced_perf) additions, where not already
 # covered by the rest of the file, or by builtin minijail allow-listing of
@@ -90,4 +76,8 @@ sysinfo: 1
 setsockopt: 1
 sendmsg: 1
 
+# The mmap/mprotect/prctl rules in this file are less restrictive than the rules
+# in the crash_dump policy file. Therefore, include a version of the crash_dump
+# policy that does not include any mmap/mprotect/prctl rules.
+@include /apex/com.android.media.swcodec/etc/seccomp_policy/crash_dump.no_mmap_mprotect_prctl.arm64.policy
 @include /apex/com.android.media.swcodec/etc/seccomp_policy/code_coverage.arm64.policy

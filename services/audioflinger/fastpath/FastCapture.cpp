@@ -218,7 +218,8 @@ void FastCapture::onWork()
                 //       or with a lot more work the control block could be shared by all clients.
                 const int32_t rear = cblk->u.mStreaming.mRear;
                 android_atomic_release_store(framesWritten + rear, &cblk->u.mStreaming.mRear);
-                cblk->mServer += framesWritten;
+                (void)__builtin_add_overflow(
+                        cblk->mServer, framesWritten, &cblk->mServer);
                 const int32_t old = android_atomic_or(CBLK_FUTEX_WAKE, &cblk->mFutex);
                 if (!(old & CBLK_FUTEX_WAKE)) {
                     // client is never in server process, so don't use FUTEX_WAKE_PRIVATE

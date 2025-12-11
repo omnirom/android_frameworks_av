@@ -112,7 +112,7 @@ private:
             const std::shared_ptr<const mediametrics::Item>& item) {
         const auto& [key, elem] = trigger;
         if (!startsWith(key, item->getKey())) return false;
-        // The trigger key is in format (item key).propName, so + 1 skips '.' delimeter.
+        // The trigger key is in format (item key).propName, so + 1 skips '.' delimiter.
         const char *propName = key.c_str() + item->getKey().size() + 1;
         return item->hasPropElem(propName, elem);
     }

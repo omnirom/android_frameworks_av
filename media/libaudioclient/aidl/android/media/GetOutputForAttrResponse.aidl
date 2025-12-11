@@ -20,7 +20,7 @@ import android.media.audio.common.AudioAttributes;
 import android.media.audio.common.AudioConfigBase;
 import android.media.audio.common.AudioStreamType;
 /**
- * {@hide}
+ * @hide
  */
 parcelable GetOutputForAttrResponse {
     /** Interpreted as audio_io_handle_t. */
@@ -39,8 +39,4 @@ parcelable GetOutputForAttrResponse {
     boolean isBitPerfect;
     /** The corrected audio attributes. **/
     AudioAttributes attr;
-    /** initial port volume for the new audio track */
-    float volume;
-    /** initial port muted state for the new audio track */
-    boolean muted;
 }

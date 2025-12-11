@@ -1,6 +1,7 @@
 # Bug component: 48436
-elaurent@google.com
 hunga@google.com
+elaurent@google.com
+jmtrivi@google.com
 jiabin@google.com
 mnaganov@google.com
 include platform/frameworks/av:/media/janitors/audio_OWNERS #{LAST_RESORT_SUGGESTION}

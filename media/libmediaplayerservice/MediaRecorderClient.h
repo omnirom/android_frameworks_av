@@ -23,6 +23,7 @@
 #include <media/AudioSystem.h>
 #include <media/IMediaRecorder.h>
 #include <android/content/AttributionSourceState.h>
+#include <gui/Flags.h> // Remove with MediaSurfaceType and WB_MEDIA_MIGRATION.
 
 #include <vector>
 
@@ -49,7 +50,7 @@ class MediaRecorderClient : public BnMediaRecorder
 public:
     virtual     status_t   setCamera(const sp<hardware::ICamera>& camera,
                                     const sp<ICameraRecordingProxy>& proxy);
-    virtual     status_t   setPreviewSurface(const sp<IGraphicBufferProducer>& surface);
+    virtual     status_t   setPreviewSurface(const sp<MediaSurfaceType>& surface);
     virtual     status_t   setVideoSource(int vs);
     virtual     status_t   setAudioSource(int as);
                 status_t   setPrivacySensitive(bool privacySensitive) override;
@@ -78,7 +79,7 @@ public:
     virtual     status_t   release();
     virtual     status_t   dump(int fd, const Vector<String16>& args);
     virtual     status_t   setInputSurface(const sp<PersistentSurface>& surface);
-    virtual     sp<IGraphicBufferProducer> querySurfaceMediaSource();
+    virtual     sp<MediaSurfaceType> querySurfaceMediaSource();
     virtual     status_t   setInputDevice(audio_port_handle_t deviceId);
     virtual     status_t   getRoutedDeviceIds(DeviceIdVector& deviceIds);
     virtual     status_t   enableAudioDeviceCallback(bool enabled);

@@ -29,7 +29,7 @@ cc_library {
         "DrcPresModeWrap.cpp",
     ],
 
-    static_libs: [
+    shared_libs: [
         "libFraunhoferAAC",
     ],
 }
@@ -43,7 +43,7 @@ cc_library {
 
     srcs: ["C2SoftAacEnc.cpp"],
 
-    static_libs: [
+    shared_libs: [
         "libFraunhoferAAC",
     ],
 }

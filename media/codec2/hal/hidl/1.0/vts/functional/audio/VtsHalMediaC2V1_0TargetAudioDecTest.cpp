@@ -876,7 +876,6 @@ TEST_P(Codec2AudioDecHidlTest, DecodeTestEmptyBuffersInserted) {
     uint32_t vtsFlags = 0;
     uint32_t timestamp = 0;
     uint32_t nLargeFrames = 0;
-    bool codecConfig = false;
     // This test introduces empty CSD after every 20th frame
     // and empty input frames at an interval of 5 frames.
     while (1) {
@@ -890,7 +889,6 @@ TEST_P(Codec2AudioDecHidlTest, DecodeTestEmptyBuffersInserted) {
             vtsFlags = mapInfoFlagstoVtsFlags(flags);
             ASSERT_NE(vtsFlags, 0xFF) << "unrecognized flag entry in info file: " << mInfoFile;
             eleInfo >> timestamp;
-            codecConfig = (vtsFlags & (1 << VTS_BIT_FLAG_CSD_FRAME)) != 0;
             Info.push_back({bytesCount, vtsFlags, timestamp, {}});
             if ((vtsFlags & (1 << VTS_BIT_FLAG_LARGE_AUDIO_FRAME)) != 0) {
                 eleInfo >> nLargeFrames;

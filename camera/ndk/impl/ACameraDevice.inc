@@ -63,9 +63,16 @@ camera_status_t CameraDevice::submitRequestsLocked(
     std::vector<hardware::camera2::CaptureRequest> requestList;
     Vector<sp<CaptureRequest> > requestsV;
     requestsV.setCapacity(numRequests);
+    // Check if we have a ZSL capture request.
+    // Capture sequences with ZSL enabled may return frame numbers that
+    // appear out of order relative to regular & repeating requests.
+    // The callbacks for such ZSL capture sequences may need to be kept
+    // for longer compared to regular/non-ZSL requests.
+    bool isZsl = false;
     for (int i = 0; i < numRequests; i++) {
         sp<CaptureRequest> req;
-        ret = allocateCaptureRequest(requests[i], req);
+        bool zslRequest = false;
+        ret = allocateCaptureRequest(requests[i], req, &zslRequest);
         if (ret != ACAMERA_OK) {
             ALOGE("Convert capture request to internal format failure! ret %d", ret);
             return ret;
@@ -76,6 +83,7 @@ camera_status_t CameraDevice::submitRequestsLocked(
         }
         requestList.push_back(*(req.get()));
         requestsV.push_back(req);
+        isZsl |= zslRequest;
     }
 
     if (isRepeating) {
@@ -107,7 +115,9 @@ camera_status_t CameraDevice::submitRequestsLocked(
         }
         mRepeatingSequenceId = sequenceId;
     } else {
-        mSequenceLastFrameNumberMap.insert(std::make_pair(sequenceId, lastFrameNumber));
+        RequestLastFrameNumberHolder holder(lastFrameNumber);
+        holder.isZsl = isZsl;
+        mSequenceLastFrameNumberMap.insert(std::make_pair(sequenceId, holder));
     }
 
     if (mIdle) {
@@ -189,7 +199,6 @@ camera_status_t CameraDevice::startStreamingLocked(ACameraCaptureSession* sessio
     std::vector<int> surfaceIds(req->mSurfaceIdxList.begin(), req->mSurfaceIdxList.end());
     remoteRet = mRemote->startStreaming(streamIds, surfaceIds, &info);
     int sequenceId = info.mRequestId;
-    int64_t lastFrameNumber = info.mLastFrameNumber;
     if (sequenceId < 0) {
         ALOGE("Camera %s start streaming remote failure: ret %d", getId(), sequenceId);
         return ACAMERA_ERROR_UNKNOWN;

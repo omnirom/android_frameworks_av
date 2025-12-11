@@ -45,6 +45,10 @@ LIBMEDIANDK {
     AImageReader_setBufferRemovedListener; # introduced=26
     AImageReader_setImageListener; # introduced=24
     AImageReader_setUsage; # introduced=36 llndk systemapi
+    AImageReader_setMaxImages; # introduced=37 llndk systemapi
+    AImageReader_setDefaultBufferSize; # introduced=37
+    AImageReader_setDefaultBufferDataSpace; # introduced=37
+    AImageReader_setDefaultAHardwareBufferFormat; # introduced=37
     AImage_delete; # introduced=24
     AImage_deleteAsync; # introduced=26
     AImage_getCropRect; # introduced=24
@@ -57,6 +61,7 @@ LIBMEDIANDK {
     AImage_getPlanePixelStride; # introduced=24
     AImage_getPlaneRowStride; # introduced=24
     AImage_getTimestamp; # introduced=24
+    AImage_getTransform; # introduced=37
     AImage_getWidth; # introduced=24
     AMEDIACODEC_KEY_HDR10_PLUS_INFO; # var introduced=31
     AMEDIACODEC_KEY_LOW_LATENCY; # var introduced=31

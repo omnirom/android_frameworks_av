@@ -34,7 +34,7 @@
 #include <stats_event.h>
 
 #include <audio_utils/StringUtils.h>
-#include <frameworks/proto_logging/stats/message/mediametrics_message.pb.h>
+#include <frameworks/proto_logging/stats/message/mediametrics/mediametrics_message.pb.h>
 #include <mediametricsservice/cleaner.h>
 #include <mediametricsservice/iface_statsd.h>
 #include <mediametricsservice/MediaMetricsService.h>

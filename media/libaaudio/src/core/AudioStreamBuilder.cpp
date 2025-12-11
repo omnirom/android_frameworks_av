@@ -170,9 +170,11 @@ aaudio_result_t AudioStreamBuilder::build(AudioStream** streamPtr) {
     bool allowLegacy = mmapPolicy != AAUDIO_POLICY_ALWAYS;
 
     // TODO Support other performance settings in MMAP mode.
-    // Disable MMAP if low latency not requested.
-    if (getPerformanceMode() != AAUDIO_PERFORMANCE_MODE_LOW_LATENCY) {
-        ALOGD("%s() MMAP not used because AAUDIO_PERFORMANCE_MODE_LOW_LATENCY not requested.",
+    // Disable MMAP if low latency or power saving offloaded is not requested.
+    if (getPerformanceMode() != AAUDIO_PERFORMANCE_MODE_LOW_LATENCY &&
+        getPerformanceMode() != AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED) {
+        ALOGD("%s() MMAP not used because AAUDIO_PERFORMANCE_MODE_LOW_LATENCY or "
+              "AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED not requested.",
               __func__);
         allowMMap = false;
     }
@@ -182,8 +184,9 @@ aaudio_result_t AudioStreamBuilder::build(AudioStream** streamPtr) {
         allowMMap = false;
     }
 
-    // SessionID and Effects are only supported in Legacy mode.
-    if (getSessionId() != AAUDIO_SESSION_ID_NONE) {
+    // SessionID and Effects are only supported in legacy mode and mmap offload mode.
+    if (getSessionId() != AAUDIO_SESSION_ID_NONE &&
+        getPerformanceMode() != AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED) {
         ALOGD("%s() MMAP not used because sessionId specified.", __func__);
         allowMMap = false;
     }
@@ -263,25 +266,6 @@ aaudio_result_t AudioStreamBuilder::validate() const {
         return result;
     }
 
-    switch (mPerformanceMode) {
-        case AAUDIO_PERFORMANCE_MODE_NONE:
-        case AAUDIO_PERFORMANCE_MODE_POWER_SAVING:
-        case AAUDIO_PERFORMANCE_MODE_LOW_LATENCY:
-            break;
-        case AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED:
-            if (getDirection() != AAUDIO_DIRECTION_OUTPUT ||
-                getFormat() == AUDIO_FORMAT_DEFAULT ||
-                getSampleRate() == 0 ||
-                getChannelMask() == AAUDIO_UNSPECIFIED) {
-                return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
-            }
-            break;
-        default:
-            ALOGE("illegal performanceMode = %d", mPerformanceMode);
-            return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
-            // break;
-    }
-
     // Prevent ridiculous values from causing problems.
     if (mFramesPerDataCallback != AAUDIO_UNSPECIFIED
         && (mFramesPerDataCallback < FRAMES_PER_DATA_CALLBACK_MIN
@@ -336,7 +320,7 @@ static const char *AAudio_convertDirectionToText(aaudio_direction_t direction) {
 
 void AudioStreamBuilder::logParameters() const {
     // This is very helpful for debugging in the future. Please leave it in.
-    ALOGI("rate   = %6d, channels  = %d, channelMask = %#x, format   = %d, sharing = %s, dir = %s",
+    ALOGI("rate   = %6d, channels  = %d, channelMask = %#x, format   = %#x, sharing = %s, dir = %s",
           getSampleRate(), getSamplesPerFrame(), getChannelMask(), getFormat(),
           AAudio_convertSharingModeToShortText(getSharingMode()),
           AAudio_convertDirectionToText(getDirection()));
@@ -344,7 +328,9 @@ void AudioStreamBuilder::logParameters() const {
           android::toString(getDeviceIds()).c_str(),
           getSessionId(),
           getPerformanceMode(),
-          ((getDataCallbackProc() != nullptr) ? "ON" : "OFF"),
+          ((getPartialDataCallbackProc() != nullptr) ? "ON_P"
+                                                     : (getDataCallbackProc() != nullptr) ? "ON"
+                                                                                          : "OFF"),
           mFramesPerDataCallback);
     ALOGI("usage  = %6d, contentType = %d, inputPreset = %d, allowedCapturePolicy = %d",
           getUsage(), getContentType(), getInputPreset(), getAllowedCapturePolicy());

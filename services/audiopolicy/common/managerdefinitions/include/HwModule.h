@@ -117,6 +117,13 @@ public:
     bool supportsPatch(const sp<PolicyAudioPort> &srcPort,
                        const sp<PolicyAudioPort> &dstPort) const;
 
+    void updateMutuallyExclusiveOutputProfiles(uint32_t flags1, uint32_t flags2);
+
+    /**
+     * Returns true if there is a profile, which is mutually exclusive to given profile, is opened.
+     */
+    bool isAnyMutuallyExclusiveProfileOpened(const sp<IOProfile>& profile) const;
+
     // TODO remove from here (split serialization)
     void dump(String8 *dst, int spaces) const;
 
@@ -132,6 +139,7 @@ private:
     DeviceVector mDynamicDevices; /**< devices that can be added/removed at runtime (e.g. rsbumix)*/
     AudioRouteVector mRoutes;
     PolicyAudioPortVector mPorts;
+    std::map<uint32_t /*flags*/, std::set<uint32_t /*flags*/>> mMutuallyExclusiveFlags;
 };
 
 class HwModuleCollection : public Vector<sp<HwModule> >

@@ -27,6 +27,7 @@
 #include <media/AudioResamplerPublic.h>
 #include <media/stagefright/MediaSource.h>
 #include <media/VolumeShaper.h>
+#include <gui/Flags.h> // Remove with MediaSurfaceType
 
 // Fwd decl to make sure everyone agrees that the scope of struct sockaddr_in is
 // global, and not in android::
@@ -61,8 +62,7 @@ public:
     virtual status_t        setDataSource(const sp<IStreamSource>& source) = 0;
     virtual status_t        setDataSource(const sp<IDataSource>& source) = 0;
     virtual status_t        setDataSource(const String8& rtpParams) = 0;
-    virtual status_t        setVideoSurfaceTexture(
-                                    const sp<IGraphicBufferProducer>& bufferProducer) = 0;
+    virtual status_t        setVideoSurfaceTexture(const sp<MediaSurfaceType>& surface) = 0;
     virtual status_t        getBufferingSettings(
                                     BufferingSettings* buffering /* nonnull */) = 0;
     virtual status_t        setBufferingSettings(const BufferingSettings& buffering) = 0;
@@ -173,6 +173,7 @@ protected:
         SET_AUX_EFFECT_SEND_LEVEL,
         ATTACH_AUX_EFFECT,
         SET_VIDEO_SURFACETEXTURE,
+        SET_VIDEO_SURFACETEXTURE_V2,
         SET_PARAMETER,
         GET_PARAMETER,
         SET_RETRANSMIT_ENDPOINT,

@@ -16,6 +16,7 @@
 
 #include <media/AppOpsSession.h>
 #include <media/AttrSourceIter.h>
+#include <mediautils/SingleThreadExecutor.h>
 
 #include <binder/AppOpsManager.h>
 #include <binder/PermissionController.h>
@@ -29,13 +30,23 @@ namespace android::media::permission {
 binder::Status DefaultAppOpsFacade::OpMonitor::opChanged(int32_t op, int32_t, const String16&,
                                                          const String16&) {
     if (mOps.attributedOp != op && mOps.additionalOp != op) return binder::Status::ok();
-    DefaultAppOpsFacade x{};
-    const auto allowed = x.checkAccess(mAttr, mOps);
+    using mediautils::Runnable;
+    // Pull checkOp in response to callback off of binder thread handling oneway
+    // TODO (b/380150343) temporary fix until we move all access checks to AppOps to be async
+    static mediautils::SingleThreadExecutor sExecutor;
+
+    sExecutor.enqueue(Runnable{ [ref = sp<OpMonitor>::fromExisting(this)]() mutable {
+        ref->opChangedInner();
+    }});
+    return binder::Status::ok();
+}
+
+void DefaultAppOpsFacade::OpMonitor::opChangedInner() {
+    const auto allowed = DefaultAppOpsFacade{}.checkAccess(mAttr, mOps);
     std::lock_guard l_{mLock};
     if (mCb != nullptr) {
         mCb(allowed);
     }
-    return binder::Status::ok();
 }
 
 bool DefaultAppOpsFacade::startAccess(const ValidatedAttributionSourceState& attr_, Ops ops) {

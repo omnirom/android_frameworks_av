@@ -18,6 +18,7 @@
 
 #include <media/MediaMetricsItem.h>
 #include <media/stagefright/foundation/ABase.h>
+#include <gui/Flags.h> // Remove with MediaSurfaceType
 
 namespace android {
 
@@ -45,8 +46,7 @@ struct NuPlayerDriver : public MediaPlayerInterface {
 
     virtual status_t setDataSource(const String8& rtpParams);
 
-    virtual status_t setVideoSurfaceTexture(
-            const sp<IGraphicBufferProducer> &bufferProducer);
+    virtual status_t setVideoSurfaceTexture(const sp<MediaSurfaceType>& surface);
 
     virtual status_t getBufferingSettings(
             BufferingSettings* buffering /* nonnull */) override;

@@ -158,15 +158,18 @@ status_t EffectDescriptorCollection::setEffectEnabled(const sp<EffectDescriptor>
     return NO_ERROR;
 }
 
+// Checking of a non offloadable effect on the output mix or the
+// session ID provided
 bool EffectDescriptorCollection::isNonOffloadableEffectEnabled(
-        const std::optional<const effect_uuid_t>& uuid) const
+        const audio_session_t sessionId) const
 {
     using namespace android::effect::utils;
     for (size_t i = 0; i < size(); i++) {
         sp<EffectDescriptor> effectDesc = valueAt(i);
         if ((effectDesc->mEnabled && (effectDesc->isMusicEffect()) &&
              ((effectDesc->mDesc.flags & EFFECT_FLAG_OFFLOAD_SUPPORTED) == 0)) &&
-            (uuid == std::nullopt || uuid.value() == effectDesc->mDesc.uuid)) {
+             (effectDesc->mSession == AUDIO_SESSION_OUTPUT_MIX ||
+              effectDesc->mSession == sessionId)) {
             ALOGE("%s: non offloadable effect %s, uuid %s, enabled on session %d", __func__,
                   effectDesc->mDesc.name, ToString(effectDesc->mDesc.uuid).c_str(),
                   effectDesc->mSession);

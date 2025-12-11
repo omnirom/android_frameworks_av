@@ -456,6 +456,18 @@ status_t Camera3StreamSplitter::attachBufferToOutputs(ANativeWindowBuffer* anb,
             //Output surface got likely removed by client.
             continue;
         }
+        bool isOwned;
+        res = surface->isBufferOwned(gb, &isOwned);
+        if (res != OK) {
+            ALOGE("%s: Unable to query if surface %zu (%s) is owned", __FUNCTION__, surface_id,
+                  surface->getConsumerName().c_str());
+            return res;
+        }
+        if (isOwned) {
+            SP_LOGI("%s: Trying to add already-owned buffer %" PRIu64 " to surface %zu (%s)",
+                    __FUNCTION__, gb->getId(), surface_id, surface->getConsumerName().c_str());
+            continue;
+        }
 
         //Temporarly Unlock the mutex when trying to attachBuffer to the output
         //queue, because attachBuffer could block in case of a slow consumer. If

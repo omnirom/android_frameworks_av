@@ -43,13 +43,6 @@ flag {
 
 flag {
     namespace: "camera_platform"
-    name: "inject_session_params"
-    description: "Enable session parameter injection via reconfiguration"
-    bug: "308984721"
-}
-
-flag {
-    namespace: "camera_platform"
     name: "camera_ae_mode_low_light_boost"
     is_exported: true
     description: "An AE mode that enables increased brightening in low light scenes"
@@ -104,49 +97,9 @@ flag {
 
 flag {
     namespace: "camera_platform"
-    name: "single_thread_executor_naming"
-    description: "Set the device executor thread name."
-    bug: "359709863"
-    metadata {
-        purpose: PURPOSE_BUGFIX
-    }
-}
-
-flag {
-    namespace: "camera_platform"
     name: "analytics_24q3"
     description: "Miscellaneous camera platform metrics for 24Q3"
     bug: "332557570"
-}
-
-flag {
-    namespace: "camera_platform"
-    name: "multi_res_raw_reprocessing"
-    description: "Allow multi-resolution raw reprocessing without reprocessing capability"
-    bug: "336922859"
-    metadata {
-        purpose: PURPOSE_BUGFIX
-    }
-}
-
-flag {
-    namespace: "camera_platform"
-    name: "api1_release_binderlock_before_cameraservice_disconnect"
-    description: "Drop mSerializationLock in Camera1 client when calling into CameraService"
-    bug: "351778072"
-    metadata {
-        purpose: PURPOSE_BUGFIX
-    }
-}
-
-flag {
-    namespace: "camera_platform"
-    name: "bump_preview_frame_space_priority"
-    description: "Increase the PreviewFrameSpacer thread priority"
-    bug: "355665306"
-    metadata {
-        purpose: PURPOSE_BUGFIX
-    }
 }
 
 flag {
@@ -157,35 +110,6 @@ flag {
     metadata {
         purpose: PURPOSE_BUGFIX
     }
-}
-
-flag {
-    namespace: "camera_platform"
-    name: "enable_hal_abort_from_cameraservicewatchdog"
-    description: "Enable CameraServiceWatchdog to abort camera HAL to generate HAL tombstones"
-    bug: "349652177"
-}
-
-flag {
-    namespace: "camera_platform"
-    name: "enable_stream_reconfiguration_for_unchanged_streams"
-    description: "Enable stream reconfiguration for unchanged streams"
-    bug: "341740105"
-}
-
-flag {
-    namespace: "camera_platform"
-    name: "data_delivery_permission_checks"
-    description: "Pass the full AttributionSource chain to PermissionChecker for data delivery"
-    bug: "190657833"
-    is_fixed_read_only: true
-}
-
-flag {
-    namespace: "camera_platform"
-    name: "depth_jpeg_extensions"
-    description: "Add Depth Jpeg extension output support"
-    bug: "362788689"
 }
 
 flag {
@@ -238,13 +162,6 @@ flag {
 
 flag {
     namespace: "camera_platform"
-    name: "feature_combination_baklava"
-    description: "Add new feature combination query version for Baklava"
-    bug: "370778206"
-}
-
-flag {
-    namespace: "camera_platform"
     name: "camera_multi_client"
     is_exported: true
     description: "add new feature to allow multiple clients to access the camera in shared mode"
@@ -273,9 +190,33 @@ flag {
 
 flag {
     namespace: "camera_platform"
-    name: "metadata_resize_fix"
-    description: "metadata resize during update needs to consider existing entry"
-    bug: "379388099"
+    name: "data_delivery_permission_checks"
+    description: "Pass the full AttributionSource chain to PermissionChecker for data delivery"
+    bug: "190657833"
+    is_fixed_read_only: true
+}
+
+flag {
+    namespace: "camera_platform"
+    name: "output_configuration_getter"
+    is_exported: true
+    description: "Unhide the size and format getters in OutputConfiguration class"
+    bug: "383609887"
+}
+
+flag {
+    namespace: "camera_platform"
+    name: "efv_capture_latency"
+    is_exported: true
+    description: "Add support for still capture latency mitigations in the EFV layer"
+    bug: "423674832"
+}
+
+flag {
+    namespace: "camera_platform"
+    name: "surface_format_fix"
+    description: "Consider format overrides for RGB output formats"
+    bug: "424865503"
     metadata {
         purpose: PURPOSE_BUGFIX
     }

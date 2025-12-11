@@ -587,9 +587,6 @@ TEST_P(Codec2AudioEncHidlTest, MultiChannelCountTest) {
     eleStream.open(mInputFile, std::ifstream::binary);
     ASSERT_EQ(eleStream.is_open(), true) << mInputFile << " file not found";
 
-    uint64_t prevOutputSize = 0u;
-    uint32_t prevChannelCount = 0u;
-
     // Looping through the maximum number of channel count supported by encoder
     for (int32_t nChannels = 1; nChannels < maxChannelCount; nChannels++) {
         ALOGV("Configuring encoder %s  for channel count = %d", mComponentName.c_str(), nChannels);
@@ -640,9 +637,6 @@ TEST_P(Codec2AudioEncHidlTest, MultiChannelCountTest) {
         // blocking call to ensures application to Wait till all the inputs are consumed
         waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue);
 
-        prevChannelCount = nChannels;
-        prevOutputSize = mOutputSize;
-
         if (mFramesReceived != numFrames) {
             ALOGE("Input buffer count and Output buffer count mismatch");
             ALOGE("framesReceived : %d inputFrames : %u", mFramesReceived, numFrames);
@@ -675,9 +669,6 @@ TEST_P(Codec2AudioEncHidlTest, MultiSampleRateTest) {
     ASSERT_EQ(eleStream.is_open(), true) << mInputFile << " file not found";
 
     int32_t sampleRateValues[] = {1000, 8000, 16000, 24000, 48000, 96000, 192000};
-
-    uint64_t prevOutputSize = 0u;
-    uint32_t prevSampleRate = 0u;
 
     for (int32_t nSampleRate : sampleRateValues) {
         ALOGV("Configuring encoder %s  for SampleRate = %d", mComponentName.c_str(), nSampleRate);
@@ -727,9 +718,6 @@ TEST_P(Codec2AudioEncHidlTest, MultiSampleRateTest) {
 
         // blocking call to ensures application to Wait till all the inputs are consumed
         waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue);
-
-        prevSampleRate = nSampleRate;
-        prevOutputSize = mOutputSize;
 
         if (mFramesReceived != numFrames) {
             ALOGE("Input buffer count and Output buffer count mismatch");

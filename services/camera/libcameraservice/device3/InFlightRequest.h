@@ -196,7 +196,7 @@ struct InFlightRequest {
     SurfaceMap outputSurfaces;
 
     // Current output transformation
-    int32_t transform;
+    TransformationMap transform;
 
     // Whether the app explicitly uses ZOOM_RATIO
     bool useZoomRatio;
@@ -223,7 +223,7 @@ struct InFlightRequest {
             rotateAndCropAuto(false),
             autoframingAuto(false),
             requestTimeNs(0),
-            transform(-1),
+            transform(TransformationMap{}),
             useZoomRatio(false) {
     }
 
@@ -232,7 +232,8 @@ struct InFlightRequest {
             const std::set<std::set<std::string>>& physicalCameraIdSet, bool isStillCapture,
             bool isZslCapture, bool rotateAndCropAuto, bool autoframingAuto,
             const std::set<std::string>& idsWithZoom, nsecs_t requestNs, bool useZoomRatio,
-            const SurfaceMap& outSurfaces = SurfaceMap{}) :
+            const SurfaceMap& outSurfaces = SurfaceMap{},
+            const TransformationMap& transformMap = TransformationMap{}) :
             shutterTimestamp(0),
             sensorTimestamp(0),
             requestStatus(OK),
@@ -254,7 +255,7 @@ struct InFlightRequest {
             cameraIdsWithZoom(idsWithZoom),
             requestTimeNs(requestNs),
             outputSurfaces(outSurfaces),
-            transform(-1),
+            transform(transformMap),
             useZoomRatio(useZoomRatio) {
     }
 };

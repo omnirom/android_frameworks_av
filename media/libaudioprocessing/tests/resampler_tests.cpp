@@ -106,8 +106,6 @@ void testBufferIncrement(size_t channels, bool useFloat,
     // calculate the output size
     size_t outputFrames = ((int64_t) provider.getNumFrames() * outputFreq) / inputFreq;
     size_t outputFrameSize = (channels == 1 ? 2 : channels) * (useFloat ? sizeof(float) : sizeof(int32_t));
-    size_t outputSize = outputFrameSize * outputFrames;
-    outputSize &= ~7;
 
     // create the resampler
     android::AudioResampler* resampler;
@@ -192,8 +190,6 @@ void testStopbandDownconversion(size_t channels,
     // calculate the output size
     size_t outputFrames = ((int64_t) provider.getNumFrames() * outputFreq) / inputFreq;
     size_t outputFrameSize = (channels == 1 ? 2 : channels) * sizeof(TO);
-    size_t outputSize = outputFrameSize * outputFrames;
-    outputSize &= ~7;
 
     // create the resampler
     android::AudioResampler* resampler;

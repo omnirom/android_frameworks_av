@@ -22,6 +22,8 @@
 #include <media/stagefright/MediaAdapter.h>
 #include <media/stagefright/MediaBuffer.h>
 
+#include <mutex>
+
 namespace android {
 
 MediaAdapter::MediaAdapter(const sp<MetaData> &meta)

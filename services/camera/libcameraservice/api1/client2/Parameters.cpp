@@ -531,18 +531,20 @@ status_t Parameters::initialize(CameraDeviceBase *device) {
         params.set(CameraParameters::KEY_SUPPORTED_EFFECTS, supportedEffects);
     }
 
-    antibandingMode = ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO;
-    params.set(CameraParameters::KEY_ANTIBANDING,
-            CameraParameters::ANTIBANDING_AUTO);
-
     camera_metadata_ro_entry_t availableAntibandingModes =
         staticInfo(ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES, 0, 0, false);
     if (!availableAntibandingModes.count) {
         params.set(CameraParameters::KEY_SUPPORTED_ANTIBANDING,
                 CameraParameters::ANTIBANDING_OFF);
+        // This is invalid per API2 spec, but we can let CTS catch it
+        antibandingMode = ANDROID_CONTROL_AE_ANTIBANDING_MODE_OFF;
+        // Leave params unset to be null for KEY_ANTIBANDING
     } else {
         String8 supportedAntibanding;
         bool addComma = false;
+        bool haveAuto = false;
+        bool have50Hz = false;
+        bool have60Hz = false;
         for (size_t i=0; i < availableAntibandingModes.count; i++) {
             if (addComma) supportedAntibanding += ",";
             addComma = true;
@@ -554,14 +556,17 @@ status_t Parameters::initialize(CameraDeviceBase *device) {
                 case ANDROID_CONTROL_AE_ANTIBANDING_MODE_50HZ:
                     supportedAntibanding +=
                         CameraParameters::ANTIBANDING_50HZ;
+                    have50Hz = true;
                     break;
                 case ANDROID_CONTROL_AE_ANTIBANDING_MODE_60HZ:
                     supportedAntibanding +=
                         CameraParameters::ANTIBANDING_60HZ;
+                    have60Hz = true;
                     break;
                 case ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO:
                     supportedAntibanding +=
                         CameraParameters::ANTIBANDING_AUTO;
+                    haveAuto = true;
                     break;
                 default:
                     ALOGW("%s: Camera %d: Unknown antibanding value: %d",
@@ -573,6 +578,21 @@ status_t Parameters::initialize(CameraDeviceBase *device) {
         }
         params.set(CameraParameters::KEY_SUPPORTED_ANTIBANDING,
                 supportedAntibanding);
+        const char *abMode = nullptr;
+        if (haveAuto) {
+            antibandingMode = ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO;
+            abMode = CameraParameters::ANTIBANDING_AUTO;
+        } else if (have60Hz) {
+            antibandingMode = ANDROID_CONTROL_AE_ANTIBANDING_MODE_60HZ;
+            abMode = CameraParameters::ANTIBANDING_60HZ;
+        } else if (have50Hz) {
+            antibandingMode = ANDROID_CONTROL_AE_ANTIBANDING_MODE_50HZ;
+            abMode = CameraParameters::ANTIBANDING_50HZ;
+        } else {
+            antibandingMode = ANDROID_CONTROL_AE_ANTIBANDING_MODE_OFF;
+            abMode = CameraParameters::ANTIBANDING_OFF;
+        }
+        params.set(CameraParameters::KEY_ANTIBANDING, abMode);
     }
 
     sceneMode = ANDROID_CONTROL_SCENE_MODE_DISABLED;

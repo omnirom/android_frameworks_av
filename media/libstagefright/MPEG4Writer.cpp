@@ -701,8 +701,7 @@ const char *MPEG4Writer::Track::getFourCCForMime(const char *mime) {
             return "hvc1";
         } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_AV1, mime)) {
             return "av01";
-        } else if (editing_flags::muxer_mp4_enable_apv() &&
-                   !strcasecmp(MEDIA_MIMETYPE_VIDEO_APV, mime)) {
+        } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_APV, mime)) {
             return "apv1";
         }
     } else if (!strncasecmp(mime, "application/", 12)) {
@@ -2307,7 +2306,7 @@ MPEG4Writer::Track::Track(MPEG4Writer* owner, const sp<MediaSource>& source, uin
     mIsAvc = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC);
     mIsHevc = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_HEVC);
     mIsAv1 = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AV1);
-    mIsApv = editing_flags::muxer_mp4_enable_apv() && !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_APV);
+    mIsApv = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_APV);
     mIsDovi = !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_DOLBY_VISION);
     mIsAudio = !strncasecmp(mime, "audio/", 6);
     mIsVideo = !strncasecmp(mime, "video/", 6);
@@ -2641,7 +2640,7 @@ void MPEG4Writer::Track::addItemOffsetAndSize(off64_t offset, size_t size, bool 
 
     if (mProperties.empty()) {
         // Min length of hvcC CSD is 23. (ISO/IEC 14496-15:2014 Chapter 8.4.1.1.2)
-        if (mIsHeif && mCodecSpecificDataSize < 23) {
+        if (mIsHeic && mCodecSpecificDataSize < 23) {
             ALOGE("hvcC csd size is less than 23 bytes");
             return;
         }
@@ -2878,8 +2877,7 @@ void MPEG4Writer::Track::getCodecSpecificDataFromInputFormatIfPossible() {
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AV1) ||
                !strcasecmp(mime, MEDIA_MIMETYPE_IMAGE_AVIF)) {
         mMeta->findData(kKeyAV1C, &type, &data, &size);
-    } else if (editing_flags::muxer_mp4_enable_apv() &&
-               !strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_APV)) {
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_APV)) {
         mMeta->findData(kKeyAPVC, &type, &data, &size);
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_DOLBY_VISION)) {
         getDolbyVisionProfile();
@@ -4585,7 +4583,7 @@ status_t MPEG4Writer::Track::checkCodecSpecificData() const {
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_AVC, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_HEVC, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_AV1, mime) ||
-        (editing_flags::muxer_mp4_enable_apv() && !strcasecmp(MEDIA_MIMETYPE_VIDEO_APV, mime)) ||
+        !strcasecmp(MEDIA_MIMETYPE_VIDEO_APV, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_VIDEO_DOLBY_VISION, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_IMAGE_ANDROID_HEIC, mime) ||
         !strcasecmp(MEDIA_MIMETYPE_IMAGE_AVIF, mime)) {
@@ -4760,8 +4758,7 @@ void MPEG4Writer::Track::writeVideoFourCCBox() {
         writeHvccBox();
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_AV1, mime)) {
         writeAv1cBox();
-    } else if (editing_flags::muxer_mp4_enable_apv() &&
-               !strcasecmp(MEDIA_MIMETYPE_VIDEO_APV, mime)) {
+    } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_APV, mime)) {
         writeApvcBox();
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_DOLBY_VISION, mime)) {
         if (mDoviProfile <= DolbyVisionProfileDvheSt) {
@@ -5220,15 +5217,10 @@ void MPEG4Writer::Track::writeEdtsBox() {
             } else if (editDurationTicks < 0) {
                 // Only video tracks with B Frames would hit this case.
                 ALOGV("Edit list entry to negate start offset by B frames in other tracks");
-                if (com::android::media::editing::flags::
-                        stagefrightrecorder_enable_b_frames()) {
-                    int32_t mediaTimeTicks =
-                            ((trackStartOffsetUs + movieStartOffsetBFramesUs +
-                              trackStartOffsetBFramesUs) * mTimeScale - 5E5) / 1E6;
-                    addOneElstTableEntry(tkhdDurationTicks, std::abs(mediaTimeTicks), 1, 0);
-                } else {
-                    addOneElstTableEntry(tkhdDurationTicks, std::abs(editDurationTicks), 1, 0);
-                }
+                int32_t mediaTimeTicks =
+                        ((trackStartOffsetUs + movieStartOffsetBFramesUs +
+                            trackStartOffsetBFramesUs) * mTimeScale - 5E5) / 1E6;
+                addOneElstTableEntry(tkhdDurationTicks, std::abs(mediaTimeTicks), 1, 0);
             } else {
                 ALOGV("No edit list entry needed for this track");
             }

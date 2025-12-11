@@ -22,12 +22,12 @@
 #include <AudioPolicyInterface.h>
 #include "AudioOutputDescriptor.h"
 #include "AudioPolicyMix.h"
-#include <com_android_media_audio.h>
 #include "IOProfile.h"
 #include "Volume.h"
 #include "HwModule.h"
 #include "TypeConverter.h"
 #include "policy.h"
+#include <com_android_media_audio.h>
 #include <com_android_media_audioserver.h>
 #include <media/AudioGain.h>
 #include <media/AudioParameter.h>
@@ -246,6 +246,48 @@ TrackClientVector AudioOutputDescriptor::clientsList(bool activeOnly, product_st
     return clients;
 }
 
+sp<TrackClientDescriptor> AudioOutputDescriptor::getHighestPriorityClientForVolumeSource(
+        VolumeSource vs, bool activeOnly) const
+{
+    sp<TrackClientDescriptor> clientForVolume = nullptr;
+    for (const auto &client : getClientIterable()) {
+        if ((!activeOnly || client->active()) && (vs == client->volumeSource())) {
+            // strategies are ordered, the lowest id the highest priority
+            if (clientForVolume == nullptr || clientForVolume->strategy() > client->strategy()) {
+                clientForVolume = client;
+            }
+        }
+    }
+    return clientForVolume;
+}
+
+bool AudioOutputDescriptor::canSetVolumeForVolumeSource(android::VolumeSource vs) const {
+    if (!useHwGain()) {
+        return true;
+    }
+    auto highestPrioActiveClientForVolume =
+            getHighestPriorityClientForVolumeSource(vs, /* active= */ true);
+    if (highestPrioActiveClientForVolume == nullptr) {
+        ALOGV("%s trying to set volume for inactive volume source %d", __func__, vs);
+        return false;
+    }
+    for (const auto &client: clientsList(true /*activeOnly*/)) {
+        bool isHigherPriority = client->strategy() < highestPrioActiveClientForVolume->strategy();
+        if (isHigherPriority && (client->volumeSource() != vs)) {
+            ALOGV("%s: found higher priority client on output with \n"
+                    "Strategy=%d volumeGroup=%d attributes=%s\n"
+                    "(\nrequester:\n strategy=%d volumeGroup=%d attributes=%s)\n"
+                    " on output, bailing out", __func__, client->strategy(),
+                    client->volumeSource(), toString(client->attributes()).c_str(),
+                    highestPrioActiveClientForVolume->strategy(),
+                    highestPrioActiveClientForVolume->volumeSource(),
+                    toString(highestPrioActiveClientForVolume->attributes()).c_str());
+            return false;
+        }
+    }
+    return true;
+}
+
 size_t AudioOutputDescriptor::sameExclusivePreferredDevicesCount() const
 {
     audio_port_handle_t deviceId = AUDIO_PORT_HANDLE_NONE;
@@ -377,6 +419,19 @@ bool SwAudioOutputDescriptor::sharesHwModuleWith(
     }
 }
 
+DeviceVector SwAudioOutputDescriptor::routableDevices() const
+{
+    if (isDuplicated()) {
+        DeviceVector routableDevices = mOutput1->routableDevices();
+        routableDevices.merge(mOutput2->routableDevices());
+        return routableDevices;
+    }
+    if (mProfile != nullptr) {
+        return mProfile->getRoutableDevices();
+    }
+    return DeviceVector();
+}
+
 DeviceVector SwAudioOutputDescriptor::supportedDevices() const
 {
     if (isDuplicated()) {
@@ -395,14 +450,29 @@ bool SwAudioOutputDescriptor::supportsDevice(const sp<DeviceDescriptor> &device)
     return supportedDevices().contains(device);
 }
 
+bool SwAudioOutputDescriptor::routesToDevice(const sp<DeviceDescriptor> &device) const
+{
+    return routableDevices().contains(device);
+}
+
 bool SwAudioOutputDescriptor::supportsAllDevices(const DeviceVector &devices) const
 {
     return supportedDevices().containsAllDevices(devices);
 }
 
+bool SwAudioOutputDescriptor::routesToAllDevices(const DeviceVector &devices) const
+{
+    return routableDevices().containsAllDevices(devices);
+}
+
 bool SwAudioOutputDescriptor::supportsAtLeastOne(const DeviceVector &devices) const
 {
     return filterSupportedDevices(devices).size() > 0;
+}
+
+bool SwAudioOutputDescriptor::routesToAtLeastOne(const DeviceVector &devices) const
+{
+    return filterRoutableDevices(devices).size() > 0;
 }
 
 bool SwAudioOutputDescriptor::supportsDevicesForPlayback(const DeviceVector &devices) const
@@ -412,9 +482,20 @@ bool SwAudioOutputDescriptor::supportsDevicesForPlayback(const DeviceVector &dev
     return !isDuplicated() && supportsAllDevices(devices);
 }
 
+bool SwAudioOutputDescriptor::routesToDevicesForPlayback(const DeviceVector &devices) const
+{
+    return !isDuplicated() && routesToAllDevices(devices);
+}
+
 DeviceVector SwAudioOutputDescriptor::filterSupportedDevices(const DeviceVector &devices) const
 {
     DeviceVector filteredDevices = supportedDevices();
+    return filteredDevices.filter(devices);
+}
+
+DeviceVector SwAudioOutputDescriptor::filterRoutableDevices(const DeviceVector &devices) const
+{
+    DeviceVector filteredDevices = routableDevices();
     return filteredDevices.filter(devices);
 }
 
@@ -501,38 +582,21 @@ void SwAudioOutputDescriptor::toAudioPort(struct audio_port_v7 *port) const
 }
 
 void SwAudioOutputDescriptor::setSwMute(
-        bool mutedByGroup, VolumeSource vs, const StreamTypeVector &streamTypes,
+        bool mutedByGroup, VolumeSource vs,
         const DeviceTypeSet& deviceTypes, uint32_t delayMs) {
     // volume source active and more than one volume source is active, otherwise, no-op or let
     // setVolume controlling SW and/or HW Gains
-    if (!audioserver_flags::portid_volume_management()) {
-        if (!streamTypes.empty() && isActive(vs) && (getActiveVolumeSources().size() > 1)) {
-            for (const auto& devicePort : devices()) {
-                if (isSingleDeviceType(deviceTypes, devicePort->type()) &&
-                    devicePort->hasGainController(true /*canUseForVolume*/)) {
-                    ALOGV("%s: output: %d, vs: %d, muted: %d, active vs count: %zu", __func__,
-                          mIoHandle, vs, mutedByGroup, getActiveVolumeSources().size());
-                    for (const auto &stream : streamTypes) {
-                        mClientInterface->setStreamVolume(stream, Volume::DbToAmpl(0), mutedByGroup,
-                                                          mIoHandle, delayMs);
-                    }
-                    return;
-                }
-            }
-        }
-    } else {
-        if (isActive(vs) && (getActiveVolumeSources().size() > 1)) {
-            for (const auto &devicePort: devices()) {
-                if (isSingleDeviceType(deviceTypes, devicePort->type()) &&
-                    devicePort->hasGainController(true /*canUseForVolume*/)) {
-                    float volumeAmpl = Volume::DbToAmpl(0);
-                    ALOGV("%s: output: %d, vs: %d, muted: %d, active vs count: %zu", __func__,
-                          mIoHandle, vs, mutedByGroup, getActiveVolumeSources().size());
-                    mClientInterface->setPortsVolume(
-                            getPortsForVolumeSource(vs), Volume::DbToAmpl(0), mutedByGroup,
-                            mIoHandle, delayMs);
-                    return;
-                }
+
+    if (isActive(vs) && (getActiveVolumeSources().size() > 1)) {
+        for (const auto& devicePort: devices()) {
+            if (isSingleDeviceType(deviceTypes, devicePort->type()) &&
+                devicePort->hasGainController(true /*canUseForVolume*/)) {
+                ALOGV("%s: output: %d, vs: %d, muted: %d, active vs count: %zu", __func__,
+                      mIoHandle, vs, mutedByGroup, getActiveVolumeSources().size());
+                mClientInterface->setPortsVolume(
+                        getPortsForVolumeSource(vs), Volume::DbToAmpl(0), mutedByGroup,
+                        mIoHandle, delayMs);
+                return;
             }
         }
     }
@@ -548,24 +612,6 @@ bool SwAudioOutputDescriptor::setVolume(float volumeDb, bool mutedByGroup,
     StreamTypeVector streams = streamTypes;
     if (!AudioOutputDescriptor::setVolume(
             volumeDb, mutedByGroup, vs, streamTypes, deviceTypes, delayMs, force, isVoiceVolSrc)) {
-        if (hasStream(streamTypes, AUDIO_STREAM_BLUETOOTH_SCO)) {
-            VolumeSource callVolSrc = getVoiceSource();
-            const bool mutedChanged =
-                    com_android_media_audio_ring_my_car() && hasVolumeSource(callVolSrc) &&
-                    (isMutedByGroup(callVolSrc) != mutedByGroup);
-            if (callVolSrc != VOLUME_SOURCE_NONE &&
-                (volumeDb != getCurVolume(callVolSrc) || mutedChanged)) {
-                setCurVolume(callVolSrc, volumeDb, mutedByGroup, true);
-                float volumeAmpl = Volume::DbToAmpl(volumeDb);
-                if (audioserver_flags::portid_volume_management()) {
-                    mClientInterface->setPortsVolume(getPortsForVolumeSource(callVolSrc),
-                            volumeAmpl, mutedByGroup, mIoHandle, delayMs);
-                } else {
-                    mClientInterface->setStreamVolume(AUDIO_STREAM_VOICE_CALL,
-                            volumeAmpl, mutedByGroup, mIoHandle, delayMs);
-                }
-            }
-        }
         return false;
     }
     if (streams.empty()) {
@@ -580,29 +626,13 @@ bool SwAudioOutputDescriptor::setVolume(float volumeDb, bool mutedByGroup,
             ALOGV("%s: device %s has gain controller", __func__, devicePort->toString().c_str());
             // @todo: here we might be in trouble if the SwOutput has several active clients with
             // different Volume Source (or if we allow several curves within same volume group)
-            if (!audioserver_flags::portid_volume_management()) {
-                // @todo: default stream volume to max (0) when using HW Port gain?
-                // Allows to set SW Gain on AudioFlinger if:
-                //    -volume group has explicit stream(s) associated
-                //    -volume group with no explicit stream(s) is the only active source on this
-                //    output
-                // Allows to mute SW Gain on AudioFlinger only for volume group with explicit
-                // stream(s)
-                if (!streamTypes.empty() || (getActiveVolumeSources().size() == 1)) {
-                    const bool canMute = mutedByGroup && !streamTypes.empty();
-                    const float volumeAmpl = Volume::DbToAmpl(0);
-                    for (const auto &stream: streams) {
-                        mClientInterface->setStreamVolume(stream, volumeAmpl, canMute, mIoHandle,
-                                                          delayMs);
-                    }
-                }
-            } else {
-                float volumeAmpl = Volume::DbToAmpl(0);
-                ALOGV("%s: output: %d, vs: %d, active vs count: %zu", __func__,
-                      mIoHandle, vs, getActiveVolumeSources().size());
-                mClientInterface->setPortsVolume(
-                        getPortsForVolumeSource(vs), volumeAmpl, mutedByGroup, mIoHandle, delayMs);
-            }
+
+            float volumeAmpl = Volume::DbToAmpl(0);
+            ALOGV("%s: output: %d, vs: %d, active vs count: %zu", __func__,
+                  mIoHandle, vs, getActiveVolumeSources().size());
+            mClientInterface->setPortsVolume(
+                    getPortsForVolumeSource(vs), volumeAmpl, mutedByGroup, mIoHandle, delayMs);
+
             AudioGains gains = devicePort->getGains();
             int gainMinValueInMb = gains[0]->getMinValueInMb();
             int gainMaxValueInMb = gains[0]->getMaxValueInMb();
@@ -618,36 +648,12 @@ bool SwAudioOutputDescriptor::setVolume(float volumeDb, bool mutedByGroup,
             return mClientInterface->setAudioPortConfig(&config, 0) == NO_ERROR;
         }
     }
-    // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is enabled
+
     float volumeAmpl = Volume::DbToAmpl(getCurVolume(vs));
-    if (hasStream(streams, AUDIO_STREAM_BLUETOOTH_SCO)) {
-        VolumeSource callVolSrc = getVoiceSource();
-        if (audioserver_flags::portid_volume_management()) {
-            if (callVolSrc != VOLUME_SOURCE_NONE) {
-                mClientInterface->setPortsVolume(getPortsForVolumeSource(callVolSrc), volumeAmpl,
-                                                 mutedByGroup, mIoHandle, delayMs);
-            }
-        } else {
-            mClientInterface->setStreamVolume(AUDIO_STREAM_VOICE_CALL, volumeAmpl, mutedByGroup,
-                                              mIoHandle, delayMs);
-        }
-        if (callVolSrc != VOLUME_SOURCE_NONE) {
-            setCurVolume(callVolSrc, getCurVolume(vs), mutedByGroup, true);
-        }
-    }
-    if (audioserver_flags::portid_volume_management()) {
-        ALOGV("%s output %d for volumeSource %d, volume %f, mutedByGroup %d, delay %d active=%d",
-              __func__, mIoHandle, vs, volumeDb, mutedByGroup, delayMs, isActive(vs));
-        mClientInterface->setPortsVolume(getPortsForVolumeSource(vs), volumeAmpl, mutedByGroup,
-                                         mIoHandle, delayMs);
-    } else {
-        for (const auto &stream : streams) {
-            ALOGV("%s output %d for volumeSource %d, volume %f, mutedByGroup %d delay %d stream=%s",
-                  __func__, mIoHandle, vs, volumeDb, mutedByGroup, delayMs,
-                  toString(stream).c_str());
-            mClientInterface->setStreamVolume(stream, volumeAmpl, mutedByGroup, mIoHandle, delayMs);
-        }
-    }
+    ALOGV("%s output %d for volumeSource %d, volume %f, mutedByGroup %d, delay %d active=%d",
+          __func__, mIoHandle, vs, volumeDb, mutedByGroup, delayMs, isActive(vs));
+    mClientInterface->setPortsVolume(getPortsForVolumeSource(vs), volumeAmpl, mutedByGroup,
+                                     mIoHandle, delayMs);
     return true;
 }
 
@@ -734,7 +740,8 @@ status_t SwAudioOutputDescriptor::open(const audio_config_t *halConfig,
                                                    device,
                                                    &mLatency,
                                                    &mFlags,
-                                                   attributes);
+                                                   attributes,
+                                                   mProfile->getHalId());
     *flags = mFlags;
 
     if (status == NO_ERROR) {
@@ -869,7 +876,10 @@ void SwAudioOutputDescriptor::setDevices(const android::DeviceVector &devices) {
         }
         auto config = getConfig();
         for (auto device : devices) {
-            device->setPreferredConfig(&config);
+            if (!device->setPreferredConfig(&config)) {
+                ALOGE("%s, failed to set preferred config for device %s",
+                      __func__, device->toString().c_str());
+            }
         }
     }
     mDevices = devices;

@@ -19,7 +19,6 @@
 #include <utils/Log.h>
 
 #include <binder/IServiceManager.h>
-#include <binder/IPCThreadState.h>
 #include <media/IMediaDeathNotifier.h>
 
 namespace android {

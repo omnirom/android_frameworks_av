@@ -45,7 +45,8 @@ status_t SpdifStreamOut::open(
         struct audio_config *config,
         audio_output_flags_t *flags,
         const char *address,
-        const std::vector<playback_track_metadata_v7_t>& sourceMetadata)
+        const std::vector<playback_track_metadata_v7_t>& sourceMetadata,
+        int32_t mixPortHalId)
 {
     struct audio_config customConfig = *config;
 
@@ -79,7 +80,8 @@ status_t SpdifStreamOut::open(
             &customConfig,
             flags,
             address,
-            sourceMetadata);
+            sourceMetadata,
+            mixPortHalId);
 
     // reset config back to whatever is returned by HAL
     config->sample_rate = customConfig.sample_rate;

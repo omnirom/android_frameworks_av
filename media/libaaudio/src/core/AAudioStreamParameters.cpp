@@ -49,6 +49,7 @@ void AAudioStreamParameters::copyFrom(const AAudioStreamParameters &other) {
     mHardwareSamplesPerFrame = other.mHardwareSamplesPerFrame;
     mHardwareSampleRate   = other.mHardwareSampleRate;
     mHardwareAudioFormat  = other.mHardwareAudioFormat;
+    mPerformanceMode      = other.mPerformanceMode;
 }
 
 static aaudio_result_t isFormatValid(audio_format_t format) {
@@ -218,6 +219,27 @@ aaudio_result_t AAudioStreamParameters::validate() const {
         return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
     }
 
+    switch (mPerformanceMode) {
+        case AAUDIO_PERFORMANCE_MODE_NONE:
+        case AAUDIO_PERFORMANCE_MODE_POWER_SAVING:
+        case AAUDIO_PERFORMANCE_MODE_LOW_LATENCY:
+            break;
+        case AAUDIO_PERFORMANCE_MODE_POWER_SAVING_OFFLOADED:
+            if (mDirection != AAUDIO_DIRECTION_OUTPUT ||
+                mAudioFormat == AUDIO_FORMAT_DEFAULT ||
+                mSampleRate == 0 ||
+                mChannelMask == AAUDIO_UNSPECIFIED) {
+                ALOGD("%s invalid configuration when performance mode is power saving offloaded, "
+                      "direction=%d, format=%#x, sampleRate=%d, channelMask=%#x",
+                      __func__, mDirection, mAudioFormat, mSampleRate, mChannelMask);
+                return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+            }
+            break;
+        default:
+            ALOGD("%s unknown performance mode = %d", __func__, mPerformanceMode);
+            return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+    }
+
     return validateChannelMask();
 }
 
@@ -298,6 +320,7 @@ aaudio_result_t AAudioStreamParameters::validateChannelMask() const {
             case AAUDIO_CHANNEL_7POINT1:
             case AAUDIO_CHANNEL_7POINT1POINT2:
             case AAUDIO_CHANNEL_7POINT1POINT4:
+            case AAUDIO_CHANNEL_13POINT0:
             case AAUDIO_CHANNEL_9POINT1POINT4:
             case AAUDIO_CHANNEL_9POINT1POINT6:
                 return AAUDIO_OK;
@@ -337,4 +360,5 @@ void AAudioStreamParameters::dump() const {
     ALOGD("mHardwareSamplesPerFrame = %6d", mHardwareSamplesPerFrame);
     ALOGD("mHardwareSampleRate   = %6d", mHardwareSampleRate);
     ALOGD("mHardwareAudioFormat  = %6d", (int)mHardwareAudioFormat);
+    ALOGD("mPerformanceMode      = %6d", (int)mPerformanceMode);
 }

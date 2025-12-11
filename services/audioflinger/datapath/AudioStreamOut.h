@@ -49,7 +49,8 @@ public:
             struct audio_config *config,
             audio_output_flags_t *flagsPtr,
             const char *address,
-            const std::vector<playback_track_metadata_v7_t>& sourceMetadata);
+            const std::vector<playback_track_metadata_v7_t>& sourceMetadata,
+            int32_t mixPortHalId);
 
     virtual ~AudioStreamOut();
 

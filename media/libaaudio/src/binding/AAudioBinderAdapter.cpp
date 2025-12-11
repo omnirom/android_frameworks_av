@@ -14,13 +14,17 @@
  * limitations under the License.
  */
 
+#include <android/media/audio/common/AudioPlaybackRate.h>
 #include <binding/AAudioBinderAdapter.h>
+#include <media/AidlConversion.h>
+#include <media/AidlConversionCppNdk.h>
 #include <media/AidlConversionUtil.h>
 #include <utility/AAudioUtilities.h>
 
 namespace aaudio {
 
 using android::aidl_utils::statusTFromBinderStatus;
+using android::audio_utils::TimerQueue;
 using android::binder::Status;
 
 AAudioBinderAdapter::AAudioBinderAdapter(IAAudioService* delegate,
@@ -163,6 +167,99 @@ aaudio_result_t AAudioBinderAdapter::exitStandby(const AAudioHandleInfo& streamH
         result = AAudioConvert_androidToAAudioResult(statusTFromBinderStatus(status));
     }
     endpointOut = std::move(endpoint);
+    return result;
+}
+
+aaudio_result_t AAudioBinderAdapter::updateTimestamp(
+        const aaudio::AAudioHandleInfo &streamHandleInfo) {
+    if (streamHandleInfo.getServiceLifetimeId() != mServiceLifetimeId) {
+        return AAUDIO_ERROR_DISCONNECTED;
+    }
+    aaudio_result_t result;
+    Status status = mDelegate->updateTimestamp(streamHandleInfo.getHandle(), &result);
+    if (!status.isOk()) {
+        result = AAudioConvert_androidToAAudioResult(statusTFromBinderStatus(status));
+    }
+    return result;
+}
+
+aaudio_result_t AAudioBinderAdapter::drainStream(const aaudio::AAudioHandleInfo &streamHandleInfo,
+                                                 int64_t wakeUpNanos,
+                                                 bool allowSoftWakeUp,
+                                                 TimerQueue::handle_t* handle) {
+    if (streamHandleInfo.getServiceLifetimeId() != mServiceLifetimeId) {
+        return AAUDIO_ERROR_DISCONNECTED;
+    }
+    aaudio_result_t result;
+    android::media::TimerQueueHandle aidlHandle;
+    Status status = mDelegate->drainStream(
+            streamHandleInfo.getHandle(), wakeUpNanos, allowSoftWakeUp, &aidlHandle, &result);
+    if (!status.isOk()) {
+        return AAudioConvert_androidToAAudioResult(statusTFromBinderStatus(status));
+    }
+    auto legacy = android::aidl2legacy_TimerQueueHandle_timer_queue_handle_t(aidlHandle);
+    if (!legacy.ok()) {
+        return AAudioConvert_androidToAAudioResult(legacy.error());
+    }
+    *handle = legacy.value();
+    return result;
+}
+
+aaudio_result_t AAudioBinderAdapter::activateStream(
+        const aaudio::AAudioHandleInfo &streamHandleInfo, TimerQueue::handle_t handle) {
+    if (streamHandleInfo.getServiceLifetimeId() != mServiceLifetimeId) {
+        return AAUDIO_ERROR_DISCONNECTED;
+    }
+    aaudio_result_t result;
+    auto aidl = android::legacy2aidl_timer_queue_handle_t_TimerQueueHandle(handle);
+    if (!aidl.ok()) {
+        return AAudioConvert_androidToAAudioResult(aidl.error());
+    }
+    Status status = mDelegate->activateStream(streamHandleInfo.getHandle(), aidl.value(), &result);
+    if (!status.isOk()) {
+        result = AAudioConvert_androidToAAudioResult(statusTFromBinderStatus(status));
+    }
+    return result;
+}
+
+aaudio_result_t AAudioBinderAdapter::setPlaybackParameters(
+    const AAudioHandleInfo& streamHandleInfo, const android::AudioPlaybackRate& rate) {
+    if (streamHandleInfo.getServiceLifetimeId() != mServiceLifetimeId) {
+        return AAUDIO_ERROR_DISCONNECTED;
+    }
+    auto aidl = android::legacy2aidl_audio_playback_rate_t_AudioPlaybackRate(rate);
+    if (!aidl.ok()) {
+        return AAudioConvert_androidToAAudioResult(aidl.error());
+    }
+    aaudio_result_t result;
+    Status status = mDelegate->setPlaybackParameters(
+            streamHandleInfo.getHandle(), aidl.value(), &result);
+    if (!status.isOk()) {
+        result = AAudioConvert_androidToAAudioResult(statusTFromBinderStatus(status));
+    }
+    return result;
+}
+
+aaudio_result_t AAudioBinderAdapter::getPlaybackParameters(
+    const AAudioHandleInfo& streamHandleInfo, android::AudioPlaybackRate* rate) {
+    if (streamHandleInfo.getServiceLifetimeId() != mServiceLifetimeId) {
+        return AAUDIO_ERROR_DISCONNECTED;
+    }
+    android::media::audio::common::AudioPlaybackRate aidlRate;
+    aaudio_result_t result;
+    Status status = mDelegate->getPlaybackParameters(
+            streamHandleInfo.getHandle(), &aidlRate, &result);
+    if (!status.isOk()) {
+        return AAudioConvert_androidToAAudioResult(statusTFromBinderStatus(status));
+    }
+    if (result != AAUDIO_OK) {
+        return result;
+    }
+    auto legacy = android::aidl2legacy_AudioPlaybackRate_audio_playback_rate_t(aidlRate);
+    if (!legacy.ok()) {
+        return AAudioConvert_androidToAAudioResult(legacy.error());
+    }
+    *rate = legacy.value();
     return result;
 }
 

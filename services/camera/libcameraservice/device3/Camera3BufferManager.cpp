@@ -225,20 +225,22 @@ status_t Camera3BufferManager::checkAndFreeBufferOnOtherStreamsLocked(
         // Need to unlock because the stream may also be calling
         // into the buffer manager in parallel to signal buffer
         // release, or acquire a new buffer.
-        bool bufferFreed = false;
+        //
+        // Because mLock is released before calling detachBuffer, to avoid
+        // race condition with other threads, decrease attachedBufferCount
+        // first, and if the detached buffer is null, recover
+        // attachedBufferCount.
+        size_t& otherAttachedBufferCount =
+                streamSet.attachedBufferCountMap.editValueFor(firstOtherStreamId);
         {
+            otherAttachedBufferCount--;
             mLock.unlock();
             sp<GraphicBuffer> buffer;
             stream->detachBuffer(&buffer, /*fenceFd*/ nullptr);
             mLock.lock();
-            if (buffer.get() != nullptr) {
-                bufferFreed = true;
+            if (buffer.get() == nullptr) {
+                otherAttachedBufferCount++;
             }
-        }
-        if (bufferFreed) {
-            size_t& otherAttachedBufferCount =
-                    streamSet.attachedBufferCountMap.editValueFor(firstOtherStreamId);
-            otherAttachedBufferCount--;
         }
     }
 
@@ -246,7 +248,7 @@ status_t Camera3BufferManager::checkAndFreeBufferOnOtherStreamsLocked(
 }
 
 status_t Camera3BufferManager::getBufferForStream(int streamId, int streamSetId,
-        bool isMultiRes, sp<GraphicBuffer>* gb, int* fenceFd, bool noFreeBufferAtConsumer) {
+        bool isMultiRes, sp<GraphicBuffer>* gb, int* fenceFd) {
     ATRACE_CALL();
 
     Mutex::Autolock l(mLock);
@@ -263,12 +265,6 @@ status_t Camera3BufferManager::getBufferForStream(int streamId, int streamSetId,
     StreamSet &streamSet = mStreamSetMap.editValueFor(streamSetKey);
     BufferCountMap& handOutBufferCounts = streamSet.handoutBufferCountMap;
     size_t& bufferCount = handOutBufferCounts.editValueFor(streamId);
-    BufferCountMap& attachedBufferCounts = streamSet.attachedBufferCountMap;
-    size_t& attachedBufferCount = attachedBufferCounts.editValueFor(streamId);
-
-    if (noFreeBufferAtConsumer) {
-        attachedBufferCount = bufferCount;
-    }
 
     if (bufferCount >= streamSet.maxAllowedBufferCount) {
         ALOGE("%s: bufferCount (%zu) exceeds the max allowed buffer count (%zu) of this stream set",
@@ -276,6 +272,8 @@ status_t Camera3BufferManager::getBufferForStream(int streamId, int streamSetId,
         return INVALID_OPERATION;
     }
 
+    BufferCountMap& attachedBufferCounts = streamSet.attachedBufferCountMap;
+    size_t& attachedBufferCount = attachedBufferCounts.editValueFor(streamId);
     if (attachedBufferCount > bufferCount) {
         // We've already attached more buffers to this stream than we currently have
         // outstanding, so have the stream just use an already-attached buffer
@@ -367,6 +365,11 @@ status_t Camera3BufferManager::onBufferReleased(
         StreamSet& streamSet = mStreamSetMap.editValueFor(streamSetKey);
         BufferCountMap& handOutBufferCounts = streamSet.handoutBufferCountMap;
         size_t& bufferCount = handOutBufferCounts.editValueFor(streamId);
+        if (bufferCount == 0) {
+            ALOGE("%s: onBufferReleased called with handoutBufferCount already reaches 0!",
+                  __FUNCTION__);
+            return BAD_VALUE;
+        }
         bufferCount--;
         ALOGV("%s: Stream %d set %d(%d): Buffer count now %zu", __FUNCTION__, streamId,
                 streamSetId, isMultiRes, bufferCount);
@@ -410,7 +413,7 @@ status_t Camera3BufferManager::onBufferReleased(
 }
 
 status_t Camera3BufferManager::onBuffersRemoved(int streamId, int streamSetId,
-        bool isMultiRes, size_t count) {
+        bool isMultiRes, size_t count, bool released) {
     ATRACE_CALL();
     Mutex::Autolock l(mLock);
 
@@ -430,18 +433,20 @@ status_t Camera3BufferManager::onBuffersRemoved(int streamId, int streamSetId,
         BufferCountMap& attachedBufferCounts = streamSet.attachedBufferCountMap;
         size_t& totalAttachedCount = attachedBufferCounts.editValueFor(streamId);
 
-        if (count > totalHandoutCount) {
-            ALOGE("%s: Removed buffer count %zu greater than current handout count %zu",
-                    __FUNCTION__, count, totalHandoutCount);
-            return BAD_VALUE;
-        }
         if (count > totalAttachedCount) {
             ALOGE("%s: Removed buffer count %zu greater than current attached count %zu",
                   __FUNCTION__, count, totalAttachedCount);
             return BAD_VALUE;
         }
 
-        totalHandoutCount -= count;
+        if (!released) {
+            if (count > totalHandoutCount) {
+                ALOGE("%s: Removed buffer count %zu greater than current handout count %zu",
+                        __FUNCTION__, count, totalHandoutCount);
+                return BAD_VALUE;
+            }
+            totalHandoutCount -= count;
+        }
         totalAttachedCount -= count;
         ALOGV("%s: Stream %d set %d(%d): Buffer count now %zu, attached buffer count now %zu",
                 __FUNCTION__, streamId, streamSetId, isMultiRes, totalHandoutCount,

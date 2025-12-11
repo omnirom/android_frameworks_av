@@ -31,9 +31,6 @@ using StreamTypeVector = std::vector<audio_stream_type_t>;
 #define AUDIO_ENUM_QUOTE(x) #x
 #define AUDIO_ENUM_STRINGIFY(x) AUDIO_ENUM_QUOTE(x)
 #define AUDIO_DEFINE_ENUM_SYMBOL_V(symbol, value) symbol = value,
-#define AUDIO_DEFINE_STRINGIFY_CASE_V(symbol, _) case symbol: return AUDIO_ENUM_STRINGIFY(symbol);
-#define AUDIO_DEFINE_PARSE_CASE_V(symbol, _) \
-    if (strcmp(s, AUDIO_ENUM_STRINGIFY(symbol)) == 0) { *t = symbol; return true; } else
 #define AUDIO_DEFINE_MAP_ENTRY_V(symbol, _) { AUDIO_ENUM_STRINGIFY(symbol), symbol },
 
 /**
@@ -49,28 +46,18 @@ using StreamTypeVector = std::vector<audio_stream_type_t>;
     V(STRATEGY_ENFORCED_AUDIBLE, 2)            \
     V(STRATEGY_ACCESSIBILITY, 3)               \
     V(STRATEGY_SONIFICATION_RESPECTFUL, 4)     \
-    V(STRATEGY_MEDIA, 5)                       \
-    V(STRATEGY_DTMF, 6)                        \
-    V(STRATEGY_CALL_ASSISTANT, 7)              \
-    V(STRATEGY_TRANSMITTED_THROUGH_SPEAKER, 8) \
-    V(STRATEGY_REROUTING, 9)                   \
-    V(STRATEGY_PATCH, 10)
+    V(STRATEGY_ASSISTANT, 5)                   \
+    V(STRATEGY_MEDIA, 6)                       \
+    V(STRATEGY_DTMF, 7)                        \
+    V(STRATEGY_CALL_ASSISTANT, 8)              \
+    V(STRATEGY_TRANSMITTED_THROUGH_SPEAKER, 9) \
+    V(STRATEGY_REROUTING, 10)                  \
+    V(STRATEGY_PATCH, 11)
 
 enum legacy_strategy {
     AUDIO_LEGACY_STRATEGY_LIST_DEF(AUDIO_DEFINE_ENUM_SYMBOL_V)
 };
 
-inline const char* legacy_strategy_to_string(legacy_strategy t) {
-    switch (t) {
-    AUDIO_LEGACY_STRATEGY_LIST_DEF(AUDIO_DEFINE_STRINGIFY_CASE_V)
-    }
-    return "";
-}
-
-inline bool legacy_strategy_from_string(const char* s, legacy_strategy* t) {
-    AUDIO_LEGACY_STRATEGY_LIST_DEF(AUDIO_DEFINE_PARSE_CASE_V)
-    return false;
-}
 
 namespace audio_policy {
 
@@ -87,8 +74,6 @@ inline std::vector<legacy_strategy_map> getLegacyStrategyMap() {
 #undef AUDIO_LEGACY_STRATEGY_LIST_DEF
 
 #undef AUDIO_DEFINE_MAP_ENTRY_V
-#undef AUDIO_DEFINE_PARSE_CASE_V
-#undef AUDIO_DEFINE_STRINGIFY_CASE_V
 #undef AUDIO_DEFINE_ENUM_SYMBOL_V
 #undef AUDIO_ENUM_STRINGIFY
 #undef AUDIO_ENUM_QUOTE

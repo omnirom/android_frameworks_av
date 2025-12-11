@@ -77,10 +77,11 @@ public class MultiAccessUnitDecoder extends Decoder {
             public void onOutputBuffersAvailable(
                     @NonNull MediaCodec mediaCodec,
                             int outputBufferId, @NonNull ArrayDeque<BufferInfo> infos) {
-                int i = 0;
-                while(i++ < infos.size()) {
-                    mStats.addOutputTime();
+                double size = 0;
+                for (BufferInfo info : infos) {
+                    size += info.size;
                 }
+                mStats.addOutputTime(size / DEFAULT_AUDIO_FRAME_SIZE);
                 onOutputsAvailable(mediaCodec, outputBufferId, infos);
                 if (mSawOutputEOS) {
                     synchronized (mLock) { mLock.notify(); }
@@ -135,6 +136,13 @@ public class MultiAccessUnitDecoder extends Decoder {
             @NonNull List<BufferInfo> inputBufferInfo, final boolean asyncMode,
             @NonNull MediaFormat format, String codecName)
             throws IOException, InterruptedException {
+        if (format.containsKey(MediaFormat.KEY_MIME)) {
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            if (!mime.startsWith("audio")) {
+                Log.d(TAG, "Multi access unit decoders are valid only for audio");
+                return -1;
+            }
+        }
         return super.decode(inputBuffer, inputBufferInfo, asyncMode, format, codecName);
     }
 
@@ -159,6 +167,11 @@ public class MultiAccessUnitDecoder extends Decoder {
                 mInputInfos.add(bufInfo);
                 mNumInFramesProvided++;
                 mIndex = mNumInFramesProvided % (mInputBufferInfo.size() - 1);
+            }
+            if (DEBUG) {
+                Log.d(TAG, "inputsAvailable ID : " + inputBufferId
+                        + " queued info size: " + mInputInfos.size()
+                        + " Total queued size: " + offset);
             }
             if (mNumInFramesProvided >= mNumInFramesRequired) {
                 mIndex = mInputBufferInfo.size() - 1;
@@ -188,33 +201,56 @@ public class MultiAccessUnitDecoder extends Decoder {
         if (mSawOutputEOS || outputBufferId < 0) {
             return;
         }
+        ByteBuffer outputBuffer = null;
         if (mOutputStream != null) {
             try {
-                ByteBuffer outputBuffer = mc.getOutputBuffer(outputBufferId);
-                byte[] bytesOutput = new byte[outputBuffer.remaining()];
-                outputBuffer.get(bytesOutput);
-                mOutputStream.write(bytesOutput);
+                outputBuffer = mc.getOutputBuffer(outputBufferId);
+                if (outputBuffer != null) {
+                    int savedPosition = outputBuffer.position();
+                    byte[] bytesOutput = new byte[outputBuffer.remaining()];
+                    outputBuffer.get(bytesOutput);
+                    mOutputStream.write(bytesOutput);
+                    outputBuffer.position(savedPosition);
+                }
             } catch (IOException e) {
                 e.printStackTrace();
                 Log.d(TAG, "Error Dumping File: Exception " + e.toString());
             }
+        }
+        if (DEBUG) {
+            Log.d(TAG, "onOutputsAvailable ID : " + outputBufferId
+                    + " output info size: " + infos.size());
         }
         mNumOutputFrame += infos.size();
         MediaCodec.BufferInfo last = infos.peekLast();
         if (last != null) {
             mSawOutputEOS |= ((last.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0);
         }
-        if (mIBufferSend != null) {
-            IBufferXfer.BufferXferInfo info = new IBufferXfer.BufferXferInfo();
-            info.buf = mc.getOutputBuffer(outputBufferId);
-            info.idx = outputBufferId;
-            info.obj = mc;
-            info.infos = infos;
-            mIBufferSend.sendBuffer(this, info);
-        } else if (mFrameReleaseQueue != null) {
-            ByteBuffer outputBuffer = mc.getOutputBuffer(outputBufferId);
+        if (mConsumer != null) {
+            if (outputBuffer == null) {
+                outputBuffer = mc.getOutputBuffer(outputBufferId);
+            }
+            DecoderData data = prepareDecoderData(
+                    outputBufferId,
+                    outputBuffer,
+                    infos);
+            if (data != null) {
+                ArrayDeque<IBufferXfer.IProducerData> buffers = new ArrayDeque<>();
+                buffers.add(data);
+                sendToConsumer(buffers);
+            }
+        }
+        else if (mFrameReleaseQueue != null) {
+            // this should be here for a video stream
+            int remaining = 0;
+            if (outputBuffer == null) {
+                outputBuffer = mc.getOutputBuffer(outputBufferId);
+                if (outputBuffer != null) {
+                    remaining = outputBuffer.remaining();
+                }
+            }
             mFrameReleaseQueue.pushFrame(
-                    outputBufferId, outputBuffer.remaining());
+                    outputBufferId, remaining);
         } else {
             mc.releaseOutputBuffer(outputBufferId, mRender);
         }

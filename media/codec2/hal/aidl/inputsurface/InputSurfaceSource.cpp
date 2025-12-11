@@ -312,7 +312,7 @@ private:
         uint64_t key = reinterpret_cast<uint64_t>(context);
         std::lock_guard<std::mutex> l(mutex);
         auto it = listeners.find(key);
-        if (it->first) {
+        if (it != listeners.end()) {
             source = it->second.promote();
             if (!source) {
                 listeners.erase(it);
@@ -393,37 +393,21 @@ InputSurfaceSource::InputSurfaceSource() :
 
     String8 name("InputSurfaceSource");
 
-    // default parameters for ImageReader.
-    mImageReaderConfig.width = 1920;
-    mImageReaderConfig.height = 1080;
-    mImageReaderConfig.format = HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
-    mImageReaderConfig.maxImages = 16;
-    mImageReaderConfig.usage = AHARDWAREBUFFER_USAGE_VIDEO_ENCODE;
-
     memset(&mDefaultColorAspectsPacked, 0, sizeof(mDefaultColorAspectsPacked));
 }
 
-void InputSurfaceSource::initWithParams(
-        int32_t width, int32_t height, int32_t format,
-        int32_t maxImages, uint64_t usage) {
-    mImageReaderConfig.width = width;
-    mImageReaderConfig.height = height;
-    mImageReaderConfig.format = format;
-    mImageReaderConfig.maxImages = maxImages;
-    mImageReaderConfig.usage = (AHARDWAREBUFFER_USAGE_VIDEO_ENCODE | usage);
-    init();
-}
+void InputSurfaceSource::initImageReaderLocked() {
+    constexpr int32_t kInitWidth = 1;
+    constexpr int32_t kInitHeight = 1;
+    constexpr int32_t kInitFormat = HAL_PIXEL_FORMAT_RGBA_8888;
+    constexpr uint64_t kInitUsage = AHARDWAREBUFFER_USAGE_VIDEO_ENCODE;
+    constexpr int32_t kInitMaxImages = 1;
 
-void InputSurfaceSource::init() {
     if (mInitCheck != C2_NO_INIT) {
         return;
     }
     media_status_t err = AImageReader_newWithUsage(
-            mImageReaderConfig.width,
-            mImageReaderConfig.height,
-            mImageReaderConfig.format,
-            mImageReaderConfig.maxImages,
-            mImageReaderConfig.usage, &mImageReader);
+            kInitWidth, kInitHeight, kInitFormat, kInitUsage, kInitMaxImages, &mImageReader);
     if (err != AMEDIA_OK) {
         if (err == AMEDIA_ERROR_INVALID_PARAMETER) {
             mInitCheck = C2_BAD_VALUE;
@@ -443,6 +427,10 @@ void InputSurfaceSource::init() {
         ALOGE("Error getting window from AImageReader: %d", err);
         mInitCheck = C2_CORRUPTED;
     }
+}
+
+void InputSurfaceSource::setEventCallback(std::shared_ptr<EventCallback> callback) {
+    mEventCallback = callback;
 }
 
 InputSurfaceSource::~InputSurfaceSource() {
@@ -486,15 +474,17 @@ void InputSurfaceSource::createImageListeners() {
 }
 
 ANativeWindow *InputSurfaceSource::getNativeWindow() {
+    std::lock_guard<std::mutex> autoLock(mMutex);
+    initImageReaderLocked();
     return mImageWindow;
 }
 
 c2_status_t InputSurfaceSource::start() {
+    std::lock_guard<std::mutex> autoLock(mMutex);
     if (mInitCheck != C2_OK) {
         ALOGE("start() was called without initialization");
         return C2_CORRUPTED;
     }
-    std::lock_guard<std::mutex> autoLock(mMutex);
     ALOGV("--> start; available=%zu, submittable=%zd",
             mAvailableBuffers.size(), mFreeCodecBuffers.size());
     CHECK(!mExecuting);
@@ -581,6 +571,9 @@ c2_status_t InputSurfaceSource::release(){
     }
     if (looper != NULL) {
         looper->stop();
+    }
+    if (mEventCallback) {
+        mEventCallback->onComponentReleased();
     }
     return C2_OK;
 }
@@ -676,6 +669,10 @@ void InputSurfaceSource::onDataspaceChanged_l(
     if (ColorUtils::convertDataSpaceToV0(dataspace)) {
         mComponent->dispatchDataSpaceChanged(
                 mLastDataspace, mDefaultColorAspectsPacked, pixelFormat);
+        if (mEventCallback) {
+            // This will allow the client to query the changed dataspace.
+            mEventCallback->onDataspaceChanged(dataspace, pixelFormat);
+        }
     }
 }
 
@@ -1250,53 +1247,63 @@ c2_status_t InputSurfaceSource::configure(
         uint32_t frameWidth,
         uint32_t frameHeight,
         uint64_t consumerUsage) {
-    if (mInitCheck != C2_OK) {
-        ALOGE("configure() was called without initialization");
+    c2_status_t initCheck = C2_OK;
+    {
+        std::lock_guard<std::mutex> autoLock(mMutex);
+        initImageReaderLocked();
+        initCheck = mInitCheck;
+    }
+    if (initCheck != C2_OK) {
+        ALOGE("configure() was called buf ImageReader was not created properly");
         return C2_CORRUPTED;
     }
     if (component == NULL) {
         return C2_BAD_VALUE;
     }
+    if (__builtin_available(android 37, *)) {
+        media_status_t err = AImageReader_setMaxImages(mImageReader, bufferCount);
+        if (err != AMEDIA_OK) {
+            ALOGE("media_err(%d): AImageReader_setMaxImagees() to %d maxImages",
+                    err, bufferCount);
+            return C2_CORRUPTED;
+        }
+    } else {
+        ALOGE("AImageReader_setMaxImages() not available.");
+        return C2_OMITTED;
+    }
 
     {
         std::lock_guard<std::mutex> autoLock(mMutex);
         mComponent = component;
-
-        if (bufferCount != mImageReaderConfig.maxImages) {
-            ALOGW("bufferCount %d cannot be changed after ImageReader creation to %d",
-                    mImageReaderConfig.maxImages, bufferCount);
-        }
-        if (frameWidth != mImageReaderConfig.width ||
-                frameHeight != mImageReaderConfig.height) {
-            // NOTE:  ImageReader will handle the resolution change without explicit reconfig.
-            mImageReaderConfig.width = frameWidth;
-            mImageReaderConfig.height = frameHeight;
-            ALOGD("Maybe an implicit ImageReader resolution change: "
-                  "frameWidth %d -> %d: frameHeight %d -> %d",
-                    mImageReaderConfig.width, frameWidth, mImageReaderConfig.height, frameHeight);
-        }
-
-        consumerUsage |= AHARDWAREBUFFER_USAGE_VIDEO_ENCODE;
-        if (consumerUsage != mImageReaderConfig.usage) {
-            if (__builtin_available(android 36, *)) {
-                media_status_t err = AImageReader_setUsage(mImageReader, consumerUsage);
-                if (err != AMEDIA_OK) {
-                    ALOGE("media_err(%d), failed to configure usage to %llu from %llu",
-                            err, (unsigned long long)consumerUsage,
-                            (unsigned long long)mImageReaderConfig.usage);
-                    return C2_BAD_VALUE;
-                }
+        if (__builtin_available(android 37, *)) {
+            media_status_t err = AMEDIA_OK;
+            err = AImageReader_setDefaultBufferSize(mImageReader, frameWidth, frameHeight);
+            if (err != AMEDIA_OK) {
+                ALOGE("media_err(%d): AImageReader_setDefaultBufferSize() to (%d, %d)",
+                        err, frameWidth, frameHeight);
+                return C2_CORRUPTED;
             }
-            mImageReaderConfig.usage = consumerUsage;
+            consumerUsage |= AHARDWAREBUFFER_USAGE_VIDEO_ENCODE;
+            AImageReader_setUsage(mImageReader, consumerUsage);
+
+            // Set impl. defined format as default. Depending on the usage flags
+            // the device-specific implementation will derive the exact format.
+            err = AImageReader_setDefaultAHardwareBufferFormat(
+                    mImageReader, HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED);
+            if (err != AMEDIA_OK) {
+                ALOGE("media_err(%d): failed to set default buffer format to opaque", err);
+                return C2_CORRUPTED;
+            }
+
+            // Sets the default buffer data space
+            ALOGD("setting dataspace: %#x, acquired=%d", dataSpace, mNumOutstandingAcquires);
+            AImageReader_setDefaultBufferDataSpace(
+                    mImageReader, (android_dataspace)dataSpace);
+            mLastDataspace = (android_dataspace)dataSpace;
+        } else{
+            ALOGE("AImageReader configuration APIs are not available.");
+            return C2_OMITTED;
         }
-
-        // Set impl. defined format as default. Depending on the usage flags
-        // the device-specific implementation will derive the exact format.
-        mImageReaderConfig.format = HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
-
-        // Sets the default buffer data space
-        ALOGD("setting dataspace: %#x, acquired=%d", dataSpace, mNumOutstandingAcquires);
-        mLastDataspace = (android_dataspace)dataSpace;
 
         mExecuting = false;
         mSuspended = false;

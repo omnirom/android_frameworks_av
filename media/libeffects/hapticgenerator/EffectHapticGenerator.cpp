@@ -410,7 +410,7 @@ float* HapticGenerator_runProcessingChain(
         float* buf1, float* buf2, size_t frameCount) {
     float *in = buf1;
     float *out = buf2;
-    for (const auto processingFunc : processingChain) {
+    for (const auto& processingFunc : processingChain) {
         processingFunc(out, in, frameCount);
         std::swap(in, out);
     }

@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <stdatomic.h>
+#include <atomic>
 
 // The state queue template class was originally driven by this use case / requirements:
 //  There are two threads: a fast mixer, and a normal mixer, and they share state.
@@ -185,7 +185,7 @@ private:
     T                 mStates[kN];      // written by mutator, read by observer
 
     // "volatile" is meaningless with SMP, but here it indicates that we're using atomic ops
-    atomic_uintptr_t  mNext{}; // written by mutator to advance next, read by observer
+    std::atomic<uintptr_t> mNext{};    // written by mutator to advance next, read by observer
     volatile const T* mAck = nullptr;  // written by observer to acknowledge advance of next,
                                        // read by mutator
 

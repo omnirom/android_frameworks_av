@@ -112,17 +112,22 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
-                .withConstValue(new C2StreamMaxBufferSizeInfo::input(0u, 8192))
-                .build());
-
-        addParameter(
                 DefineParam(mAacFormat, C2_PARAMKEY_AAC_PACKAGING)
                 .withDefault(new C2StreamAacFormatInfo::input(0u, C2Config::AAC_PACKAGING_RAW))
                 .withFields({C2F(mAacFormat, value).oneOf({
                     C2Config::AAC_PACKAGING_RAW, C2Config::AAC_PACKAGING_ADTS
                 })})
                 .withSetter(Setter<decltype(*mAacFormat)>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
+                DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
+                .withDefault(new C2StreamMaxBufferSizeInfo::input(
+                        0u, getMaxBytesPerFrame(1 /* channel count */)))
+                .withFields({
+                    C2F(mInputMaxBufSize, value).any()
+                })
+                .calculatedAs(MaxInputSizeSetter, mAacFormat, mChannelCount)
                 .build());
 
         addParameter(
@@ -250,6 +255,30 @@ public:
         (void)me;  // TODO: validate
         return C2R::Ok();
     }
+
+    static constexpr size_t getMaxBytesPerFrame(int channelCount) {
+        // The maximum AAC frame size is 6144 bits per channel
+        constexpr size_t kMaxFrameLengthPerChannel = 6144 / 8;
+        // In SBR and PS modes, additional side data is signalled per frame
+        constexpr size_t kAddlSideDataPerFrame = 384;
+        size_t totalSize = kMaxFrameLengthPerChannel * channelCount + kAddlSideDataPerFrame;
+        return std::max(totalSize, static_cast<size_t>(8192));
+    }
+    static C2R MaxInputSizeSetter(bool mayBlock, C2P<C2StreamMaxBufferSizeInfo::input>& me,
+                                  const C2P<C2StreamAacFormatInfo::input>& aacFormat,
+                                  const C2P<C2StreamChannelCountInfo::output>& channelCount) {
+        (void)mayBlock;
+        // In adts format, 13 bits are reserved for storing the length of an adts frame.
+        // adts frame : adts header + aac frame(s) + crc bytes
+        // so the maximum input size in adts mode is 2^13 bytes
+        if (aacFormat.v.value == C2Config::AAC_PACKAGING_ADTS) {
+            me.set().value = (1 << 13);
+        } else {
+            me.set().value = getMaxBytesPerFrame(channelCount.v.value);
+        }
+        return C2R::Ok();
+    }
+
     int32_t getDrcCompressMode() const { return mDrcCompressMode->value == C2Config::DRC_COMPRESSION_HEAVY ? 1 : 0; }
     int32_t getDrcTargetRefLevel() const { return (mDrcTargetRefLevel->value <= 0 ? -mDrcTargetRefLevel->value * 4. + 0.5 : -1); }
     int32_t getDrcEncTargetLevel() const { return (mDrcEncTargetLevel->value <= 0 ? -mDrcEncTargetLevel->value * 4. + 0.5 : -1); }

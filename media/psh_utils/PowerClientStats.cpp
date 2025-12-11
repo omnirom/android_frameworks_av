@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <psh_utils/AudioPowerManager.h>
 #include <psh_utils/PowerClientStats.h>
 #include <mediautils/ServiceUtilities.h>
 
@@ -26,25 +27,34 @@ audio_utils::CommandThread& PowerClientStats::getCommandThread() {
 }
 
 PowerClientStats::PowerClientStats(uid_t uid, const std::string& additional)
-        : mUid(uid), mAdditional(additional) {}
+        : mUid(uid)
+        , mAdditional(additional)
+        , mStatTimeToleranceNs(AudioPowerManager::enabled() ? kStatTimeToleranceNs : 0) {}
 
 void PowerClientStats::start(int64_t actualNs) {
     std::lock_guard l(mMutex);
     ++mTokenCount;
     if (mStartNs == 0) mStartNs = actualNs;
     if (mStartStats) return;
-    mStartStats = PowerStatsCollector::getCollector().getStats(kStatTimeToleranceNs);
+    mStartStats = PowerStatsCollector::getCollector().getStats(mStatTimeToleranceNs);
+    ++mStartCount;
 }
 
 void PowerClientStats::stop(int64_t actualNs) {
     std::lock_guard l(mMutex);
     if (--mTokenCount > 0) return;
-    if (mStartNs != 0) mCumulativeNs += actualNs - mStartNs;
-    mStartNs = 0;
+    if (mStartNs != 0) {
+        mCumulativeNs += actualNs - mStartNs;
+        mStartNs = 0;
+    }
     if (!mStartStats) return;
-    const auto stopStats = PowerStatsCollector::getCollector().getStats(kStatTimeToleranceNs);
+    const auto stopStats = PowerStatsCollector::getCollector().getStats(mStatTimeToleranceNs);
     if (stopStats && stopStats != mStartStats) {
-        *mCumulativeStats += *stopStats - *mStartStats;
+        const auto diffStats = std::make_shared<PowerStats>(*stopStats - *mStartStats);
+        if (!mMaxStats || mMaxStats->metadata.duration_ms < diffStats->metadata.duration_ms) {
+            mMaxStats = diffStats;
+        }
+        *mCumulativeStats += *diffStats;
     }
     mStartStats.reset();
 }
@@ -66,12 +76,17 @@ std::string PowerClientStats::toString(bool stats, const std::string& prefix) co
     // Adjust delta time and stats if currently running.
     auto cumulativeStats = mCumulativeStats;
     auto cumulativeNs = mCumulativeNs;
+    auto maxStats = mMaxStats;
     if (mStartNs) cumulativeNs += systemTime(SYSTEM_TIME_BOOTTIME) - mStartNs;
     if (mStartStats) {
-        const auto stopStats = PowerStatsCollector::getCollector().getStats(kStatTimeToleranceNs);
+        const auto stopStats = PowerStatsCollector::getCollector().getStats(mStatTimeToleranceNs);
         if (stopStats && stopStats != mStartStats) {
             auto newStats = std::make_shared<PowerStats>(*cumulativeStats);
-            *newStats += *stopStats - *mStartStats;
+            const auto diffStats = std::make_shared<PowerStats>(*stopStats - *mStartStats);
+            if (!maxStats || maxStats->metadata.duration_ms < diffStats->metadata.duration_ms) {
+                maxStats = diffStats;
+            }
+            *newStats += *diffStats;
             cumulativeStats = newStats;
         }
     }
@@ -80,8 +95,8 @@ std::string PowerClientStats::toString(bool stats, const std::string& prefix) co
     result.append("uid: ")
             .append(std::to_string(mUid))
             .append(" ").append(mediautils::UidInfo::getInfo(mUid)->package)
-            .append(" streams: ").append(std::to_string(mTokenCount))
-            .append(" seconds: ").append(std::to_string(cumulativeNs * 1e-9));
+            .append("  sessions: ").append(std::to_string(mStartCount))
+            .append("  actual_seconds: ").append(std::to_string(cumulativeNs * 1e-9));
     result.append(" {");
     for (auto pid : mPids) {
         result.append(" ").append(std::to_string(pid));
@@ -90,10 +105,19 @@ std::string PowerClientStats::toString(bool stats, const std::string& prefix) co
     if (!mAdditional.empty()) {
         result.append("\n").append(prefix).append(mAdditional);
     }
-    if (stats) {
+    if (stats && cumulativeStats->metadata.duration_ms) {
         std::string prefix2(prefix);
         prefix2.append("  ");
-        result.append("\n").append(cumulativeStats->normalizedEnergy(prefix2));
+        result.append("\n").append("    Sum:");
+        result.append(cumulativeStats->normalizedEnergy(prefix2));
+    } else {
+        result.append("\n");
+    }
+    if (stats && maxStats && maxStats->metadata.duration_ms) {
+        std::string prefix2(prefix);
+        prefix2.append("  ");
+        result.append("    Max:");
+        result.append(maxStats->normalizedEnergy(prefix2));
     }
     return result;
 }

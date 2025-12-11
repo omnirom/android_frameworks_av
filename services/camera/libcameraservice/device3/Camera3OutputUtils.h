@@ -25,6 +25,7 @@
 #include <fmq/MessageQueue.h>
 
 #include <common/CameraDeviceBase.h>
+#include <android/content/res/CameraCompatibilityInfo.h>
 
 #include "device3/BufferUtils.h"
 #include "device3/DistortionMapper.h"
@@ -93,7 +94,7 @@ namespace camera3 {
             // Used to send buffer error callback when failing to return buffer
             const CaptureResultExtras &resultExtras = CaptureResultExtras{},
             ERROR_BUF_STRATEGY errorBufStrategy = ERROR_BUF_RETURN,
-            int32_t transform = -1);
+            const TransformationMap &transform = TransformationMap{});
 
     // helper function to collect the output buffers ready to be
     // returned to output streams, and to remove these buffers from
@@ -154,7 +155,7 @@ namespace camera3 {
         bool legacyClient;
         nsecs_t& minFrameDuration;
         bool& isFixedFps;
-        int rotationOverride;
+        const content::res::CameraCompatibilityInfo& compatInfo;
         std::string &activePhysicalId;
     };
 

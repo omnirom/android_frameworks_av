@@ -19,6 +19,7 @@
 
 #include <utils/Log.h>
 
+#include <algorithm>
 #include <fstream>
 
 #include <media/stagefright/xmlparser/MediaCodecsXmlParser.h>
@@ -357,7 +358,7 @@ TEST_F(XMLParseTest, CodecMapParseTest) {
     ASSERT_EQ(mEleStream.is_open(), true) << "Failed to open inputfile " << inputFileName;
 
     mParser.parseXmlPath(inputFileName);
-    for (const MediaCodecsXmlParser::Codec &mcodec : mParser.getCodecMap()) {
+    for (const MediaCodecsXmlParser::Codec mcodec : mParser.getCodecMap()) {
         printCodecMap(mcodec);
         const MediaCodecsXmlParser::CodecProperties &properties = mcodec.second;
         int32_t index = properties.order - 1;

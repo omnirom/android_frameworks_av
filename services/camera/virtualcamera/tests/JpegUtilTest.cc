@@ -47,14 +47,16 @@ constexpr int kJpegQuality = 80;
 // Create black YUV420 buffer for testing purposes.
 std::shared_ptr<AHardwareBuffer> createHardwareBufferForTest(const int width,
                                                              const int height) {
-  const AHardwareBuffer_Desc desc{.width = static_cast<uint32_t>(width),
-                                  .height = static_cast<uint32_t>(height),
-                                  .layers = 1,
-                                  .format = AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420,
-                                  .usage = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN,
-                                  .stride = 0,
-                                  .rfu0 = 0,
-                                  .rfu1 = 0};
+  const AHardwareBuffer_Desc desc{
+      .width = static_cast<uint32_t>(width),
+      .height = static_cast<uint32_t>(height),
+      .layers = 1,
+      .format = AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420,
+      .usage = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN |
+               AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,
+      .stride = 0,
+      .rfu0 = 0,
+      .rfu1 = 0};
 
   AHardwareBuffer* hwBufferPtr;
   int status = AHardwareBuffer_allocate(&desc, &hwBufferPtr);

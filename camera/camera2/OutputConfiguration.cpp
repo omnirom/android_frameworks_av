@@ -376,6 +376,42 @@ status_t OutputConfiguration::readFromParcel(const android::Parcel* parcel) {
     return err;
 }
 
+
+void OutputConfiguration::inferSurfaceProperties() {
+    if (mSurfaces.empty()) {
+        return;
+    }
+
+#if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+    if (mSurfaces[0].graphicBufferProducer->query(NATIVE_WINDOW_FORMAT, &mFormat) != OK) {
+        ALOGE("%s: NATIVE_WINDOW_FORMAT query failed", __FUNCTION__);
+    }
+    if (mSurfaces[0].graphicBufferProducer->query(NATIVE_WINDOW_DEFAULT_DATASPACE,
+            &mDataspace) != OK) {
+        ALOGE("%s: NATIVE_WINDOW_DEFAULT_DATASPACE query failed", __FUNCTION__);
+    }
+    if (mSurfaces[0].graphicBufferProducer->query(NATIVE_WINDOW_WIDTH, &mWidth) != OK) {
+        ALOGE("%s: NATIVE_WINDOW_WIDTH query failed", __FUNCTION__);
+    }
+    if (mSurfaces[0].graphicBufferProducer->query(NATIVE_WINDOW_HEIGHT, &mHeight) != OK) {
+        ALOGE("%s: NATIVE_WINDOW_HEIGHT query failed", __FUNCTION__);
+    }
+#else
+    if (mSurfaces[0]->query(NATIVE_WINDOW_FORMAT, &mFormat) != OK) {
+        ALOGE("%s: NATIVE_WINDOW_FORMAT query failed", __FUNCTION__);
+    }
+    if (mSurfaces[0]->query(NATIVE_WINDOW_DEFAULT_DATASPACE, &mDataspace) != OK) {
+        ALOGE("%s: NATIVE_WINDOW_DEFAULT_DATASPACE query failed", __FUNCTION__);
+    }
+    if (mSurfaces[0]->query(NATIVE_WINDOW_WIDTH, &mWidth) != OK) {
+        ALOGE("%s: NATIVE_WINDOW_WIDTH query failed", __FUNCTION__);
+    }
+    if (mSurfaces[0]->query(NATIVE_WINDOW_HEIGHT, &mHeight) != OK) {
+        ALOGE("%s: NATIVE_WINDOW_HEIGHT query failed", __FUNCTION__);
+    }
+#endif
+}
+
 OutputConfiguration::OutputConfiguration(ParcelableSurfaceType& surface, int rotation,
         const std::string& physicalId,
         int surfaceSetID, bool isShared) {
@@ -396,12 +432,13 @@ OutputConfiguration::OutputConfiguration(ParcelableSurfaceType& surface, int rot
     mFormat = HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
     mDataspace = 0;
     mUsage = 0;
+    inferSurfaceProperties();
 }
 
 OutputConfiguration::OutputConfiguration(
         const std::vector<ParcelableSurfaceType>& surfaces,
     int rotation, const std::string& physicalCameraId, int surfaceSetID,  int surfaceType,
-    int width, int height, bool isShared)
+    int width, int height, bool isShared, int format, int dataSpace)
   : mSurfaces(surfaces), mRotation(rotation), mSurfaceSetID(surfaceSetID),
     mSurfaceType(surfaceType), mWidth(width), mHeight(height), mIsDeferred(false),
     mIsShared(isShared), mPhysicalCameraId(physicalCameraId), mIsMultiResolution(false),
@@ -410,8 +447,8 @@ OutputConfiguration::OutputConfiguration(
     mStreamUseCase(ANDROID_SCALER_AVAILABLE_STREAM_USE_CASES_DEFAULT),
     mTimestampBase(TIMESTAMP_BASE_DEFAULT),
     mMirrorMode(MIRROR_MODE_AUTO), mMirrorModeForProducers(surfaces.size(), mMirrorMode),
-    mUseReadoutTimestamp(false), mFormat(HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED),
-    mDataspace(0), mUsage(0) { }
+    mUseReadoutTimestamp(false), mFormat(format),
+    mDataspace(dataSpace), mUsage(0) { }
 
 status_t OutputConfiguration::writeToParcel(android::Parcel* parcel) const {
 

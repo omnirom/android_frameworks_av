@@ -18,6 +18,7 @@
 #define ANDROID_HARDWARE_CAMERA2_OUTPUTCONFIGURATION_H
 
 #include <string>
+#include "system/graphics-base-v1.0.h"
 
 #include <gui/Flags.h>  // remove with WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
 #if WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
@@ -113,7 +114,10 @@ public:
                         int rotation, const std::string& physicalCameraId,
                         int surfaceSetID = INVALID_SET_ID,
                         int surfaceType = SURFACE_TYPE_UNKNOWN, int width = 0,
-                        int height = 0, bool isShared = false);
+                        int height = 0, bool isShared = false,
+                        int format = HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED,
+                        int dataspace = 0);
+
     OutputConfiguration(int surfaceType, int width, int height, int format, int32_t colorSpace,
             int mirrorMode, bool useReadoutTimestamp,int timestampBase, int dataspace,
             int64_t usage, int64_t streamusecase, std::string physicalCamId);
@@ -247,6 +251,8 @@ public:
     }
 
 private:
+
+    void inferSurfaceProperties();
     std::vector<ParcelableSurfaceType>  mSurfaces;
     int                        mRotation;
     int                        mSurfaceSetID;

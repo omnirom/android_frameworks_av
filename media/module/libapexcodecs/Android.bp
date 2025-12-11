@@ -21,18 +21,16 @@ package {
 cc_defaults {
     name: "libcom.android.media.swcodec.apexcodecs-defaults",
 
-    defaults: [
-        "libcodec2-internal-defaults",
-    ],
-
     header_libs: [
         "libbase_headers",
+        "libcodec2_internal",
     ],
 
     srcs: ["ApexCodecs.cpp"],
 
     shared_libs: [
         "libbase",
+        "libcodec2",
         "libnativewindow",
     ],
 

@@ -33,7 +33,12 @@
 #include <codec2/hidl/client.h>
 #include <cutils/atomic.h>
 #include <cutils/properties.h> // for property_get
+#include <gui/Flags.h> // Remove with MediaSurfaceType and WB_MEDIA_MIGRATION.
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+#include <gui/Surface.h>
+#else
 #include <gui/IGraphicBufferProducer.h>
+#endif
 #include <mediautils/ServiceUtilities.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -66,8 +71,7 @@ status_t MediaRecorderClient::setInputSurface(const sp<PersistentSurface>& surfa
     return mRecorder->setInputSurface(surface);
 }
 
-sp<IGraphicBufferProducer> MediaRecorderClient::querySurfaceMediaSource()
-{
+sp<MediaSurfaceType> MediaRecorderClient::querySurfaceMediaSource() {
     ALOGV("Query SurfaceMediaSource");
     Mutex::Autolock lock(mLock);
     if (mRecorder == NULL) {
@@ -76,8 +80,6 @@ sp<IGraphicBufferProducer> MediaRecorderClient::querySurfaceMediaSource()
     }
     return mRecorder->querySurfaceMediaSource();
 }
-
-
 
 status_t MediaRecorderClient::setCamera(const sp<hardware::ICamera>& camera,
                                         const sp<ICameraRecordingProxy>& proxy)
@@ -91,7 +93,7 @@ status_t MediaRecorderClient::setCamera(const sp<hardware::ICamera>& camera,
     return mRecorder->setCamera(camera, proxy);
 }
 
-status_t MediaRecorderClient::setPreviewSurface(const sp<IGraphicBufferProducer>& surface)
+status_t MediaRecorderClient::setPreviewSurface(const sp<MediaSurfaceType>& surface)
 {
     ALOGV("setPreviewSurface");
     Mutex::Autolock lock(mLock);

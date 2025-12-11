@@ -213,6 +213,14 @@ public:
         return getSamplesPerFrame() * audio_bytes_per_sample(getFormat());
     }
 
+    aaudio_performance_mode_t getPerformanceMode() const {
+        return mPerformanceMode;
+    }
+
+    void setPerformanceMode(aaudio_performance_mode_t performanceMode) {
+        mPerformanceMode = performanceMode;
+    }
+
     /**
      * Copy variables defined in other AAudioStreamParameters instance to this one.
      * @param other
@@ -252,6 +260,7 @@ private:
                                                           = AAUDIO_UNSPECIFIED;
     int                             mHardwareSampleRate   = AAUDIO_UNSPECIFIED;
     audio_format_t                  mHardwareAudioFormat  = AUDIO_FORMAT_DEFAULT;
+    aaudio_performance_mode_t       mPerformanceMode      = AAUDIO_PERFORMANCE_MODE_NONE;
 };
 
 } /* namespace aaudio */

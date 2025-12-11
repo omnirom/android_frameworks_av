@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include <algorithm>
+#include <iterator>
 #include "mp4enc_api.h"
 
 constexpr int8_t kIDRFrameRefreshIntervalInSec = 1;

@@ -28,6 +28,7 @@
 #include <media/IMediaRecorderClient.h>
 #include <media/IMediaRecorder.h>
 #include <gui/Surface.h>
+#include <gui/view/Surface.h>
 #include <gui/IGraphicBufferProducer.h>
 #include <media/stagefright/PersistentSurface.h>
 
@@ -39,6 +40,7 @@ enum {
     CLOSE,
     SET_INPUT_SURFACE,
     QUERY_SURFACE_MEDIASOURCE,
+    QUERY_SURFACE_MEDIASOURCE_V2,
     RESET,
     STOP,
     START,
@@ -55,6 +57,7 @@ enum {
     SET_VIDEO_FRAMERATE,
     SET_PARAMETERS,
     SET_PREVIEW_SURFACE,
+    SET_PREVIEW_SURFACE_V2,
     SET_CAMERA,
     SET_LISTENER,
     SET_CLIENT_NAME,
@@ -102,6 +105,38 @@ public:
         return reply.readInt32();
     }
 
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+    sp<Surface> querySurfaceMediaSource()
+    {
+        ALOGV("Query SurfaceMediaSource");
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
+        remote()->transact(QUERY_SURFACE_MEDIASOURCE_V2, data, &reply);
+        int returnedNull = reply.readInt32();
+        if (returnedNull) {
+            return {};
+        }
+        view::Surface surface;
+        status_t status = reply.readParcelable(&surface);
+        if (status != OK) {
+            ALOGE("QUERY_SURFACE_MEDIASOURCE_V2 failed to read Parcelable view::Surface: %s",
+                statusToString(status).c_str());
+            return {};
+        }
+        return surface.toSurface();
+    }
+
+    status_t setPreviewSurface(const sp<Surface>& surface)
+    {
+        ALOGV("setPreviewSurface(%p)", surface.get());
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
+        view::Surface view_surface = view::Surface::fromSurface(surface);
+        data.writeParcelable(view_surface);
+        remote()->transact(SET_PREVIEW_SURFACE_V2, data, &reply);
+        return reply.readInt32();
+    }
+#else
     sp<IGraphicBufferProducer> querySurfaceMediaSource()
     {
         ALOGV("Query SurfaceMediaSource");
@@ -124,6 +159,7 @@ public:
         remote()->transact(SET_PREVIEW_SURFACE, data, &reply);
         return reply.readInt32();
     }
+#endif
 
     status_t init()
     {
@@ -683,9 +719,23 @@ status_t BnMediaRecorder::onTransact(
             CHECK_INTERFACE(IMediaRecorder, data, reply);
             sp<IGraphicBufferProducer> surface = interface_cast<IGraphicBufferProducer>(
                     data.readStrongBinder());
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+            reply->writeInt32(setPreviewSurface(sp<Surface>::make(surface)));
+#else
             reply->writeInt32(setPreviewSurface(surface));
+#endif
             return NO_ERROR;
         } break;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        case SET_PREVIEW_SURFACE_V2: {
+            ALOGV("SET_PREVIEW_SURFACE_V2");
+            CHECK_INTERFACE(IMediaRecorder, data, reply);
+            view::Surface surface;
+            data.readParcelable(&surface);
+            reply->writeInt32(setPreviewSurface(surface.toSurface()));
+            return NO_ERROR;
+        } break;
+#endif
         case SET_CAMERA: {
             ALOGV("SET_CAMERA");
             CHECK_INTERFACE(IMediaRecorder, data, reply);
@@ -707,9 +757,13 @@ status_t BnMediaRecorder::onTransact(
         case QUERY_SURFACE_MEDIASOURCE: {
             ALOGV("QUERY_SURFACE_MEDIASOURCE");
             CHECK_INTERFACE(IMediaRecorder, data, reply);
-            // call the mediaserver side to create
-            // a surfacemediasource
+            // call the mediaserver side to create a surfacemediasource
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+            sp<IGraphicBufferProducer> surfaceMediaSource =
+                querySurfaceMediaSource()->getIGraphicBufferProducer();
+#else
             sp<IGraphicBufferProducer> surfaceMediaSource = querySurfaceMediaSource();
+#endif
             // The mediaserver might have failed to create a source
             int returnedNull= (surfaceMediaSource == NULL) ? 1 : 0 ;
             reply->writeInt32(returnedNull);
@@ -718,6 +772,22 @@ status_t BnMediaRecorder::onTransact(
             }
             return NO_ERROR;
         } break;
+#if COM_ANDROID_GRAPHICS_LIBGUI_FLAGS(WB_MEDIA_MIGRATION)
+        case QUERY_SURFACE_MEDIASOURCE_V2: {
+            ALOGV("QUERY_SURFACE_MEDIASOURCE_V2");
+            CHECK_INTERFACE(IMediaRecorder, data, reply);
+            // call the mediaserver side to create
+            // a surfacemediasource
+            sp<Surface> surfaceMediaSource = querySurfaceMediaSource();
+            // The mediaserver might have failed to create a source
+            int returnedNull= (surfaceMediaSource == NULL) ? 1 : 0 ;
+            reply->writeInt32(returnedNull);
+            if (!returnedNull) {
+                reply->writeParcelable(view::Surface::fromSurface(surfaceMediaSource));
+            }
+            return NO_ERROR;
+        } break;
+#endif
         case SET_INPUT_DEVICE: {
             ALOGV("SET_INPUT_DEVICE");
             CHECK_INTERFACE(IMediaRecorder, data, reply);

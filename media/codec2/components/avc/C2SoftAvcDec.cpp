@@ -79,8 +79,8 @@ public:
                 DefineParam(mSize, C2_PARAMKEY_PICTURE_SIZE)
                 .withDefault(new C2StreamPictureSizeInfo::output(0u, 320, 240))
                 .withFields({
-                    C2F(mSize, width).inRange(2, 4080, 2),
-                    C2F(mSize, height).inRange(2, 4080, 2),
+                    C2F(mSize, width).inRange(2, 4096, 2),
+                    C2F(mSize, height).inRange(2, 4096, 2),
                 })
                 .withSetter(SizeSetter)
                 .build());
@@ -89,8 +89,8 @@ public:
                 DefineParam(mMaxSize, C2_PARAMKEY_MAX_PICTURE_SIZE)
                 .withDefault(new C2StreamMaxPictureSizeTuning::output(0u, 320, 240))
                 .withFields({
-                    C2F(mSize, width).inRange(2, 4080, 2),
-                    C2F(mSize, height).inRange(2, 4080, 2),
+                    C2F(mSize, width).inRange(2, 4096, 2),
+                    C2F(mSize, height).inRange(2, 4096, 2),
                 })
                 .withSetter(MaxPictureSizeSetter, mSize)
                 .build());
@@ -225,8 +225,8 @@ public:
                                     const C2P<C2StreamPictureSizeInfo::output> &size) {
         (void)mayBlock;
         // TODO: get max width/height from the size's field helpers vs. hardcoding
-        me.set().width = c2_min(c2_max(me.v.width, size.v.width), 4080u);
-        me.set().height = c2_min(c2_max(me.v.height, size.v.height), 4080u);
+        me.set().width = c2_min(c2_max(me.v.width, size.v.width), 4096u);
+        me.set().height = c2_min(c2_max(me.v.height, size.v.height), 4096u);
         return C2R::Ok();
     }
 
@@ -841,6 +841,7 @@ void C2SoftAvcDec::process(
     }
     bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
     bool hasPicture = false;
+    bool configUpdateQueued = false;
 
     ALOGV("in buffer attr. size %zu timestamp %d frameindex %d, flags %x",
           inSize, (int)work->input.ordinal.timestamp.peeku(),
@@ -967,6 +968,7 @@ void C2SoftAvcDec::process(
         hasPicture |= (1 == ps_decode_op->u4_frame_decoded_flag);
         if (ps_decode_op->u4_output_present) {
             finishWork(ps_decode_op->u4_ts, work);
+            configUpdateQueued = c2_cntr64_t(ps_decode_op->u4_ts) == work->input.ordinal.frameIndex;
         }
         inPos += ps_decode_op->u4_num_bytes_consumed;
     }
@@ -975,6 +977,18 @@ void C2SoftAvcDec::process(
         mSignalledOutputEos = true;
     } else if (!hasPicture) {
         fillEmptyWork(work);
+    } else if (!configUpdateQueued && work->worklets.front()->output.configUpdate.size() > 0) {
+        auto fillWork = [&work](const std::unique_ptr<C2Work>& cloneWork) {
+            cloneWork->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
+            cloneWork->worklets.front()->output.buffers.clear();
+            cloneWork->worklets.front()->output.configUpdate =
+                    std::move(work->worklets.front()->output.configUpdate);
+            cloneWork->worklets.front()->output.ordinal = work->input.ordinal;
+            cloneWork->workletsProcessed = 1u;
+            cloneWork->result = C2_OK;
+        };
+        uint64_t frameIndex = work->input.ordinal.frameIndex.peeku();
+        cloneAndSend(frameIndex, work, fillWork);
     }
 
     work->input.buffers.clear();
